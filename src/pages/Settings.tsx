@@ -36,16 +36,20 @@ function ClinicInfo() {
   if (!settings) return null;
   return (
     <section className="card p-5">
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center gap-2 mb-1">
         <Building2 className="w-4 h-4 text-blue-600" />
-        <h2 className="text-sm font-semibold text-gray-900">Clinic Info</h2>
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Clinic Info</h2>
       </div>
+      <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-4">These appear on the OPD slip letterhead and invoices.</p>
       <div className="grid grid-cols-2 gap-4">
-        <LazyInput label="Clinic Name" value={settings.clinic_name} onSave={(v) => save.mutate({ clinic_name: v })} />
+        <LazyInput label="Clinic Name *" value={settings.clinic_name} onSave={(v) => save.mutate({ clinic_name: v })} />
+        <LazyInput label="Tagline" value={settings.clinic_tagline} onSave={(v) => save.mutate({ clinic_tagline: v })} />
         <LazyInput label="Phone" value={settings.clinic_phone} onSave={(v) => save.mutate({ clinic_phone: v })} />
+        <LazyInput label="Email" value={settings.clinic_email} onSave={(v) => save.mutate({ clinic_email: v })} />
         <div className="col-span-2">
           <LazyInput label="Address" value={settings.clinic_address} onSave={(v) => save.mutate({ clinic_address: v })} />
         </div>
+        <LazyInput label="Registration No." value={settings.clinic_registration_no} onSave={(v) => save.mutate({ clinic_registration_no: v })} />
       </div>
     </section>
   );

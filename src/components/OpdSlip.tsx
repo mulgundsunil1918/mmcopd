@@ -1,6 +1,5 @@
 import { format, parseISO } from 'date-fns';
-import { Printer, X } from 'lucide-react';
-import { HeartPulse } from 'lucide-react';
+import { Printer, X, MapPin, Phone, Mail, HeartPulse, IdCard } from 'lucide-react';
 import { age, fmt12h, fmtDate, fmtDateTime } from '../lib/utils';
 import type { AppointmentWithJoins, Consultation, Doctor, Settings } from '../types';
 
@@ -72,27 +71,57 @@ function SlipBody({
 
   return (
     <div className="text-gray-900" style={{ fontSize: '11px', lineHeight: 1.35 }}>
-      {/* Letterhead */}
-      <div className="flex items-start justify-between pb-3 border-b-2 border-blue-700">
-        <div className="flex items-center gap-3">
-          <div className="w-14 h-14 rounded-lg bg-blue-700 text-white flex items-center justify-center">
-            <HeartPulse className="w-8 h-8" />
-          </div>
-          <div>
-            <div className="text-xl font-extrabold tracking-tight text-blue-800">
-              {settings.clinic_name || 'Mulgund Multispeciality Clinic'}
+      {/* ===== LETTERHEAD ===== */}
+      <div style={{ borderTop: '4px solid #1d4ed8', borderBottom: '1px solid #cbd5e1' }} className="pb-3 mb-0">
+        <div className="flex items-start justify-between pt-3">
+          {/* Left: logo + name + tagline */}
+          <div className="flex items-center gap-3">
+            <div
+              className="w-16 h-16 rounded-xl flex items-center justify-center text-white shadow"
+              style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #4f46e5 100%)' }}
+            >
+              <HeartPulse className="w-10 h-10" />
             </div>
-            <div className="text-[10px] text-gray-600">{settings.clinic_address || '—'}</div>
-            {settings.clinic_phone && (
-              <div className="text-[10px] text-gray-600">Phone: {settings.clinic_phone}</div>
-            )}
+            <div>
+              <div className="text-2xl font-extrabold tracking-tight leading-tight" style={{ color: '#1e3a8a' }}>
+                {settings.clinic_name || 'Mulgund Multispeciality Clinic'}
+              </div>
+              {settings.clinic_tagline && (
+                <div className="text-[10px] italic" style={{ color: '#475569' }}>{settings.clinic_tagline}</div>
+              )}
+              {settings.clinic_registration_no && (
+                <div className="text-[9px] uppercase tracking-wider mt-0.5" style={{ color: '#64748b' }}>
+                  Reg. No.: {settings.clinic_registration_no}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right: slip meta */}
+          <div className="text-right">
+            <div
+              className="inline-block px-2 py-0.5 rounded text-[10px] uppercase tracking-wider font-bold"
+              style={{ background: '#1d4ed8', color: '#ffffff' }}
+            >
+              OPD Slip
+            </div>
+            <div className="text-base font-bold mt-1" style={{ color: '#0f172a' }}>Token #{appointment.token_number}</div>
+            <div className="text-[10px]" style={{ color: '#475569' }}>{slipDate}</div>
+            <div className="text-[9px]" style={{ color: '#64748b' }}>Slip ID: {appointment.patient_uhid}/A{appointment.id}</div>
           </div>
         </div>
-        <div className="text-right">
-          <div className="text-[10px] uppercase tracking-wider text-gray-500">OPD Slip</div>
-          <div className="text-sm font-semibold text-gray-800">Token #{appointment.token_number}</div>
-          <div className="text-[10px] text-gray-600">{slipDate}</div>
-          <div className="text-[10px] text-gray-500">Slip ID: {appointment.patient_uhid}/A{appointment.id}</div>
+
+        {/* Contact strip */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[10px]" style={{ color: '#475569' }}>
+          {settings.clinic_address && (
+            <span className="inline-flex items-center gap-1"><MapPin className="w-3 h-3" style={{ color: '#1d4ed8' }} /> {settings.clinic_address}</span>
+          )}
+          {settings.clinic_phone && (
+            <span className="inline-flex items-center gap-1"><Phone className="w-3 h-3" style={{ color: '#1d4ed8' }} /> {settings.clinic_phone}</span>
+          )}
+          {settings.clinic_email && (
+            <span className="inline-flex items-center gap-1"><Mail className="w-3 h-3" style={{ color: '#1d4ed8' }} /> {settings.clinic_email}</span>
+          )}
         </div>
       </div>
 

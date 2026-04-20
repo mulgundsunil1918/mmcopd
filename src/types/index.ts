@@ -137,6 +137,9 @@ export interface Settings {
   clinic_name: string;
   clinic_address: string;
   clinic_phone: string;
+  clinic_email: string;
+  clinic_tagline: string;
+  clinic_registration_no: string;
   slot_duration: number;
   consultation_fee: number;
   special_price: number;
