@@ -11,6 +11,9 @@ function addColumnIfMissing(db: Database.Database, table: string, column: string
 export function runMigrations(db: Database.Database) {
   createSchema(db);
   addColumnIfMissing(db, 'doctors', 'signature', 'TEXT');
+  addColumnIfMissing(db, 'patients', 'place', 'TEXT');
+  addColumnIfMissing(db, 'patients', 'district', 'TEXT');
+  addColumnIfMissing(db, 'patients', 'state', 'TEXT');
   const current = db
     .prepare("SELECT value FROM schema_meta WHERE key='version'")
     .get() as { value: string } | undefined;

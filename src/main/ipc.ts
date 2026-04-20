@@ -75,19 +75,22 @@ export function registerIpc() {
     const db = getDb();
     const uhid = generateUHID();
     const stmt = db.prepare(
-      `INSERT INTO patients (uhid, first_name, last_name, dob, gender, phone, email, address, blood_group)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO patients (uhid, first_name, last_name, dob, gender, phone, email, address, blood_group, place, district, state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     const info = stmt.run(
       uhid,
       input.first_name.trim(),
-      input.last_name.trim(),
+      (input.last_name || '').trim(),
       input.dob,
       input.gender,
       input.phone.trim(),
       input.email ?? null,
       input.address ?? null,
-      input.blood_group ?? null
+      input.blood_group ?? null,
+      input.place?.trim() || null,
+      input.district?.trim() || null,
+      input.state?.trim() || null
     );
     return db.prepare('SELECT * FROM patients WHERE id=?').get(info.lastInsertRowid);
   });
@@ -95,19 +98,37 @@ export function registerIpc() {
   ipcMain.handle('patients:update', (_e, id: number, input: PatientInput) => {
     const db = getDb();
     db.prepare(
-      `UPDATE patients SET first_name=?, last_name=?, dob=?, gender=?, phone=?, email=?, address=?, blood_group=? WHERE id=?`
+      `UPDATE patients SET first_name=?, last_name=?, dob=?, gender=?, phone=?, email=?, address=?, blood_group=?, place=?, district=?, state=? WHERE id=?`
     ).run(
       input.first_name.trim(),
-      input.last_name.trim(),
+      (input.last_name || '').trim(),
       input.dob,
       input.gender,
       input.phone.trim(),
       input.email ?? null,
       input.address ?? null,
       input.blood_group ?? null,
+      input.place?.trim() || null,
+      input.district?.trim() || null,
+      input.state?.trim() || null,
       id
     );
     return db.prepare('SELECT * FROM patients WHERE id=?').get(id);
+  });
+
+  // Distinct places/districts for autocomplete
+  ipcMain.handle('patients:knownPlaces', () => {
+    const db = getDb();
+    const places = db
+      .prepare("SELECT DISTINCT place FROM patients WHERE place IS NOT NULL AND place <> '' ORDER BY place")
+      .all() as { place: string }[];
+    const districts = db
+      .prepare("SELECT DISTINCT district FROM patients WHERE district IS NOT NULL AND district <> '' ORDER BY district")
+      .all() as { district: string }[];
+    return {
+      places: places.map((r) => r.place),
+      districts: districts.map((r) => r.district),
+    };
   });
 
   ipcMain.handle('patients:recentAppointments', (_e, patientId: number, limit = 5) => {
@@ -547,6 +568,61 @@ export function registerIpc() {
         byDoctor: [...byDoctor.values()].sort((a, b) => b.count - a.count),
         byStatus: [...byStatus.entries()].map(([status, count]) => ({ status, count })),
       },
+    };
+  });
+
+  // ===== Patient Origin (place stats) =====
+  ipcMain.handle('origin:summary', (_e, filter: { from: string; to: string }) => {
+    const db = getDb();
+    const rows = db
+      .prepare(
+        `SELECT a.patient_id,
+                p.place, p.district, p.state,
+                a.appointment_date
+         FROM appointments a
+         JOIN patients p ON p.id = a.patient_id
+         WHERE a.appointment_date >= ? AND a.appointment_date <= ?
+           AND a.status <> 'Cancelled'`
+      )
+      .all(filter.from, filter.to) as { patient_id: number; place: string | null; district: string | null; state: string | null; appointment_date: string }[];
+
+    const norm = (s?: string | null) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const title = (s: string) => s.split(' ').map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w)).join(' ');
+
+    const byPlace = new Map<string, { display: string; visits: number; patients: Set<number> }>();
+    const byDistrict = new Map<string, { display: string; visits: number; patients: Set<number> }>();
+    const byState = new Map<string, { display: string; visits: number; patients: Set<number> }>();
+
+    for (const r of rows) {
+      const placeKey = norm(r.place) || '__unknown__';
+      const districtKey = norm(r.district) || '__unknown__';
+      const stateKey = norm(r.state) || '__unknown__';
+      const placeDisp = r.place ? title(norm(r.place)) : 'Unknown';
+      const districtDisp = r.district ? title(norm(r.district)) : 'Unknown';
+      const stateDisp = r.state ? title(norm(r.state)) : 'Unknown';
+
+      const p = byPlace.get(placeKey) || { display: placeDisp, visits: 0, patients: new Set<number>() };
+      p.visits += 1; p.patients.add(r.patient_id); byPlace.set(placeKey, p);
+
+      const d = byDistrict.get(districtKey) || { display: districtDisp, visits: 0, patients: new Set<number>() };
+      d.visits += 1; d.patients.add(r.patient_id); byDistrict.set(districtKey, d);
+
+      const s = byState.get(stateKey) || { display: stateDisp, visits: 0, patients: new Set<number>() };
+      s.visits += 1; s.patients.add(r.patient_id); byState.set(stateKey, s);
+    }
+
+    const serialize = (m: Map<string, { display: string; visits: number; patients: Set<number> }>) =>
+      [...m.values()]
+        .map((v) => ({ name: v.display, visits: v.visits, patients: v.patients.size }))
+        .sort((a, b) => b.visits - a.visits);
+
+    return {
+      totalVisits: rows.length,
+      uniquePatients: new Set(rows.map((r) => r.patient_id)).size,
+      missingPlace: rows.filter((r) => !r.place).length,
+      byPlace: serialize(byPlace),
+      byDistrict: serialize(byDistrict),
+      byState: serialize(byState),
     };
   });
 

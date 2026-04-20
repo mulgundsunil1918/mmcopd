@@ -6,6 +6,7 @@ import { Modal } from '../components/Modal';
 import { ImageUpload } from '../components/ImageUpload';
 import { ProviderSettings } from '../components/ProviderSettings';
 import { useToast } from '../hooks/useToast';
+import { INDIAN_STATES } from '../lib/india';
 import type { Doctor, Settings } from '../types';
 
 export function SettingsPage() {
@@ -16,10 +17,61 @@ export function SettingsPage() {
         <p className="text-xs text-gray-500 dark:text-slate-400">Clinic branding, fees, queue flow, and doctor management.</p>
       </div>
       <ClinicInfo />
+      <DefaultLocation />
       <FeesAndFlow />
       <DoctorsManagement />
       <ProviderSettings />
     </div>
+  );
+}
+
+function DefaultLocation() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const save = useMutation({
+    mutationFn: (patch: Partial<Settings>) => window.electronAPI.settings.save(patch),
+    onMutate: (patch) => {
+      const prev = qc.getQueryData<Settings>(['settings']);
+      if (prev) qc.setQueryData(['settings'], { ...prev, ...patch });
+      return { prev };
+    },
+    onError: (_e, _p, ctx) => { if (ctx?.prev) qc.setQueryData(['settings'], ctx.prev); toast('Save failed', 'error'); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings'] }); toast('Saved'); },
+  });
+
+  if (!settings) return null;
+  return (
+    <section className="card p-5">
+      <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-1">Default Location & Known Villages</h2>
+      <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-4">
+        These pre-fill on every new patient so the receptionist only types the village. Known villages appear as autocomplete suggestions.
+      </p>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="label">Default State</label>
+          <select
+            className="input"
+            value={settings.default_state}
+            onChange={(e) => save.mutate({ default_state: e.target.value })}
+          >
+            <option value="">—</option>
+            {INDIAN_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <LazyInput label="Default District" value={settings.default_district} onSave={(v) => save.mutate({ default_district: v })} />
+        <div className="col-span-2">
+          <LazyInput
+            label="Known Villages / Places (comma-separated)"
+            value={settings.known_villages}
+            onSave={(v) => save.mutate({ known_villages: v })}
+          />
+          <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-1">
+            e.g. <i>Mulgund, Gadag, Lakshmeshwar, Naregal, Shirahatti</i> — these show as autocomplete in the Reception Place field.
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 

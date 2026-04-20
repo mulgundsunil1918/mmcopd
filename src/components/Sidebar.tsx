@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History } from 'lucide-react';
+import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '../lib/utils';
 import { useTheme } from '../hooks/useTheme';
@@ -9,6 +9,7 @@ const NAV = [
   { to: '/appointments', label: 'Appointments', icon: Calendar, color: 'text-blue-500' },
   { to: '/doctor-select', label: 'Doctors', icon: Stethoscope, color: 'text-purple-500' },
   { to: '/patient-log', label: 'Patient Log', icon: History, color: 'text-cyan-500' },
+  { to: '/origin', label: 'Patient Origin', icon: MapPin, color: 'text-rose-500' },
   { to: '/billing', label: 'Billing', icon: Receipt, color: 'text-amber-500' },
   { to: '/accounts', label: 'Accounts', icon: Wallet, color: 'text-teal-500' },
   { to: '/notifications', label: 'Notifications', icon: Bell, color: 'text-pink-500' },

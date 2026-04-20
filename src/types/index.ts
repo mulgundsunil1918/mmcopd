@@ -19,6 +19,9 @@ export interface Patient {
   email: string | null;
   address: string | null;
   blood_group: string | null;
+  place: string | null;
+  district: string | null;
+  state: string | null;
   created_at: string;
 }
 
@@ -31,6 +34,9 @@ export interface PatientInput {
   email?: string | null;
   address?: string | null;
   blood_group?: string | null;
+  place?: string | null;
+  district?: string | null;
+  state?: string | null;
 }
 
 export interface Doctor {
@@ -146,6 +152,9 @@ export interface Settings {
   consultation_fee: number;
   special_price: number;
   queue_flow_enabled: boolean;
+  default_state: string;
+  default_district: string;
+  known_villages: string;
   sms_enabled: boolean;
   whatsapp_enabled: boolean;
   sms_provider: string | null;

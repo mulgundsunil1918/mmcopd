@@ -26,6 +26,8 @@ const api = {
       ipcRenderer.invoke('patients:recentAppointments', id, limit) as Promise<
         (Appointment & { doctor_name: string; doctor_specialty: string })[]
       >,
+    knownPlaces: () =>
+      ipcRenderer.invoke('patients:knownPlaces') as Promise<{ places: string[]; districts: string[] }>,
     log: (filter: { from: string; to: string; q?: string; doctor_id?: number }) =>
       ipcRenderer.invoke('patients:log', filter) as Promise<{
         rows: (AppointmentWithJoins & {
@@ -112,6 +114,17 @@ const api = {
         waiting: number;
         inprogress: number;
         done: number;
+      }>,
+  },
+  origin: {
+    summary: (filter: { from: string; to: string }) =>
+      ipcRenderer.invoke('origin:summary', filter) as Promise<{
+        totalVisits: number;
+        uniquePatients: number;
+        missingPlace: number;
+        byPlace: { name: string; visits: number; patients: number }[];
+        byDistrict: { name: string; visits: number; patients: number }[];
+        byState: { name: string; visits: number; patients: number }[];
       }>,
   },
   finance: {

@@ -20,10 +20,14 @@ export function createSchema(db: Database.Database) {
       email TEXT,
       address TEXT,
       blood_group TEXT,
+      place TEXT,
+      district TEXT,
+      state TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_patients_phone ON patients(phone);
     CREATE INDEX IF NOT EXISTS idx_patients_name ON patients(first_name, last_name);
+    CREATE INDEX IF NOT EXISTS idx_patients_place ON patients(place, district);
 
     CREATE TABLE IF NOT EXISTS doctors (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

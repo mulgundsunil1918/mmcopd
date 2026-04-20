@@ -6,6 +6,7 @@ import { Search, UserPlus, Phone, Cake, Pencil, Calendar as CalendarIcon, IdCard
 import { useNavigate } from 'react-router-dom';
 import type { Patient, PatientInput } from '../types';
 import { age, ageString, dobFromAge, fmtDate, cn } from '../lib/utils';
+import { INDIAN_STATES } from '../lib/india';
 import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
 import { useToast } from '../hooks/useToast';
@@ -20,6 +21,9 @@ const patientSchema = z.object({
   email: z.string().email('Invalid email').optional().or(z.literal('')),
   address: z.string().optional().or(z.literal('')),
   blood_group: z.string().optional().or(z.literal('')),
+  place: z.string().optional().or(z.literal('')),
+  district: z.string().optional().or(z.literal('')),
+  state: z.string().optional().or(z.literal('')),
 });
 
 type FormData = z.infer<typeof patientSchema>;
@@ -202,6 +206,12 @@ function PatientForm({
   onBookAppointment: (id: number) => void;
 }) {
   const toast = useToast();
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { data: known } = useQuery({
+    queryKey: ['known-places'],
+    queryFn: () => window.electronAPI.patients.knownPlaces(),
+  });
+
   const {
     register, handleSubmit, setValue, watch, formState: { errors, isSubmitting },
   } = useForm<FormData>({
@@ -215,8 +225,17 @@ function PatientForm({
           email: initial.email || '',
           address: initial.address || '',
           blood_group: initial.blood_group || '',
+          place: initial.place || '',
+          district: initial.district || '',
+          state: initial.state || '',
         }
-      : { gender: 'M' as const, dob: '' },
+      : {
+          gender: 'M' as const,
+          dob: '',
+          place: '',
+          district: settings?.default_district || '',
+          state: settings?.default_state || '',
+        },
   });
 
   const currentDob = watch('dob');
@@ -366,6 +385,51 @@ function PatientForm({
           <Field label="Address (optional)" error={errors.address?.message}>
             <input className="input" {...register('address')} />
           </Field>
+        </div>
+
+        <div className="mt-6 pt-5 border-t border-gray-200 dark:border-slate-700">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Origin / Native Place</h3>
+            <span className="text-[11px] text-gray-500 dark:text-slate-400">Used for patient origin stats</span>
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <Field label="Village / Town / Place">
+              <input
+                className="input"
+                list="known-places-list"
+                {...register('place')}
+                placeholder={(settings?.known_villages || '').split(',')[0]?.trim() || 'e.g. Mulgund'}
+              />
+              <datalist id="known-places-list">
+                {[
+                  ...(settings?.known_villages || '').split(',').map((v) => v.trim()).filter(Boolean),
+                  ...(known?.places || []),
+                ].filter((v, i, arr) => arr.indexOf(v) === i).map((v) => (
+                  <option key={v} value={v} />
+                ))}
+              </datalist>
+            </Field>
+            <Field label="District">
+              <input
+                className="input"
+                list="known-districts-list"
+                {...register('district')}
+                placeholder="e.g. Gadag"
+              />
+              <datalist id="known-districts-list">
+                {[settings?.default_district, ...(known?.districts || [])]
+                  .filter(Boolean)
+                  .filter((v, i, arr) => arr.indexOf(v) === i)
+                  .map((v) => <option key={v} value={v!} />)}
+              </datalist>
+            </Field>
+            <Field label="State">
+              <select className="input" {...register('state')}>
+                <option value="">—</option>
+                {INDIAN_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </Field>
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 mt-6">
