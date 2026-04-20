@@ -27,7 +27,6 @@ export function createSchema(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_patients_phone ON patients(phone);
     CREATE INDEX IF NOT EXISTS idx_patients_name ON patients(first_name, last_name);
-    CREATE INDEX IF NOT EXISTS idx_patients_place ON patients(place, district);
 
     CREATE TABLE IF NOT EXISTS doctors (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

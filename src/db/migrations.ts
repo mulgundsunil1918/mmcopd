@@ -14,6 +14,8 @@ export function runMigrations(db: Database.Database) {
   addColumnIfMissing(db, 'patients', 'place', 'TEXT');
   addColumnIfMissing(db, 'patients', 'district', 'TEXT');
   addColumnIfMissing(db, 'patients', 'state', 'TEXT');
+  // Indexes that depend on the migrated columns — create AFTER column migrations.
+  db.exec('CREATE INDEX IF NOT EXISTS idx_patients_place ON patients(place, district);');
   const current = db
     .prepare("SELECT value FROM schema_meta WHERE key='version'")
     .get() as { value: string } | undefined;
