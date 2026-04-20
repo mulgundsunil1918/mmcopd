@@ -62,6 +62,7 @@ function ClinicInfo() {
           onChange={(v) => save.mutate({ clinic_logo: v || '' })}
           aspect="square"
           placeholder="Click or drop"
+          hint="⚠ Upload a high-quality logo (JPG / PNG). Max 5 MB. Square images look best; they appear on the OPD slip, invoice, and sidebar."
         />
         <div className="flex-1 grid grid-cols-2 gap-4">
           <LazyInput label="Clinic Name *" value={settings.clinic_name} onSave={(v) => save.mutate({ clinic_name: v })} />
@@ -266,6 +267,7 @@ function DoctorsManagement() {
               onChange={(v) => setEditing({ ...editing, signature: v })}
               aspect="wide"
               placeholder="Upload JPG / PNG signature"
+              hint="⚠ Upload a high-quality signature (JPG / PNG). Max 5 MB. Prefer a transparent PNG or white background for best print clarity."
             />
 
             <label className="flex items-center gap-2 text-sm pt-2">

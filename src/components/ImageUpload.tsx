@@ -33,9 +33,10 @@ export function ImageUpload({
   onChange,
   label,
   aspect = 'square',
-  maxKB = 3000,
+  maxKB = 5000,
   placeholder = 'Click or drop JPG / PNG',
   maxDim,
+  hint,
 }: {
   value?: string | null;
   onChange: (v: string | null) => void;
@@ -44,6 +45,7 @@ export function ImageUpload({
   maxKB?: number;
   placeholder?: string;
   maxDim?: number;
+  hint?: string;
 }) {
   const toast = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -94,6 +96,11 @@ export function ImageUpload({
           onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ''; }}
         />
       </div>
+      {hint && (
+        <div className="text-[10px] text-amber-700 dark:text-amber-300 mt-1 max-w-xs">
+          {hint}
+        </div>
+      )}
       {value && (
         <button
           type="button"
