@@ -235,6 +235,24 @@ export function Appointments() {
   );
 }
 
+function FeeOption({ active, onClick, title, amount }: { active: boolean; onClick: () => void; title: string; amount: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'rounded-lg border-2 px-3 py-2 text-left transition',
+        active
+          ? 'border-amber-500 bg-white dark:bg-amber-900/30 shadow-sm'
+          : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-amber-300'
+      )}
+    >
+      <div className={cn('text-[10px] uppercase tracking-wider font-semibold', active ? 'text-amber-700 dark:text-amber-300' : 'text-gray-500 dark:text-slate-400')}>{title}</div>
+      <div className={cn('text-sm font-bold mt-0.5', active ? 'text-amber-800 dark:text-amber-200' : 'text-gray-900 dark:text-slate-100')}>{amount}</div>
+    </button>
+  );
+}
+
 function SummaryCard({ label, value, icon, tone }: { label: string; value: number; icon: React.ReactNode; tone: 'indigo' | 'blue' | 'emerald' | 'amber' }) {
   const tones: Record<string, string> = {
     indigo: 'text-indigo-700 bg-indigo-100 dark:text-indigo-300 dark:bg-indigo-900/40',
@@ -269,7 +287,8 @@ function BookAppointmentModal({
   const [apptDate, setApptDate] = useState(defaultDate);
   const [slot, setSlot] = useState<string>('');
   const [notes, setNotes] = useState('');
-  const [useSpecial, setUseSpecial] = useState(false);
+  const [feeMode, setFeeMode] = useState<'regular' | 'special' | 'custom'>('regular');
+  const [customFee, setCustomFee] = useState<string>('');
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('Cash');
   const toast = useToast();
 
@@ -280,7 +299,8 @@ function BookAppointmentModal({
     setPatientQuery('');
     setSlot('');
     setNotes('');
-    setUseSpecial(false);
+    setFeeMode('regular');
+    setCustomFee('');
     setPaymentMode('Cash');
     if (preselectedPatientId) {
       window.electronAPI.patients.get(preselectedPatientId).then((p) => { if (p) setPatient(p); });
@@ -291,7 +311,10 @@ function BookAppointmentModal({
   }, [open]);
 
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
-  const fee = useSpecial ? (settings?.special_price ?? 150) : (settings?.consultation_fee ?? 250);
+  const fee =
+    feeMode === 'special' ? (settings?.special_price ?? 150)
+    : feeMode === 'custom' ? Math.max(0, parseFloat(customFee || '0') || 0)
+    : (settings?.consultation_fee ?? 250);
 
   const { data: searchResults = [] } = useQuery({
     queryKey: ['patient-search-modal', patientQuery],
@@ -327,15 +350,14 @@ function BookAppointmentModal({
         notes: notes || null,
       });
 
+      const feeLabel =
+        feeMode === 'special' ? 'OPD Consultation (Special Price)'
+        : feeMode === 'custom' ? 'OPD Consultation (Custom)'
+        : 'OPD Consultation';
       await window.electronAPI.bills.create({
         appointment_id: appt.id,
         patient_id: patient.id,
-        items: [{
-          description: useSpecial ? 'OPD Consultation (Special Price)' : 'OPD Consultation',
-          qty: 1,
-          rate: fee,
-          amount: fee,
-        }],
+        items: [{ description: feeLabel, qty: 1, rate: fee, amount: fee }],
         discount: 0,
         discount_type: 'flat',
         payment_mode: paymentMode,
@@ -466,33 +488,62 @@ function BookAppointmentModal({
             </div>
             <div className="text-2xl font-bold text-amber-700 dark:text-amber-300">{formatINR(fee)}</div>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2 text-sm text-gray-800 dark:text-slate-200">
-              <input
-                type="checkbox"
-                checked={useSpecial}
-                onChange={(e) => setUseSpecial(e.target.checked)}
-              />
-              Special Price {formatINR(settings?.special_price ?? 150)}{' '}
-              <span className="text-xs text-gray-500 dark:text-slate-400">(vs regular {formatINR(settings?.consultation_fee ?? 250)})</span>
-            </label>
+
+          <div className="grid grid-cols-3 gap-2">
+            <FeeOption
+              active={feeMode === 'regular'}
+              onClick={() => setFeeMode('regular')}
+              title="Regular"
+              amount={formatINR(settings?.consultation_fee ?? 250)}
+            />
+            <FeeOption
+              active={feeMode === 'special'}
+              onClick={() => setFeeMode('special')}
+              title="Special"
+              amount={formatINR(settings?.special_price ?? 150)}
+            />
+            <FeeOption
+              active={feeMode === 'custom'}
+              onClick={() => setFeeMode('custom')}
+              title="Custom"
+              amount="Enter ₹"
+            />
           </div>
-          <div className="mt-3 flex gap-2">
-            {(['Cash', 'Card', 'UPI'] as PaymentMode[]).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setPaymentMode(m)}
-                className={cn(
-                  'px-3 py-1.5 text-xs rounded-md border',
-                  paymentMode === m
-                    ? 'bg-emerald-600 text-white border-emerald-600'
-                    : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-200'
-                )}
-              >
-                {m}
-              </button>
-            ))}
+
+          {feeMode === 'custom' && (
+            <div className="mt-3">
+              <label className="label">Custom Amount (₹)</label>
+              <input
+                type="number"
+                min={0}
+                className="input"
+                placeholder="e.g. 300"
+                value={customFee}
+                onChange={(e) => setCustomFee(e.target.value)}
+                autoFocus
+              />
+            </div>
+          )}
+
+          <div className="mt-3">
+            <div className="label mb-1.5">Payment Mode</div>
+            <div className="flex gap-2">
+              {(['Cash', 'Card', 'UPI'] as PaymentMode[]).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setPaymentMode(m)}
+                  className={cn(
+                    'px-3 py-1.5 text-xs rounded-md border',
+                    paymentMode === m
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-200'
+                  )}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
