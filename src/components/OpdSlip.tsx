@@ -1,0 +1,211 @@
+import { format, parseISO } from 'date-fns';
+import { Printer, X } from 'lucide-react';
+import { HeartPulse } from 'lucide-react';
+import { age, fmt12h, fmtDate, fmtDateTime } from '../lib/utils';
+import type { AppointmentWithJoins, Consultation, Doctor, Settings } from '../types';
+
+export function OpdSlip({
+  appointment,
+  consultation,
+  doctor,
+  settings,
+  onClose,
+}: {
+  appointment: AppointmentWithJoins;
+  consultation: Consultation | null;
+  doctor: Doctor;
+  settings: Settings;
+  onClose: () => void;
+}) {
+  const v = consultation?.vitals ?? {};
+
+  return (
+    <div className="fixed inset-0 z-50 bg-gray-900/60 overflow-auto">
+      <div className="no-print flex justify-between items-center p-4 sticky top-0 bg-gray-900/90 backdrop-blur z-10">
+        <div className="text-white text-sm">OPD Slip preview · Token #{appointment.token_number}</div>
+        <div className="flex gap-2">
+          <button className="btn-secondary" onClick={onClose}>
+            <X className="w-4 h-4" /> Close
+          </button>
+          <button className="btn-primary" onClick={() => window.print()}>
+            <Printer className="w-4 h-4" /> Print
+          </button>
+        </div>
+      </div>
+
+      <div className="p-4 pb-10 flex justify-center">
+        <div className="print-area bg-white shadow-xl" style={{ width: '210mm', minHeight: '297mm', padding: '14mm 14mm 12mm' }}>
+          <SlipBody
+            appointment={appointment}
+            consultation={consultation}
+            doctor={doctor}
+            settings={settings}
+            vitals={v}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SlipBody({
+  appointment, consultation, doctor, settings, vitals,
+}: {
+  appointment: AppointmentWithJoins;
+  consultation: Consultation | null;
+  doctor: Doctor;
+  settings: Settings;
+  vitals: NonNullable<Consultation['vitals']> | Record<string, string | undefined>;
+}) {
+  const slipDate = (() => {
+    try {
+      const d = parseISO(`${appointment.appointment_date}T${appointment.appointment_time}:00`);
+      return format(d, "dd MMM yyyy '·' hh:mm a");
+    } catch {
+      return `${appointment.appointment_date} · ${fmt12h(appointment.appointment_time)}`;
+    }
+  })();
+
+  const regDate = appointment.patient_created_at
+    ? (() => { try { return fmtDateTime(appointment.patient_created_at); } catch { return appointment.patient_created_at; } })()
+    : null;
+
+  return (
+    <div className="text-gray-900" style={{ fontSize: '11px', lineHeight: 1.35 }}>
+      {/* Letterhead */}
+      <div className="flex items-start justify-between pb-3 border-b-2 border-blue-700">
+        <div className="flex items-center gap-3">
+          <div className="w-14 h-14 rounded-lg bg-blue-700 text-white flex items-center justify-center">
+            <HeartPulse className="w-8 h-8" />
+          </div>
+          <div>
+            <div className="text-xl font-extrabold tracking-tight text-blue-800">
+              {settings.clinic_name || 'Mulgund Multispeciality Clinic'}
+            </div>
+            <div className="text-[10px] text-gray-600">{settings.clinic_address || '—'}</div>
+            {settings.clinic_phone && (
+              <div className="text-[10px] text-gray-600">Phone: {settings.clinic_phone}</div>
+            )}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] uppercase tracking-wider text-gray-500">OPD Slip</div>
+          <div className="text-sm font-semibold text-gray-800">Token #{appointment.token_number}</div>
+          <div className="text-[10px] text-gray-600">{slipDate}</div>
+          <div className="text-[10px] text-gray-500">Slip ID: {appointment.patient_uhid}/A{appointment.id}</div>
+        </div>
+      </div>
+
+      {/* Doctor + Patient blocks */}
+      <div className="grid grid-cols-2 gap-4 mt-3">
+        <div className="border border-gray-300 rounded p-2">
+          <div className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Consulting Doctor</div>
+          <div className="text-sm font-bold text-gray-900 mt-0.5">{doctor.name}</div>
+          <div className="text-[10px] text-gray-600">{doctor.specialty}{doctor.room_number ? ` · Room ${doctor.room_number}` : ''}</div>
+        </div>
+        <div className="border border-gray-300 rounded p-2">
+          <div className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Patient</div>
+          <div className="flex flex-wrap gap-x-4 mt-0.5">
+            <div className="text-sm font-bold text-gray-900">{appointment.patient_name}</div>
+            <div className="text-[10px] text-gray-600">UHID: {appointment.patient_uhid}</div>
+          </div>
+          <div className="flex flex-wrap gap-x-4 text-[10px] text-gray-700">
+            <span>Age: {age(appointment.patient_dob)} yrs</span>
+            <span>Sex: {appointment.patient_gender}</span>
+            <span>Ph: {appointment.patient_phone}</span>
+            {appointment.patient_blood_group && <span>BG: {appointment.patient_blood_group}</span>}
+          </div>
+          {regDate && (
+            <div className="text-[9px] text-gray-500 mt-0.5">Registered: {regDate}</div>
+          )}
+        </div>
+      </div>
+
+      {/* Vitals strip */}
+      <Section title="Vitals" inline>
+        <div className="grid grid-cols-7 gap-2 mt-1 text-center">
+          <Vital label="BP (mmHg)" value={vitals.bp} />
+          <Vital label="Pulse" value={vitals.pulse} />
+          <Vital label="Temp (°F)" value={vitals.temp} />
+          <Vital label="SpO₂ (%)" value={vitals.spo2} />
+          <Vital label="RR" value={vitals.rr} />
+          <Vital label="Weight (kg)" value={vitals.weight} />
+          <Vital label="Height (cm)" value={vitals.height} />
+        </div>
+      </Section>
+
+      <Section title="Chief Complaints / History">
+        <Multiline value={consultation?.history} minLines={3} />
+      </Section>
+
+      <Section title="Examination">
+        <Multiline value={consultation?.examination} minLines={3} />
+      </Section>
+
+      <Section title="Impression / Diagnosis">
+        <Multiline value={consultation?.impression} minLines={2} />
+      </Section>
+
+      <Section title="Advice / Rx">
+        <Multiline value={consultation?.advice} minLines={5} />
+      </Section>
+
+      {/* Footer */}
+      <div className="grid grid-cols-2 gap-4 mt-4 pt-3 border-t border-gray-300">
+        <div>
+          <div className="text-[9px] uppercase text-gray-500 font-semibold">Follow-up</div>
+          <div className="text-xs text-gray-900 mt-0.5">
+            {consultation?.follow_up_date ? fmtDate(consultation.follow_up_date) : '—'}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="inline-block text-center">
+            <div className="border-b border-gray-900 h-10 w-48" />
+            <div className="text-[10px] text-gray-600 mt-1">{doctor.name} — Signature</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-2 text-center text-[9px] text-gray-400">
+        This is a system generated OPD slip from {settings.clinic_name}. Not valid without doctor's signature.
+      </div>
+    </div>
+  );
+}
+
+function Section({ title, children, inline = false }: { title: string; children: React.ReactNode; inline?: boolean }) {
+  return (
+    <div className="mt-3">
+      <div className="text-[10px] uppercase tracking-wider font-bold text-blue-800 border-b border-blue-200 pb-0.5 mb-1">
+        {title}
+      </div>
+      {inline ? children : <div>{children}</div>}
+    </div>
+  );
+}
+
+function Vital({ label, value }: { label: string; value?: string }) {
+  return (
+    <div className="border border-gray-200 rounded py-1 px-1">
+      <div className="text-[8px] uppercase tracking-wider text-gray-500">{label}</div>
+      <div className="text-xs font-semibold text-gray-900 mt-0.5 min-h-[14px]">{value || '—'}</div>
+    </div>
+  );
+}
+
+function Multiline({ value, minLines }: { value?: string | null; minLines: number }) {
+  const lines = (value || '').split('\n').filter(Boolean);
+  const fillers = Math.max(0, minLines - lines.length);
+  return (
+    <div className="text-[11px] text-gray-900 whitespace-pre-wrap leading-snug min-h-0">
+      {value ? value : <span className="text-gray-300">—</span>}
+      {fillers > 0 && (
+        <div className="space-y-2 mt-1">
+          {Array.from({ length: fillers }).map((_, i) => (
+            <div key={i} className="border-b border-dotted border-gray-300 h-3" />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

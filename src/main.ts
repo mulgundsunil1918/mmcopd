@@ -1,0 +1,63 @@
+import { app, BrowserWindow, ipcMain } from 'electron';
+import path from 'node:path';
+import { registerIpc } from './main/ipc';
+import { getDb, closeDb } from './db/db';
+import { getAllSettings } from './db/settings';
+
+declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
+declare const MAIN_WINDOW_VITE_NAME: string;
+
+if (process.platform === 'win32') {
+  // Avoid two instances fighting over the SQLite WAL.
+  const gotLock = app.requestSingleInstanceLock();
+  if (!gotLock) {
+    app.quit();
+  }
+}
+
+function createWindow() {
+  const settings = getAllSettings(getDb());
+  const mainWindow = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 1100,
+    minHeight: 700,
+    title: settings.clinic_name || 'CareDesk HMS',
+    backgroundColor: '#ffffff',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
+  } else {
+    mainWindow.loadFile(
+      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`)
+    );
+  }
+
+  ipcMain.handle('app:getClinicName', () => getAllSettings(getDb()).clinic_name);
+}
+
+app.whenReady().then(() => {
+  getDb();
+  registerIpc();
+  createWindow();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  closeDb();
+  if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', () => {
+  closeDb();
+});

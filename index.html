@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CareDesk HMS</title>
+    <script>
+      try {
+        var t = localStorage.getItem('caredesk-theme');
+        if (t === 'dark') document.documentElement.classList.add('dark');
+      } catch (e) {}
+    </script>
+  </head>
+  <body class="font-sans antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/renderer.tsx"></script>
+  </body>
+</html>

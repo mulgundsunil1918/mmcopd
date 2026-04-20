@@ -1,0 +1,140 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body { -webkit-font-smoothing: antialiased; }
+
+  /* Hard-bound root colors so the two themes never bleed. */
+  html:not(.dark) body { background-color: #ffffff; color: #0f172a; }
+  html.dark body { background-color: #0f172a; color: #f1f5f9; }
+}
+
+@layer components {
+  /* --- Base button --- */
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed; }
+  .btn-primary { @apply btn bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500; }
+  .btn-success { @apply btn bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-emerald-500; }
+  .btn-warning { @apply btn bg-amber-500 text-white hover:bg-amber-600 focus:ring-amber-500; }
+  .btn-danger { @apply btn bg-red-600 text-white hover:bg-red-700 focus:ring-red-500; }
+  .btn-secondary { @apply btn; background-color: #ffffff; color: #374151; border: 1px solid #d1d5db; }
+  .btn-secondary:hover { background-color: #f9fafb; }
+  .btn-ghost { @apply btn; color: #374151; }
+  .btn-ghost:hover { background-color: #f3f4f6; }
+
+  /* --- Inputs --- */
+  .input { @apply w-full rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500; background-color: #ffffff; color: #0f172a; border: 1px solid #d1d5db; }
+  .input:disabled { background-color: #f9fafb; }
+  .label { @apply block text-xs font-semibold mb-1 uppercase tracking-wide; color: #4b5563; }
+
+  /* --- Card + badge --- */
+  .card { background-color: #ffffff; border: 1px solid #e5e7eb; @apply shadow-sm rounded-xl; }
+  .badge { @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium; }
+}
+
+/* =======================
+   DARK MODE OVERRIDES
+   ======================= */
+html.dark .btn-secondary { background-color: #1e293b; color: #f1f5f9; border-color: #334155; }
+html.dark .btn-secondary:hover { background-color: #334155; }
+html.dark .btn-ghost { color: #f1f5f9; }
+html.dark .btn-ghost:hover { background-color: #1e293b; }
+
+html.dark .input { background-color: #1e293b; color: #f1f5f9; border-color: #334155; }
+html.dark .input:disabled { background-color: #0f172a; }
+html.dark .label { color: #cbd5e1; }
+
+html.dark .card { background-color: #1e293b; border-color: #334155; }
+
+/* Generic utility overrides with 0 specificity so local dark: classes still win. */
+html.dark :where(.text-gray-900, .text-gray-800) { color: #f1f5f9; }
+html.dark :where(.text-gray-700) { color: #e2e8f0; }
+html.dark :where(.text-gray-600) { color: #cbd5e1; }
+html.dark :where(.text-gray-500) { color: #94a3b8; }
+html.dark :where(.text-gray-400) { color: #94a3b8; }
+html.dark :where(.text-gray-300) { color: #64748b; }
+
+html.dark :where(.bg-white) { background-color: #1e293b; }
+html.dark :where(.bg-gray-50) { background-color: #0f172a; }
+html.dark :where(.bg-gray-100) { background-color: #1e293b; }
+html.dark :where(.bg-gray-200) { background-color: #334155; }
+html.dark :where(.hover\:bg-gray-50:hover) { background-color: #334155; }
+html.dark :where(.hover\:bg-gray-100:hover) { background-color: #334155; }
+html.dark :where(.hover\:bg-gray-200:hover) { background-color: #475569; }
+
+html.dark :where(.border-gray-200) { border-color: #334155; }
+html.dark :where(.border-gray-300) { border-color: #475569; }
+html.dark :where(.border-gray-100) { border-color: #1e293b; }
+html.dark :where(.divide-gray-100 > * + *) { border-color: #1e293b; }
+html.dark :where(.divide-gray-200 > * + *) { border-color: #334155; }
+
+/* Light-tinted badges re-mapped so they stay legible on dark cards. */
+html.dark :where(.bg-blue-50) { background-color: rgba(30, 58, 138, 0.4); }
+html.dark :where(.bg-blue-100) { background-color: rgba(30, 58, 138, 0.5); color: #bfdbfe; }
+html.dark :where(.bg-green-50) { background-color: rgba(20, 83, 45, 0.4); }
+html.dark :where(.bg-green-100) { background-color: rgba(20, 83, 45, 0.5); color: #bbf7d0; }
+html.dark :where(.bg-emerald-50) { background-color: rgba(6, 78, 59, 0.4); }
+html.dark :where(.bg-emerald-100) { background-color: rgba(6, 78, 59, 0.5); color: #a7f3d0; }
+html.dark :where(.bg-amber-50) { background-color: rgba(120, 53, 15, 0.35); }
+html.dark :where(.bg-amber-100) { background-color: rgba(120, 53, 15, 0.5); color: #fde68a; }
+html.dark :where(.bg-red-50) { background-color: rgba(127, 29, 29, 0.4); }
+html.dark :where(.bg-red-100) { background-color: rgba(127, 29, 29, 0.5); color: #fecaca; }
+html.dark :where(.bg-slate-100) { background-color: #334155; }
+html.dark :where(.bg-slate-50) { background-color: #1e293b; }
+html.dark :where(.bg-indigo-100) { background-color: rgba(49, 46, 129, 0.5); color: #c7d2fe; }
+html.dark :where(.bg-pink-100) { background-color: rgba(131, 24, 67, 0.5); color: #fbcfe8; }
+html.dark :where(.bg-purple-100) { background-color: rgba(88, 28, 135, 0.5); color: #e9d5ff; }
+html.dark :where(.bg-teal-100) { background-color: rgba(19, 78, 74, 0.5); color: #99f6e4; }
+html.dark :where(.bg-cyan-100) { background-color: rgba(22, 78, 99, 0.5); color: #a5f3fc; }
+html.dark :where(.bg-orange-100) { background-color: rgba(124, 45, 18, 0.5); color: #fed7aa; }
+
+/* Defensive: force-readable selected rows that rely on bg-blue-50 / bg-blue-100 */
+html.dark :where(.bg-blue-50, .bg-blue-100) { color: #e0e7ff; }
+
+/* Any dark row/card that has black-on-light classes should flip text. */
+html.dark :where(.text-blue-700) { color: #93c5fd; }
+html.dark :where(.text-green-700, .text-emerald-700) { color: #86efac; }
+html.dark :where(.text-amber-700, .text-amber-800, .text-amber-900) { color: #fcd34d; }
+html.dark :where(.text-red-700) { color: #fca5a5; }
+html.dark :where(.text-purple-700) { color: #d8b4fe; }
+html.dark :where(.text-indigo-700) { color: #c7d2fe; }
+
+/* =======================
+   SIDEBAR (explicit, no utility conflicts)
+   ======================= */
+.sidebar { background-color: #f8fafc; border-right: 1px solid #e5e7eb; }
+.sidebar-title { color: #0f172a; font-weight: 700; }
+.sidebar-subtitle { color: #64748b; }
+.sidebar-meta { color: #94a3b8; }
+.sidebar-link { color: #334155; }
+.sidebar-link:hover { background-color: #e2e8f0; }
+.sidebar-link-active { background-color: #2563eb !important; color: #ffffff !important; }
+.sidebar-link-active * { color: inherit !important; }
+.sidebar-divider { border-color: #e5e7eb; }
+
+html.dark .sidebar { background-color: #0b1220; border-right-color: #1e293b; }
+html.dark .sidebar-title { color: #f1f5f9; }
+html.dark .sidebar-subtitle { color: #94a3b8; }
+html.dark .sidebar-meta { color: #64748b; }
+html.dark .sidebar-link { color: #e2e8f0; }
+html.dark .sidebar-link:hover { background-color: #1e293b; }
+html.dark .sidebar-divider { border-color: #1e293b; }
+
+/* =======================
+   STATUS BAR (bottom)
+   ======================= */
+.statusbar { background-color: #f8fafc; border-top: 1px solid #e5e7eb; color: #475569; }
+html.dark .statusbar { background-color: #0b1220; border-top-color: #1e293b; color: #cbd5e1; }
+
+/* =======================
+   PRINT
+   ======================= */
+@media print {
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 24px; background: white !important; color: #0f172a !important; }
+  .print-area * { color: inherit; background: transparent !important; }
+  .no-print { display: none !important; }
+  @page { margin: 12mm; }
+}
