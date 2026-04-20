@@ -26,6 +26,25 @@ const api = {
       ipcRenderer.invoke('patients:recentAppointments', id, limit) as Promise<
         (Appointment & { doctor_name: string; doctor_specialty: string })[]
       >,
+    log: (filter: { from: string; to: string; q?: string; doctor_id?: number }) =>
+      ipcRenderer.invoke('patients:log', filter) as Promise<{
+        rows: (AppointmentWithJoins & {
+          bill_total: number | null;
+          bill_payment_mode: string | null;
+          bill_number: string | null;
+        })[];
+        intel: {
+          totalVisits: number;
+          uniquePatients: number;
+          repeatVisits: number;
+          revenue: number;
+          daysCovered: number;
+          avgPerDay: number;
+          peakDay: { date: string; count: number } | null;
+          byDoctor: { doctor: string; specialty: string; count: number }[];
+          byStatus: { status: string; count: number }[];
+        };
+      }>,
   },
   doctors: {
     list: (activeOnly = true) => ipcRenderer.invoke('doctors:list', activeOnly) as Promise<Doctor[]>,

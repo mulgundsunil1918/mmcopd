@@ -6,6 +6,7 @@ import { DoctorSelect } from './pages/DoctorSelect';
 import { DoctorDashboard } from './pages/DoctorDashboard';
 import { Billing } from './pages/Billing';
 import { Accounts } from './pages/Accounts';
+import { PatientLog } from './pages/PatientLog';
 import { Notifications } from './pages/Notifications';
 import { SettingsPage } from './pages/Settings';
 import { useEffect } from 'react';
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="/doctor/:id" element={<DoctorDashboard />} />
         <Route path="/billing" element={<Billing />} />
         <Route path="/accounts" element={<Accounts />} />
+        <Route path="/patient-log" element={<PatientLog />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>

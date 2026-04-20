@@ -474,6 +474,82 @@ export function registerIpc() {
     return getAllSettings(getDb());
   });
 
+  // ===== Patient Log =====
+  ipcMain.handle('patients:log', (_e, filter: { from: string; to: string; q?: string; doctor_id?: number }) => {
+    const db = getDb();
+    const conditions: string[] = ['a.appointment_date >= ?', 'a.appointment_date <= ?'];
+    const params: (string | number)[] = [filter.from, filter.to];
+    if (filter.doctor_id) {
+      conditions.push('a.doctor_id = ?');
+      params.push(filter.doctor_id);
+    }
+    if (filter.q && filter.q.trim()) {
+      conditions.push("((p.first_name || ' ' || p.last_name) LIKE ? OR p.uhid LIKE ? OR p.phone LIKE ?)");
+      const like = `%${filter.q.trim()}%`;
+      params.push(like, like, like);
+    }
+    const where = 'WHERE ' + conditions.join(' AND ');
+    const rows = db
+      .prepare(
+        `SELECT a.*,
+           (p.first_name || ' ' || p.last_name) as patient_name,
+           p.uhid as patient_uhid, p.dob as patient_dob, p.gender as patient_gender,
+           p.phone as patient_phone, p.blood_group as patient_blood_group,
+           p.created_at as patient_created_at,
+           d.name as doctor_name, d.specialty as doctor_specialty, d.room_number as doctor_room,
+           b.total as bill_total, b.payment_mode as bill_payment_mode, b.bill_number
+         FROM appointments a
+         JOIN patients p ON p.id = a.patient_id
+         JOIN doctors d ON d.id = a.doctor_id
+         LEFT JOIN bills b ON b.appointment_id = a.id
+         ${where}
+         ORDER BY a.appointment_date DESC, a.appointment_time ASC`
+      )
+      .all(...params) as any[];
+
+    // Additional intel
+    const uniquePatients = new Set(rows.map((r) => r.patient_id)).size;
+    const revenue = rows.reduce((s, r) => s + Number(r.bill_total || 0), 0);
+    const byDate = new Map<string, number>();
+    for (const r of rows) byDate.set(r.appointment_date, (byDate.get(r.appointment_date) || 0) + 1);
+    const peakDay = [...byDate.entries()].sort((a, b) => b[1] - a[1])[0] || null;
+    const daysCovered = byDate.size || 1;
+    const avgPerDay = Math.round((rows.length / daysCovered) * 10) / 10;
+
+    const byDoctor = new Map<string, { doctor: string; specialty: string; count: number }>();
+    for (const r of rows) {
+      const key = r.doctor_name;
+      const cur = byDoctor.get(key) || { doctor: r.doctor_name, specialty: r.doctor_specialty, count: 0 };
+      cur.count += 1;
+      byDoctor.set(key, cur);
+    }
+
+    const byStatus = new Map<string, number>();
+    for (const r of rows) byStatus.set(r.status, (byStatus.get(r.status) || 0) + 1);
+
+    // First-time vs repeat (among this range)
+    const patientFirstSeen = new Map<number, string>();
+    for (const r of rows) {
+      const prev = patientFirstSeen.get(r.patient_id);
+      if (!prev || r.appointment_date < prev) patientFirstSeen.set(r.patient_id, r.appointment_date);
+    }
+
+    return {
+      rows,
+      intel: {
+        totalVisits: rows.length,
+        uniquePatients,
+        repeatVisits: rows.length - uniquePatients,
+        revenue,
+        daysCovered,
+        avgPerDay,
+        peakDay: peakDay ? { date: peakDay[0], count: peakDay[1] } : null,
+        byDoctor: [...byDoctor.values()].sort((a, b) => b.count - a.count),
+        byStatus: [...byStatus.entries()].map(([status, count]) => ({ status, count })),
+      },
+    };
+  });
+
   // ===== Finance =====
   ipcMain.handle('finance:summary', () => {
     const db = getDb();
