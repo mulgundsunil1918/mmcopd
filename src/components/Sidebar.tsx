@@ -21,17 +21,30 @@ export function Sidebar() {
     queryKey: ['clinic-name'],
     queryFn: () => window.electronAPI.app.getClinicName(),
   });
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => window.electronAPI.settings.get(),
+  });
 
   return (
     <aside className="sidebar w-60 flex flex-col no-print">
       <div className="px-5 py-5 border-b sidebar-divider">
         <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow">
-            <HeartPulse className="w-5 h-5 text-white" />
-          </div>
+          {settings?.clinic_logo ? (
+            <img
+              src={settings.clinic_logo}
+              alt="Logo"
+              className="w-9 h-9 rounded-lg object-contain shadow"
+              style={{ background: '#ffffff' }}
+            />
+          ) : (
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow">
+              <HeartPulse className="w-5 h-5 text-white" />
+            </div>
+          )}
           <div className="min-w-0">
-            <div className="sidebar-title text-sm leading-tight truncate">CareDesk HMS</div>
-            <div className="sidebar-subtitle text-[10px] leading-tight truncate">{clinicName || 'Mulgund Multispeciality'}</div>
+            <div className="sidebar-title text-sm leading-tight truncate">{settings?.clinic_name || 'CareDesk HMS'}</div>
+            <div className="sidebar-subtitle text-[10px] leading-tight truncate">{settings?.clinic_tagline || clinicName || 'Mulgund Multispeciality'}</div>
           </div>
         </div>
       </div>

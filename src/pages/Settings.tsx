@@ -1,20 +1,24 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Stethoscope, Plus, Pencil } from 'lucide-react';
+import { Building2, Stethoscope, Plus, Pencil, Wallet, ListChecks } from 'lucide-react';
+import { cn } from '../lib/utils';
 import { Modal } from '../components/Modal';
+import { ImageUpload } from '../components/ImageUpload';
+import { ProviderSettings } from '../components/ProviderSettings';
 import { useToast } from '../hooks/useToast';
 import type { Doctor, Settings } from '../types';
 
 export function SettingsPage() {
   return (
-    <div className="p-6 space-y-5 max-w-4xl">
+    <div className="p-6 space-y-5 max-w-5xl">
       <div>
-        <h1 className="text-lg font-bold text-gray-900">Settings</h1>
-        <p className="text-xs text-gray-500">Clinic info, doctors, and appointment preferences.</p>
+        <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Settings</h1>
+        <p className="text-xs text-gray-500 dark:text-slate-400">Clinic branding, fees, queue flow, and doctor management.</p>
       </div>
       <ClinicInfo />
+      <FeesAndFlow />
       <DoctorsManagement />
-      <AppointmentPrefs />
+      <ProviderSettings />
     </div>
   );
 }
@@ -25,6 +29,15 @@ function ClinicInfo() {
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   const save = useMutation({
     mutationFn: (patch: Partial<Settings>) => window.electronAPI.settings.save(patch),
+    onMutate: (patch) => {
+      const prev = qc.getQueryData<Settings>(['settings']);
+      if (prev) qc.setQueryData(['settings'], { ...prev, ...patch });
+      return { prev };
+    },
+    onError: (_e, _p, ctx) => {
+      if (ctx?.prev) qc.setQueryData(['settings'], ctx.prev);
+      toast('Save failed', 'error');
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['settings'] });
       qc.invalidateQueries({ queryKey: ['clinic-name'] });
@@ -41,26 +54,46 @@ function ClinicInfo() {
         <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Clinic Info</h2>
       </div>
       <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-4">These appear on the OPD slip letterhead and invoices.</p>
-      <div className="grid grid-cols-2 gap-4">
-        <LazyInput label="Clinic Name *" value={settings.clinic_name} onSave={(v) => save.mutate({ clinic_name: v })} />
-        <LazyInput label="Tagline" value={settings.clinic_tagline} onSave={(v) => save.mutate({ clinic_tagline: v })} />
-        <LazyInput label="Phone" value={settings.clinic_phone} onSave={(v) => save.mutate({ clinic_phone: v })} />
-        <LazyInput label="Email" value={settings.clinic_email} onSave={(v) => save.mutate({ clinic_email: v })} />
-        <div className="col-span-2">
-          <LazyInput label="Address" value={settings.clinic_address} onSave={(v) => save.mutate({ clinic_address: v })} />
+
+      <div className="flex gap-6">
+        <ImageUpload
+          label="Clinic Logo"
+          value={settings.clinic_logo}
+          onChange={(v) => save.mutate({ clinic_logo: v || '' })}
+          aspect="square"
+          placeholder="Click or drop"
+        />
+        <div className="flex-1 grid grid-cols-2 gap-4">
+          <LazyInput label="Clinic Name *" value={settings.clinic_name} onSave={(v) => save.mutate({ clinic_name: v })} />
+          <LazyInput label="Tagline" value={settings.clinic_tagline} onSave={(v) => save.mutate({ clinic_tagline: v })} />
+          <LazyInput label="Phone" value={settings.clinic_phone} onSave={(v) => save.mutate({ clinic_phone: v })} />
+          <LazyInput label="Email" value={settings.clinic_email} onSave={(v) => save.mutate({ clinic_email: v })} />
+          <div className="col-span-2">
+            <LazyInput label="Address" value={settings.clinic_address} onSave={(v) => save.mutate({ clinic_address: v })} />
+          </div>
+          <LazyInput label="Registration No." value={settings.clinic_registration_no} onSave={(v) => save.mutate({ clinic_registration_no: v })} />
         </div>
-        <LazyInput label="Registration No." value={settings.clinic_registration_no} onSave={(v) => save.mutate({ clinic_registration_no: v })} />
       </div>
     </section>
   );
 }
 
-function AppointmentPrefs() {
+function FeesAndFlow() {
   const qc = useQueryClient();
   const toast = useToast();
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   const save = useMutation({
     mutationFn: (patch: Partial<Settings>) => window.electronAPI.settings.save(patch),
+    onMutate: (patch) => {
+      // optimistic: apply immediately so the toggle feels instant
+      const prev = qc.getQueryData<Settings>(['settings']);
+      if (prev) qc.setQueryData(['settings'], { ...prev, ...patch });
+      return { prev };
+    },
+    onError: (_err, _patch, ctx) => {
+      if (ctx?.prev) qc.setQueryData(['settings'], ctx.prev);
+      toast('Save failed', 'error');
+    },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings'] }); toast('Saved'); },
   });
 
@@ -68,19 +101,62 @@ function AppointmentPrefs() {
   return (
     <section className="card p-5">
       <div className="flex items-center gap-2 mb-4">
-        <h2 className="text-sm font-semibold text-gray-900">Appointment Preferences</h2>
+        <Wallet className="w-4 h-4 text-amber-600" />
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Fees & Queue Flow</h2>
       </div>
-      <div className="flex items-center gap-4">
-        <label className="label mb-0">Slot Duration</label>
-        <select
-          className="input w-auto"
-          value={settings.slot_duration}
-          onChange={(e) => save.mutate({ slot_duration: Number(e.target.value) as any })}
+      <div className="grid grid-cols-3 gap-4">
+        <LazyInput
+          label="Regular Consultation Fee (₹)"
+          value={String(settings.consultation_fee)}
+          onSave={(v) => save.mutate({ consultation_fee: Number(v) as any })}
+        />
+        <LazyInput
+          label="Special Price (₹)"
+          value={String(settings.special_price)}
+          onSave={(v) => save.mutate({ special_price: Number(v) as any })}
+        />
+        <div>
+          <label className="label">Slot Duration</label>
+          <select
+            className="input"
+            value={settings.slot_duration}
+            onChange={(e) => save.mutate({ slot_duration: Number(e.target.value) as any })}
+          >
+            <option value={15}>15 min</option>
+            <option value={20}>20 min</option>
+            <option value={30}>30 min</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="mt-5 flex items-center justify-between border-t border-gray-200 dark:border-slate-700 pt-4">
+        <div className="flex items-start gap-3">
+          <ListChecks className="w-4 h-4 text-indigo-600 mt-0.5" />
+          <div>
+            <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Queue Flow (Waiting / In Progress / Done)</div>
+            <div className="text-[11px] text-gray-500 dark:text-slate-400 max-w-md">
+              When off, every appointment is marked Done on booking — status counters and doctor-side queue buttons hide. Turn on if you want to track the live queue during the day.
+            </div>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => save.mutate({ queue_flow_enabled: !settings.queue_flow_enabled })}
+          className={cn(
+            'w-12 h-7 rounded-full relative transition flex-shrink-0',
+            settings.queue_flow_enabled ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-slate-600'
+          )}
+          aria-pressed={settings.queue_flow_enabled}
+          title={settings.queue_flow_enabled ? 'Queue flow ON — click to disable' : 'Queue flow OFF — click to enable'}
         >
-          <option value={15}>15 min</option>
-          <option value={20}>20 min</option>
-          <option value={30}>30 min</option>
-        </select>
+          <span
+            className={cn(
+              'absolute top-0.5 w-6 h-6 rounded-full shadow-md transition-all',
+              settings.queue_flow_enabled ? 'left-[26px]' : 'left-0.5'
+            )}
+            style={{ backgroundColor: '#ffffff' }}
+          />
+        </button>
       </div>
     </section>
   );
@@ -111,8 +187,8 @@ function DoctorsManagement() {
     <section className="card p-5">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Stethoscope className="w-4 h-4 text-blue-600" />
-          <h2 className="text-sm font-semibold text-gray-900">Doctors</h2>
+          <Stethoscope className="w-4 h-4 text-purple-600" />
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Doctors</h2>
         </div>
         <button className="btn-primary" onClick={() => setEditing({ is_active: 1, default_fee: 500 })}>
           <Plus className="w-4 h-4" /> Add Doctor
@@ -121,22 +197,30 @@ function DoctorsManagement() {
 
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left border-b border-gray-200 text-xs uppercase text-gray-500">
+          <tr className="text-left border-b border-gray-200 dark:border-slate-700 text-xs uppercase text-gray-500 dark:text-slate-400">
             <th className="py-2">Name</th>
             <th className="py-2">Specialty</th>
             <th className="py-2">Room</th>
             <th className="py-2 text-right">Fee</th>
+            <th className="py-2">Signature</th>
             <th className="py-2">Status</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           {doctors.map((d) => (
-            <tr key={d.id} className="border-b border-gray-100">
-              <td className="py-2 font-medium">{d.name}</td>
-              <td className="py-2 text-gray-600">{d.specialty}</td>
-              <td className="py-2 text-gray-600">{d.room_number || '—'}</td>
+            <tr key={d.id} className="border-b border-gray-100 dark:border-slate-800">
+              <td className="py-2 font-medium text-gray-900 dark:text-slate-100">{d.name}</td>
+              <td className="py-2 text-gray-600 dark:text-slate-300">{d.specialty}</td>
+              <td className="py-2 text-gray-600 dark:text-slate-300">{d.room_number || '—'}</td>
               <td className="py-2 text-right">₹{d.default_fee}</td>
+              <td className="py-2">
+                {d.signature ? (
+                  <img src={d.signature} className="h-6 object-contain" alt="signature" />
+                ) : (
+                  <span className="text-[11px] text-gray-400">—</span>
+                )}
+              </td>
               <td className="py-2">
                 <span className={d.is_active ? 'badge bg-green-100 text-green-700' : 'badge bg-gray-200 text-gray-600'}>
                   {d.is_active ? 'Active' : 'Inactive'}
@@ -152,16 +236,16 @@ function DoctorsManagement() {
         </tbody>
       </table>
 
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? 'Edit Doctor' : 'Add Doctor'}>
+      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? 'Edit Doctor' : 'Add Doctor'} size="lg">
         {editing && (
           <div className="space-y-3">
-            <Field label="Name *">
-              <input className="input" value={editing.name || ''} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
-            </Field>
-            <Field label="Specialty *">
-              <input className="input" value={editing.specialty || ''} onChange={(e) => setEditing({ ...editing, specialty: e.target.value })} />
-            </Field>
             <div className="grid grid-cols-2 gap-3">
+              <Field label="Name *">
+                <input className="input" value={editing.name || ''} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
+              </Field>
+              <Field label="Specialty *">
+                <input className="input" value={editing.specialty || ''} onChange={(e) => setEditing({ ...editing, specialty: e.target.value })} />
+              </Field>
               <Field label="Phone">
                 <input className="input" value={editing.phone || ''} onChange={(e) => setEditing({ ...editing, phone: e.target.value })} />
               </Field>
@@ -175,7 +259,16 @@ function DoctorsManagement() {
                 <input type="number" className="input" value={editing.default_fee || 0} onChange={(e) => setEditing({ ...editing, default_fee: Number(e.target.value) })} />
               </Field>
             </div>
-            <label className="flex items-center gap-2 text-sm">
+
+            <ImageUpload
+              label="Doctor's Signature (shown on OPD slip)"
+              value={editing.signature}
+              onChange={(v) => setEditing({ ...editing, signature: v })}
+              aspect="wide"
+              placeholder="Upload JPG / PNG signature"
+            />
+
+            <label className="flex items-center gap-2 text-sm pt-2">
               <input
                 type="checkbox"
                 checked={editing.is_active === 1}

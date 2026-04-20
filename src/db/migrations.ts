@@ -1,8 +1,16 @@
 import type Database from 'better-sqlite3';
 import { createSchema, SCHEMA_VERSION } from './schema';
 
+function addColumnIfMissing(db: Database.Database, table: string, column: string, decl: string) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
+  }
+}
+
 export function runMigrations(db: Database.Database) {
   createSchema(db);
+  addColumnIfMissing(db, 'doctors', 'signature', 'TEXT');
   const current = db
     .prepare("SELECT value FROM schema_meta WHERE key='version'")
     .get() as { value: string } | undefined;

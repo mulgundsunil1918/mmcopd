@@ -76,12 +76,21 @@ function SlipBody({
         <div className="flex items-start justify-between pt-3">
           {/* Left: logo + name + tagline */}
           <div className="flex items-center gap-3">
-            <div
-              className="w-16 h-16 rounded-xl flex items-center justify-center text-white shadow"
-              style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #4f46e5 100%)' }}
-            >
-              <HeartPulse className="w-10 h-10" />
-            </div>
+            {settings.clinic_logo ? (
+              <img
+                src={settings.clinic_logo}
+                alt="Clinic logo"
+                className="w-16 h-16 object-contain rounded-lg"
+                style={{ background: '#ffffff' }}
+              />
+            ) : (
+              <div
+                className="w-16 h-16 rounded-xl flex items-center justify-center text-white shadow"
+                style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #4f46e5 100%)' }}
+              >
+                <HeartPulse className="w-10 h-10" />
+              </div>
+            )}
             <div>
               <div className="text-2xl font-extrabold tracking-tight leading-tight" style={{ color: '#1e3a8a' }}>
                 {settings.clinic_name || 'Mulgund Multispeciality Clinic'}
@@ -189,7 +198,11 @@ function SlipBody({
         </div>
         <div className="text-right">
           <div className="inline-block text-center">
-            <div className="border-b border-gray-900 h-10 w-48" />
+            {doctor.signature ? (
+              <img src={doctor.signature} alt="Signature" className="h-10 w-48 object-contain ml-auto" />
+            ) : (
+              <div className="border-b border-gray-900 h-10 w-48" />
+            )}
             <div className="text-[10px] text-gray-600 mt-1">{doctor.name} — Signature</div>
           </div>
         </div>

@@ -42,6 +42,7 @@ export interface Doctor {
   room_number: string | null;
   is_active: number;
   default_fee: number;
+  signature?: string | null;
 }
 
 export interface Appointment {
@@ -140,9 +141,11 @@ export interface Settings {
   clinic_email: string;
   clinic_tagline: string;
   clinic_registration_no: string;
+  clinic_logo: string;
   slot_duration: number;
   consultation_fee: number;
   special_price: number;
+  queue_flow_enabled: boolean;
   sms_enabled: boolean;
   whatsapp_enabled: boolean;
   sms_provider: string | null;

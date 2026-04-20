@@ -136,17 +136,17 @@ export function registerIpc() {
     const db = getDb();
     const info = db
       .prepare(
-        'INSERT INTO doctors (name, specialty, phone, email, room_number, is_active, default_fee) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO doctors (name, specialty, phone, email, room_number, is_active, default_fee, signature) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
       )
-      .run(d.name ?? '', d.specialty ?? '', d.phone ?? null, d.email ?? null, d.room_number ?? null, d.is_active ?? 1, d.default_fee ?? 500);
+      .run(d.name ?? '', d.specialty ?? '', d.phone ?? null, d.email ?? null, d.room_number ?? null, d.is_active ?? 1, d.default_fee ?? 500, d.signature ?? null);
     return db.prepare('SELECT * FROM doctors WHERE id=?').get(info.lastInsertRowid);
   });
 
   ipcMain.handle('doctors:update', (_e, id: number, d: Partial<Doctor>) => {
     const db = getDb();
     db.prepare(
-      'UPDATE doctors SET name=?, specialty=?, phone=?, email=?, room_number=?, is_active=?, default_fee=? WHERE id=?'
-    ).run(d.name ?? '', d.specialty ?? '', d.phone ?? null, d.email ?? null, d.room_number ?? null, d.is_active ?? 1, d.default_fee ?? 500, id);
+      'UPDATE doctors SET name=?, specialty=?, phone=?, email=?, room_number=?, is_active=?, default_fee=?, signature=? WHERE id=?'
+    ).run(d.name ?? '', d.specialty ?? '', d.phone ?? null, d.email ?? null, d.room_number ?? null, d.is_active ?? 1, d.default_fee ?? 500, d.signature ?? null, id);
     return db.prepare('SELECT * FROM doctors WHERE id=?').get(id);
   });
 
@@ -181,7 +181,7 @@ export function registerIpc() {
         payload.appointment_date,
         payload.appointment_time,
         token,
-        payload.status ?? 'Waiting',
+        payload.status ?? (getAllSettings(db).queue_flow_enabled ? 'Waiting' : 'Done'),
         payload.notes ?? null
       );
 

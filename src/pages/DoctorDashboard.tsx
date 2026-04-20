@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Stethoscope, Clock4, CheckCircle2, PlayCircle, Receipt, User, Phone, Cake } from 'lucide-react';
-import { age, cn, fmtDate, todayISO, waitMinutes } from '../lib/utils';
+import { age, ageString, cn, fmt12h, fmtDate, todayISO, waitMinutes } from '../lib/utils';
 import { StatusBadge } from '../components/StatusBadge';
 import { EmptyState } from '../components/EmptyState';
 import { ConsultationPanel } from '../components/ConsultationPanel';
@@ -22,6 +22,12 @@ export function DoctorDashboard() {
     queryFn: () => window.electronAPI.doctors.get(doctorId),
     enabled: !!doctorId,
   });
+
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => window.electronAPI.settings.get(),
+  });
+  const queueOn = settings?.queue_flow_enabled ?? false;
 
   const { data: appts = [] } = useQuery({
     queryKey: ['appointments', todayISO(), doctorId],
@@ -104,23 +110,25 @@ export function DoctorDashboard() {
                     onClick={() => setSelected(a)}
                     className={cn(
                       'px-5 py-3 cursor-pointer transition',
-                      selected?.id === a.id ? 'bg-blue-50' : 'hover:bg-gray-50',
+                      selected?.id === a.id
+                        ? 'bg-blue-100 dark:bg-blue-900/50'
+                        : 'hover:bg-gray-100 dark:hover:bg-slate-700',
                       activeId === a.id && 'border-l-4 border-green-500'
                     )}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-gray-700">#{a.token_number}</span>
-                        <span className="text-sm font-medium text-gray-900">{a.patient_name}</span>
+                        <span className="text-xs font-bold text-gray-700 dark:text-slate-200">#{a.token_number}</span>
+                        <span className="text-sm font-semibold text-gray-900 dark:text-slate-50">{a.patient_name}</span>
                       </div>
-                      <StatusBadge status={a.status} />
+                      {queueOn && <StatusBadge status={a.status} />}
                     </div>
-                    <div className="flex items-center gap-3 text-[11px] text-gray-500 mt-1">
-                      <span>{age(a.patient_dob)}y · {a.patient_gender}</span>
+                    <div className="flex items-center gap-3 text-[11px] text-gray-600 dark:text-slate-300 mt-1">
+                      <span>{ageString(a.patient_dob)} · {a.patient_gender}</span>
                       <span>·</span>
-                      <span>{a.appointment_time}</span>
-                      {a.status === 'Waiting' && wait > 0 && (
-                        <span className="text-amber-700">waited {wait}m</span>
+                      <span>{fmt12h(a.appointment_time)}</span>
+                      {queueOn && a.status === 'Waiting' && wait > 0 && (
+                        <span className="text-amber-700 dark:text-amber-300">waited {wait}m</span>
                       )}
                     </div>
                   </li>
@@ -155,32 +163,34 @@ export function DoctorDashboard() {
                   <StatusBadge status={selected.status} />
                 </div>
 
-                <div className="flex flex-wrap gap-2 mt-5 pt-5 border-t border-gray-100">
-                  <button
-                    className="btn bg-green-600 text-white hover:bg-green-700 focus:ring-green-500"
-                    disabled={selected.status === 'In Progress'}
-                    onClick={() => update.mutate({ id: selected.id, status: 'In Progress' })}
-                  >
-                    <PlayCircle className="w-4 h-4" /> Mark In Progress
-                  </button>
-                  <button
-                    className="btn-secondary"
-                    disabled={selected.status === 'Done'}
-                    onClick={() => update.mutate({ id: selected.id, status: 'Done' })}
-                  >
-                    <CheckCircle2 className="w-4 h-4" /> Mark Done
-                  </button>
-                  <button
-                    className="btn-primary"
-                    onClick={() => {
-                      update.mutate({ id: selected.id, status: 'Send to Billing' });
-                      toast('Sent to billing');
-                      navigate('/billing');
-                    }}
-                  >
-                    <Receipt className="w-4 h-4" /> Send to Billing
-                  </button>
-                </div>
+                {queueOn && (
+                  <div className="flex flex-wrap gap-2 mt-5 pt-5 border-t border-gray-100 dark:border-slate-700">
+                    <button
+                      className="btn bg-green-600 text-white hover:bg-green-700 focus:ring-green-500"
+                      disabled={selected.status === 'In Progress'}
+                      onClick={() => update.mutate({ id: selected.id, status: 'In Progress' })}
+                    >
+                      <PlayCircle className="w-4 h-4" /> Mark In Progress
+                    </button>
+                    <button
+                      className="btn-secondary"
+                      disabled={selected.status === 'Done'}
+                      onClick={() => update.mutate({ id: selected.id, status: 'Done' })}
+                    >
+                      <CheckCircle2 className="w-4 h-4" /> Mark Done
+                    </button>
+                    <button
+                      className="btn-primary"
+                      onClick={() => {
+                        update.mutate({ id: selected.id, status: 'Send to Billing' });
+                        toast('Sent to billing');
+                        navigate('/billing');
+                      }}
+                    >
+                      <Receipt className="w-4 h-4" /> Send to Billing
+                    </button>
+                  </div>
+                )}
               </div>
 
               <ConsultationPanel appointment={selected} doctor={doctor} />

@@ -10,6 +10,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   slot_duration: '30',
   consultation_fee: '250',
   special_price: '150',
+  queue_flow_enabled: 'false',
   sms_enabled: 'false',
   whatsapp_enabled: 'false',
   sms_provider: '',

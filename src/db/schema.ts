@@ -33,7 +33,8 @@ export function createSchema(db: Database.Database) {
       email TEXT,
       room_number TEXT,
       is_active INTEGER NOT NULL DEFAULT 1,
-      default_fee REAL NOT NULL DEFAULT 500
+      default_fee REAL NOT NULL DEFAULT 500,
+      signature TEXT
     );
 
     CREATE TABLE IF NOT EXISTS appointments (

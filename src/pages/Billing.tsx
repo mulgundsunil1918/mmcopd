@@ -296,7 +296,11 @@ function Invoice({ bill, onNew }: { bill: BillWithJoins; onNew: () => void }) {
       <div className="print-area card p-8 max-w-2xl mx-auto bg-white">
         <div className="flex items-center justify-between pb-4 border-b-2 border-gray-900">
           <div className="flex items-center gap-3">
-            <div className="w-14 h-14 rounded-lg bg-blue-600 text-white flex items-center justify-center text-2xl font-bold">M</div>
+            {settings?.clinic_logo ? (
+              <img src={settings.clinic_logo} alt="Logo" className="w-14 h-14 object-contain rounded-lg" style={{ background: '#ffffff' }} />
+            ) : (
+              <div className="w-14 h-14 rounded-lg bg-blue-600 text-white flex items-center justify-center text-2xl font-bold">M</div>
+            )}
             <div>
               <div className="text-lg font-bold text-gray-900">{settings?.clinic_name || 'Mulgund Multispeciality Clinic'}</div>
               <div className="text-[11px] text-gray-500">{settings?.clinic_address}</div>

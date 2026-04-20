@@ -56,6 +56,12 @@ export function Appointments() {
     queryFn: () => window.electronAPI.doctors.list(true),
   });
 
+  const { data: appSettings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => window.electronAPI.settings.get(),
+  });
+  const queueOn = appSettings?.queue_flow_enabled ?? false;
+
   const { data: appts = [], isLoading } = useQuery({
     queryKey: ['appointments', date, doctorFilter],
     queryFn: () =>
@@ -123,12 +129,18 @@ export function Appointments() {
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <SummaryCard label="Total today" value={summary.total} icon={<Calendar className="w-4 h-4" />} tone="indigo" />
-        <SummaryCard label="Waiting" value={summary.waiting} icon={<Clock4 className="w-4 h-4" />} tone="blue" />
-        <SummaryCard label="In Progress" value={summary.inprogress} icon={<Loader2 className="w-4 h-4" />} tone="emerald" />
-        <SummaryCard label="Done" value={summary.done} icon={<CheckCircle2 className="w-4 h-4" />} tone="amber" />
-      </div>
+      {queueOn ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <SummaryCard label="Total today" value={summary.total} icon={<Calendar className="w-4 h-4" />} tone="indigo" />
+          <SummaryCard label="Waiting" value={summary.waiting} icon={<Clock4 className="w-4 h-4" />} tone="blue" />
+          <SummaryCard label="In Progress" value={summary.inprogress} icon={<Loader2 className="w-4 h-4" />} tone="emerald" />
+          <SummaryCard label="Done" value={summary.done} icon={<CheckCircle2 className="w-4 h-4" />} tone="amber" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3">
+          <SummaryCard label="Visits scheduled today" value={summary.total} icon={<Calendar className="w-4 h-4" />} tone="indigo" />
+        </div>
+      )}
 
       {/* Board */}
       <div className="flex gap-4 overflow-x-auto pb-4">
@@ -172,7 +184,7 @@ export function Appointments() {
                         >
                           <div className="flex items-center justify-between">
                             <span className="text-[11px] font-bold text-gray-700 dark:text-slate-200">#{a.token_number}</span>
-                            <StatusBadge status={a.status} />
+                            {queueOn && <StatusBadge status={a.status} />}
                           </div>
                           <div className="text-sm font-medium text-gray-900 dark:text-slate-100 mt-1">{a.patient_name}</div>
                           <div className="flex items-center justify-between mt-1">
@@ -185,7 +197,7 @@ export function Appointments() {
                               >
                                 <Printer className="w-3 h-3" /> Slip
                               </button>
-                              {a.status !== 'Done' && a.status !== 'Cancelled' && (
+                              {queueOn && a.status !== 'Done' && a.status !== 'Cancelled' && (
                                 <>
                                   <button
                                     className="text-[11px] text-emerald-700 dark:text-emerald-400 hover:underline"
@@ -418,18 +430,42 @@ function BookAppointmentModal({
         {/* Doctor */}
         <div>
           <label className="label">Doctor *</label>
-          <select
-            className="input"
-            value={doctorId ?? ''}
-            onChange={(e) => setDoctorId(Number(e.target.value))}
-          >
-            <option value="">Select doctor</option>
-            {doctors.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name} — {d.specialty}{d.room_number ? ` (Room ${d.room_number})` : ''}
-              </option>
-            ))}
-          </select>
+          {doctors.length <= 6 ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              {doctors.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => setDoctorId(d.id)}
+                  className={cn(
+                    'text-left rounded-lg border-2 p-2.5 transition',
+                    doctorId === d.id
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/40'
+                      : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-300'
+                  )}
+                >
+                  <div className={cn('text-sm font-semibold', doctorId === d.id ? 'text-blue-800 dark:text-blue-200' : 'text-gray-900 dark:text-slate-100')}>
+                    {d.name}
+                  </div>
+                  <div className="text-[11px] text-gray-500 dark:text-slate-400">{d.specialty}</div>
+                  {d.room_number && <div className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">Room {d.room_number}</div>}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <select
+              className="input"
+              value={doctorId ?? ''}
+              onChange={(e) => setDoctorId(Number(e.target.value))}
+            >
+              <option value="">Select doctor</option>
+              {doctors.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name} — {d.specialty}{d.room_number ? ` (Room ${d.room_number})` : ''}
+                </option>
+              ))}
+            </select>
+          )}
           {selectedDoctor && (
             <div className="text-xs text-gray-500 dark:text-slate-400 mt-1">
               Room: {selectedDoctor.room_number || '—'} · Specialty: {selectedDoctor.specialty}
