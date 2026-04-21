@@ -258,6 +258,7 @@ export interface Settings {
   default_state: string;
   default_district: string;
   known_villages: string;
+  backup_folder: string;
   sms_enabled: boolean;
   whatsapp_enabled: boolean;
   sms_provider: string | null;

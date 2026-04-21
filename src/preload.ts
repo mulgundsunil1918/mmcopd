@@ -243,6 +243,15 @@ const api = {
   app: {
     getClinicName: () => ipcRenderer.invoke('app:getClinicName') as Promise<string>,
   },
+  reports: {
+    run: (params: { kind: string; from?: string; to?: string }) =>
+      ipcRenderer.invoke('reports:run', params) as Promise<any[]>,
+  },
+  backup: {
+    now: () => ipcRenderer.invoke('backup:now') as Promise<{ path: string; totalBackups: number }>,
+    list: () => ipcRenderer.invoke('backup:list') as Promise<{ name: string; path: string; size: number; mtime: string }[]>,
+    open: () => ipcRenderer.invoke('backup:open') as Promise<void>,
+  },
 };
 
 contextBridge.exposeInMainWorld('electronAPI', api);

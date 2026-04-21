@@ -15,6 +15,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   default_state: 'Karnataka',
   default_district: 'Gadag',
   known_villages: 'Mulgund, Gadag, Lakshmeshwar, Shirahatti, Naregal, Rona, Ron, Hulkoti, Koppal, Hubli, Dharwad',
+  backup_folder: '',
   sms_enabled: 'false',
   whatsapp_enabled: 'false',
   sms_provider: '',

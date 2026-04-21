@@ -20,6 +20,7 @@ export function getAllSettings(db: Database.Database): Settings {
     default_state: map.default_state || '',
     default_district: map.default_district || '',
     known_villages: map.known_villages || '',
+    backup_folder: map.backup_folder || '',
     sms_enabled: map.sms_enabled === 'true',
     whatsapp_enabled: map.whatsapp_enabled === 'true',
     sms_provider: map.sms_provider || null,

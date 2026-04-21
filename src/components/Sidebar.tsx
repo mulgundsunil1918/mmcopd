@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill, LogOut, ShieldCheck, UserCircle2 } from 'lucide-react';
+import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill, LogOut, ShieldCheck, UserCircle2, BarChart3 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '../lib/utils';
 import { useTheme } from '../hooks/useTheme';
@@ -26,6 +26,7 @@ const NAV: NavItem[] = [
   { to: '/origin', label: 'Patient Origin', icon: MapPin, color: 'text-rose-500', minMode: 'reception', roles: ['receptionist', 'doctor'] },
   { to: '/billing', label: 'Billing', icon: Receipt, color: 'text-amber-500', minMode: 'reception', roles: ['receptionist'] },
   { to: '/accounts', label: 'Accounts', icon: Wallet, color: 'text-teal-500', minMode: 'reception', roles: ['receptionist'] },
+  { to: '/reports', label: 'Reports', icon: BarChart3, color: 'text-orange-500', minMode: 'reception', roles: ['receptionist', 'doctor'] },
   { to: '/notifications', label: 'Notifications', icon: Bell, color: 'text-pink-500', minMode: 'reception', roles: ['receptionist'] },
   { to: '/users', label: 'Users & Access', icon: ShieldCheck, color: 'text-indigo-500', minMode: 'reception', roles: [] /* admin-only via canAnyRole guard */ },
   { to: '/settings', label: 'Settings', icon: SettingsIcon, color: 'text-slate-500', minMode: 'reception', roles: [] /* admin-only */ },

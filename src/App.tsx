@@ -15,6 +15,7 @@ import { IPD } from './pages/IPD';
 import { Notifications } from './pages/Notifications';
 import { SettingsPage } from './pages/Settings';
 import { UsersPage } from './pages/Users';
+import { Reports } from './pages/Reports';
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from './hooks/useAuth';
@@ -50,6 +51,7 @@ export default function App() {
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/users" element={<UsersPage />} />
+        <Route path="/reports" element={<Reports />} />
       </Route>
       <Route path="*" element={<Navigate to="/reception" replace />} />
     </Routes>

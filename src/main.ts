@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
+import fs from 'node:fs';
 import { registerIpc } from './main/ipc';
 import { getDb, closeDb } from './db/db';
 import { getAllSettings } from './db/settings';
@@ -43,10 +44,47 @@ function createWindow() {
   ipcMain.handle('app:getClinicName', () => getAllSettings(getDb()).clinic_name);
 }
 
-app.whenReady().then(() => {
+async function runAutoBackupIfDue() {
+  try {
+    const db = getDb();
+    const s = getAllSettings(db);
+    const userData = app.getPath('userData');
+    const dir = s.backup_folder || path.join(userData, 'backups');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+    // Check last backup mtime; only back up if none today
+    const today = new Date().toISOString().slice(0, 10);
+    const files = fs.readdirSync(dir).filter((f) => f.startsWith('caredesk-') && f.endsWith('.sqlite'));
+    const hasToday = files.some((f) => {
+      const mtime = fs.statSync(path.join(dir, f)).mtime.toISOString().slice(0, 10);
+      return mtime === today;
+    });
+    if (hasToday) return;
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const dest = path.join(dir, `caredesk-${stamp}.sqlite`);
+    try { await db.backup(dest); } catch { fs.copyFileSync(path.join(userData, 'caredesk.sqlite'), dest); }
+
+    // Retention: keep last 30
+    const kept = fs.readdirSync(dir)
+      .filter((f) => f.startsWith('caredesk-') && f.endsWith('.sqlite'))
+      .map((f) => ({ f, t: fs.statSync(path.join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.t - a.t);
+    for (const old of kept.slice(30)) { try { fs.unlinkSync(path.join(dir, old.f)); } catch { /* ignore */ } }
+  } catch (e) {
+    // Never crash boot on backup failure
+    console.error('Auto-backup failed:', e);
+  }
+}
+
+app.whenReady().then(async () => {
   getDb();
   registerIpc();
   createWindow();
+
+  // Run once at startup if no backup today, then every hour
+  await runAutoBackupIfDue();
+  setInterval(runAutoBackupIfDue, 60 * 60 * 1000);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

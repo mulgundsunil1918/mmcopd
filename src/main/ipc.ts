@@ -1029,6 +1029,139 @@ export function registerIpc() {
     };
   });
 
+  // ===== Reports =====
+  ipcMain.handle('reports:run', (_e, params: { kind: string; from?: string; to?: string }) => {
+    const db = getDb();
+    const { kind, from, to } = params;
+    const range = (col: string) => {
+      const conds: string[] = [];
+      const p: any[] = [];
+      if (from) { conds.push(`date(${col}) >= ?`); p.push(from); }
+      if (to) { conds.push(`date(${col}) <= ?`); p.push(to); }
+      return { where: conds.length ? 'WHERE ' + conds.join(' AND ') : '', params: p };
+    };
+    if (kind === 'daily_collection') {
+      const r = range('b.created_at');
+      return db
+        .prepare(
+          `SELECT date(b.created_at) as day,
+             COUNT(*) as bills,
+             COALESCE(SUM(b.total), 0) as revenue,
+             COALESCE(SUM(CASE WHEN b.payment_mode='Cash' THEN b.total ELSE 0 END), 0) as cash,
+             COALESCE(SUM(CASE WHEN b.payment_mode='Card' THEN b.total ELSE 0 END), 0) as card,
+             COALESCE(SUM(CASE WHEN b.payment_mode='UPI' THEN b.total ELSE 0 END), 0) as upi
+           FROM bills b ${r.where} GROUP BY day ORDER BY day DESC`
+        )
+        .all(...r.params);
+    }
+    if (kind === 'doctor_performance') {
+      const r = range('a.appointment_date');
+      return db
+        .prepare(
+          `SELECT d.name as doctor, d.specialty,
+             COUNT(a.id) as visits,
+             COUNT(DISTINCT a.patient_id) as unique_patients,
+             COALESCE(SUM(b.total), 0) as revenue
+           FROM appointments a
+           JOIN doctors d ON d.id=a.doctor_id
+           LEFT JOIN bills b ON b.appointment_id=a.id
+           ${r.where}
+           GROUP BY d.id ORDER BY revenue DESC`
+        )
+        .all(...r.params);
+    }
+    if (kind === 'top_diagnoses') {
+      const r = range('a.appointment_date');
+      return db
+        .prepare(
+          `SELECT c.impression as diagnosis, COUNT(*) as count
+           FROM consultations c
+           JOIN appointments a ON a.id=c.appointment_id
+           ${r.where}
+           AND c.impression IS NOT NULL AND c.impression <> ''
+           GROUP BY c.impression ORDER BY count DESC LIMIT 50`
+        )
+        .all(...r.params);
+    }
+    if (kind === 'top_drugs') {
+      const r = range('s.created_at');
+      return db
+        .prepare(
+          `SELECT si.drug_name as drug,
+             SUM(si.qty) as qty_sold,
+             COUNT(*) as sales,
+             COALESCE(SUM(si.amount), 0) as revenue
+           FROM pharmacy_sale_items si
+           JOIN pharmacy_sales s ON s.id=si.sale_id
+           ${r.where}
+           GROUP BY si.drug_name ORDER BY revenue DESC LIMIT 50`
+        )
+        .all(...r.params);
+    }
+    if (kind === 'new_patients') {
+      const r = range('created_at');
+      return db
+        .prepare(`SELECT date(created_at) as day, COUNT(*) as new_patients FROM patients ${r.where} GROUP BY day ORDER BY day DESC`)
+        .all(...r.params);
+    }
+    return [];
+  });
+
+  // ===== Backup =====
+  ipcMain.handle('backup:now', async () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const { app } = require('electron');
+    const userData = app.getPath('userData');
+    const src = path.join(userData, 'caredesk.sqlite');
+    const s = getAllSettings(getDb());
+    const backupDir = s.backup_folder || path.join(userData, 'backups');
+    if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const dest = path.join(backupDir, `caredesk-${stamp}.sqlite`);
+    // Use SQLite's online backup API via better-sqlite3 to get a consistent copy even if WAL is active
+    try {
+      await getDb().backup(dest);
+    } catch {
+      fs.copyFileSync(src, dest);
+    }
+    // Retention: keep last 30 files
+    const files = fs.readdirSync(backupDir)
+      .filter((f: string) => f.startsWith('caredesk-') && f.endsWith('.sqlite'))
+      .map((f: string) => ({ f, t: fs.statSync(path.join(backupDir, f)).mtimeMs }))
+      .sort((a: any, b: any) => b.t - a.t);
+    for (const old of files.slice(30)) {
+      try { fs.unlinkSync(path.join(backupDir, old.f)); } catch { /* ignore */ }
+    }
+    return { path: dest, totalBackups: Math.min(files.length + 1, 30) };
+  });
+
+  ipcMain.handle('backup:list', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const { app } = require('electron');
+    const userData = app.getPath('userData');
+    const s = getAllSettings(getDb());
+    const dir = s.backup_folder || path.join(userData, 'backups');
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir)
+      .filter((f: string) => f.startsWith('caredesk-') && f.endsWith('.sqlite'))
+      .map((f: string) => {
+        const p = path.join(dir, f);
+        const st = fs.statSync(p);
+        return { name: f, path: p, size: st.size, mtime: st.mtime.toISOString() };
+      })
+      .sort((a: any, b: any) => b.mtime.localeCompare(a.mtime));
+  });
+
+  ipcMain.handle('backup:open', () => {
+    const path = require('node:path');
+    const { app, shell } = require('electron');
+    const s = getAllSettings(getDb());
+    const dir = s.backup_folder || path.join(app.getPath('userData'), 'backups');
+    shell.openPath(dir);
+  });
+
   // ===== Patient Origin (place stats) =====
   ipcMain.handle('origin:summary', (_e, filter: { from: string; to: string }) => {
     const db = getDb();
