@@ -77,6 +77,9 @@ function AppModeSelector() {
       <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-4">
         Pick which modules your clinic uses. Navigation adapts instantly — nothing gets deleted, just hidden.
       </p>
+      <div className="text-[11px] mb-3 px-3 py-2 rounded-lg" style={{ background: '#dbeafe', color: '#1e3a8a', border: '1px solid #60a5fa' }}>
+        Currently active mode: <span style={{ fontWeight: 800 }}>{MODES.find((m) => m.value === current)?.title || `(unknown: ${current})`}</span>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {MODES.map((m) => {
           const active = current === m.value;
@@ -85,37 +88,47 @@ function AppModeSelector() {
               key={m.value}
               type="button"
               onClick={() => save.mutate({ app_mode: m.value })}
-              className={cn(
-                'relative text-left rounded-xl p-4 transition overflow-hidden',
+              className="relative text-left rounded-xl p-4 transition overflow-hidden"
+              style={
                 active
-                  ? 'ring-4 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-900 bg-blue-600/10 dark:bg-blue-500/20'
-                  : 'border-2 border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-400'
-              )}
-              style={active ? { boxShadow: '0 0 0 1px #2563eb inset' } : undefined}
+                  ? {
+                      border: '4px solid #2563eb',
+                      backgroundColor: '#dbeafe',
+                      boxShadow: '0 0 0 3px rgba(37, 99, 235, 0.25)',
+                      color: '#1e3a8a',
+                    }
+                  : {
+                      border: '2px solid #e5e7eb',
+                      backgroundColor: 'var(--bg, #ffffff)',
+                    }
+              }
             >
               {active && (
                 <>
-                  <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-600 to-indigo-500" />
-                  <div className="absolute top-2 right-2 flex items-center gap-1 bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                    <Check className="w-3 h-3" /> Active
+                  <div
+                    className="absolute top-0 left-0 right-0"
+                    style={{ height: 4, background: 'linear-gradient(90deg, #2563eb, #6366f1)' }}
+                  />
+                  <div
+                    className="absolute top-2 right-2 flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider"
+                    style={{ background: '#2563eb', color: '#ffffff' }}
+                  >
+                    <Check className="w-3 h-3" /> Selected
                   </div>
                 </>
               )}
-              <div className={cn('text-sm font-bold pr-20', active ? 'text-blue-700 dark:text-blue-200' : 'text-gray-900 dark:text-slate-100')}>
+              <div className="text-sm font-bold pr-24" style={active ? { color: '#1e3a8a' } : undefined}>
                 {m.title}
               </div>
-              <div className={cn('text-[11px] mt-1', active ? 'text-blue-800 dark:text-blue-100' : 'text-gray-600 dark:text-slate-300')}>
+              <div className="text-[11px] mt-1" style={active ? { color: '#1e40af' } : { color: '#64748b' }}>
                 {m.blurb}
               </div>
-              <ul className={cn('text-[11px] mt-2 list-disc pl-4 space-y-0.5', active ? 'text-blue-800 dark:text-blue-200' : 'text-gray-500 dark:text-slate-400')}>
+              <ul className="text-[11px] mt-2 list-disc pl-4 space-y-0.5" style={active ? { color: '#1e40af' } : { color: '#64748b' }}>
                 {m.includes.map((i) => <li key={i}>{i}</li>)}
               </ul>
             </button>
           );
         })}
-      </div>
-      <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-3">
-        Currently active: <span className="font-semibold text-blue-700 dark:text-blue-300">{MODES.find((m) => m.value === current)?.title || current}</span>
       </div>
     </section>
   );

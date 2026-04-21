@@ -7,6 +7,7 @@ const STYLES: Record<AppointmentStatus, string> = {
   'Done': 'bg-gray-200 text-gray-700',
   'Cancelled': 'bg-red-100 text-red-700',
   'Send to Billing': 'bg-amber-100 text-amber-800',
+  'Ready for Print': 'bg-cyan-500 text-white',
 };
 
 export function StatusBadge({ status }: { status: AppointmentStatus }) {

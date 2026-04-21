@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FileText, Printer, Save } from 'lucide-react';
+import { FileText, Printer, Save, Send } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
 import { OpdSlip } from './OpdSlip';
 import type { AppointmentWithJoins, Consultation, Doctor, Vitals } from '../types';
@@ -67,6 +67,19 @@ export function ConsultationPanel({
     setShowSlip(true);
   };
 
+  const sendToReception = useMutation({
+    mutationFn: async () => {
+      await save.mutateAsync();
+      await window.electronAPI.appointments.updateStatus(appointment.id, 'Ready for Print');
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['appointments'] });
+      qc.invalidateQueries({ queryKey: ['ready-for-print'] });
+      toast('Sent to reception for printing');
+    },
+    onError: (e: any) => toast(e.message || 'Failed to send', 'error'),
+  });
+
   const vitalsPreview: Consultation = {
     appointment_id: appointment.id,
     patient_id: appointment.patient_id,
@@ -82,12 +95,20 @@ export function ConsultationPanel({
           <FileText className="w-4 h-4 text-blue-600" />
           Consultation
         </h3>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button className="btn-secondary" onClick={() => save.mutate()} disabled={save.isPending}>
             <Save className="w-4 h-4" /> {save.isPending ? 'Saving…' : 'Save'}
           </button>
           <button className="btn-primary" onClick={onPrint} disabled={save.isPending}>
             <Printer className="w-4 h-4" /> Print OPD Slip
+          </button>
+          <button
+            className="btn bg-cyan-600 text-white hover:bg-cyan-700 focus:ring-cyan-500"
+            onClick={() => sendToReception.mutate()}
+            disabled={sendToReception.isPending || save.isPending}
+            title="Saves consultation and notifies reception to print the slip"
+          >
+            <Send className="w-4 h-4" /> {sendToReception.isPending ? 'Sending…' : 'Send to Reception'}
           </button>
         </div>
       </div>
