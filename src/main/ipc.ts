@@ -449,6 +449,90 @@ export function registerIpc() {
       .get(id);
   });
 
+  // ===== EMR =====
+  const emrGet = (table: string) => (_e: any, patientId: number) =>
+    getDb().prepare(`SELECT * FROM ${table} WHERE patient_id=? ORDER BY id DESC`).all(patientId);
+
+  const emrDelete = (table: string) => (_e: any, id: number) => {
+    getDb().prepare(`DELETE FROM ${table} WHERE id=?`).run(id);
+    return true;
+  };
+
+  ipcMain.handle('emr:allergies', emrGet('patient_allergies'));
+  ipcMain.handle('emr:addAllergy', (_e, payload: { patient_id: number; allergen: string; reaction?: string; severity?: string }) => {
+    const db = getDb();
+    const info = db
+      .prepare('INSERT INTO patient_allergies (patient_id, allergen, reaction, severity) VALUES (?, ?, ?, ?)')
+      .run(payload.patient_id, payload.allergen, payload.reaction ?? null, payload.severity ?? null);
+    return db.prepare('SELECT * FROM patient_allergies WHERE id=?').get(info.lastInsertRowid);
+  });
+  ipcMain.handle('emr:deleteAllergy', emrDelete('patient_allergies'));
+
+  ipcMain.handle('emr:conditions', emrGet('patient_conditions'));
+  ipcMain.handle('emr:addCondition', (_e, payload: { patient_id: number; condition: string; since?: string; notes?: string }) => {
+    const db = getDb();
+    const info = db
+      .prepare('INSERT INTO patient_conditions (patient_id, condition, since, notes, is_active) VALUES (?, ?, ?, ?, 1)')
+      .run(payload.patient_id, payload.condition, payload.since ?? null, payload.notes ?? null);
+    return db.prepare('SELECT * FROM patient_conditions WHERE id=?').get(info.lastInsertRowid);
+  });
+  ipcMain.handle('emr:deleteCondition', emrDelete('patient_conditions'));
+
+  ipcMain.handle('emr:family', emrGet('patient_family_history'));
+  ipcMain.handle('emr:addFamily', (_e, payload: { patient_id: number; relation: string; condition: string; notes?: string }) => {
+    const db = getDb();
+    const info = db
+      .prepare('INSERT INTO patient_family_history (patient_id, relation, condition, notes) VALUES (?, ?, ?, ?)')
+      .run(payload.patient_id, payload.relation, payload.condition, payload.notes ?? null);
+    return db.prepare('SELECT * FROM patient_family_history WHERE id=?').get(info.lastInsertRowid);
+  });
+  ipcMain.handle('emr:deleteFamily', emrDelete('patient_family_history'));
+
+  ipcMain.handle('emr:immunizations', emrGet('patient_immunizations'));
+  ipcMain.handle('emr:addImmunization', (_e, payload: { patient_id: number; vaccine: string; given_at?: string; dose?: string; notes?: string }) => {
+    const db = getDb();
+    const info = db
+      .prepare('INSERT INTO patient_immunizations (patient_id, vaccine, given_at, dose, notes) VALUES (?, ?, ?, ?, ?)')
+      .run(payload.patient_id, payload.vaccine, payload.given_at ?? null, payload.dose ?? null, payload.notes ?? null);
+    return db.prepare('SELECT * FROM patient_immunizations WHERE id=?').get(info.lastInsertRowid);
+  });
+  ipcMain.handle('emr:deleteImmunization', emrDelete('patient_immunizations'));
+
+  ipcMain.handle('emr:documents', emrGet('patient_documents'));
+  ipcMain.handle(
+    'emr:addDocument',
+    (_e, payload: { patient_id: number; file_name: string; file_type: string; data_base64: string; note?: string }) => {
+      const fs = require('node:fs');
+      const path = require('node:path');
+      const { app } = require('electron');
+      const dir = path.join(app.getPath('userData'), 'documents', String(payload.patient_id));
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const safeName = payload.file_name.replace(/[^\w.\-]/g, '_');
+      const fileName = `${Date.now()}-${safeName}`;
+      const filePath = path.join(dir, fileName);
+      const buf = Buffer.from(payload.data_base64.split(',').pop() || '', 'base64');
+      fs.writeFileSync(filePath, buf);
+      const db = getDb();
+      const info = db
+        .prepare('INSERT INTO patient_documents (patient_id, file_name, file_type, file_path, size_bytes, note) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(payload.patient_id, payload.file_name, payload.file_type, filePath, buf.byteLength, payload.note ?? null);
+      return db.prepare('SELECT * FROM patient_documents WHERE id=?').get(info.lastInsertRowid);
+    }
+  );
+  ipcMain.handle('emr:openDocument', (_e, id: number) => {
+    const { shell } = require('electron');
+    const row = getDb().prepare('SELECT file_path FROM patient_documents WHERE id=?').get(id) as any;
+    if (row?.file_path) shell.openPath(row.file_path);
+  });
+  ipcMain.handle('emr:deleteDocument', (_e, id: number) => {
+    const fs = require('node:fs');
+    const db = getDb();
+    const row = db.prepare('SELECT file_path FROM patient_documents WHERE id=?').get(id) as any;
+    if (row?.file_path && fs.existsSync(row.file_path)) { try { fs.unlinkSync(row.file_path); } catch { /* ignore */ } }
+    db.prepare('DELETE FROM patient_documents WHERE id=?').run(id);
+    return true;
+  });
+
   // ===== Consultations =====
   ipcMain.handle('consultations:getByAppointment', (_e, appointmentId: number) => {
     const db = getDb();

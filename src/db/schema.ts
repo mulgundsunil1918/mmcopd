@@ -215,6 +215,57 @@ export function createSchema(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_ip_status ON ip_admissions(status);
 
+    CREATE TABLE IF NOT EXISTS patient_allergies (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+      allergen TEXT NOT NULL,
+      reaction TEXT,
+      severity TEXT,
+      noted_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_allergy_patient ON patient_allergies(patient_id);
+
+    CREATE TABLE IF NOT EXISTS patient_conditions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+      condition TEXT NOT NULL,
+      since TEXT,
+      notes TEXT,
+      is_active INTEGER DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_cond_patient ON patient_conditions(patient_id);
+
+    CREATE TABLE IF NOT EXISTS patient_family_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+      relation TEXT NOT NULL,
+      condition TEXT NOT NULL,
+      notes TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_fam_patient ON patient_family_history(patient_id);
+
+    CREATE TABLE IF NOT EXISTS patient_immunizations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+      vaccine TEXT NOT NULL,
+      given_at TEXT,
+      dose TEXT,
+      notes TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_imm_patient ON patient_immunizations(patient_id);
+
+    CREATE TABLE IF NOT EXISTS patient_documents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+      file_name TEXT NOT NULL,
+      file_type TEXT,
+      file_path TEXT NOT NULL,
+      size_bytes INTEGER,
+      note TEXT,
+      uploaded_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_doc_patient ON patient_documents(patient_id);
+
     CREATE TABLE IF NOT EXISTS consultations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       appointment_id INTEGER NOT NULL UNIQUE REFERENCES appointments(id) ON DELETE CASCADE,

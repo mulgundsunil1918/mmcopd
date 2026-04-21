@@ -107,6 +107,33 @@ const api = {
       ipcRenderer.invoke('bills:list', filter) as Promise<BillWithJoins[]>,
     get: (id: number) => ipcRenderer.invoke('bills:get', id) as Promise<BillWithJoins | undefined>,
   },
+  emr: {
+    allergies: (patientId: number) => ipcRenderer.invoke('emr:allergies', patientId) as Promise<any[]>,
+    addAllergy: (p: { patient_id: number; allergen: string; reaction?: string; severity?: string }) =>
+      ipcRenderer.invoke('emr:addAllergy', p) as Promise<any>,
+    deleteAllergy: (id: number) => ipcRenderer.invoke('emr:deleteAllergy', id) as Promise<boolean>,
+
+    conditions: (patientId: number) => ipcRenderer.invoke('emr:conditions', patientId) as Promise<any[]>,
+    addCondition: (p: { patient_id: number; condition: string; since?: string; notes?: string }) =>
+      ipcRenderer.invoke('emr:addCondition', p) as Promise<any>,
+    deleteCondition: (id: number) => ipcRenderer.invoke('emr:deleteCondition', id) as Promise<boolean>,
+
+    family: (patientId: number) => ipcRenderer.invoke('emr:family', patientId) as Promise<any[]>,
+    addFamily: (p: { patient_id: number; relation: string; condition: string; notes?: string }) =>
+      ipcRenderer.invoke('emr:addFamily', p) as Promise<any>,
+    deleteFamily: (id: number) => ipcRenderer.invoke('emr:deleteFamily', id) as Promise<boolean>,
+
+    immunizations: (patientId: number) => ipcRenderer.invoke('emr:immunizations', patientId) as Promise<any[]>,
+    addImmunization: (p: { patient_id: number; vaccine: string; given_at?: string; dose?: string; notes?: string }) =>
+      ipcRenderer.invoke('emr:addImmunization', p) as Promise<any>,
+    deleteImmunization: (id: number) => ipcRenderer.invoke('emr:deleteImmunization', id) as Promise<boolean>,
+
+    documents: (patientId: number) => ipcRenderer.invoke('emr:documents', patientId) as Promise<any[]>,
+    addDocument: (p: { patient_id: number; file_name: string; file_type: string; data_base64: string; note?: string }) =>
+      ipcRenderer.invoke('emr:addDocument', p) as Promise<any>,
+    openDocument: (id: number) => ipcRenderer.invoke('emr:openDocument', id) as Promise<void>,
+    deleteDocument: (id: number) => ipcRenderer.invoke('emr:deleteDocument', id) as Promise<boolean>,
+  },
   consultations: {
     getByAppointment: (appointmentId: number) =>
       ipcRenderer.invoke('consultations:getByAppointment', appointmentId) as Promise<Consultation | null>,

@@ -9,6 +9,7 @@ import { age, ageString, dobFromAge, fmtDate, cn } from '../lib/utils';
 import { INDIAN_STATES } from '../lib/india';
 import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
+import { MedicalRecord } from '../components/MedicalRecord';
 import { useToast } from '../hooks/useToast';
 import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut';
 
@@ -524,6 +525,8 @@ function PatientCard({
           </div>
         </div>
       </div>
+
+      <MedicalRecord patientId={patient.id} />
 
       <div className="card p-6">
         <div className="flex items-center justify-between mb-3">
