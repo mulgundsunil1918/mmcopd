@@ -187,11 +187,6 @@ export function Appointments() {
                             {queueOn && <StatusBadge status={a.status} />}
                           </div>
                           <div className="text-sm font-medium text-gray-900 dark:text-slate-100 mt-1">{a.patient_name}</div>
-                          {a.consultation_token && (
-                            <div className="text-[10px] font-mono tracking-wider text-indigo-600 dark:text-indigo-400 mt-0.5">
-                              Visit ID: {a.consultation_token}
-                            </div>
-                          )}
                           <div className="flex items-center justify-between mt-1">
                             <span className="text-[11px] text-gray-500 dark:text-slate-400">{fmt12h(a.appointment_time)}</span>
                             <div className="flex items-center gap-2">

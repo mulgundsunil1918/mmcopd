@@ -7,7 +7,7 @@ import { ImageUpload } from '../components/ImageUpload';
 import { ProviderSettings } from '../components/ProviderSettings';
 import { useToast } from '../hooks/useToast';
 import { INDIAN_STATES } from '../lib/india';
-import type { Doctor, Settings } from '../types';
+import type { AppMode, Doctor, Settings } from '../types';
 
 export function SettingsPage() {
   return (
@@ -17,11 +17,92 @@ export function SettingsPage() {
         <p className="text-xs text-gray-500 dark:text-slate-400">Clinic branding, fees, queue flow, and doctor management.</p>
       </div>
       <ClinicInfo />
+      <AppModeSelector />
       <DefaultLocation />
       <FeesAndFlow />
       <DoctorsManagement />
       <ProviderSettings />
     </div>
+  );
+}
+
+const MODES: { value: AppMode; title: string; blurb: string; includes: string[] }[] = [
+  {
+    value: 'reception',
+    title: 'Reception Only',
+    blurb: 'Front-desk flow: registration, appointments, billing, reports.',
+    includes: ['Reception', 'Appointments', 'Billing', 'Accounts', 'Patient Log / Origin'],
+  },
+  {
+    value: 'reception_doctor',
+    title: 'Reception + Doctor',
+    blurb: 'Adds the doctor consultation workflow — vitals, history, Rx, OPD slip.',
+    includes: ['Everything in Reception', 'Doctor dashboards', 'Consultation + OPD slip'],
+  },
+  {
+    value: 'reception_doctor_lab',
+    title: 'Reception + Doctor + Lab',
+    blurb: 'Adds the laboratory module: test catalog, orders, sample collection, result entry.',
+    includes: ['Everything above', 'Lab test catalog', 'Lab orders + results'],
+  },
+  {
+    value: 'reception_doctor_lab_ip',
+    title: 'Full HMS (adds IPD)',
+    blurb: 'Full hospital — in-patient admissions, ward/bed management, discharge summary.',
+    includes: ['Everything above', 'In-Patient (IPD) admissions', 'Ward + bed tracking', 'Discharge summary'],
+  },
+];
+
+function AppModeSelector() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const save = useMutation({
+    mutationFn: (patch: Partial<Settings>) => window.electronAPI.settings.save(patch),
+    onMutate: (patch) => {
+      const prev = qc.getQueryData<Settings>(['settings']);
+      if (prev) qc.setQueryData(['settings'], { ...prev, ...patch });
+      return { prev };
+    },
+    onError: (_e, _p, ctx) => { if (ctx?.prev) qc.setQueryData(['settings'], ctx.prev); toast('Save failed', 'error'); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings'] }); toast('Mode switched'); },
+  });
+
+  if (!settings) return null;
+  const current = settings.app_mode;
+  return (
+    <section className="card p-5">
+      <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-1">Application Mode</h2>
+      <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-4">
+        Pick which modules your clinic uses. Navigation adapts instantly — nothing gets deleted, just hidden.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {MODES.map((m) => (
+          <button
+            key={m.value}
+            type="button"
+            onClick={() => save.mutate({ app_mode: m.value })}
+            className={cn(
+              'text-left rounded-xl border-2 p-4 transition',
+              current === m.value
+                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
+                : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-300'
+            )}
+          >
+            <div className="flex items-center justify-between">
+              <div className={cn('text-sm font-semibold', current === m.value ? 'text-blue-800 dark:text-blue-200' : 'text-gray-900 dark:text-slate-100')}>
+                {m.title}
+              </div>
+              {current === m.value && <span className="badge bg-blue-600 text-white">Active</span>}
+            </div>
+            <div className="text-[11px] text-gray-600 dark:text-slate-300 mt-1">{m.blurb}</div>
+            <ul className="text-[11px] text-gray-500 dark:text-slate-400 mt-2 list-disc pl-4 space-y-0.5">
+              {m.includes.map((i) => <li key={i}>{i}</li>)}
+            </ul>
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }
 

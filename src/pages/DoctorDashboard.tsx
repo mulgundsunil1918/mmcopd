@@ -123,11 +123,6 @@ export function DoctorDashboard() {
                       </div>
                       {queueOn && <StatusBadge status={a.status} />}
                     </div>
-                    {a.consultation_token && (
-                      <div className="text-[10px] font-mono tracking-wider text-indigo-600 dark:text-indigo-400 mt-0.5">
-                        Visit ID: {a.consultation_token}
-                      </div>
-                    )}
                     <div className="flex items-center gap-3 text-[11px] text-gray-600 dark:text-slate-300 mt-1">
                       <span>{ageString(a.patient_dob)} · {a.patient_gender}</span>
                       <span>·</span>
@@ -152,12 +147,7 @@ export function DoctorDashboard() {
               <div className="card p-6">
                 <div className="flex items-start justify-between">
                   <div>
-                    <div className="text-xs text-gray-500 flex items-center gap-2 flex-wrap">
-                      <span>Token #{selected.token_number} · {selected.appointment_time}</span>
-                      {selected.consultation_token && (
-                        <span className="font-mono tracking-wider text-indigo-600 dark:text-indigo-400">Visit ID: {selected.consultation_token}</span>
-                      )}
-                    </div>
+                    <div className="text-xs text-gray-500">Token #{selected.token_number} · {selected.appointment_time}</div>
                     <h2 className="text-xl font-bold text-gray-900 mt-1">{selected.patient_name}</h2>
                     <div className="flex flex-wrap gap-3 text-xs text-gray-600 mt-2">
                       <span className="flex items-center gap-1"><Cake className="w-3 h-3" /> {age(selected.patient_dob)} yrs · {selected.patient_gender}</span>

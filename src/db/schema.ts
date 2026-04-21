@@ -88,6 +88,68 @@ export function createSchema(db: Database.Database) {
       value TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS prescription_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      appointment_id INTEGER NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
+      drug_name TEXT NOT NULL,
+      dosage TEXT,
+      frequency TEXT,
+      duration TEXT,
+      instructions TEXT,
+      order_idx INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_rx_appt ON prescription_items(appointment_id);
+
+    CREATE TABLE IF NOT EXISTS lab_tests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      price REAL NOT NULL DEFAULT 0,
+      sample_type TEXT,
+      ref_range TEXT,
+      unit TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1
+    );
+
+    CREATE TABLE IF NOT EXISTS lab_orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_number TEXT NOT NULL UNIQUE,
+      appointment_id INTEGER REFERENCES appointments(id) ON DELETE SET NULL,
+      patient_id INTEGER NOT NULL REFERENCES patients(id),
+      doctor_id INTEGER REFERENCES doctors(id),
+      status TEXT NOT NULL DEFAULT 'ordered',
+      ordered_at TEXT NOT NULL DEFAULT (datetime('now')),
+      collected_at TEXT,
+      reported_at TEXT,
+      notes TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_lab_orders_patient ON lab_orders(patient_id);
+
+    CREATE TABLE IF NOT EXISTS lab_order_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lab_order_id INTEGER NOT NULL REFERENCES lab_orders(id) ON DELETE CASCADE,
+      lab_test_id INTEGER REFERENCES lab_tests(id),
+      test_name TEXT NOT NULL,
+      result TEXT,
+      unit TEXT,
+      ref_range TEXT,
+      is_abnormal INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS ip_admissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      admission_number TEXT NOT NULL UNIQUE,
+      patient_id INTEGER NOT NULL REFERENCES patients(id),
+      admission_doctor_id INTEGER REFERENCES doctors(id),
+      admitted_at TEXT NOT NULL DEFAULT (datetime('now')),
+      discharged_at TEXT,
+      bed_number TEXT,
+      ward TEXT,
+      admission_notes TEXT,
+      discharge_summary TEXT,
+      status TEXT NOT NULL DEFAULT 'admitted'
+    );
+    CREATE INDEX IF NOT EXISTS idx_ip_status ON ip_admissions(status);
+
     CREATE TABLE IF NOT EXISTS consultations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       appointment_id INTEGER NOT NULL UNIQUE REFERENCES appointments(id) ON DELETE CASCADE,

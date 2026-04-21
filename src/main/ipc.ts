@@ -486,6 +486,180 @@ export function registerIpc() {
     }
   );
 
+  // ===== Prescriptions =====
+  ipcMain.handle('rx:getByAppointment', (_e, appointmentId: number) => {
+    return getDb()
+      .prepare('SELECT * FROM prescription_items WHERE appointment_id=? ORDER BY order_idx, id')
+      .all(appointmentId);
+  });
+
+  ipcMain.handle(
+    'rx:saveAll',
+    (
+      _e,
+      appointmentId: number,
+      items: { drug_name: string; dosage?: string; frequency?: string; duration?: string; instructions?: string }[]
+    ) => {
+      const db = getDb();
+      const tx = db.transaction(() => {
+        db.prepare('DELETE FROM prescription_items WHERE appointment_id=?').run(appointmentId);
+        const ins = db.prepare(
+          'INSERT INTO prescription_items (appointment_id, drug_name, dosage, frequency, duration, instructions, order_idx) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        );
+        items.forEach((it, idx) => {
+          if (!it.drug_name?.trim()) return;
+          ins.run(appointmentId, it.drug_name.trim(), it.dosage ?? null, it.frequency ?? null, it.duration ?? null, it.instructions ?? null, idx);
+        });
+      });
+      tx();
+      return db
+        .prepare('SELECT * FROM prescription_items WHERE appointment_id=? ORDER BY order_idx, id')
+        .all(appointmentId);
+    }
+  );
+
+  // ===== Lab =====
+  ipcMain.handle('lab:listTests', (_e, activeOnly = true) => {
+    const db = getDb();
+    return activeOnly
+      ? db.prepare('SELECT * FROM lab_tests WHERE is_active=1 ORDER BY name').all()
+      : db.prepare('SELECT * FROM lab_tests ORDER BY is_active DESC, name').all();
+  });
+
+  ipcMain.handle('lab:upsertTest', (_e, test: any) => {
+    const db = getDb();
+    if (test.id) {
+      db.prepare(
+        'UPDATE lab_tests SET name=?, price=?, sample_type=?, ref_range=?, unit=?, is_active=? WHERE id=?'
+      ).run(test.name, test.price ?? 0, test.sample_type ?? null, test.ref_range ?? null, test.unit ?? null, test.is_active ?? 1, test.id);
+      return db.prepare('SELECT * FROM lab_tests WHERE id=?').get(test.id);
+    }
+    const info = db
+      .prepare('INSERT INTO lab_tests (name, price, sample_type, ref_range, unit, is_active) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(test.name, test.price ?? 0, test.sample_type ?? null, test.ref_range ?? null, test.unit ?? null, test.is_active ?? 1);
+    return db.prepare('SELECT * FROM lab_tests WHERE id=?').get(info.lastInsertRowid);
+  });
+
+  ipcMain.handle(
+    'lab:createOrder',
+    (
+      _e,
+      payload: { appointment_id: number | null; patient_id: number; doctor_id: number | null; notes?: string; items: { lab_test_id?: number; test_name: string }[] }
+    ) => {
+      const db = getDb();
+      const d = new Date();
+      const ymd = `${d.getFullYear()}${pad(d.getMonth() + 1, 2)}${pad(d.getDate(), 2)}`;
+      const row = db.prepare("SELECT COUNT(*) as c FROM lab_orders WHERE order_number LIKE ?").get(`LAB-${ymd}-%`) as { c: number };
+      const orderNumber = `LAB-${ymd}-${pad(row.c + 1, 4)}`;
+      const tx = db.transaction(() => {
+        const info = db
+          .prepare(
+            'INSERT INTO lab_orders (order_number, appointment_id, patient_id, doctor_id, status, notes) VALUES (?, ?, ?, ?, ?, ?)'
+          )
+          .run(orderNumber, payload.appointment_id, payload.patient_id, payload.doctor_id, 'ordered', payload.notes ?? null);
+        const orderId = Number(info.lastInsertRowid);
+        const insItem = db.prepare(
+          'INSERT INTO lab_order_items (lab_order_id, lab_test_id, test_name, ref_range, unit) VALUES (?, ?, ?, ?, ?)'
+        );
+        for (const it of payload.items) {
+          let range: string | null = null;
+          let unit: string | null = null;
+          if (it.lab_test_id) {
+            const t = db.prepare('SELECT ref_range, unit FROM lab_tests WHERE id=?').get(it.lab_test_id) as any;
+            range = t?.ref_range ?? null; unit = t?.unit ?? null;
+          }
+          insItem.run(orderId, it.lab_test_id ?? null, it.test_name, range, unit);
+        }
+        return orderId;
+      });
+      const id = tx();
+      return db.prepare('SELECT * FROM lab_orders WHERE id=?').get(id);
+    }
+  );
+
+  ipcMain.handle('lab:listOrders', (_e, filter: { status?: string; patient_id?: number } = {}) => {
+    const db = getDb();
+    const conds: string[] = [];
+    const params: any[] = [];
+    if (filter.status) { conds.push('o.status=?'); params.push(filter.status); }
+    if (filter.patient_id) { conds.push('o.patient_id=?'); params.push(filter.patient_id); }
+    const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+    return db
+      .prepare(
+        `SELECT o.*, (p.first_name || ' ' || p.last_name) as patient_name, p.uhid as patient_uhid, d.name as doctor_name
+         FROM lab_orders o
+         JOIN patients p ON p.id=o.patient_id
+         LEFT JOIN doctors d ON d.id=o.doctor_id
+         ${where}
+         ORDER BY o.ordered_at DESC LIMIT 200`
+      )
+      .all(...params);
+  });
+
+  ipcMain.handle('lab:getOrderItems', (_e, orderId: number) => {
+    return getDb().prepare('SELECT * FROM lab_order_items WHERE lab_order_id=?').all(orderId);
+  });
+
+  ipcMain.handle('lab:updateOrderStatus', (_e, orderId: number, status: string) => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const fields: Record<string, any> = { status };
+    if (status === 'sample_collected') fields.collected_at = now;
+    if (status === 'reported') fields.reported_at = now;
+    const cols = Object.keys(fields).map((k) => `${k}=?`).join(', ');
+    db.prepare(`UPDATE lab_orders SET ${cols} WHERE id=?`).run(...Object.values(fields), orderId);
+    return db.prepare('SELECT * FROM lab_orders WHERE id=?').get(orderId);
+  });
+
+  ipcMain.handle('lab:updateResults', (_e, orderId: number, items: { id: number; result: string; is_abnormal?: number }[]) => {
+    const db = getDb();
+    const upd = db.prepare('UPDATE lab_order_items SET result=?, is_abnormal=? WHERE id=?');
+    const tx = db.transaction(() => {
+      for (const it of items) upd.run(it.result, it.is_abnormal ?? 0, it.id);
+    });
+    tx();
+    return db.prepare('SELECT * FROM lab_order_items WHERE lab_order_id=?').all(orderId);
+  });
+
+  // ===== IP Admissions =====
+  ipcMain.handle('ip:list', (_e, filter: { status?: string } = {}) => {
+    const db = getDb();
+    const where = filter.status ? 'WHERE a.status=?' : '';
+    const params = filter.status ? [filter.status] : [];
+    return db
+      .prepare(
+        `SELECT a.*, (p.first_name || ' ' || p.last_name) as patient_name, p.uhid as patient_uhid, p.phone as patient_phone, d.name as doctor_name
+         FROM ip_admissions a
+         JOIN patients p ON p.id=a.patient_id
+         LEFT JOIN doctors d ON d.id=a.admission_doctor_id
+         ${where}
+         ORDER BY a.admitted_at DESC`
+      )
+      .all(...params);
+  });
+
+  ipcMain.handle('ip:admit', (_e, payload: { patient_id: number; admission_doctor_id?: number; bed_number?: string; ward?: string; admission_notes?: string }) => {
+    const db = getDb();
+    const d = new Date();
+    const ymd = `${d.getFullYear()}${pad(d.getMonth() + 1, 2)}${pad(d.getDate(), 2)}`;
+    const row = db.prepare("SELECT COUNT(*) as c FROM ip_admissions WHERE admission_number LIKE ?").get(`IP-${ymd}-%`) as { c: number };
+    const num = `IP-${ymd}-${pad(row.c + 1, 4)}`;
+    const info = db
+      .prepare(
+        'INSERT INTO ip_admissions (admission_number, patient_id, admission_doctor_id, bed_number, ward, admission_notes) VALUES (?, ?, ?, ?, ?, ?)'
+      )
+      .run(num, payload.patient_id, payload.admission_doctor_id ?? null, payload.bed_number ?? null, payload.ward ?? null, payload.admission_notes ?? null);
+    return db.prepare('SELECT * FROM ip_admissions WHERE id=?').get(info.lastInsertRowid);
+  });
+
+  ipcMain.handle('ip:discharge', (_e, id: number, summary: string) => {
+    const db = getDb();
+    db.prepare(
+      "UPDATE ip_admissions SET status='discharged', discharged_at=?, discharge_summary=? WHERE id=?"
+    ).run(new Date().toISOString(), summary, id);
+    return db.prepare('SELECT * FROM ip_admissions WHERE id=?').get(id);
+  });
+
   // ===== Notifications =====
   ipcMain.handle('notifications:list', (_e, status?: string) => {
     const db = getDb();

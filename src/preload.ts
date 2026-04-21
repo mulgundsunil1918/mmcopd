@@ -8,10 +8,15 @@ import type {
   BillWithJoins,
   Consultation,
   Doctor,
+  IpAdmission,
+  LabOrder,
+  LabOrderItem,
+  LabTest,
   NotificationLog,
   Patient,
   PatientInput,
   PaymentMode,
+  PrescriptionItem,
   Settings,
   Vitals,
 } from './types';
@@ -98,6 +103,36 @@ const api = {
       advice?: string;
       follow_up_date?: string | null;
     }) => ipcRenderer.invoke('consultations:save', payload) as Promise<Consultation>,
+  },
+  rx: {
+    getByAppointment: (appointmentId: number) =>
+      ipcRenderer.invoke('rx:getByAppointment', appointmentId) as Promise<PrescriptionItem[]>,
+    saveAll: (appointmentId: number, items: Omit<PrescriptionItem, 'id' | 'appointment_id' | 'order_idx'>[]) =>
+      ipcRenderer.invoke('rx:saveAll', appointmentId, items) as Promise<PrescriptionItem[]>,
+  },
+  lab: {
+    listTests: (activeOnly = true) => ipcRenderer.invoke('lab:listTests', activeOnly) as Promise<LabTest[]>,
+    upsertTest: (test: Partial<LabTest>) => ipcRenderer.invoke('lab:upsertTest', test) as Promise<LabTest>,
+    createOrder: (payload: {
+      appointment_id: number | null;
+      patient_id: number;
+      doctor_id: number | null;
+      notes?: string;
+      items: { lab_test_id?: number; test_name: string }[];
+    }) => ipcRenderer.invoke('lab:createOrder', payload) as Promise<LabOrder>,
+    listOrders: (filter?: { status?: string; patient_id?: number }) =>
+      ipcRenderer.invoke('lab:listOrders', filter || {}) as Promise<(LabOrder & { patient_name: string; patient_uhid: string; doctor_name: string | null })[]>,
+    getOrderItems: (orderId: number) => ipcRenderer.invoke('lab:getOrderItems', orderId) as Promise<LabOrderItem[]>,
+    updateOrderStatus: (orderId: number, status: string) => ipcRenderer.invoke('lab:updateOrderStatus', orderId, status) as Promise<LabOrder>,
+    updateResults: (orderId: number, items: { id: number; result: string; is_abnormal?: number }[]) =>
+      ipcRenderer.invoke('lab:updateResults', orderId, items) as Promise<LabOrderItem[]>,
+  },
+  ip: {
+    list: (filter?: { status?: string }) =>
+      ipcRenderer.invoke('ip:list', filter || {}) as Promise<(IpAdmission & { patient_name: string; patient_uhid: string; patient_phone: string; doctor_name: string | null })[]>,
+    admit: (payload: { patient_id: number; admission_doctor_id?: number; bed_number?: string; ward?: string; admission_notes?: string }) =>
+      ipcRenderer.invoke('ip:admit', payload) as Promise<IpAdmission>,
+    discharge: (id: number, summary: string) => ipcRenderer.invoke('ip:discharge', id, summary) as Promise<IpAdmission>,
   },
   notifications: {
     list: (status?: string) => ipcRenderer.invoke('notifications:list', status) as Promise<NotificationLog[]>,

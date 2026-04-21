@@ -11,6 +11,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   consultation_fee: '250',
   special_price: '150',
   queue_flow_enabled: 'false',
+  app_mode: 'reception_doctor',
   default_state: 'Karnataka',
   default_district: 'Gadag',
   known_villages: 'Mulgund, Gadag, Lakshmeshwar, Shirahatti, Naregal, Rona, Ron, Hulkoti, Koppal, Hubli, Dharwad',
@@ -39,4 +40,28 @@ export function seedIfEmpty(db: Database.Database) {
     'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING'
   );
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) upsert.run(k, v);
+
+  // Seed common lab tests
+  const labCount = db.prepare('SELECT COUNT(*) as c FROM lab_tests').get() as { c: number };
+  if (labCount.c === 0) {
+    const ins = db.prepare('INSERT INTO lab_tests (name, price, sample_type, ref_range, unit) VALUES (?, ?, ?, ?, ?)');
+    const tests: [string, number, string, string, string][] = [
+      ['Complete Blood Count (CBC)', 300, 'Blood (EDTA)', 'Hb 12-16 g/dL; WBC 4-11 ×10³/µL', ''],
+      ['Fasting Blood Sugar (FBS)', 80, 'Blood (Fluoride)', '70-100', 'mg/dL'],
+      ['Post-prandial Blood Sugar (PPBS)', 80, 'Blood (Fluoride)', '<140', 'mg/dL'],
+      ['HbA1c', 400, 'Blood (EDTA)', '4-5.6', '%'],
+      ['Lipid Profile', 500, 'Blood (SST)', 'Total Cholesterol <200 mg/dL', ''],
+      ['Liver Function Test (LFT)', 450, 'Blood (SST)', '—', ''],
+      ['Kidney Function Test (KFT)', 450, 'Blood (SST)', 'Creatinine 0.6-1.2 mg/dL', ''],
+      ['Thyroid Profile (T3 T4 TSH)', 400, 'Blood (SST)', 'TSH 0.4-4.0', 'µIU/mL'],
+      ['Urine Routine', 100, 'Urine', 'Normal', ''],
+      ['ECG', 200, '—', 'Normal sinus rhythm', ''],
+      ['X-Ray Chest PA', 250, '—', 'Normal lung fields', ''],
+      ['Dengue NS1', 350, 'Blood (SST)', 'Negative', ''],
+      ['Malaria Parasite (MP)', 150, 'Blood', 'Not detected', ''],
+      ['Widal Test', 150, 'Blood (SST)', '<1:80', ''],
+      ['COVID-19 Rapid Antigen', 300, 'Nasal swab', 'Negative', ''],
+    ];
+    for (const t of tests) ins.run(...t);
+  }
 }

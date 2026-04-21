@@ -8,6 +8,8 @@ import { Billing } from './pages/Billing';
 import { Accounts } from './pages/Accounts';
 import { PatientLog } from './pages/PatientLog';
 import { PatientOrigin } from './pages/PatientOrigin';
+import { Lab } from './pages/Lab';
+import { IPD } from './pages/IPD';
 import { Notifications } from './pages/Notifications';
 import { SettingsPage } from './pages/Settings';
 import { useEffect } from 'react';
@@ -35,6 +37,8 @@ export default function App() {
         <Route path="/accounts" element={<Accounts />} />
         <Route path="/patient-log" element={<PatientLog />} />
         <Route path="/origin" element={<PatientOrigin />} />
+        <Route path="/lab" element={<Lab />} />
+        <Route path="/ipd" element={<IPD />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>

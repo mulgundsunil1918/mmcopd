@@ -1,6 +1,6 @@
 export type Gender = 'M' | 'F' | 'Other';
 
-export type AppointmentStatus = 'Waiting' | 'In Progress' | 'Done' | 'Cancelled' | 'Send to Billing';
+export type AppointmentStatus = 'Waiting' | 'In Progress' | 'Done' | 'Cancelled' | 'Send to Billing' | 'Ready for Print';
 
 export type PaymentMode = 'Cash' | 'Card' | 'UPI';
 
@@ -141,6 +141,71 @@ export interface Consultation {
   updated_at?: string;
 }
 
+export type AppMode = 'reception' | 'reception_doctor' | 'reception_doctor_lab' | 'reception_doctor_lab_ip';
+
+export interface PrescriptionItem {
+  id?: number;
+  appointment_id: number;
+  drug_name: string;
+  dosage?: string | null;
+  frequency?: string | null;
+  duration?: string | null;
+  instructions?: string | null;
+  order_idx?: number;
+}
+
+export interface LabTest {
+  id: number;
+  name: string;
+  price: number;
+  sample_type: string | null;
+  ref_range: string | null;
+  unit: string | null;
+  is_active: number;
+}
+
+export type LabOrderStatus = 'ordered' | 'sample_collected' | 'reported' | 'cancelled';
+
+export interface LabOrder {
+  id: number;
+  order_number: string;
+  appointment_id: number | null;
+  patient_id: number;
+  doctor_id: number | null;
+  status: LabOrderStatus;
+  ordered_at: string;
+  collected_at: string | null;
+  reported_at: string | null;
+  notes: string | null;
+}
+
+export interface LabOrderItem {
+  id?: number;
+  lab_order_id: number;
+  lab_test_id: number | null;
+  test_name: string;
+  result: string | null;
+  unit: string | null;
+  ref_range: string | null;
+  is_abnormal: number;
+}
+
+export type AdmissionStatus = 'admitted' | 'discharged' | 'cancelled';
+
+export interface IpAdmission {
+  id: number;
+  admission_number: string;
+  patient_id: number;
+  admission_doctor_id: number | null;
+  admitted_at: string;
+  discharged_at: string | null;
+  bed_number: string | null;
+  ward: string | null;
+  admission_notes: string | null;
+  discharge_summary: string | null;
+  status: AdmissionStatus;
+}
+
 export interface Settings {
   clinic_name: string;
   clinic_address: string;
@@ -153,6 +218,7 @@ export interface Settings {
   consultation_fee: number;
   special_price: number;
   queue_flow_enabled: boolean;
+  app_mode: AppMode;
   default_state: string;
   default_district: string;
   known_villages: string;
