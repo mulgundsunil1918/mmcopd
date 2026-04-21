@@ -70,16 +70,20 @@ function AppModeSelector() {
   });
 
   if (!settings) return null;
-  const current = settings.app_mode;
+  // Defensive default — if the persisted setting is missing/unknown, assume reception_doctor.
+  const current: AppMode = (MODES.find((m) => m.value === settings.app_mode)?.value) || 'reception_doctor';
+  const currentTitle = MODES.find((m) => m.value === current)!.title;
+
   return (
     <section className="card p-5">
       <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-1">Application Mode</h2>
       <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-4">
         Pick which modules your clinic uses. Navigation adapts instantly — nothing gets deleted, just hidden.
       </p>
-      <div className="text-[11px] mb-3 px-3 py-2 rounded-lg" style={{ background: '#dbeafe', color: '#1e3a8a', border: '1px solid #60a5fa' }}>
-        Currently active mode: <span style={{ fontWeight: 800 }}>{MODES.find((m) => m.value === current)?.title || `(unknown: ${current})`}</span>
+      <div className="text-xs mb-4 px-3 py-2 rounded-lg bg-blue-100 border border-blue-300 text-blue-900 dark:bg-blue-900/40 dark:border-blue-700 dark:text-blue-100">
+        Currently active mode: <span className="font-bold">{currentTitle}</span>
       </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {MODES.map((m) => {
           const active = current === m.value;
@@ -88,20 +92,13 @@ function AppModeSelector() {
               key={m.value}
               type="button"
               onClick={() => save.mutate({ app_mode: m.value })}
-              className="relative text-left rounded-xl p-4 transition overflow-hidden"
-              style={
+              className={cn(
+                'relative text-left rounded-xl p-4 transition overflow-hidden',
                 active
-                  ? {
-                      border: '4px solid #2563eb',
-                      backgroundColor: '#dbeafe',
-                      boxShadow: '0 0 0 3px rgba(37, 99, 235, 0.25)',
-                      color: '#1e3a8a',
-                    }
-                  : {
-                      border: '2px solid #e5e7eb',
-                      backgroundColor: 'var(--bg, #ffffff)',
-                    }
-              }
+                  ? 'border-4 border-blue-600 bg-blue-100 dark:bg-blue-900/50 dark:border-blue-400'
+                  : 'border-2 border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-400'
+              )}
+              style={active ? { boxShadow: '0 0 0 3px rgba(37, 99, 235, 0.3)' } : undefined}
             >
               {active && (
                 <>
@@ -110,20 +107,41 @@ function AppModeSelector() {
                     style={{ height: 4, background: 'linear-gradient(90deg, #2563eb, #6366f1)' }}
                   />
                   <div
-                    className="absolute top-2 right-2 flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider"
-                    style={{ background: '#2563eb', color: '#ffffff' }}
+                    className="absolute top-2 right-2 flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider text-white"
+                    style={{ backgroundColor: '#2563eb' }}
                   >
                     <Check className="w-3 h-3" /> Selected
                   </div>
                 </>
               )}
-              <div className="text-sm font-bold pr-24" style={active ? { color: '#1e3a8a' } : undefined}>
+              <div
+                className={cn(
+                  'text-sm font-bold pr-24',
+                  active
+                    ? 'text-blue-900 dark:text-blue-100'
+                    : 'text-gray-900 dark:text-slate-100'
+                )}
+              >
                 {m.title}
               </div>
-              <div className="text-[11px] mt-1" style={active ? { color: '#1e40af' } : { color: '#64748b' }}>
+              <div
+                className={cn(
+                  'text-[11px] mt-1',
+                  active
+                    ? 'text-blue-800 dark:text-blue-200'
+                    : 'text-gray-600 dark:text-slate-300'
+                )}
+              >
                 {m.blurb}
               </div>
-              <ul className="text-[11px] mt-2 list-disc pl-4 space-y-0.5" style={active ? { color: '#1e40af' } : { color: '#64748b' }}>
+              <ul
+                className={cn(
+                  'text-[11px] mt-2 list-disc pl-4 space-y-0.5',
+                  active
+                    ? 'text-blue-800 dark:text-blue-200'
+                    : 'text-gray-500 dark:text-slate-400'
+                )}
+              >
                 {m.includes.map((i) => <li key={i}>{i}</li>)}
               </ul>
             </button>
