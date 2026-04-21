@@ -65,8 +65,16 @@ function AppModeSelector() {
       if (prev) qc.setQueryData(['settings'], { ...prev, ...patch });
       return { prev };
     },
-    onError: (_e, _p, ctx) => { if (ctx?.prev) qc.setQueryData(['settings'], ctx.prev); toast('Save failed', 'error'); },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings'] }); toast('Mode switched'); },
+    onError: (_e, _p, ctx) => {
+      if (ctx?.prev) qc.setQueryData(['settings'], ctx.prev);
+      toast('Save failed', 'error');
+    },
+    onSuccess: async (_data, patch) => {
+      await qc.refetchQueries({ queryKey: ['settings'] });
+      const newMode = (patch as any).app_mode as AppMode | undefined;
+      const title = newMode ? MODES.find((m) => m.value === newMode)?.title || newMode : 'settings';
+      toast(`Switched to: ${title}`);
+    },
   });
 
   if (!settings) return null;
@@ -87,11 +95,16 @@ function AppModeSelector() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {MODES.map((m) => {
           const active = current === m.value;
+          const pending = save.isPending && (save.variables as any)?.app_mode === m.value;
           return (
             <button
               key={m.value}
               type="button"
-              onClick={() => save.mutate({ app_mode: m.value })}
+              disabled={save.isPending}
+              onClick={() => {
+                if (current === m.value) return;
+                save.mutate({ app_mode: m.value });
+              }}
               className={cn(
                 'relative text-left rounded-xl p-4 transition overflow-hidden',
                 active
@@ -113,6 +126,11 @@ function AppModeSelector() {
                     <Check className="w-3 h-3" /> Selected
                   </div>
                 </>
+              )}
+              {pending && (
+                <div className="absolute inset-0 bg-black/30 flex items-center justify-center text-white text-xs font-semibold">
+                  Switching…
+                </div>
               )}
               <div
                 className={cn(
