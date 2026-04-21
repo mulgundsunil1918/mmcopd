@@ -274,11 +274,11 @@ export function registerIpc() {
 
     // Trigger notifications
     const notif = new NotificationService(db);
-    const patient = db.prepare('SELECT * FROM patients WHERE id=?').get(payload.patient_id) as Patient;
+    const patientRow = db.prepare('SELECT * FROM patients WHERE id=?').get(payload.patient_id) as Patient;
     const doctor = db.prepare('SELECT * FROM doctors WHERE id=?').get(payload.doctor_id) as Doctor;
     const settings = getAllSettings(db);
-    notif.sendAppointmentConfirmation(patient, created, doctor, settings.clinic_name);
-    notif.sendDoctorAlert(doctor, created, patient);
+    notif.sendAppointmentConfirmation(patientRow, created, doctor, settings.clinic_name);
+    notif.sendDoctorAlert(doctor, created, patientRow);
 
     return created;
   });
