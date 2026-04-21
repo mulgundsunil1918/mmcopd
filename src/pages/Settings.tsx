@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building2, Stethoscope, Plus, Pencil, Wallet, ListChecks } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { Check } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { ImageUpload } from '../components/ImageUpload';
 import { ProviderSettings } from '../components/ProviderSettings';
@@ -77,30 +78,44 @@ function AppModeSelector() {
         Pick which modules your clinic uses. Navigation adapts instantly — nothing gets deleted, just hidden.
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {MODES.map((m) => (
-          <button
-            key={m.value}
-            type="button"
-            onClick={() => save.mutate({ app_mode: m.value })}
-            className={cn(
-              'text-left rounded-xl border-2 p-4 transition',
-              current === m.value
-                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
-                : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-300'
-            )}
-          >
-            <div className="flex items-center justify-between">
-              <div className={cn('text-sm font-semibold', current === m.value ? 'text-blue-800 dark:text-blue-200' : 'text-gray-900 dark:text-slate-100')}>
+        {MODES.map((m) => {
+          const active = current === m.value;
+          return (
+            <button
+              key={m.value}
+              type="button"
+              onClick={() => save.mutate({ app_mode: m.value })}
+              className={cn(
+                'relative text-left rounded-xl p-4 transition overflow-hidden',
+                active
+                  ? 'ring-4 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-900 bg-blue-600/10 dark:bg-blue-500/20'
+                  : 'border-2 border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-400'
+              )}
+              style={active ? { boxShadow: '0 0 0 1px #2563eb inset' } : undefined}
+            >
+              {active && (
+                <>
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-600 to-indigo-500" />
+                  <div className="absolute top-2 right-2 flex items-center gap-1 bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    <Check className="w-3 h-3" /> Active
+                  </div>
+                </>
+              )}
+              <div className={cn('text-sm font-bold pr-20', active ? 'text-blue-700 dark:text-blue-200' : 'text-gray-900 dark:text-slate-100')}>
                 {m.title}
               </div>
-              {current === m.value && <span className="badge bg-blue-600 text-white">Active</span>}
-            </div>
-            <div className="text-[11px] text-gray-600 dark:text-slate-300 mt-1">{m.blurb}</div>
-            <ul className="text-[11px] text-gray-500 dark:text-slate-400 mt-2 list-disc pl-4 space-y-0.5">
-              {m.includes.map((i) => <li key={i}>{i}</li>)}
-            </ul>
-          </button>
-        ))}
+              <div className={cn('text-[11px] mt-1', active ? 'text-blue-800 dark:text-blue-100' : 'text-gray-600 dark:text-slate-300')}>
+                {m.blurb}
+              </div>
+              <ul className={cn('text-[11px] mt-2 list-disc pl-4 space-y-0.5', active ? 'text-blue-800 dark:text-blue-200' : 'text-gray-500 dark:text-slate-400')}>
+                {m.includes.map((i) => <li key={i}>{i}</li>)}
+              </ul>
+            </button>
+          );
+        })}
+      </div>
+      <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-3">
+        Currently active: <span className="font-semibold text-blue-700 dark:text-blue-300">{MODES.find((m) => m.value === current)?.title || current}</span>
       </div>
     </section>
   );
