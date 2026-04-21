@@ -1,4 +1,6 @@
-import { ipcMain } from 'electron';
+import { ipcMain, app, shell } from 'electron';
+import fs from 'node:fs';
+import path from 'node:path';
 import { getDb } from '../db/db';
 import { getAllSettings, saveSettings } from '../db/settings';
 import { NotificationService } from '../services/notifications';
@@ -502,9 +504,6 @@ export function registerIpc() {
   ipcMain.handle(
     'emr:addDocument',
     (_e, payload: { patient_id: number; file_name: string; file_type: string; data_base64: string; note?: string }) => {
-      const fs = require('node:fs');
-      const path = require('node:path');
-      const { app } = require('electron');
       const dir = path.join(app.getPath('userData'), 'documents', String(payload.patient_id));
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       const safeName = payload.file_name.replace(/[^\w.\-]/g, '_');
@@ -520,12 +519,10 @@ export function registerIpc() {
     }
   );
   ipcMain.handle('emr:openDocument', (_e, id: number) => {
-    const { shell } = require('electron');
     const row = getDb().prepare('SELECT file_path FROM patient_documents WHERE id=?').get(id) as any;
     if (row?.file_path) shell.openPath(row.file_path);
   });
   ipcMain.handle('emr:deleteDocument', (_e, id: number) => {
-    const fs = require('node:fs');
     const db = getDb();
     const row = db.prepare('SELECT file_path FROM patient_documents WHERE id=?').get(id) as any;
     if (row?.file_path && fs.existsSync(row.file_path)) { try { fs.unlinkSync(row.file_path); } catch { /* ignore */ } }
@@ -1109,9 +1106,6 @@ export function registerIpc() {
 
   // ===== Backup =====
   ipcMain.handle('backup:now', async () => {
-    const fs = require('node:fs');
-    const path = require('node:path');
-    const { app } = require('electron');
     const userData = app.getPath('userData');
     const src = path.join(userData, 'caredesk.sqlite');
     const s = getAllSettings(getDb());
@@ -1137,9 +1131,6 @@ export function registerIpc() {
   });
 
   ipcMain.handle('backup:list', () => {
-    const fs = require('node:fs');
-    const path = require('node:path');
-    const { app } = require('electron');
     const userData = app.getPath('userData');
     const s = getAllSettings(getDb());
     const dir = s.backup_folder || path.join(userData, 'backups');
@@ -1155,8 +1146,6 @@ export function registerIpc() {
   });
 
   ipcMain.handle('backup:open', () => {
-    const path = require('node:path');
-    const { app, shell } = require('electron');
     const s = getAllSettings(getDb());
     const dir = s.backup_folder || path.join(app.getPath('userData'), 'backups');
     shell.openPath(dir);
