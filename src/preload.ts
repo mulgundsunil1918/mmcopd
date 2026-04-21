@@ -23,7 +23,23 @@ import type {
   Vitals,
 } from './types';
 
+type Role = 'admin' | 'receptionist' | 'doctor' | 'lab_tech' | 'pharmacist';
+type SessionUser = { id: number; username: string; role: Role; display_name: string | null; doctor_id: number | null };
+
 const api = {
+  auth: {
+    login: (username: string, password: string) => ipcRenderer.invoke('auth:login', username, password) as Promise<SessionUser | null>,
+    createUser: (input: { username: string; password: string; role: Role; display_name?: string; doctor_id?: number }) =>
+      ipcRenderer.invoke('auth:createUser', input) as Promise<SessionUser>,
+    changePassword: (userId: number, newPassword: string) => ipcRenderer.invoke('auth:changePassword', userId, newPassword) as Promise<boolean>,
+    listUsers: () => ipcRenderer.invoke('auth:listUsers') as Promise<any[]>,
+    updateUser: (id: number, patch: any) => ipcRenderer.invoke('auth:updateUser', id, patch) as Promise<any[]>,
+  },
+  audit: {
+    list: (limit?: number) => ipcRenderer.invoke('audit:list', limit) as Promise<any[]>,
+    log: (user: SessionUser | null, action: string, entity?: string, entity_id?: number, details?: string) =>
+      ipcRenderer.invoke('audit:log', user, action, entity, entity_id, details) as Promise<void>,
+  },
   patients: {
     search: (q: string) => ipcRenderer.invoke('patients:search', q) as Promise<(Patient & { last_visit: string | null })[]>,
     get: (id: number) => ipcRenderer.invoke('patients:get', id) as Promise<Patient | undefined>,

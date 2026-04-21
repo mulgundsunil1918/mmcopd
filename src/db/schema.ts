@@ -83,6 +83,32 @@ export function createSchema(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_notif_status ON notification_log(status);
 
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      salt TEXT NOT NULL,
+      role TEXT NOT NULL,
+      display_name TEXT,
+      doctor_id INTEGER REFERENCES doctors(id),
+      is_active INTEGER NOT NULL DEFAULT 1,
+      last_login_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER REFERENCES users(id),
+      username TEXT,
+      role TEXT,
+      action TEXT NOT NULL,
+      entity TEXT,
+      entity_id INTEGER,
+      details TEXT,
+      at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
+
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT

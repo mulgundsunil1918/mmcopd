@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import { ToastProvider } from './hooks/useToast';
 import { ThemeProvider } from './hooks/useTheme';
+import { AuthProvider } from './hooks/useAuth';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -18,9 +19,11 @@ createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <ToastProvider>
-          <HashRouter>
-            <App />
-          </HashRouter>
+          <AuthProvider>
+            <HashRouter>
+              <App />
+            </HashRouter>
+          </AuthProvider>
         </ToastProvider>
       </ThemeProvider>
     </QueryClientProvider>

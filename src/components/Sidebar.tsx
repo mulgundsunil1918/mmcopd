@@ -1,11 +1,12 @@
 import { NavLink } from 'react-router-dom';
-import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill } from 'lucide-react';
+import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill, LogOut, ShieldCheck, UserCircle2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '../lib/utils';
 import { useTheme } from '../hooks/useTheme';
+import { useAuth, canAnyRole, type Role } from '../hooks/useAuth';
 import type { AppMode } from '../types';
 
-type NavItem = { to: string; label: string; icon: any; color: string; minMode: AppMode };
+type NavItem = { to: string; label: string; icon: any; color: string; minMode: AppMode; roles: Role[] };
 
 const MODE_RANK: Record<AppMode, number> = {
   reception: 0,
@@ -15,33 +16,35 @@ const MODE_RANK: Record<AppMode, number> = {
 };
 
 const NAV: NavItem[] = [
-  { to: '/reception', label: 'Reception', icon: Users, color: 'text-emerald-500', minMode: 'reception' },
-  { to: '/appointments', label: 'Appointments', icon: Calendar, color: 'text-blue-500', minMode: 'reception' },
-  { to: '/doctor-select', label: 'Doctors', icon: Stethoscope, color: 'text-purple-500', minMode: 'reception_doctor' },
-  { to: '/lab', label: 'Laboratory', icon: FlaskConical, color: 'text-fuchsia-500', minMode: 'reception_doctor_lab' },
-  { to: '/pharmacy', label: 'Pharmacy', icon: Pill, color: 'text-lime-500', minMode: 'reception_doctor_lab' },
-  { to: '/ipd', label: 'IPD', icon: BedDouble, color: 'text-red-500', minMode: 'reception_doctor_lab_ip' },
-  { to: '/patient-log', label: 'Patient Log', icon: History, color: 'text-cyan-500', minMode: 'reception' },
-  { to: '/origin', label: 'Patient Origin', icon: MapPin, color: 'text-rose-500', minMode: 'reception' },
-  { to: '/billing', label: 'Billing', icon: Receipt, color: 'text-amber-500', minMode: 'reception' },
-  { to: '/accounts', label: 'Accounts', icon: Wallet, color: 'text-teal-500', minMode: 'reception' },
-  { to: '/notifications', label: 'Notifications', icon: Bell, color: 'text-pink-500', minMode: 'reception' },
-  { to: '/settings', label: 'Settings', icon: SettingsIcon, color: 'text-slate-500', minMode: 'reception' },
+  { to: '/reception', label: 'Reception', icon: Users, color: 'text-emerald-500', minMode: 'reception', roles: ['receptionist'] },
+  { to: '/appointments', label: 'Appointments', icon: Calendar, color: 'text-blue-500', minMode: 'reception', roles: ['receptionist', 'doctor'] },
+  { to: '/doctor-select', label: 'Doctors', icon: Stethoscope, color: 'text-purple-500', minMode: 'reception_doctor', roles: ['doctor', 'receptionist'] },
+  { to: '/lab', label: 'Laboratory', icon: FlaskConical, color: 'text-fuchsia-500', minMode: 'reception_doctor_lab', roles: ['lab_tech', 'doctor', 'receptionist'] },
+  { to: '/pharmacy', label: 'Pharmacy', icon: Pill, color: 'text-lime-500', minMode: 'reception_doctor_lab', roles: ['pharmacist', 'doctor', 'receptionist'] },
+  { to: '/ipd', label: 'IPD', icon: BedDouble, color: 'text-red-500', minMode: 'reception_doctor_lab_ip', roles: ['doctor', 'receptionist'] },
+  { to: '/patient-log', label: 'Patient Log', icon: History, color: 'text-cyan-500', minMode: 'reception', roles: ['receptionist', 'doctor'] },
+  { to: '/origin', label: 'Patient Origin', icon: MapPin, color: 'text-rose-500', minMode: 'reception', roles: ['receptionist', 'doctor'] },
+  { to: '/billing', label: 'Billing', icon: Receipt, color: 'text-amber-500', minMode: 'reception', roles: ['receptionist'] },
+  { to: '/accounts', label: 'Accounts', icon: Wallet, color: 'text-teal-500', minMode: 'reception', roles: ['receptionist'] },
+  { to: '/notifications', label: 'Notifications', icon: Bell, color: 'text-pink-500', minMode: 'reception', roles: ['receptionist'] },
+  { to: '/users', label: 'Users & Access', icon: ShieldCheck, color: 'text-indigo-500', minMode: 'reception', roles: [] /* admin-only via canAnyRole guard */ },
+  { to: '/settings', label: 'Settings', icon: SettingsIcon, color: 'text-slate-500', minMode: 'reception', roles: [] /* admin-only */ },
 ];
 
 export function Sidebar() {
   const { theme, toggle } = useTheme();
-  const { data: clinicName } = useQuery({
-    queryKey: ['clinic-name'],
-    queryFn: () => window.electronAPI.app.getClinicName(),
-  });
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => window.electronAPI.settings.get(),
-  });
+  const { user, logout } = useAuth();
+  const { data: clinicName } = useQuery({ queryKey: ['clinic-name'], queryFn: () => window.electronAPI.app.getClinicName() });
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
 
   const currentMode = settings?.app_mode || 'reception_doctor';
-  const visibleNav = NAV.filter((n) => MODE_RANK[n.minMode] <= MODE_RANK[currentMode]);
+  const visibleNav = NAV.filter((n) => {
+    if (MODE_RANK[n.minMode] > MODE_RANK[currentMode]) return false;
+    // admin sees everything; others see items that list their role (empty roles = admin-only)
+    if (user?.role === 'admin') return true;
+    if (n.roles.length === 0) return false;
+    return canAnyRole(user, n.roles);
+  });
 
   return (
     <aside className="sidebar w-60 flex flex-col no-print">
@@ -84,6 +87,19 @@ export function Sidebar() {
       </nav>
 
       <div className="px-3 py-3 border-t sidebar-divider space-y-2">
+        {user && (
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg sidebar-link">
+            <UserCircle2 className="w-4 h-4 text-blue-500 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-semibold truncate">{user.display_name || user.username}</div>
+              <div className="text-[10px] opacity-80 uppercase tracking-wider">{user.role.replace('_', ' ')}</div>
+            </div>
+            <button onClick={logout} className="p-1 hover:text-red-500" title="Logout">
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         <button
           onClick={toggle}
           className="sidebar-link w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition"

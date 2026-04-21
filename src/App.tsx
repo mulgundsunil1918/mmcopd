@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
+import { Login } from './pages/Login';
 import { Reception } from './pages/Reception';
 import { Appointments } from './pages/Appointments';
 import { DoctorSelect } from './pages/DoctorSelect';
@@ -13,10 +14,13 @@ import { Pharmacy } from './pages/Pharmacy';
 import { IPD } from './pages/IPD';
 import { Notifications } from './pages/Notifications';
 import { SettingsPage } from './pages/Settings';
+import { UsersPage } from './pages/Users';
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from './hooks/useAuth';
 
 export default function App() {
+  const { user } = useAuth();
   const { data: clinicName } = useQuery({
     queryKey: ['clinic-name-title'],
     queryFn: () => window.electronAPI.app.getClinicName(),
@@ -25,6 +29,8 @@ export default function App() {
   useEffect(() => {
     if (clinicName) document.title = `${clinicName} · CareDesk HMS`;
   }, [clinicName]);
+
+  if (!user) return <Login />;
 
   return (
     <Routes>
@@ -43,6 +49,7 @@ export default function App() {
         <Route path="/ipd" element={<IPD />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/users" element={<UsersPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/reception" replace />} />
     </Routes>

@@ -2,6 +2,7 @@ import { ipcMain } from 'electron';
 import { getDb } from '../db/db';
 import { getAllSettings, saveSettings } from '../db/settings';
 import { NotificationService } from '../services/notifications';
+import { createUser, verifyLogin, ensureDefaultAdmin, changePassword, listUsers, updateUser, logAudit, listAudit, type Role, type SessionUser } from './auth';
 import type {
   Appointment,
   AppointmentStatus,
@@ -54,6 +55,40 @@ function generateBillNumber(): string {
 }
 
 export function registerIpc() {
+  // Ensure a default admin exists on first boot
+  ensureDefaultAdmin(getDb());
+
+  // ===== Auth =====
+  ipcMain.handle('auth:login', (_e, username: string, password: string) => {
+    const db = getDb();
+    const user = verifyLogin(db, username, password);
+    if (user) logAudit(db, user, 'login');
+    return user;
+  });
+  ipcMain.handle('auth:createUser', (_e, input: { username: string; password: string; role: Role; display_name?: string; doctor_id?: number }) => {
+    const db = getDb();
+    const u = createUser(db, input);
+    logAudit(db, null, 'user_created', 'users', u.id, `role=${input.role}`);
+    return u;
+  });
+  ipcMain.handle('auth:changePassword', (_e, userId: number, newPassword: string) => {
+    const db = getDb();
+    changePassword(db, userId, newPassword);
+    logAudit(db, null, 'password_changed', 'users', userId);
+    return true;
+  });
+  ipcMain.handle('auth:listUsers', () => listUsers(getDb()));
+  ipcMain.handle('auth:updateUser', (_e, id: number, patch: any) => {
+    const db = getDb();
+    updateUser(db, id, patch);
+    logAudit(db, null, 'user_updated', 'users', id, JSON.stringify(patch));
+    return listUsers(db);
+  });
+  ipcMain.handle('audit:list', (_e, limit?: number) => listAudit(getDb(), limit ?? 500));
+  ipcMain.handle('audit:log', (_e, user: SessionUser | null, action: string, entity?: string, entity_id?: number, details?: string) => {
+    logAudit(getDb(), user, action, entity, entity_id, details);
+  });
+
   // ===== Patients =====
   ipcMain.handle('patients:search', (_e, q: string) => {
     const db = getDb();
