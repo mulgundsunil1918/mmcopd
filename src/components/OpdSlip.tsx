@@ -230,7 +230,7 @@ function Vital({ label, value }: { label: string; value?: string }) {
   return (
     <div className="border border-gray-200 rounded py-1 px-1">
       <div className="text-[8px] uppercase tracking-wider text-gray-500">{label}</div>
-      <div className="text-xs font-semibold text-gray-900 mt-0.5 min-h-[14px]">{value || '—'}</div>
+      <div className="text-xs font-semibold text-gray-900 mt-0.5 min-h-[16px]">{value || '\u00A0'}</div>
     </div>
   );
 }
