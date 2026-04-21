@@ -35,6 +35,14 @@ function generateUHID(): string {
   return `PT-${ymd}-${pad(row.c + 1, 4)}`;
 }
 
+function generateVisitId(firstName: string, phone: string, dateISO: string): string {
+  const name = (firstName || '').replace(/[^A-Za-z]/g, '').toUpperCase().padEnd(3, 'X').slice(0, 3);
+  const phoneDigits = (phone || '').replace(/\D/g, '');
+  const phonePrefix = phoneDigits.slice(0, 2).padEnd(2, '0');
+  const day = (dateISO || '').slice(8, 10) || '00';
+  return `${name}${phonePrefix}${day}`;
+}
+
 function generateBillNumber(): string {
   const d = new Date();
   const ymd = `${d.getFullYear()}${pad(d.getMonth() + 1, 2)}${pad(d.getDate(), 2)}`;
@@ -183,18 +191,24 @@ export function registerIpc() {
     }
   );
 
-  ipcMain.handle('appointments:create', (_e, payload: Omit<Appointment, 'id' | 'created_at' | 'token_number' | 'status'> & { status?: AppointmentStatus }) => {
+  ipcMain.handle('appointments:create', (_e, payload: Omit<Appointment, 'id' | 'created_at' | 'token_number' | 'consultation_token' | 'status'> & { status?: AppointmentStatus }) => {
     const db = getDb();
+    // Clinic-wide token: serial number of this patient across ALL doctors for the day.
     const tokenRow = db
       .prepare(
-        "SELECT COALESCE(MAX(token_number), 0) as mx FROM appointments WHERE doctor_id=? AND appointment_date=?"
+        "SELECT COALESCE(MAX(token_number), 0) as mx FROM appointments WHERE appointment_date=?"
       )
-      .get(payload.doctor_id, payload.appointment_date) as { mx: number };
+      .get(payload.appointment_date) as { mx: number };
     const token = tokenRow.mx + 1;
+
+    // 7-char Visit ID: first 3 of firstname + last 2 of phone + day of month
+    const patient = db.prepare('SELECT first_name, phone FROM patients WHERE id=?').get(payload.patient_id) as { first_name: string; phone: string } | undefined;
+    const visitId = patient ? generateVisitId(patient.first_name, patient.phone, payload.appointment_date) : '';
+
     const info = db
       .prepare(
-        `INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, token_number, status, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, token_number, consultation_token, status, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         payload.patient_id,
@@ -202,6 +216,7 @@ export function registerIpc() {
         payload.appointment_date,
         payload.appointment_time,
         token,
+        visitId,
         payload.status ?? (getAllSettings(db).queue_flow_enabled ? 'Waiting' : 'Done'),
         payload.notes ?? null
       );

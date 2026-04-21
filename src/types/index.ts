@@ -58,6 +58,7 @@ export interface Appointment {
   appointment_date: string;
   appointment_time: string;
   token_number: number;
+  consultation_token: string | null;
   status: AppointmentStatus;
   notes: string | null;
   created_at: string;

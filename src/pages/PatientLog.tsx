@@ -237,6 +237,7 @@ function LogTable({
         <thead>
           <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
             <th className="px-4 py-2">Token</th>
+            <th className="px-4 py-2">Visit ID</th>
             <th className="px-4 py-2">Time</th>
             <th className="px-4 py-2">Patient</th>
             <th className="px-4 py-2">Age / Sex</th>
@@ -252,6 +253,7 @@ function LogTable({
           {rows.map((r) => (
             <tr key={r.id} className="border-b border-gray-100 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/40">
               <td className="px-4 py-2 font-semibold text-gray-700 dark:text-slate-200">#{r.token_number}</td>
+              <td className="px-4 py-2 font-mono text-[11px] tracking-wider text-indigo-600 dark:text-indigo-400">{r.consultation_token || '—'}</td>
               <td className="px-4 py-2 text-gray-600 dark:text-slate-300">{fmt12h(r.appointment_time)}</td>
               <td className="px-4 py-2">
                 <div className="font-medium text-gray-900 dark:text-slate-100">{r.patient_name}</div>

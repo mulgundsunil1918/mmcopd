@@ -371,7 +371,11 @@ function PatientForm({
             </select>
           </Field>
           <Field label="Phone *" error={errors.phone?.message}>
-            <input className="input" {...register('phone')} />
+            <PhoneField
+              register={register}
+              setValue={setValue}
+              watch={watch}
+            />
           </Field>
           <Field label="Email (optional)" error={errors.email?.message}>
             <input className="input" type="email" {...register('email')} />
@@ -449,6 +453,32 @@ function PatientForm({
         </div>
       </div>
     </form>
+  );
+}
+
+function PhoneField({ register, setValue, watch }: { register: any; setValue: any; watch: any }) {
+  const phone = watch('phone') || '';
+  const noPhone = phone === '0000000000';
+  return (
+    <div>
+      <input
+        className="input"
+        placeholder="10-digit number"
+        disabled={noPhone}
+        {...register('phone')}
+      />
+      <label className="mt-1.5 flex items-center gap-2 text-[11px] text-gray-600 dark:text-slate-300 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={noPhone}
+          onChange={(e) => {
+            if (e.target.checked) setValue('phone', '0000000000', { shouldValidate: true });
+            else setValue('phone', '', { shouldValidate: true });
+          }}
+        />
+        <span>Patient has no contact number (use default 0000000000)</span>
+      </label>
+    </div>
   );
 }
 

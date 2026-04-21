@@ -47,6 +47,7 @@ export function createSchema(db: Database.Database) {
       appointment_date TEXT NOT NULL,
       appointment_time TEXT NOT NULL,
       token_number INTEGER NOT NULL,
+      consultation_token TEXT,
       status TEXT NOT NULL DEFAULT 'Waiting',
       notes TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))

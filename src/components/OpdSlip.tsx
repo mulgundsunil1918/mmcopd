@@ -115,6 +115,11 @@ function SlipBody({
               OPD Slip
             </div>
             <div className="text-base font-bold mt-1" style={{ color: '#0f172a' }}>Token #{appointment.token_number}</div>
+            {appointment.consultation_token && (
+              <div className="text-[11px] font-mono tracking-widest font-semibold" style={{ color: '#1d4ed8' }}>
+                Visit ID: {appointment.consultation_token}
+              </div>
+            )}
             <div className="text-[10px]" style={{ color: '#475569' }}>{slipDate}</div>
             <div className="text-[9px]" style={{ color: '#64748b' }}>Slip ID: {appointment.patient_uhid}/A{appointment.id}</div>
           </div>

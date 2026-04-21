@@ -14,6 +14,7 @@ export function runMigrations(db: Database.Database) {
   addColumnIfMissing(db, 'patients', 'place', 'TEXT');
   addColumnIfMissing(db, 'patients', 'district', 'TEXT');
   addColumnIfMissing(db, 'patients', 'state', 'TEXT');
+  addColumnIfMissing(db, 'appointments', 'consultation_token', 'TEXT');
   // Indexes that depend on the migrated columns — create AFTER column migrations.
   db.exec('CREATE INDEX IF NOT EXISTS idx_patients_place ON patients(place, district);');
   const current = db
