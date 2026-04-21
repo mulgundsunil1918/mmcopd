@@ -8,6 +8,7 @@ import type {
   BillWithJoins,
   Consultation,
   Doctor,
+  Drug,
   IpAdmission,
   LabOrder,
   LabOrderItem,
@@ -16,6 +17,7 @@ import type {
   Patient,
   PatientInput,
   PaymentMode,
+  PharmacySale,
   PrescriptionItem,
   Settings,
   Vitals,
@@ -126,6 +128,25 @@ const api = {
     updateOrderStatus: (orderId: number, status: string) => ipcRenderer.invoke('lab:updateOrderStatus', orderId, status) as Promise<LabOrder>,
     updateResults: (orderId: number, items: { id: number; result: string; is_abnormal?: number }[]) =>
       ipcRenderer.invoke('lab:updateResults', orderId, items) as Promise<LabOrderItem[]>,
+  },
+  pharmacy: {
+    listDrugs: (filter?: { q?: string; activeOnly?: boolean }) =>
+      ipcRenderer.invoke('pharmacy:listDrugs', filter || {}) as Promise<Drug[]>,
+    upsertDrug: (drug: Partial<Drug>) => ipcRenderer.invoke('pharmacy:upsertDrug', drug) as Promise<Drug>,
+    alerts: () => ipcRenderer.invoke('pharmacy:alerts') as Promise<{ lowStock: Drug[]; expiringSoon: Drug[] }>,
+    pendingRx: () => ipcRenderer.invoke('pharmacy:pendingRx') as Promise<(AppointmentWithJoins & { rx_count: number })[]>,
+    getAppointmentRx: (appointmentId: number) =>
+      ipcRenderer.invoke('pharmacy:getAppointmentRx', appointmentId) as Promise<PrescriptionItem[]>,
+    sell: (payload: {
+      patient_id?: number | null;
+      appointment_id?: number | null;
+      items: { drug_id?: number | null; drug_name: string; qty: number; rate: number }[];
+      discount?: number;
+      payment_mode?: string;
+      sold_by?: string;
+    }) => ipcRenderer.invoke('pharmacy:sell', payload) as Promise<PharmacySale>,
+    listSales: (filter?: { from?: string; to?: string }) =>
+      ipcRenderer.invoke('pharmacy:listSales', filter || {}) as Promise<(PharmacySale & { patient_name: string | null; patient_uhid: string | null })[]>,
   },
   ip: {
     list: (filter?: { status?: string }) =>

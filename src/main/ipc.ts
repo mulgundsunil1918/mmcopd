@@ -621,6 +621,156 @@ export function registerIpc() {
     return db.prepare('SELECT * FROM lab_order_items WHERE lab_order_id=?').all(orderId);
   });
 
+  // ===== Pharmacy =====
+  ipcMain.handle('pharmacy:listDrugs', (_e, filter: { q?: string; activeOnly?: boolean } = {}) => {
+    const db = getDb();
+    const conds: string[] = [];
+    const params: any[] = [];
+    if (filter.activeOnly !== false) conds.push('is_active=1');
+    if (filter.q) {
+      conds.push('(name LIKE ? OR generic_name LIKE ?)');
+      const like = `%${filter.q}%`;
+      params.push(like, like);
+    }
+    const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+    return db.prepare(`SELECT * FROM drug_inventory ${where} ORDER BY name LIMIT 500`).all(...params);
+  });
+
+  ipcMain.handle('pharmacy:upsertDrug', (_e, drug: any) => {
+    const db = getDb();
+    if (drug.id) {
+      db.prepare(
+        `UPDATE drug_inventory SET name=?, generic_name=?, form=?, strength=?, mrp=?, purchase_price=?,
+         batch=?, expiry=?, stock_qty=?, low_stock_threshold=?, is_active=? WHERE id=?`
+      ).run(
+        drug.name, drug.generic_name ?? null, drug.form ?? null, drug.strength ?? null,
+        drug.mrp ?? 0, drug.purchase_price ?? null, drug.batch ?? null, drug.expiry ?? null,
+        drug.stock_qty ?? 0, drug.low_stock_threshold ?? 10, drug.is_active ?? 1, drug.id
+      );
+      return db.prepare('SELECT * FROM drug_inventory WHERE id=?').get(drug.id);
+    }
+    const info = db.prepare(
+      `INSERT INTO drug_inventory (name, generic_name, form, strength, mrp, purchase_price, batch, expiry, stock_qty, low_stock_threshold, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      drug.name, drug.generic_name ?? null, drug.form ?? null, drug.strength ?? null,
+      drug.mrp ?? 0, drug.purchase_price ?? null, drug.batch ?? null, drug.expiry ?? null,
+      drug.stock_qty ?? 0, drug.low_stock_threshold ?? 10, drug.is_active ?? 1
+    );
+    return db.prepare('SELECT * FROM drug_inventory WHERE id=?').get(info.lastInsertRowid);
+  });
+
+  ipcMain.handle('pharmacy:alerts', () => {
+    const db = getDb();
+    const lowStock = db
+      .prepare('SELECT * FROM drug_inventory WHERE is_active=1 AND stock_qty <= low_stock_threshold ORDER BY stock_qty ASC LIMIT 50')
+      .all();
+    const expiringSoon = db
+      .prepare(
+        "SELECT * FROM drug_inventory WHERE is_active=1 AND expiry IS NOT NULL AND expiry <> '' AND date(expiry) <= date('now', '+30 days') ORDER BY expiry ASC LIMIT 50"
+      )
+      .all();
+    return { lowStock, expiringSoon };
+  });
+
+  ipcMain.handle('pharmacy:pendingRx', () => {
+    const db = getDb();
+    // List recent appointments with Rx items that haven't been dispensed yet (no pharmacy_sale linked to the appointment)
+    return db
+      .prepare(
+        `SELECT a.*,
+          (p.first_name || ' ' || p.last_name) as patient_name,
+          p.uhid as patient_uhid, p.phone as patient_phone,
+          d.name as doctor_name,
+          (SELECT COUNT(*) FROM prescription_items WHERE appointment_id=a.id) as rx_count
+        FROM appointments a
+        JOIN patients p ON p.id=a.patient_id
+        JOIN doctors d ON d.id=a.doctor_id
+        WHERE a.id IN (SELECT DISTINCT appointment_id FROM prescription_items)
+          AND a.id NOT IN (SELECT COALESCE(appointment_id, 0) FROM pharmacy_sales)
+          AND a.appointment_date >= date('now', '-7 days')
+        ORDER BY a.appointment_date DESC, a.appointment_time DESC
+        LIMIT 100`
+      )
+      .all();
+  });
+
+  ipcMain.handle('pharmacy:getAppointmentRx', (_e, appointmentId: number) => {
+    return getDb().prepare('SELECT * FROM prescription_items WHERE appointment_id=?').all(appointmentId);
+  });
+
+  ipcMain.handle(
+    'pharmacy:sell',
+    (
+      _e,
+      payload: {
+        patient_id?: number | null;
+        appointment_id?: number | null;
+        items: { drug_id?: number | null; drug_name: string; qty: number; rate: number }[];
+        discount?: number;
+        payment_mode?: string;
+        sold_by?: string;
+      }
+    ) => {
+      const db = getDb();
+      const d = new Date();
+      const ymd = `${d.getFullYear()}${pad(d.getMonth() + 1, 2)}${pad(d.getDate(), 2)}`;
+      const row = db.prepare("SELECT COUNT(*) as c FROM pharmacy_sales WHERE sale_number LIKE ?").get(`PHX-${ymd}-%`) as { c: number };
+      const saleNumber = `PHX-${ymd}-${pad(row.c + 1, 4)}`;
+      const subtotal = payload.items.reduce((s, it) => s + Number(it.qty) * Number(it.rate), 0);
+      const discount = Number(payload.discount ?? 0);
+      const total = Math.max(0, subtotal - discount);
+
+      const tx = db.transaction(() => {
+        const info = db
+          .prepare(
+            'INSERT INTO pharmacy_sales (sale_number, patient_id, appointment_id, subtotal, discount, total, payment_mode, sold_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+          )
+          .run(
+            saleNumber,
+            payload.patient_id ?? null,
+            payload.appointment_id ?? null,
+            subtotal,
+            discount,
+            total,
+            payload.payment_mode ?? null,
+            payload.sold_by ?? null
+          );
+        const saleId = Number(info.lastInsertRowid);
+        const insItem = db.prepare(
+          'INSERT INTO pharmacy_sale_items (sale_id, drug_id, drug_name, qty, rate, amount) VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        const deduct = db.prepare('UPDATE drug_inventory SET stock_qty = MAX(0, stock_qty - ?) WHERE id=?');
+        for (const it of payload.items) {
+          const amount = Number(it.qty) * Number(it.rate);
+          insItem.run(saleId, it.drug_id ?? null, it.drug_name, it.qty, it.rate, amount);
+          if (it.drug_id) deduct.run(it.qty, it.drug_id);
+        }
+        return saleId;
+      });
+      const id = tx();
+      return db.prepare('SELECT * FROM pharmacy_sales WHERE id=?').get(id);
+    }
+  );
+
+  ipcMain.handle('pharmacy:listSales', (_e, filter: { from?: string; to?: string } = {}) => {
+    const db = getDb();
+    const conds: string[] = [];
+    const params: any[] = [];
+    if (filter.from) { conds.push('date(s.created_at) >= ?'); params.push(filter.from); }
+    if (filter.to) { conds.push('date(s.created_at) <= ?'); params.push(filter.to); }
+    const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+    return db
+      .prepare(
+        `SELECT s.*, (p.first_name || ' ' || p.last_name) as patient_name, p.uhid as patient_uhid
+         FROM pharmacy_sales s
+         LEFT JOIN patients p ON p.id=s.patient_id
+         ${where}
+         ORDER BY s.created_at DESC LIMIT 300`
+      )
+      .all(...params);
+  });
+
   // ===== IP Admissions =====
   ipcMain.handle('ip:list', (_e, filter: { status?: string } = {}) => {
     const db = getDb();

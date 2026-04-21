@@ -190,6 +190,42 @@ export interface LabOrderItem {
   is_abnormal: number;
 }
 
+export interface Drug {
+  id: number;
+  name: string;
+  generic_name: string | null;
+  form: string | null;
+  strength: string | null;
+  mrp: number;
+  purchase_price: number | null;
+  batch: string | null;
+  expiry: string | null;
+  stock_qty: number;
+  low_stock_threshold: number;
+  is_active: number;
+}
+
+export interface PharmacySaleItem {
+  drug_id?: number | null;
+  drug_name: string;
+  qty: number;
+  rate: number;
+  amount: number;
+}
+
+export interface PharmacySale {
+  id: number;
+  sale_number: string;
+  patient_id: number | null;
+  appointment_id: number | null;
+  subtotal: number;
+  discount: number;
+  total: number;
+  payment_mode: string | null;
+  sold_by: string | null;
+  created_at: string;
+}
+
 export type AdmissionStatus = 'admitted' | 'discharged' | 'cancelled';
 
 export interface IpAdmission {

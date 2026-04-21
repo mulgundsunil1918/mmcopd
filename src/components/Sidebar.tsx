@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble } from 'lucide-react';
+import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '../lib/utils';
 import { useTheme } from '../hooks/useTheme';
@@ -19,6 +19,7 @@ const NAV: NavItem[] = [
   { to: '/appointments', label: 'Appointments', icon: Calendar, color: 'text-blue-500', minMode: 'reception' },
   { to: '/doctor-select', label: 'Doctors', icon: Stethoscope, color: 'text-purple-500', minMode: 'reception_doctor' },
   { to: '/lab', label: 'Laboratory', icon: FlaskConical, color: 'text-fuchsia-500', minMode: 'reception_doctor_lab' },
+  { to: '/pharmacy', label: 'Pharmacy', icon: Pill, color: 'text-lime-500', minMode: 'reception_doctor_lab' },
   { to: '/ipd', label: 'IPD', icon: BedDouble, color: 'text-red-500', minMode: 'reception_doctor_lab_ip' },
   { to: '/patient-log', label: 'Patient Log', icon: History, color: 'text-cyan-500', minMode: 'reception' },
   { to: '/origin', label: 'Patient Origin', icon: MapPin, color: 'text-rose-500', minMode: 'reception' },

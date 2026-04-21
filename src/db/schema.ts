@@ -135,6 +135,45 @@ export function createSchema(db: Database.Database) {
       is_abnormal INTEGER DEFAULT 0
     );
 
+    CREATE TABLE IF NOT EXISTS drug_inventory (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      generic_name TEXT,
+      form TEXT,
+      strength TEXT,
+      mrp REAL NOT NULL DEFAULT 0,
+      purchase_price REAL,
+      batch TEXT,
+      expiry TEXT,
+      stock_qty INTEGER NOT NULL DEFAULT 0,
+      low_stock_threshold INTEGER NOT NULL DEFAULT 10,
+      is_active INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_drug_name ON drug_inventory(name);
+
+    CREATE TABLE IF NOT EXISTS pharmacy_sales (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sale_number TEXT NOT NULL UNIQUE,
+      patient_id INTEGER REFERENCES patients(id),
+      appointment_id INTEGER REFERENCES appointments(id),
+      subtotal REAL NOT NULL DEFAULT 0,
+      discount REAL NOT NULL DEFAULT 0,
+      total REAL NOT NULL DEFAULT 0,
+      payment_mode TEXT,
+      sold_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS pharmacy_sale_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sale_id INTEGER NOT NULL REFERENCES pharmacy_sales(id) ON DELETE CASCADE,
+      drug_id INTEGER REFERENCES drug_inventory(id),
+      drug_name TEXT NOT NULL,
+      qty INTEGER NOT NULL,
+      rate REAL NOT NULL,
+      amount REAL NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS ip_admissions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       admission_number TEXT NOT NULL UNIQUE,

@@ -41,6 +41,32 @@ export function seedIfEmpty(db: Database.Database) {
   );
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) upsert.run(k, v);
 
+  // Seed common drugs
+  const drugCount = db.prepare('SELECT COUNT(*) as c FROM drug_inventory').get() as { c: number };
+  if (drugCount.c === 0) {
+    const ins = db.prepare(
+      'INSERT INTO drug_inventory (name, generic_name, form, strength, mrp, stock_qty, low_stock_threshold) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+    const drugs: [string, string, string, string, number, number, number][] = [
+      ['Paracetamol 500mg', 'Paracetamol', 'Tablet', '500mg', 2, 100, 20],
+      ['Cetirizine 10mg', 'Cetirizine', 'Tablet', '10mg', 1.5, 100, 20],
+      ['Amoxicillin 500mg', 'Amoxicillin', 'Capsule', '500mg', 4, 50, 10],
+      ['Azithromycin 500mg', 'Azithromycin', 'Tablet', '500mg', 15, 30, 10],
+      ['Pantoprazole 40mg', 'Pantoprazole', 'Tablet', '40mg', 3, 50, 15],
+      ['Ondansetron 4mg', 'Ondansetron', 'Tablet', '4mg', 5, 40, 10],
+      ['Metformin 500mg', 'Metformin', 'Tablet', '500mg', 2, 60, 15],
+      ['Amlodipine 5mg', 'Amlodipine', 'Tablet', '5mg', 2.5, 60, 15],
+      ['Atorvastatin 10mg', 'Atorvastatin', 'Tablet', '10mg', 4, 40, 10],
+      ['Ibuprofen 400mg', 'Ibuprofen', 'Tablet', '400mg', 2, 80, 20],
+      ['ORS Sachet', 'Oral Rehydration Salts', 'Sachet', '—', 15, 50, 10],
+      ['Cough Syrup 100ml', 'Dextromethorphan', 'Syrup', '100ml', 60, 25, 5],
+      ['Crocin Syrup 60ml', 'Paracetamol', 'Syrup', '60ml', 45, 25, 5],
+      ['Dettol Antiseptic 100ml', 'Chloroxylenol', 'Solution', '100ml', 55, 15, 5],
+      ['Bandage Roll', '—', 'Dressing', '—', 25, 30, 10],
+    ];
+    for (const d of drugs) ins.run(...d);
+  }
+
   // Seed common lab tests
   const labCount = db.prepare('SELECT COUNT(*) as c FROM lab_tests').get() as { c: number };
   if (labCount.c === 0) {

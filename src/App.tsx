@@ -9,6 +9,7 @@ import { Accounts } from './pages/Accounts';
 import { PatientLog } from './pages/PatientLog';
 import { PatientOrigin } from './pages/PatientOrigin';
 import { Lab } from './pages/Lab';
+import { Pharmacy } from './pages/Pharmacy';
 import { IPD } from './pages/IPD';
 import { Notifications } from './pages/Notifications';
 import { SettingsPage } from './pages/Settings';
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="/patient-log" element={<PatientLog />} />
         <Route path="/origin" element={<PatientOrigin />} />
         <Route path="/lab" element={<Lab />} />
+        <Route path="/pharmacy" element={<Pharmacy />} />
         <Route path="/ipd" element={<IPD />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/settings" element={<SettingsPage />} />
