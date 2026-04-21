@@ -28,12 +28,23 @@ export function canAnyRole(user: SessionUser | null, roles: Role[]): boolean {
   return roles.includes(user.role);
 }
 
+// Auto-bootstrap session for now — login is disabled.
+// Re-enable by removing this default and restoring the localStorage-or-null init.
+const DEFAULT_SESSION: SessionUser = {
+  id: 1,
+  username: 'admin',
+  role: 'admin',
+  display_name: 'Administrator',
+  doctor_id: null,
+};
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(() => {
     try {
       const raw = localStorage.getItem(KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
+      if (raw) return JSON.parse(raw);
+    } catch { /* ignore */ }
+    return DEFAULT_SESSION;
   });
 
   useEffect(() => {
@@ -50,8 +61,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
-    if (user) window.electronAPI.audit.log(user, 'logout');
-    setUser(null);
+    // Login is disabled — logout just re-applies the default session.
+    setUser(DEFAULT_SESSION);
   };
 
   return <AuthContext.Provider value={{ user, login, logout }}>{children}</AuthContext.Provider>;
