@@ -1,19 +1,23 @@
 import { format, parseISO } from 'date-fns';
 import { Printer, X, MapPin, Phone, Mail, HeartPulse, IdCard } from 'lucide-react';
 import { age, fmt12h, fmtDate, fmtDateTime } from '../lib/utils';
-import type { AppointmentWithJoins, Consultation, Doctor, Settings } from '../types';
+import type { AppointmentWithJoins, Consultation, Doctor, LabOrder, PrescriptionItem, Settings } from '../types';
 
 export function OpdSlip({
   appointment,
   consultation,
   doctor,
   settings,
+  rxItems = [],
+  labOrders = [],
   onClose,
 }: {
   appointment: AppointmentWithJoins;
   consultation: Consultation | null;
   doctor: Doctor;
   settings: Settings;
+  rxItems?: PrescriptionItem[];
+  labOrders?: LabOrder[];
   onClose: () => void;
 }) {
   const v = consultation?.vitals ?? {};
@@ -40,6 +44,8 @@ export function OpdSlip({
             doctor={doctor}
             settings={settings}
             vitals={v}
+            rxItems={rxItems}
+            labOrders={labOrders}
           />
         </div>
       </div>
@@ -48,13 +54,15 @@ export function OpdSlip({
 }
 
 function SlipBody({
-  appointment, consultation, doctor, settings, vitals,
+  appointment, consultation, doctor, settings, vitals, rxItems, labOrders,
 }: {
   appointment: AppointmentWithJoins;
   consultation: Consultation | null;
   doctor: Doctor;
   settings: Settings;
   vitals: NonNullable<Consultation['vitals']> | Record<string, string | undefined>;
+  rxItems: PrescriptionItem[];
+  labOrders: LabOrder[];
 }) {
   const slipDate = (() => {
     try {
@@ -184,8 +192,47 @@ function SlipBody({
         <Multiline value={consultation?.impression} minLines={2} />
       </Section>
 
-      <Section title="Advice / Rx">
-        <Multiline value={consultation?.advice} minLines={5} />
+      {rxItems.length > 0 && (
+        <Section title="Prescription (Rx)">
+          <table className="w-full text-[10px]" style={{ borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #cbd5e1' }}>
+                <th style={{ textAlign: 'left', padding: '2px 4px' }}>Drug</th>
+                <th style={{ textAlign: 'left', padding: '2px 4px', width: 60 }}>Dose</th>
+                <th style={{ textAlign: 'left', padding: '2px 4px', width: 70 }}>Frequency</th>
+                <th style={{ textAlign: 'left', padding: '2px 4px', width: 70 }}>Duration</th>
+                <th style={{ textAlign: 'left', padding: '2px 4px' }}>Instructions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rxItems.map((r, idx) => (
+                <tr key={idx} style={{ borderBottom: '1px dotted #e2e8f0' }}>
+                  <td style={{ padding: '2px 4px', fontWeight: 500 }}>{r.drug_name}</td>
+                  <td style={{ padding: '2px 4px' }}>{r.dosage || '—'}</td>
+                  <td style={{ padding: '2px 4px' }}>{r.frequency || '—'}</td>
+                  <td style={{ padding: '2px 4px' }}>{r.duration || '—'}</td>
+                  <td style={{ padding: '2px 4px' }}>{r.instructions || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Section>
+      )}
+
+      {labOrders.length > 0 && (
+        <Section title="Investigations Ordered">
+          <ul style={{ marginLeft: 14, listStyle: 'disc' }} className="text-[10px]">
+            {labOrders.map((o) => (
+              <li key={o.id}>
+                <span className="font-mono" style={{ color: '#1e40af' }}>{o.order_number}</span> ({o.status.replace('_', ' ')})
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      <Section title="Advice / Notes">
+        <Multiline value={consultation?.advice} minLines={3} />
       </Section>
 
       {/* Footer */}

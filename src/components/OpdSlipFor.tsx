@@ -21,6 +21,15 @@ export function OpdSlipFor({
     queryKey: ['consultation', appointment.id],
     queryFn: () => window.electronAPI.consultations.getByAppointment(appointment.id),
   });
+  const { data: rxItems = [] } = useQuery({
+    queryKey: ['rx', appointment.id],
+    queryFn: () => window.electronAPI.rx.getByAppointment(appointment.id),
+  });
+  const { data: allLabOrders = [] } = useQuery({
+    queryKey: ['lab-orders-patient', appointment.patient_id],
+    queryFn: () => window.electronAPI.lab.listOrders({ patient_id: appointment.patient_id }),
+  });
+  const labOrders = allLabOrders.filter((o) => o.appointment_id === appointment.id);
 
   if (!doctor || !settings) return null;
 
@@ -30,6 +39,8 @@ export function OpdSlipFor({
       consultation={consultation ?? null}
       doctor={doctor}
       settings={settings}
+      rxItems={rxItems}
+      labOrders={labOrders}
       onClose={onClose}
     />
   );
