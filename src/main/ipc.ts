@@ -1267,22 +1267,35 @@ export function registerIpc() {
   });
 
   // ===== Finance =====
-  ipcMain.handle('finance:summary', () => {
+  ipcMain.handle('finance:summary', (_e, filter: { from?: string; to?: string } = {}) => {
     const db = getDb();
     const today = todayISO();
     const row = (sql: string, params: any[] = []) => db.prepare(sql).get(...params) as any;
     const all = (sql: string, params: any[] = []) => db.prepare(sql).all(...params) as any[];
 
+    // --- Quick-period cards
+    const yesterday = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE date(created_at)=date(?, '-1 day')", [today]);
     const todayTotal = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE date(created_at)=?", [today]);
     const weekTotal = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE date(created_at) >= date(?, '-6 days')", [today]);
+    const prevWeek = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE date(created_at) >= date(?, '-13 days') AND date(created_at) < date(?, '-6 days')", [today, today]);
     const monthTotal = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', ?)", [today]);
+    const prevMonth = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', date(?, 'start of month', '-1 day'))", [today]);
     const allTime = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills");
+
+    // Avg + largest in whole-time
+    const avg = row("SELECT COALESCE(AVG(total),0) as avg, COALESCE(MAX(total),0) as max FROM bills");
+
+    // Custom range (default = last 30 days)
+    const rangeFrom = filter.from || (() => { const d = new Date(); d.setDate(d.getDate() - 29); return d.toISOString().slice(0, 10); })();
+    const rangeTo = filter.to || today;
+    const rangeBills = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE date(created_at) BETWEEN ? AND ?", [rangeFrom, rangeTo]);
+    const rangePharma = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM pharmacy_sales WHERE date(created_at) BETWEEN ? AND ?", [rangeFrom, rangeTo]);
 
     const byDay = all(
       `SELECT date(created_at) as day, COALESCE(SUM(total),0) as total, COUNT(*) as count
-       FROM bills WHERE date(created_at) >= date(?, '-29 days')
+       FROM bills WHERE date(created_at) BETWEEN ? AND ?
        GROUP BY date(created_at) ORDER BY day DESC`,
-      [today]
+      [rangeFrom, rangeTo]
     );
     const byWeek = all(
       `SELECT strftime('%Y-W%W', created_at) as week, COALESCE(SUM(total),0) as total, COUNT(*) as count
@@ -1292,8 +1305,7 @@ export function registerIpc() {
     );
     const byMonth = all(
       `SELECT strftime('%Y-%m', created_at) as month, COALESCE(SUM(total),0) as total, COUNT(*) as count
-       FROM bills
-       GROUP BY month ORDER BY month DESC LIMIT 12`
+       FROM bills GROUP BY month ORDER BY month DESC LIMIT 12`
     );
     const byMode = all(
       `SELECT payment_mode, COALESCE(SUM(total),0) as total, COUNT(*) as count
@@ -1314,12 +1326,62 @@ export function registerIpc() {
       [today]
     );
 
+    // Weekday pattern (0=Sun ... 6=Sat) — last 90 days
+    const byWeekday = all(
+      `SELECT strftime('%w', created_at) as wd, COALESCE(SUM(total),0) as total, COUNT(*) as count
+       FROM bills WHERE date(created_at) >= date(?, '-89 days')
+       GROUP BY wd ORDER BY wd`,
+      [today]
+    );
+
+    // Hour-of-day distribution — last 30 days
+    const byHour = all(
+      `SELECT strftime('%H', created_at) as hr, COALESCE(SUM(total),0) as total, COUNT(*) as count
+       FROM bills WHERE date(created_at) >= date(?, '-29 days')
+       GROUP BY hr ORDER BY hr`,
+      [today]
+    );
+
+    // Top patients by revenue — all-time
+    const topPatients = all(
+      `SELECT p.id, (p.first_name || ' ' || p.last_name) as name, p.uhid, p.place,
+              COALESCE(SUM(b.total),0) as total, COUNT(b.id) as bills
+       FROM bills b JOIN patients p ON p.id=b.patient_id
+       GROUP BY p.id ORDER BY total DESC LIMIT 10`
+    );
+
+    // By Place/Origin — last 90 days
+    const byPlace = all(
+      `SELECT COALESCE(NULLIF(TRIM(p.place), ''), 'Unknown') as place,
+              COALESCE(SUM(b.total),0) as total, COUNT(b.id) as bills
+       FROM bills b JOIN patients p ON p.id=b.patient_id
+       WHERE date(b.created_at) >= date(?, '-89 days')
+       GROUP BY LOWER(TRIM(COALESCE(p.place,''))) ORDER BY total DESC LIMIT 15`,
+      [today]
+    );
+
+    // Pharmacy vs OPD comparison — last 30 days
+    const opd30 = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE date(created_at) >= date(?, '-29 days')", [today]);
+    const pharma30 = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM pharmacy_sales WHERE date(created_at) >= date(?, '-29 days')", [today]);
+
     return {
       today: { total: todayTotal.t, count: todayTotal.c, byMode: todayByMode },
+      yesterday: { total: yesterday.t, count: yesterday.c },
       week: { total: weekTotal.t, count: weekTotal.c },
+      prevWeek: { total: prevWeek.t, count: prevWeek.c },
       month: { total: monthTotal.t, count: monthTotal.c },
-      allTime: { total: allTime.t, count: allTime.c },
-      byDay, byWeek, byMonth, byMode, byDoctor,
+      prevMonth: { total: prevMonth.t, count: prevMonth.c },
+      allTime: { total: allTime.t, count: allTime.c, avg: avg.avg, max: avg.max },
+      range: {
+        from: rangeFrom, to: rangeTo,
+        bills: { total: rangeBills.t, count: rangeBills.c },
+        pharma: { total: rangePharma.t, count: rangePharma.c },
+      },
+      compare30: {
+        opd: { total: opd30.t, count: opd30.c },
+        pharma: { total: pharma30.t, count: pharma30.c },
+      },
+      byDay, byWeek, byMonth, byMode, byDoctor, byWeekday, byHour, topPatients, byPlace,
     };
   });
 

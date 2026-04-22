@@ -238,18 +238,8 @@ const api = {
       }>,
   },
   finance: {
-    summary: () =>
-      ipcRenderer.invoke('finance:summary') as Promise<{
-        today: { total: number; count: number; byMode: { payment_mode: string; total: number; count: number }[] };
-        week: { total: number; count: number };
-        month: { total: number; count: number };
-        allTime: { total: number; count: number };
-        byDay: { day: string; total: number; count: number }[];
-        byWeek: { week: string; total: number; count: number }[];
-        byMonth: { month: string; total: number; count: number }[];
-        byMode: { payment_mode: string; total: number; count: number }[];
-        byDoctor: { doctor: string; specialty: string; total: number; count: number }[];
-      }>,
+    summary: (filter: { from?: string; to?: string } = {}) =>
+      ipcRenderer.invoke('finance:summary', filter) as Promise<any>,
   },
   app: {
     getClinicName: () => ipcRenderer.invoke('app:getClinicName') as Promise<string>,
