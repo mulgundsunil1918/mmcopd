@@ -352,7 +352,6 @@ function DeletePatientBlock() {
   const { data: results = [] } = useQuery({
     queryKey: ['patients-delete-search', q],
     queryFn: () => window.electronAPI.patients.search(q),
-    enabled: q.length > 1,
   });
 
   const doDelete = async (p: any) => {
@@ -386,24 +385,25 @@ function DeletePatientBlock() {
       </div>
       <div className="relative">
         <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-        <input className="input pl-9" placeholder="Search patient by name / UHID / phone" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className="input pl-9" placeholder="Search patient by name / UHID / phone (blank = show all)" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
-      {q.length > 1 && (
-        <ul className="max-h-60 overflow-auto mt-2 border border-gray-200 dark:border-slate-700 rounded-lg divide-y divide-gray-100 dark:divide-slate-700">
-          {results.slice(0, 20).map((p: any) => (
-            <li key={p.id} className="px-3 py-2 flex items-center justify-between gap-2 hover:bg-gray-50 dark:hover:bg-slate-700">
-              <div className="min-w-0">
-                <div className="text-sm text-gray-900 dark:text-slate-100">{p.first_name} {p.last_name}</div>
-                <div className="text-[11px] text-gray-500 dark:text-slate-400">{p.uhid} · {p.phone}</div>
-              </div>
-              <button className="btn-danger text-xs" onClick={() => setConfirming(p)}>
-                <Trash2 className="w-3.5 h-3.5" /> Delete
-              </button>
-            </li>
-          ))}
-          {results.length === 0 && <li className="px-3 py-4 text-xs text-gray-400 text-center">No matches</li>}
-        </ul>
-      )}
+      <div className="mt-2 flex items-center justify-between text-[11px] text-gray-500 dark:text-slate-400">
+        <span>{results.length} patient{results.length === 1 ? '' : 's'}{q ? ' matching' : ' total (showing most recent 50)'}</span>
+      </div>
+      <ul className="max-h-[420px] overflow-auto mt-1 border border-gray-200 dark:border-slate-700 rounded-lg divide-y divide-gray-100 dark:divide-slate-700">
+        {results.map((p: any) => (
+          <li key={p.id} className="px-3 py-2 flex items-center justify-between gap-2 hover:bg-gray-50 dark:hover:bg-slate-700">
+            <div className="min-w-0">
+              <div className="text-sm text-gray-900 dark:text-slate-100">{p.first_name} {p.last_name}</div>
+              <div className="text-[11px] text-gray-500 dark:text-slate-400">{p.uhid} · {p.phone}</div>
+            </div>
+            <button className="btn-danger text-xs" onClick={() => setConfirming(p)}>
+              <Trash2 className="w-3.5 h-3.5" /> Delete
+            </button>
+          </li>
+        ))}
+        {results.length === 0 && <li className="px-3 py-6 text-xs text-gray-400 text-center">No patients</li>}
+      </ul>
 
       {confirming && (
         <Modal open onClose={() => setConfirming(null)} title="Delete patient?">
