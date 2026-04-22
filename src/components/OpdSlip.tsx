@@ -23,21 +23,17 @@ export function OpdSlip({
   const v = consultation?.vitals ?? {};
 
   return (
-    <div className="fixed inset-0 z-50 bg-gray-900/60 overflow-auto">
-      <div className="no-print flex justify-between items-center p-4 sticky top-0 bg-gray-900/90 backdrop-blur z-10">
-        <div className="text-white text-sm">OPD Slip preview · Token #{appointment.token_number}</div>
-        <div className="flex gap-2">
-          <button className="btn-secondary" onClick={onClose}>
-            <X className="w-4 h-4" /> Close
-          </button>
-          <button className="btn-primary" onClick={() => window.print()}>
-            <Printer className="w-4 h-4" /> Print
-          </button>
+    <div className="fixed inset-0 z-[100] overflow-auto" style={{ backgroundColor: 'rgba(15, 23, 42, 0.85)' }}>
+      {/* Floating title pill at top-center */}
+      <div className="no-print sticky top-3 z-10 flex justify-center pointer-events-none">
+        <div className="px-4 py-1.5 rounded-full text-xs font-semibold text-white shadow-lg" style={{ backgroundColor: '#1e293b' }}>
+          OPD Slip preview · Token #{appointment.token_number}
         </div>
       </div>
 
-      <div className="p-4 pb-10 flex justify-center">
-        <div className="print-area bg-white shadow-xl" style={{ width: '210mm', minHeight: '297mm', padding: '14mm 14mm 12mm' }}>
+      {/* Slip content, padded so bottom action bar never covers it */}
+      <div className="p-6 pb-28 flex justify-center">
+        <div className="print-area bg-white shadow-2xl" style={{ width: '210mm', minHeight: '297mm', padding: '14mm 14mm 12mm' }}>
           <SlipBody
             appointment={appointment}
             consultation={consultation}
@@ -48,6 +44,24 @@ export function OpdSlip({
             labOrders={labOrders}
           />
         </div>
+      </div>
+
+      {/* Floating ACTION BAR at bottom-center — always visible */}
+      <div className="no-print fixed bottom-6 left-1/2 -translate-x-1/2 z-20 flex gap-3 px-5 py-3 rounded-2xl shadow-2xl" style={{ backgroundColor: '#0f172a', border: '1px solid #334155' }}>
+        <button
+          onClick={onClose}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold"
+          style={{ backgroundColor: '#e2e8f0', color: '#0f172a' }}
+        >
+          <X className="w-4 h-4" /> Close
+        </button>
+        <button
+          onClick={() => window.print()}
+          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold text-white"
+          style={{ background: 'linear-gradient(135deg, #2563eb, #4f46e5)' }}
+        >
+          <Printer className="w-4 h-4" /> Print OPD Slip
+        </button>
       </div>
     </div>
   );
