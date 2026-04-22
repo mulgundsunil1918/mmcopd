@@ -128,13 +128,28 @@ html.dark .sidebar-divider { border-color: #1e293b; }
 html.dark .statusbar { background-color: #0b1220; border-top-color: #1e293b; color: #cbd5e1; }
 
 /* =======================
+   PRINT-LIKE PREVIEW (on-screen)
+   Force .print-area to look like paper even in dark mode.
+   ======================= */
+.print-area, .print-area * {
+  color: #0f172a !important;
+  background-color: transparent !important;
+}
+.print-area {
+  background-color: #ffffff !important;
+}
+/* Keep explicit blue/etc accents on the slip (letterhead, section titles) — they use inline style="color: #1e3a8a" which wins */
+.print-area [style*="color:"] {
+  /* inline colors from SlipBody win via specificity; nothing needed here */
+}
+
+/* =======================
    PRINT
    ======================= */
 @media print {
   body * { visibility: hidden; }
   .print-area, .print-area * { visibility: visible; }
   .print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 24px; background: white !important; color: #0f172a !important; }
-  .print-area * { color: inherit; background: transparent !important; }
   .no-print { display: none !important; }
   @page { margin: 12mm; }
 }

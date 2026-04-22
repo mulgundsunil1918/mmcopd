@@ -23,7 +23,7 @@ export function OpdSlip({
   const v = consultation?.vitals ?? {};
 
   return (
-    <div className="fixed inset-0 z-[100] overflow-auto" style={{ backgroundColor: 'rgba(15, 23, 42, 0.85)' }}>
+    <div className="fixed inset-0 z-[100] overflow-auto" style={{ backgroundColor: '#94a3b8' /* slate-400: neutral print-preview gray */ }}>
       {/* Floating title pill at top-center */}
       <div className="no-print sticky top-3 z-10 flex justify-center pointer-events-none">
         <div className="px-4 py-1.5 rounded-full text-xs font-semibold text-white shadow-lg" style={{ backgroundColor: '#1e293b' }}>
@@ -33,7 +33,16 @@ export function OpdSlip({
 
       {/* Slip content, padded so bottom action bar never covers it */}
       <div className="p-6 pb-28 flex justify-center">
-        <div className="print-area bg-white shadow-2xl" style={{ width: '210mm', minHeight: '297mm', padding: '14mm 14mm 12mm' }}>
+        <div
+          className="print-area shadow-2xl"
+          style={{
+            width: '210mm',
+            minHeight: '297mm',
+            padding: '14mm 14mm 12mm',
+            backgroundColor: '#ffffff',
+            color: '#0f172a',
+          }}
+        >
           <SlipBody
             appointment={appointment}
             consultation={consultation}
