@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Users as UsersIcon, Plus, Key, Shield } from 'lucide-react';
+import { Users as UsersIcon, Plus, Key, Shield, KeyRound, AlertTriangle, Trash2, Search } from 'lucide-react';
 import { Modal } from '../components/Modal';
+import { AdminGate } from '../components/AdminGate';
 import { useToast } from '../hooks/useToast';
-import { useAuth } from '../hooks/useAuth';
 import { cn, fmtDateTime } from '../lib/utils';
 import type { Role } from '../hooks/useAuth';
 
 const ROLE_LABELS: Record<Role, string> = {
   admin: 'Admin',
+  staff: 'Staff (Reception + Doctor)',
   receptionist: 'Receptionist',
   doctor: 'Doctor',
   lab_tech: 'Lab Tech',
@@ -16,16 +17,21 @@ const ROLE_LABELS: Record<Role, string> = {
 };
 
 export function UsersPage() {
-  const { user } = useAuth();
+  return (
+    <AdminGate title="Users & Access — Administrator area">
+      <UsersInner />
+    </AdminGate>
+  );
+}
+
+function UsersInner() {
   const qc = useQueryClient();
   const toast = useToast();
   const [creating, setCreating] = useState(false);
   const [pwUser, setPwUser] = useState<any | null>(null);
   const [auditOpen, setAuditOpen] = useState(false);
-
-  if (user?.role !== 'admin') {
-    return <div className="p-6 text-sm text-gray-500 dark:text-slate-400">Only administrators can manage users.</div>;
-  }
+  const [dangerOpen, setDangerOpen] = useState(false);
+  const [adminPwOpen, setAdminPwOpen] = useState(false);
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
@@ -42,9 +48,10 @@ export function UsersPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Users & Access</h1>
-          <p className="text-xs text-gray-500 dark:text-slate-400">Manage staff accounts, roles, and audit trail.</p>
+          <p className="text-xs text-gray-500 dark:text-slate-400">Manage staff accounts, roles, audit trail, and destructive admin actions.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <button className="btn-secondary" onClick={() => setAdminPwOpen(true)}><KeyRound className="w-4 h-4" /> Admin Password</button>
           <button className="btn-secondary" onClick={() => setAuditOpen(true)}><Shield className="w-4 h-4" /> Audit Log</button>
           <button className="btn-primary" onClick={() => setCreating(true)}><Plus className="w-4 h-4" /> Add User</button>
         </div>
@@ -96,9 +103,25 @@ export function UsersPage() {
         </table>
       </section>
 
+      {/* Danger Zone */}
+      <section className="card p-5" style={{ borderColor: '#fca5a5' }}>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-600" />
+            <h2 className="text-sm font-bold text-red-700 dark:text-red-300">Danger Zone</h2>
+          </div>
+          <button className="btn-danger" onClick={() => setDangerOpen(true)}>Open Danger Zone</button>
+        </div>
+        <p className="text-[11px] text-gray-500 dark:text-slate-400">
+          Irreversible actions — reset audit log, reset notification log, delete patient and their history. Each requires typing <code className="font-mono bg-gray-100 dark:bg-slate-700 px-1 rounded">iknowwhatiamdoing</code> to confirm.
+        </p>
+      </section>
+
       {creating && <CreateUserModal onClose={() => setCreating(false)} onCreated={() => { qc.invalidateQueries({ queryKey: ['users'] }); setCreating(false); toast('User created'); }} />}
       {pwUser && <PasswordModal user={pwUser} onClose={() => setPwUser(null)} />}
       {auditOpen && <AuditModal onClose={() => setAuditOpen(false)} />}
+      {adminPwOpen && <AdminPasswordModal onClose={() => setAdminPwOpen(false)} />}
+      {dangerOpen && <DangerZoneModal onClose={() => setDangerOpen(false)} />}
     </div>
   );
 }
@@ -173,6 +196,42 @@ function PasswordModal({ user, onClose }: { user: any; onClose: () => void }) {
   );
 }
 
+function AdminPasswordModal({ onClose }: { onClose: () => void }) {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [next2, setNext2] = useState('');
+  const toast = useToast();
+  const change = useMutation({
+    mutationFn: () => window.electronAPI.admin.changePassword(current, next),
+    onSuccess: (r) => {
+      if (r.ok) { toast('Admin password updated'); onClose(); }
+      else toast(r.error || 'Failed', 'error');
+    },
+  });
+  return (
+    <Modal open onClose={onClose} title="Change Admin Password">
+      <div className="space-y-3">
+        <div className="text-[11px] p-2 rounded-md bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
+          This password unlocks Settings, Users & Access, and all destructive admin actions clinic-wide.
+        </div>
+        <Row label="Current Password"><input type="password" className="input" value={current} onChange={(e) => setCurrent(e.target.value)} /></Row>
+        <Row label="New Password (min 4 chars)"><input type="password" className="input" value={next} onChange={(e) => setNext(e.target.value)} /></Row>
+        <Row label="Confirm New Password"><input type="password" className="input" value={next2} onChange={(e) => setNext2(e.target.value)} /></Row>
+        <div className="flex justify-end gap-2 pt-2">
+          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button
+            className="btn-primary"
+            disabled={change.isPending || !current || !next || next !== next2}
+            onClick={() => change.mutate()}
+          >
+            {change.isPending ? 'Updating…' : 'Update Password'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function AuditModal({ onClose }: { onClose: () => void }) {
   const { data: entries = [] } = useQuery({
     queryKey: ['audit-log'],
@@ -205,6 +264,163 @@ function AuditModal({ onClose }: { onClose: () => void }) {
         </tbody>
       </table>
     </Modal>
+  );
+}
+
+function DangerZoneModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+
+  return (
+    <Modal open onClose={onClose} title="⚠ Danger Zone" size="xl">
+      <div className="space-y-5">
+        <ConfirmBlock
+          title="Reset entire audit log"
+          desc="Permanently deletes every audit entry (logins, mutations, etc.). Fresh log starts from this action."
+          action={async (phrase) => {
+            const r = await window.electronAPI.admin.resetAuditLog(phrase);
+            if (r.ok) { toast(`Deleted ${r.deleted} audit entries`); qc.invalidateQueries({ queryKey: ['audit-log'] }); return true; }
+            toast(r.error || 'Failed', 'error'); return false;
+          }}
+        />
+        <ConfirmBlock
+          title="Reset notification log"
+          desc="Permanently deletes every notification entry (SMS, WhatsApp logs). Does not affect future messages."
+          action={async (phrase) => {
+            const r = await window.electronAPI.admin.resetNotificationLog(phrase);
+            if (r.ok) { toast(`Deleted ${r.deleted} notification entries`); qc.invalidateQueries({ queryKey: ['notifications'] }); return true; }
+            toast(r.error || 'Failed', 'error'); return false;
+          }}
+        />
+        <DeletePatientBlock />
+      </div>
+    </Modal>
+  );
+}
+
+function ConfirmBlock({ title, desc, action }: { title: string; desc: string; action: (phrase: string) => Promise<boolean> }) {
+  const [open, setOpen] = useState(false);
+  const [phrase, setPhrase] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <div className="rounded-lg border-2 border-red-300 dark:border-red-800 p-4 bg-red-50/50 dark:bg-red-900/20">
+      <div className="flex items-center justify-between">
+        <div className="flex-1">
+          <div className="text-sm font-semibold text-red-800 dark:text-red-200">{title}</div>
+          <div className="text-[11px] text-red-700 dark:text-red-300 mt-0.5">{desc}</div>
+        </div>
+        {!open ? (
+          <button className="btn-danger text-xs" onClick={() => setOpen(true)}>Proceed</button>
+        ) : (
+          <button className="btn-ghost text-xs" onClick={() => { setOpen(false); setPhrase(''); }}>Cancel</button>
+        )}
+      </div>
+      {open && (
+        <div className="mt-3 flex items-center gap-2">
+          <input
+            className="input flex-1 font-mono"
+            placeholder="Type iknowwhatiamdoing to confirm"
+            value={phrase}
+            onChange={(e) => setPhrase(e.target.value)}
+          />
+          <button
+            className="btn-danger"
+            disabled={busy || phrase !== 'iknowwhatiamdoing'}
+            onClick={async () => {
+              setBusy(true);
+              const ok = await action(phrase);
+              setBusy(false);
+              if (ok) { setOpen(false); setPhrase(''); }
+            }}
+          >
+            {busy ? 'Deleting…' : 'Confirm Delete'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DeletePatientBlock() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [q, setQ] = useState('');
+  const [selected, setSelected] = useState<any | null>(null);
+  const [phrase, setPhrase] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const { data: results = [] } = useQuery({
+    queryKey: ['patients-delete-search', q],
+    queryFn: () => window.electronAPI.patients.search(q),
+    enabled: q.length > 1,
+  });
+
+  const confirm = async () => {
+    if (!selected) return;
+    setBusy(true);
+    const r = await window.electronAPI.admin.deletePatient(selected.id, phrase);
+    setBusy(false);
+    if (r.ok) {
+      toast(`Deleted patient ${r.patient.uhid}`);
+      qc.invalidateQueries({ queryKey: ['patients'] });
+      setSelected(null);
+      setPhrase('');
+      setQ('');
+    } else {
+      toast(r.error || 'Failed', 'error');
+    }
+  };
+
+  return (
+    <div className="rounded-lg border-2 border-red-300 dark:border-red-800 p-4 bg-red-50/50 dark:bg-red-900/20">
+      <div className="text-sm font-semibold text-red-800 dark:text-red-200 flex items-center gap-2">
+        <Trash2 className="w-4 h-4" /> Delete patient (and all their history)
+      </div>
+      <div className="text-[11px] text-red-700 dark:text-red-300 mt-0.5 mb-3">
+        Cascades: appointments, consultations, Rx, lab orders, EMR (allergies/conditions/family/immunizations/documents). Bills become orphaned but are preserved for audit.
+      </div>
+      {!selected ? (
+        <div>
+          <div className="relative">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input className="input pl-9" placeholder="Search patient by name / UHID / phone" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
+          {q.length > 1 && (
+            <ul className="max-h-52 overflow-auto mt-2 border border-gray-200 dark:border-slate-700 rounded-lg divide-y divide-gray-100 dark:divide-slate-700">
+              {results.slice(0, 10).map((p: any) => (
+                <li key={p.id} onClick={() => setSelected(p)} className="px-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700">
+                  <div className="text-sm text-gray-900 dark:text-slate-100">{p.first_name} {p.last_name}</div>
+                  <div className="text-[11px] text-gray-500 dark:text-slate-400">{p.uhid} · {p.phone}</div>
+                </li>
+              ))}
+              {results.length === 0 && <li className="px-3 py-4 text-xs text-gray-400 text-center">No matches</li>}
+            </ul>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="card p-3 bg-white dark:bg-slate-800">
+            <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">{selected.first_name} {selected.last_name}</div>
+            <div className="text-[11px] text-gray-500 dark:text-slate-400">{selected.uhid} · {selected.phone}</div>
+            <button className="text-[11px] text-blue-600 hover:underline mt-1" onClick={() => setSelected(null)}>Change</button>
+          </div>
+          <input
+            className="input font-mono"
+            placeholder="Type iknowwhatiamdoing to confirm"
+            value={phrase}
+            onChange={(e) => setPhrase(e.target.value)}
+          />
+          <button
+            className="btn-danger w-full"
+            disabled={busy || phrase !== 'iknowwhatiamdoing'}
+            onClick={confirm}
+          >
+            {busy ? 'Deleting…' : `Permanently delete ${selected.first_name} ${selected.last_name}`}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

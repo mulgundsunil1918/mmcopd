@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 
-export type Role = 'admin' | 'receptionist' | 'doctor' | 'lab_tech' | 'pharmacist';
+export type Role = 'admin' | 'staff' | 'receptionist' | 'doctor' | 'lab_tech' | 'pharmacist';
 export interface SessionUser {
   id: number;
   username: string;
@@ -9,50 +9,79 @@ export interface SessionUser {
   doctor_id: number | null;
 }
 
-const KEY = 'caredesk-session';
+const SESSION_KEY = 'caredesk-session';
+const ADMIN_UNLOCK_KEY = 'caredesk-admin-unlocked';
 
 interface AuthCtx {
   user: SessionUser | null;
+  /** True when admin mode has been unlocked this session (or user.role === 'admin') */
+  adminUnlocked: boolean;
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
+  unlockAdmin: (password: string) => Promise<boolean>;
+  lockAdmin: () => void;
 }
 
-const AuthContext = createContext<AuthCtx>({ user: null, login: async () => false, logout: () => {} });
+const AuthContext = createContext<AuthCtx>({
+  user: null,
+  adminUnlocked: false,
+  login: async () => false,
+  logout: () => {},
+  unlockAdmin: async () => false,
+  lockAdmin: () => {},
+});
 
 export const useAuth = () => useContext(AuthContext);
 
-/** Check if the current user has any of the given roles. Admin passes everything. */
-export function canAnyRole(user: SessionUser | null, roles: Role[]): boolean {
+/** Check if the current user has any of the given roles. Admin (or unlocked admin) passes everything.
+ *  'staff' is shorthand for receptionist + doctor combined. */
+export function canAnyRole(user: SessionUser | null, roles: Role[], adminUnlocked = false): boolean {
   if (!user) return false;
-  if (user.role === 'admin') return true;
+  if (user.role === 'admin' || adminUnlocked) return true;
+  if (user.role === 'staff' && (roles.includes('receptionist') || roles.includes('doctor'))) return true;
   return roles.includes(user.role);
 }
 
-// Auto-bootstrap session for now — login is disabled.
-// Re-enable by removing this default and restoring the localStorage-or-null init.
+// Default: logged in as staff (receptionist + doctor combined). Admin actions require password unlock.
 const DEFAULT_SESSION: SessionUser = {
-  id: 1,
-  username: 'admin',
-  role: 'admin',
-  display_name: 'Administrator',
+  id: 0,
+  username: 'staff',
+  role: 'staff',
+  display_name: 'Reception + Doctor',
   doctor_id: null,
 };
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(() => {
     try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) return JSON.parse(raw);
+      const raw = localStorage.getItem(SESSION_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        // If an older admin-auto-session was stored, replace with default staff session
+        if (parsed?.role === 'admin' && parsed?.id === 1) return DEFAULT_SESSION;
+        return parsed;
+      }
     } catch { /* ignore */ }
     return DEFAULT_SESSION;
   });
 
+  const [adminUnlocked, setAdminUnlocked] = useState<boolean>(() => {
+    try { return sessionStorage.getItem(ADMIN_UNLOCK_KEY) === '1'; } catch { return false; }
+  });
+
   useEffect(() => {
     try {
-      if (user) localStorage.setItem(KEY, JSON.stringify(user));
-      else localStorage.removeItem(KEY);
+      if (user) localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+      else localStorage.removeItem(SESSION_KEY);
     } catch { /* ignore */ }
   }, [user]);
+
+  useEffect(() => {
+    try {
+      if (adminUnlocked) sessionStorage.setItem(ADMIN_UNLOCK_KEY, '1');
+      else sessionStorage.removeItem(ADMIN_UNLOCK_KEY);
+    } catch { /* ignore */ }
+  }, [adminUnlocked]);
 
   const login = async (username: string, password: string) => {
     const u = await window.electronAPI.auth.login(username, password);
@@ -61,9 +90,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
-    // Login is disabled — logout just re-applies the default session.
     setUser(DEFAULT_SESSION);
+    setAdminUnlocked(false);
   };
 
-  return <AuthContext.Provider value={{ user, login, logout }}>{children}</AuthContext.Provider>;
+  const unlockAdmin = async (password: string) => {
+    const ok = await window.electronAPI.admin.verifyPassword(password);
+    if (ok) setAdminUnlocked(true);
+    return ok;
+  };
+
+  const lockAdmin = () => setAdminUnlocked(false);
+
+  return (
+    <AuthContext.Provider value={{ user, adminUnlocked, login, logout, unlockAdmin, lockAdmin }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }

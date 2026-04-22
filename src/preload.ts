@@ -40,6 +40,17 @@ const api = {
     log: (user: SessionUser | null, action: string, entity?: string, entity_id?: number, details?: string) =>
       ipcRenderer.invoke('audit:log', user, action, entity, entity_id, details) as Promise<void>,
   },
+  admin: {
+    verifyPassword: (password: string) => ipcRenderer.invoke('auth:verifyAdminPassword', password) as Promise<boolean>,
+    changePassword: (currentPassword: string, newPassword: string) =>
+      ipcRenderer.invoke('auth:changeAdminPassword', currentPassword, newPassword) as Promise<{ ok: boolean; error?: string }>,
+    resetAuditLog: (confirmPhrase: string) =>
+      ipcRenderer.invoke('admin:resetAuditLog', confirmPhrase) as Promise<{ ok: boolean; error?: string; deleted?: number }>,
+    resetNotificationLog: (confirmPhrase: string) =>
+      ipcRenderer.invoke('admin:resetNotificationLog', confirmPhrase) as Promise<{ ok: boolean; error?: string; deleted?: number }>,
+    deletePatient: (patientId: number, confirmPhrase: string) =>
+      ipcRenderer.invoke('admin:deletePatient', patientId, confirmPhrase) as Promise<{ ok: boolean; error?: string; patient?: any }>,
+  },
   patients: {
     search: (q: string) => ipcRenderer.invoke('patients:search', q) as Promise<(Patient & { last_visit: string | null })[]>,
     get: (id: number) => ipcRenderer.invoke('patients:get', id) as Promise<Patient | undefined>,

@@ -6,24 +6,27 @@ import { Check } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { ImageUpload } from '../components/ImageUpload';
 import { ProviderSettings } from '../components/ProviderSettings';
+import { AdminGate } from '../components/AdminGate';
 import { useToast } from '../hooks/useToast';
 import { INDIAN_STATES } from '../lib/india';
 import type { AppMode, Doctor, Settings } from '../types';
 
 export function SettingsPage() {
   return (
-    <div className="p-6 space-y-5 max-w-5xl">
-      <div>
-        <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Settings</h1>
-        <p className="text-xs text-gray-500 dark:text-slate-400">Clinic branding, fees, queue flow, and doctor management.</p>
+    <AdminGate title="Settings — Administrator area">
+      <div className="p-6 space-y-5 max-w-5xl">
+        <div>
+          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Settings</h1>
+          <p className="text-xs text-gray-500 dark:text-slate-400">Clinic branding, fees, queue flow, and doctor management.</p>
+        </div>
+        <ClinicInfo />
+        <AppModeSelector />
+        <DefaultLocation />
+        <FeesAndFlow />
+        <DoctorsManagement />
+        <ProviderSettings />
       </div>
-      <ClinicInfo />
-      <AppModeSelector />
-      <DefaultLocation />
-      <FeesAndFlow />
-      <DoctorsManagement />
-      <ProviderSettings />
-    </div>
+    </AdminGate>
   );
 }
 

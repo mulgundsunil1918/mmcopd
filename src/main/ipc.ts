@@ -86,7 +86,62 @@ export function registerIpc() {
     logAudit(db, null, 'user_updated', 'users', id, JSON.stringify(patch));
     return listUsers(db);
   });
+  ipcMain.handle('auth:verifyAdminPassword', (_e, password: string) => {
+    const settings = getAllSettings(getDb());
+    const ok = (password || '') === (settings.admin_password || '1918');
+    logAudit(getDb(), null, ok ? 'admin_unlock' : 'admin_unlock_failed');
+    return ok;
+  });
+  ipcMain.handle('auth:changeAdminPassword', (_e, currentPassword: string, newPassword: string) => {
+    const db = getDb();
+    const settings = getAllSettings(db);
+    if ((currentPassword || '') !== (settings.admin_password || '1918')) {
+      return { ok: false, error: 'Current password incorrect' };
+    }
+    if (!newPassword || newPassword.length < 4) {
+      return { ok: false, error: 'Password must be at least 4 characters' };
+    }
+    saveSettings(db, { admin_password: newPassword } as any);
+    logAudit(db, null, 'admin_password_changed');
+    return { ok: true };
+  });
   ipcMain.handle('audit:list', (_e, limit?: number) => listAudit(getDb(), limit ?? 500));
+
+  ipcMain.handle('admin:resetAuditLog', (_e, confirmPhrase: string) => {
+    if (confirmPhrase !== 'iknowwhatiamdoing') {
+      return { ok: false, error: 'Confirmation phrase required' };
+    }
+    const db = getDb();
+    const count = (db.prepare('SELECT COUNT(*) as c FROM audit_log').get() as { c: number }).c;
+    db.exec('DELETE FROM audit_log');
+    logAudit(db, null, 'audit_log_reset', 'audit_log', undefined, `Cleared ${count} entries`);
+    return { ok: true, deleted: count };
+  });
+
+  ipcMain.handle('admin:resetNotificationLog', (_e, confirmPhrase: string) => {
+    if (confirmPhrase !== 'iknowwhatiamdoing') {
+      return { ok: false, error: 'Confirmation phrase required' };
+    }
+    const db = getDb();
+    const count = (db.prepare('SELECT COUNT(*) as c FROM notification_log').get() as { c: number }).c;
+    db.exec('DELETE FROM notification_log');
+    logAudit(db, null, 'notification_log_reset', 'notification_log', undefined, `Cleared ${count} entries`);
+    return { ok: true, deleted: count };
+  });
+
+  ipcMain.handle('admin:deletePatient', (_e, patientId: number, confirmPhrase: string) => {
+    if (confirmPhrase !== 'iknowwhatiamdoing') {
+      return { ok: false, error: 'Confirmation phrase required' };
+    }
+    const db = getDb();
+    const p = db.prepare('SELECT uhid, first_name, last_name FROM patients WHERE id=?').get(patientId) as any;
+    if (!p) return { ok: false, error: 'Patient not found' };
+    // Cascade deletes happen automatically for rows with ON DELETE CASCADE
+    // For rows without cascade (bills, lab_orders with SET NULL), they are preserved but orphaned — acceptable for audit
+    db.prepare('DELETE FROM patients WHERE id=?').run(patientId);
+    logAudit(db, null, 'patient_deleted', 'patients', patientId, `${p.uhid} ${p.first_name} ${p.last_name}`);
+    return { ok: true, patient: p };
+  });
   ipcMain.handle('audit:log', (_e, user: SessionUser | null, action: string, entity?: string, entity_id?: number, details?: string) => {
     logAudit(getDb(), user, action, entity, entity_id, details);
   });
