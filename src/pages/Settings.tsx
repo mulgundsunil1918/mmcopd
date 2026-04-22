@@ -275,11 +275,29 @@ function FeesAndFlow() {
       <div className="grid grid-cols-3 gap-4">
         <div>
           <label className="label">Regular Consultation Fee (₹)</label>
-          <input type="number" className="input" value={draft.consultation_fee ?? 0} onChange={(e) => set('consultation_fee', Number(e.target.value))} />
+          <input
+            type="text"
+            inputMode="numeric"
+            className="input"
+            value={draft.consultation_fee == null ? '' : String(draft.consultation_fee)}
+            onChange={(e) => {
+              const v = e.target.value.replace(/[^0-9]/g, '');
+              set('consultation_fee', v === '' ? 0 : Number(v));
+            }}
+          />
         </div>
         <div>
           <label className="label">Special Price (₹)</label>
-          <input type="number" className="input" value={draft.special_price ?? 0} onChange={(e) => set('special_price', Number(e.target.value))} />
+          <input
+            type="text"
+            inputMode="numeric"
+            className="input"
+            value={draft.special_price == null ? '' : String(draft.special_price)}
+            onChange={(e) => {
+              const v = e.target.value.replace(/[^0-9]/g, '');
+              set('special_price', v === '' ? 0 : Number(v));
+            }}
+          />
         </div>
         <div>
           <label className="label">Slot Duration</label>
