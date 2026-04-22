@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Stethoscope, Plus, Pencil, Wallet, ListChecks } from 'lucide-react';
+import { Building2, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Check } from 'lucide-react';
 import { Modal } from '../components/Modal';
@@ -171,46 +171,30 @@ function AppModeSelector() {
 }
 
 function DefaultLocation() {
-  const qc = useQueryClient();
-  const toast = useToast();
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
-  const save = useMutation({
-    mutationFn: (patch: Partial<Settings>) => window.electronAPI.settings.save(patch),
-    onMutate: (patch) => {
-      const prev = qc.getQueryData<Settings>(['settings']);
-      if (prev) qc.setQueryData(['settings'], { ...prev, ...patch });
-      return { prev };
-    },
-    onError: (_e, _p, ctx) => { if (ctx?.prev) qc.setQueryData(['settings'], ctx.prev); toast('Save failed', 'error'); },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings'] }); toast('Saved'); },
-  });
+  const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, ['default_state', 'default_district', 'known_villages']);
 
   if (!settings) return null;
   return (
     <section className="card p-5">
-      <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-1">Default Location & Known Villages</h2>
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Default Location & Known Villages</h2>
+        <SaveBar dirty={dirty} saving={saving} onSave={save} onReset={reset} />
+      </div>
       <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-4">
         These pre-fill on every new patient so the receptionist only types the village. Known villages appear as autocomplete suggestions.
       </p>
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="label">Default State</label>
-          <select
-            className="input"
-            value={settings.default_state}
-            onChange={(e) => save.mutate({ default_state: e.target.value })}
-          >
+          <select className="input" value={draft.default_state ?? ''} onChange={(e) => set('default_state', e.target.value)}>
             <option value="">—</option>
             {INDIAN_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
-        <LazyInput label="Default District" value={settings.default_district} onSave={(v) => save.mutate({ default_district: v })} />
+        <TxtField label="Default District" value={draft.default_district ?? ''} onChange={(v) => set('default_district', v)} />
         <div className="col-span-2">
-          <LazyInput
-            label="Known Villages / Places (comma-separated)"
-            value={settings.known_villages}
-            onSave={(v) => save.mutate({ known_villages: v })}
-          />
+          <TxtField label="Known Villages / Places (comma-separated)" value={draft.known_villages ?? ''} onChange={(v) => set('known_villages', v)} />
           <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-1">
             e.g. <i>Mulgund, Gadag, Lakshmeshwar, Naregal, Shirahatti</i> — these show as autocomplete in the Reception Place field.
           </div>
@@ -224,31 +208,26 @@ function ClinicInfo() {
   const qc = useQueryClient();
   const toast = useToast();
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
-  const save = useMutation({
+  const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, ['clinic_name', 'clinic_tagline', 'clinic_phone', 'clinic_email', 'clinic_address', 'clinic_registration_no'], {
+    extraInvalidateKeys: [['clinic-name'], ['clinic-name-title']],
+  });
+
+  const logoSave = useMutation({
     mutationFn: (patch: Partial<Settings>) => window.electronAPI.settings.save(patch),
-    onMutate: (patch) => {
-      const prev = qc.getQueryData<Settings>(['settings']);
-      if (prev) qc.setQueryData(['settings'], { ...prev, ...patch });
-      return { prev };
-    },
-    onError: (_e, _p, ctx) => {
-      if (ctx?.prev) qc.setQueryData(['settings'], ctx.prev);
-      toast('Save failed', 'error');
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['settings'] });
-      qc.invalidateQueries({ queryKey: ['clinic-name'] });
-      qc.invalidateQueries({ queryKey: ['clinic-name-title'] });
-      toast('Saved');
-    },
+    onMutate: (patch) => { const prev = qc.getQueryData<Settings>(['settings']); if (prev) qc.setQueryData(['settings'], { ...prev, ...patch }); return { prev }; },
+    onError: (_e, _p, ctx) => { if (ctx?.prev) qc.setQueryData(['settings'], ctx.prev); toast('Save failed', 'error'); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings'] }); toast('Logo saved'); },
   });
 
   if (!settings) return null;
   return (
     <section className="card p-5">
-      <div className="flex items-center gap-2 mb-1">
-        <Building2 className="w-4 h-4 text-blue-600" />
-        <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Clinic Info</h2>
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2">
+          <Building2 className="w-4 h-4 text-blue-600" />
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Clinic Info</h2>
+        </div>
+        <SaveBar dirty={dirty} saving={saving} onSave={save} onReset={reset} />
       </div>
       <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-4">These appear on the OPD slip letterhead and invoices.</p>
 
@@ -256,20 +235,20 @@ function ClinicInfo() {
         <ImageUpload
           label="Clinic Logo"
           value={settings.clinic_logo}
-          onChange={(v) => save.mutate({ clinic_logo: v || '' })}
+          onChange={(v) => logoSave.mutate({ clinic_logo: v || '' })}
           aspect="square"
           placeholder="Click or drop"
-          hint="⚠ Upload a high-quality logo (JPG / PNG). Max 5 MB. Square images look best; they appear on the OPD slip, invoice, and sidebar."
+          hint="⚠ Upload a high-quality logo (JPG / PNG). Max 5 MB. Logo saves immediately on upload."
         />
         <div className="flex-1 grid grid-cols-2 gap-4">
-          <LazyInput label="Clinic Name *" value={settings.clinic_name} onSave={(v) => save.mutate({ clinic_name: v })} />
-          <LazyInput label="Tagline" value={settings.clinic_tagline} onSave={(v) => save.mutate({ clinic_tagline: v })} />
-          <LazyInput label="Phone" value={settings.clinic_phone} onSave={(v) => save.mutate({ clinic_phone: v })} />
-          <LazyInput label="Email" value={settings.clinic_email} onSave={(v) => save.mutate({ clinic_email: v })} />
+          <TxtField label="Clinic Name *" value={draft.clinic_name ?? ''} onChange={(v) => set('clinic_name', v)} />
+          <TxtField label="Tagline" value={draft.clinic_tagline ?? ''} onChange={(v) => set('clinic_tagline', v)} />
+          <TxtField label="Phone" value={draft.clinic_phone ?? ''} onChange={(v) => set('clinic_phone', v)} />
+          <TxtField label="Email" value={draft.clinic_email ?? ''} onChange={(v) => set('clinic_email', v)} />
           <div className="col-span-2">
-            <LazyInput label="Address" value={settings.clinic_address} onSave={(v) => save.mutate({ clinic_address: v })} />
+            <TxtField label="Address" value={draft.clinic_address ?? ''} onChange={(v) => set('clinic_address', v)} />
           </div>
-          <LazyInput label="Registration No." value={settings.clinic_registration_no} onSave={(v) => save.mutate({ clinic_registration_no: v })} />
+          <TxtField label="Registration No." value={draft.clinic_registration_no ?? ''} onChange={(v) => set('clinic_registration_no', v)} />
         </div>
       </div>
     </section>
@@ -277,49 +256,31 @@ function ClinicInfo() {
 }
 
 function FeesAndFlow() {
-  const qc = useQueryClient();
-  const toast = useToast();
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
-  const save = useMutation({
-    mutationFn: (patch: Partial<Settings>) => window.electronAPI.settings.save(patch),
-    onMutate: (patch) => {
-      // optimistic: apply immediately so the toggle feels instant
-      const prev = qc.getQueryData<Settings>(['settings']);
-      if (prev) qc.setQueryData(['settings'], { ...prev, ...patch });
-      return { prev };
-    },
-    onError: (_err, _patch, ctx) => {
-      if (ctx?.prev) qc.setQueryData(['settings'], ctx.prev);
-      toast('Save failed', 'error');
-    },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings'] }); toast('Saved'); },
-  });
+  const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, ['consultation_fee', 'special_price', 'slot_duration', 'queue_flow_enabled']);
 
   if (!settings) return null;
   return (
     <section className="card p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <Wallet className="w-4 h-4 text-amber-600" />
-        <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Fees & Queue Flow</h2>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Wallet className="w-4 h-4 text-amber-600" />
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Fees & Queue Flow</h2>
+        </div>
+        <SaveBar dirty={dirty} saving={saving} onSave={save} onReset={reset} />
       </div>
       <div className="grid grid-cols-3 gap-4">
-        <LazyInput
-          label="Regular Consultation Fee (₹)"
-          value={String(settings.consultation_fee)}
-          onSave={(v) => save.mutate({ consultation_fee: Number(v) as any })}
-        />
-        <LazyInput
-          label="Special Price (₹)"
-          value={String(settings.special_price)}
-          onSave={(v) => save.mutate({ special_price: Number(v) as any })}
-        />
+        <div>
+          <label className="label">Regular Consultation Fee (₹)</label>
+          <input type="number" className="input" value={draft.consultation_fee ?? 0} onChange={(e) => set('consultation_fee', Number(e.target.value))} />
+        </div>
+        <div>
+          <label className="label">Special Price (₹)</label>
+          <input type="number" className="input" value={draft.special_price ?? 0} onChange={(e) => set('special_price', Number(e.target.value))} />
+        </div>
         <div>
           <label className="label">Slot Duration</label>
-          <select
-            className="input"
-            value={settings.slot_duration}
-            onChange={(e) => save.mutate({ slot_duration: Number(e.target.value) as any })}
-          >
+          <select className="input" value={draft.slot_duration ?? 30} onChange={(e) => set('slot_duration', Number(e.target.value))}>
             <option value={15}>15 min</option>
             <option value={20}>20 min</option>
             <option value={30}>30 min</option>
@@ -339,18 +300,17 @@ function FeesAndFlow() {
         </div>
         <button
           type="button"
-          onClick={() => save.mutate({ queue_flow_enabled: !settings.queue_flow_enabled })}
+          onClick={() => set('queue_flow_enabled', !draft.queue_flow_enabled)}
           className={cn(
             'w-12 h-7 rounded-full relative transition flex-shrink-0',
-            settings.queue_flow_enabled ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-slate-600'
+            draft.queue_flow_enabled ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-slate-600'
           )}
-          aria-pressed={settings.queue_flow_enabled}
-          title={settings.queue_flow_enabled ? 'Queue flow ON — click to disable' : 'Queue flow OFF — click to enable'}
+          aria-pressed={!!draft.queue_flow_enabled}
         >
           <span
             className={cn(
               'absolute top-0.5 w-6 h-6 rounded-full shadow-md transition-all',
-              settings.queue_flow_enabled ? 'left-[26px]' : 'left-0.5'
+              draft.queue_flow_enabled ? 'left-[26px]' : 'left-0.5'
             )}
             style={{ backgroundColor: '#ffffff' }}
           />
@@ -523,4 +483,82 @@ function LazyInput({ label, value, onSave }: { label: string; value: string; onS
       <input className="input" value={v} onChange={(e) => setV(e.target.value)} onBlur={() => v !== value && onSave(v)} />
     </div>
   );
+}
+
+function TxtField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <label className="label">{label}</label>
+      <input className="input" value={value} onChange={(e) => onChange(e.target.value)} />
+    </div>
+  );
+}
+
+function SaveBar({ dirty, saving, onSave, onReset }: { dirty: boolean; saving: boolean; onSave: () => void; onReset: () => void }) {
+  if (!dirty && !saving) {
+    return <span className="text-[11px] text-gray-400 dark:text-slate-500 italic">All changes saved</span>;
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[11px] text-amber-700 dark:text-amber-300 font-medium">Unsaved changes</span>
+      <button type="button" className="btn-secondary text-xs" onClick={onReset} disabled={saving}>Reset</button>
+      <button type="button" className="btn-primary text-xs" onClick={onSave} disabled={saving}>
+        <Save className="w-3.5 h-3.5" /> {saving ? 'Saving…' : 'Save Changes'}
+      </button>
+    </div>
+  );
+}
+
+function useSectionDraft<K extends keyof Settings>(
+  settings: Settings | undefined,
+  keys: K[],
+  opts: { extraInvalidateKeys?: any[][] } = {}
+) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const initial = (): Partial<Pick<Settings, K>> => {
+    if (!settings) return {};
+    const out: any = {};
+    for (const k of keys) out[k] = settings[k];
+    return out;
+  };
+  const [draft, setDraft] = useState<Partial<Pick<Settings, K>>>(initial);
+  // Sync draft when settings load / change externally (but don't clobber local edits)
+  useEffect(() => {
+    if (!settings) return;
+    setDraft((cur) => {
+      // If draft is already dirty on a key, keep the local version.
+      const next: any = { ...cur };
+      for (const k of keys) if (next[k] === undefined) next[k] = settings[k];
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings?.clinic_name, settings?.clinic_address, settings?.clinic_phone, settings?.clinic_email, settings?.clinic_tagline, settings?.clinic_registration_no, settings?.default_state, settings?.default_district, settings?.known_villages, settings?.consultation_fee, settings?.special_price, settings?.slot_duration, settings?.queue_flow_enabled]);
+
+  const dirty = !!settings && keys.some((k) => draft[k] !== settings[k]);
+
+  const mutation = useMutation({
+    mutationFn: (patch: Partial<Settings>) => window.electronAPI.settings.save(patch),
+    onSuccess: async () => {
+      await qc.refetchQueries({ queryKey: ['settings'] });
+      for (const key of opts.extraInvalidateKeys || []) qc.invalidateQueries({ queryKey: key });
+      toast('Saved');
+    },
+    onError: (e: any) => toast(e.message || 'Save failed', 'error'),
+  });
+
+  return {
+    draft,
+    set: <Kk extends K>(k: Kk, v: Settings[Kk]) => setDraft((d) => ({ ...d, [k]: v })),
+    reset: () => setDraft(initial()),
+    dirty,
+    saving: mutation.isPending,
+    save: () => {
+      if (!settings) return;
+      const patch: any = {};
+      for (const k of keys) if (draft[k] !== settings[k]) patch[k] = draft[k];
+      if (Object.keys(patch).length === 0) return;
+      mutation.mutate(patch);
+    },
+  };
 }
