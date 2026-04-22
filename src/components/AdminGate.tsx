@@ -1,31 +1,15 @@
 import { useState } from 'react';
-import { Lock, ShieldCheck, Unlock } from 'lucide-react';
+import { Lock, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 
 export function AdminGate({ children, title = 'Administrator area' }: { children: React.ReactNode; title?: string }) {
-  const { adminUnlocked, unlockAdmin, lockAdmin } = useAuth();
+  const { adminUnlocked, unlockAdmin } = useAuth();
   const toast = useToast();
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
 
-  if (adminUnlocked) {
-    return (
-      <>
-        <div className="fixed top-20 right-6 z-40 no-print">
-          <button
-            onClick={lockAdmin}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold shadow-lg text-white"
-            style={{ background: 'linear-gradient(135deg, #dc2626, #b91c1c)' }}
-            title="Lock admin mode"
-          >
-            <Unlock className="w-3.5 h-3.5" /> Admin unlocked — click to lock
-          </button>
-        </div>
-        {children}
-      </>
-    );
-  }
+  if (adminUnlocked) return <>{children}</>;
 
   const submit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();

@@ -129,10 +129,7 @@ export function registerIpc() {
     return { ok: true, deleted: count };
   });
 
-  ipcMain.handle('admin:deletePatient', (_e, patientId: number, confirmPhrase: string) => {
-    if (confirmPhrase !== 'iknowwhatiamdoing') {
-      return { ok: false, error: 'Confirmation phrase required' };
-    }
+  ipcMain.handle('admin:deletePatient', (_e, patientId: number) => {
     const db = getDb();
     const p = db.prepare('SELECT uhid, first_name, last_name FROM patients WHERE id=?').get(patientId) as any;
     if (!p) return { ok: false, error: 'Patient not found' };

@@ -346,8 +346,7 @@ function DeletePatientBlock() {
   const qc = useQueryClient();
   const toast = useToast();
   const [q, setQ] = useState('');
-  const [selected, setSelected] = useState<any | null>(null);
-  const [phrase, setPhrase] = useState('');
+  const [confirming, setConfirming] = useState<any | null>(null);
   const [busy, setBusy] = useState(false);
 
   const { data: results = [] } = useQuery({
@@ -356,16 +355,14 @@ function DeletePatientBlock() {
     enabled: q.length > 1,
   });
 
-  const confirm = async () => {
-    if (!selected) return;
+  const doDelete = async (p: any) => {
     setBusy(true);
-    const r = await window.electronAPI.admin.deletePatient(selected.id, phrase);
+    const r = await window.electronAPI.admin.deletePatient(p.id);
     setBusy(false);
     if (r.ok) {
       toast(`Deleted patient ${r.patient.uhid}`);
       qc.invalidateQueries({ queryKey: ['patients'] });
-      setSelected(null);
-      setPhrase('');
+      setConfirming(null);
       setQ('');
     } else {
       toast(r.error || 'Failed', 'error');
@@ -380,45 +377,44 @@ function DeletePatientBlock() {
       <div className="text-[11px] text-red-700 dark:text-red-300 mt-0.5 mb-3">
         Cascades: appointments, consultations, Rx, lab orders, EMR (allergies/conditions/family/immunizations/documents). Bills become orphaned but are preserved for audit.
       </div>
-      {!selected ? (
-        <div>
-          <div className="relative">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input className="input pl-9" placeholder="Search patient by name / UHID / phone" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="relative">
+        <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        <input className="input pl-9" placeholder="Search patient by name / UHID / phone" value={q} onChange={(e) => setQ(e.target.value)} />
+      </div>
+      {q.length > 1 && (
+        <ul className="max-h-60 overflow-auto mt-2 border border-gray-200 dark:border-slate-700 rounded-lg divide-y divide-gray-100 dark:divide-slate-700">
+          {results.slice(0, 20).map((p: any) => (
+            <li key={p.id} className="px-3 py-2 flex items-center justify-between gap-2 hover:bg-gray-50 dark:hover:bg-slate-700">
+              <div className="min-w-0">
+                <div className="text-sm text-gray-900 dark:text-slate-100">{p.first_name} {p.last_name}</div>
+                <div className="text-[11px] text-gray-500 dark:text-slate-400">{p.uhid} · {p.phone}</div>
+              </div>
+              <button className="btn-danger text-xs" onClick={() => setConfirming(p)}>
+                <Trash2 className="w-3.5 h-3.5" /> Delete
+              </button>
+            </li>
+          ))}
+          {results.length === 0 && <li className="px-3 py-4 text-xs text-gray-400 text-center">No matches</li>}
+        </ul>
+      )}
+
+      {confirming && (
+        <Modal open onClose={() => setConfirming(null)} title="Delete patient?">
+          <div className="space-y-3">
+            <div className="text-sm text-gray-900 dark:text-slate-100">
+              Permanently delete <span className="font-bold">{confirming.first_name} {confirming.last_name}</span> ({confirming.uhid}) and all their linked history?
+            </div>
+            <div className="text-[11px] text-gray-500 dark:text-slate-400">
+              This cannot be undone. Bills remain in records (orphaned) for audit. Appointments, consultations, Rx, lab orders, and EMR entries are removed.
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button className="btn-secondary" onClick={() => setConfirming(null)} disabled={busy}>Cancel</button>
+              <button className="btn-danger" onClick={() => doDelete(confirming)} disabled={busy}>
+                {busy ? 'Deleting…' : 'Yes, delete permanently'}
+              </button>
+            </div>
           </div>
-          {q.length > 1 && (
-            <ul className="max-h-52 overflow-auto mt-2 border border-gray-200 dark:border-slate-700 rounded-lg divide-y divide-gray-100 dark:divide-slate-700">
-              {results.slice(0, 10).map((p: any) => (
-                <li key={p.id} onClick={() => setSelected(p)} className="px-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700">
-                  <div className="text-sm text-gray-900 dark:text-slate-100">{p.first_name} {p.last_name}</div>
-                  <div className="text-[11px] text-gray-500 dark:text-slate-400">{p.uhid} · {p.phone}</div>
-                </li>
-              ))}
-              {results.length === 0 && <li className="px-3 py-4 text-xs text-gray-400 text-center">No matches</li>}
-            </ul>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <div className="card p-3 bg-white dark:bg-slate-800">
-            <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">{selected.first_name} {selected.last_name}</div>
-            <div className="text-[11px] text-gray-500 dark:text-slate-400">{selected.uhid} · {selected.phone}</div>
-            <button className="text-[11px] text-blue-600 hover:underline mt-1" onClick={() => setSelected(null)}>Change</button>
-          </div>
-          <input
-            className="input font-mono"
-            placeholder="Type iknowwhatiamdoing to confirm"
-            value={phrase}
-            onChange={(e) => setPhrase(e.target.value)}
-          />
-          <button
-            className="btn-danger w-full"
-            disabled={busy || phrase !== 'iknowwhatiamdoing'}
-            onClick={confirm}
-          >
-            {busy ? 'Deleting…' : `Permanently delete ${selected.first_name} ${selected.last_name}`}
-          </button>
-        </div>
+        </Modal>
       )}
     </div>
   );
