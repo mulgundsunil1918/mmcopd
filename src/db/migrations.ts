@@ -11,6 +11,8 @@ function addColumnIfMissing(db: Database.Database, table: string, column: string
 export function runMigrations(db: Database.Database) {
   createSchema(db);
   addColumnIfMissing(db, 'doctors', 'signature', 'TEXT');
+  addColumnIfMissing(db, 'doctors', 'qualifications', 'TEXT');
+  addColumnIfMissing(db, 'doctors', 'registration_no', 'TEXT');
   addColumnIfMissing(db, 'patients', 'place', 'TEXT');
   addColumnIfMissing(db, 'patients', 'district', 'TEXT');
   addColumnIfMissing(db, 'patients', 'state', 'TEXT');

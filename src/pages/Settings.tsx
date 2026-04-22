@@ -444,6 +444,27 @@ function DoctorsManagement() {
               <Field label="Specialty *">
                 <input className="input" value={editing.specialty || ''} onChange={(e) => setEditing({ ...editing, specialty: e.target.value })} />
               </Field>
+              <div className="col-span-2">
+                <Field label="Qualifications / Degrees (shown on OPD slip)">
+                  <input
+                    className="input"
+                    placeholder="e.g. MBBS, MD (Medicine), DNB Cardiology"
+                    value={editing.qualifications || ''}
+                    onChange={(e) => setEditing({ ...editing, qualifications: e.target.value })}
+                  />
+                </Field>
+              </div>
+              <Field label="Medical Registration No.">
+                <input
+                  className="input"
+                  placeholder="e.g. KMC-12345"
+                  value={editing.registration_no || ''}
+                  onChange={(e) => setEditing({ ...editing, registration_no: e.target.value })}
+                />
+              </Field>
+              <Field label="Default Consultation Fee (₹)">
+                <input type="number" className="input" value={editing.default_fee || 0} onChange={(e) => setEditing({ ...editing, default_fee: Number(e.target.value) })} />
+              </Field>
               <Field label="Phone">
                 <input className="input" value={editing.phone || ''} onChange={(e) => setEditing({ ...editing, phone: e.target.value })} />
               </Field>
@@ -452,9 +473,6 @@ function DoctorsManagement() {
               </Field>
               <Field label="Room Number">
                 <input className="input" value={editing.room_number || ''} onChange={(e) => setEditing({ ...editing, room_number: e.target.value })} />
-              </Field>
-              <Field label="Default Fee (₹)">
-                <input type="number" className="input" value={editing.default_fee || 0} onChange={(e) => setEditing({ ...editing, default_fee: Number(e.target.value) })} />
               </Field>
             </div>
 

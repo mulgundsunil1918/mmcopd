@@ -372,10 +372,16 @@ function BookAppointmentModal({
   }, [open]);
 
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+
+  const selectedDoctor = doctors.find((d) => d.id === doctorId);
+  // Regular fee comes from the selected doctor's default_fee (falls back to clinic setting).
+  const regularFee = selectedDoctor?.default_fee ?? settings?.consultation_fee ?? 250;
+  const specialFee = settings?.special_price ?? 150;
+
   const fee =
-    feeMode === 'special' ? (settings?.special_price ?? 150)
+    feeMode === 'special' ? specialFee
     : feeMode === 'custom' ? Math.max(0, parseFloat(customFee || '0') || 0)
-    : (settings?.consultation_fee ?? 250);
+    : regularFee;
 
   const { data: searchResults = [] } = useQuery({
     queryKey: ['patient-search-modal', patientQuery],
@@ -429,8 +435,6 @@ function BookAppointmentModal({
       toast(e.message || 'Booking failed', 'error');
     }
   };
-
-  const selectedDoctor = doctors.find((d) => d.id === doctorId);
 
   return (
     <Modal open={open} onClose={onClose} title="Book Appointment" size="lg">
@@ -579,13 +583,13 @@ function BookAppointmentModal({
               active={feeMode === 'regular'}
               onClick={() => setFeeMode('regular')}
               title="Regular"
-              amount={formatINR(settings?.consultation_fee ?? 250)}
+              amount={formatINR(regularFee)}
             />
             <FeeOption
               active={feeMode === 'special'}
               onClick={() => setFeeMode('special')}
               title="Special"
-              amount={formatINR(settings?.special_price ?? 150)}
+              amount={formatINR(specialFee)}
             />
             <FeeOption
               active={feeMode === 'custom'}

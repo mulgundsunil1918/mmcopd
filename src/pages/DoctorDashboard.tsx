@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Stethoscope, Clock4, CheckCircle2, PlayCircle, Receipt, User, Phone, Cake } from 'lucide-react';
+import { Stethoscope, Clock4, CheckCircle2, PlayCircle, Receipt, User, Phone, Cake, ArrowLeft } from 'lucide-react';
 import { age, ageString, cn, fmt12h, fmtDate, todayISO, waitMinutes } from '../lib/utils';
 import { StatusBadge } from '../components/StatusBadge';
 import { EmptyState } from '../components/EmptyState';
@@ -74,15 +74,25 @@ export function DoctorDashboard() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="border-b border-gray-200 bg-white px-6 py-4 flex items-center justify-between">
+      <div className="border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-4">
+          <button
+            onClick={() => navigate('/doctor-select')}
+            className="btn-secondary"
+            title="Back to Doctors"
+          >
+            <ArrowLeft className="w-4 h-4" /> Back
+          </button>
           <div className="w-12 h-12 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
             <Stethoscope className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-gray-900">{doctor.name}</h1>
-            <div className="text-xs text-gray-500">{doctor.specialty}{doctor.room_number ? ` · Room ${doctor.room_number}` : ''}</div>
-            <div className="text-[11px] text-gray-400 mt-0.5">{fmtDate(todayISO())}</div>
+            <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">{doctor.name}</h1>
+            {doctor.qualifications && (
+              <div className="text-[11px] text-blue-600 dark:text-blue-300 font-medium">{doctor.qualifications}</div>
+            )}
+            <div className="text-xs text-gray-500 dark:text-slate-400">{doctor.specialty}{doctor.room_number ? ` · Room ${doctor.room_number}` : ''}</div>
+            <div className="text-[11px] text-gray-400 dark:text-slate-500 mt-0.5">{fmtDate(todayISO())}</div>
           </div>
         </div>
         <div className="flex gap-3">

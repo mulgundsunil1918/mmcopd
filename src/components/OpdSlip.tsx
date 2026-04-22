@@ -161,7 +161,13 @@ function SlipBody({
         <div className="border border-gray-300 rounded p-2">
           <div className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Consulting Doctor</div>
           <div className="text-sm font-bold text-gray-900 mt-0.5">{doctor.name}</div>
+          {doctor.qualifications && (
+            <div className="text-[10px] font-medium" style={{ color: '#1e40af' }}>{doctor.qualifications}</div>
+          )}
           <div className="text-[10px] text-gray-600">{doctor.specialty}{doctor.room_number ? ` · Room ${doctor.room_number}` : ''}</div>
+          {doctor.registration_no && (
+            <div className="text-[9px] text-gray-500">Reg: {doctor.registration_no}</div>
+          )}
         </div>
         <div className="border border-gray-300 rounded p-2">
           <div className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">Patient</div>
@@ -264,7 +270,9 @@ function SlipBody({
             ) : (
               <div className="border-b border-gray-900 h-10 w-48" />
             )}
-            <div className="text-[10px] text-gray-600 mt-1">{doctor.name} — Signature</div>
+            <div className="text-[10px] text-gray-600 mt-1">
+              {doctor.name}{doctor.qualifications ? `, ${doctor.qualifications}` : ''} — Signature
+            </div>
           </div>
         </div>
       </div>

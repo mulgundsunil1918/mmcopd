@@ -49,6 +49,8 @@ export interface Doctor {
   is_active: number;
   default_fee: number;
   signature?: string | null;
+  qualifications?: string | null;
+  registration_no?: string | null;
 }
 
 export interface Appointment {
