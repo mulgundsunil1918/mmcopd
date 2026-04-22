@@ -361,9 +361,16 @@ function DeletePatientBlock() {
     setBusy(false);
     if (r.ok) {
       toast(`Deleted patient ${r.patient.uhid}`);
+      // Refresh every patient-related query (search, recent, log, origin stats, etc.)
       qc.invalidateQueries({ queryKey: ['patients'] });
+      qc.invalidateQueries({ queryKey: ['patients-delete-search'] });
+      qc.invalidateQueries({ queryKey: ['patient-log'] });
+      qc.invalidateQueries({ queryKey: ['appointments'] });
+      qc.invalidateQueries({ queryKey: ['stats'] });
       setConfirming(null);
       setQ('');
+    } else if (r.error === 'Confirmation phrase required') {
+      toast('App needs a full restart — the main process is from before the delete flow was simplified. Close the app and run npm start.', 'error');
     } else {
       toast(r.error || 'Failed', 'error');
     }
