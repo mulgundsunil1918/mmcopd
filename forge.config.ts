@@ -6,6 +6,7 @@ import { MakerRpm } from '@electron-forge/maker-rpm';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
+import { PublisherGithub } from '@electron-forge/publisher-github';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
 
 const config: ForgeConfig = {
@@ -22,6 +23,13 @@ const config: ForgeConfig = {
     new MakerZIP({}, ['darwin']),
     new MakerRpm({}),
     new MakerDeb({}),
+  ],
+  publishers: [
+    new PublisherGithub({
+      repository: { owner: 'mulgundsunil1918', name: 'mmcopd' },
+      prerelease: false,
+      draft: true, // safer: review on GitHub before publishing
+    }),
   ],
   plugins: [
     new AutoUnpackNativesPlugin({}),

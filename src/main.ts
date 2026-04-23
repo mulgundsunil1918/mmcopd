@@ -5,6 +5,26 @@ import { registerIpc } from './main/ipc';
 import { getDb, closeDb } from './db/db';
 import { getAllSettings } from './db/settings';
 
+// Auto-update from GitHub Releases — only in packaged builds, never in dev.
+if (app.isPackaged) {
+  try {
+    // Lazy import so dev mode never touches it.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { updateElectronApp, UpdateSourceType } = require('update-electron-app');
+    updateElectronApp({
+      updateSource: {
+        type: UpdateSourceType.ElectronPublicUpdateService,
+        repo: 'mulgundsunil1918/mmcopd',
+      },
+      updateInterval: '1 hour',
+      logger: console,
+      notifyUser: true, // shows OS-native dialog when an update is downloaded
+    });
+  } catch (e) {
+    console.warn('Auto-update unavailable:', e);
+  }
+}
+
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
 
