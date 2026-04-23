@@ -1,4 +1,4 @@
-import { ipcMain, app, shell } from 'electron';
+import { ipcMain, app, shell, dialog, BrowserWindow } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDb } from '../db/db';
@@ -1233,29 +1233,147 @@ export function registerIpc() {
   });
 
   // ===== Backup =====
-  ipcMain.handle('backup:now', async () => {
+  // Recursively copy a directory (Node 16+ has fs.cpSync but we keep it manual for compatibility)
+  function copyDirRecursive(src: string, dest: string) {
+    if (!fs.existsSync(src)) return;
+    if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
+    for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+      const sp = path.join(src, entry.name);
+      const dp = path.join(dest, entry.name);
+      if (entry.isDirectory()) copyDirRecursive(sp, dp);
+      else fs.copyFileSync(sp, dp);
+    }
+  }
+
+  async function performBackup(): Promise<{ path: string; bundleDir: string; totalBundles: number; documentCount: number }> {
     const userData = app.getPath('userData');
-    const src = path.join(userData, 'caredesk.sqlite');
+    const sqliteSrc = path.join(userData, 'caredesk.sqlite');
+    const docsSrc = path.join(userData, 'documents');
     const s = getAllSettings(getDb());
     const backupDir = s.backup_folder || path.join(userData, 'backups');
     if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const dest = path.join(backupDir, `caredesk-${stamp}.sqlite`);
-    // Use SQLite's online backup API via better-sqlite3 to get a consistent copy even if WAL is active
-    try {
-      await getDb().backup(dest);
-    } catch {
-      fs.copyFileSync(src, dest);
+    // A bundle folder per backup contains the SQLite file + a copy of all uploaded documents.
+    const bundleDir = path.join(backupDir, `caredesk-${stamp}`);
+    fs.mkdirSync(bundleDir, { recursive: true });
+    const dbDest = path.join(bundleDir, 'caredesk.sqlite');
+    try { await getDb().backup(dbDest); } catch { fs.copyFileSync(sqliteSrc, dbDest); }
+
+    // Copy documents folder
+    let documentCount = 0;
+    if (fs.existsSync(docsSrc)) {
+      copyDirRecursive(docsSrc, path.join(bundleDir, 'documents'));
+      const countFiles = (dir: string): number => {
+        let n = 0;
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (e.isDirectory()) n += countFiles(path.join(dir, e.name));
+          else n += 1;
+        }
+        return n;
+      };
+      documentCount = countFiles(docsSrc);
     }
-    // Retention: keep last 30 files
-    const files = fs.readdirSync(backupDir)
-      .filter((f: string) => f.startsWith('caredesk-') && f.endsWith('.sqlite'))
-      .map((f: string) => ({ f, t: fs.statSync(path.join(backupDir, f)).mtimeMs }))
-      .sort((a: any, b: any) => b.t - a.t);
-    for (const old of files.slice(30)) {
-      try { fs.unlinkSync(path.join(backupDir, old.f)); } catch { /* ignore */ }
+
+    // Manifest with what was backed up
+    const manifest = {
+      app: 'CareDesk HMS',
+      version: app.getVersion(),
+      created_at: new Date().toISOString(),
+      sqlite_size_bytes: fs.statSync(dbDest).size,
+      document_files: documentCount,
+      contents: ['caredesk.sqlite', 'documents/'],
+    };
+    fs.writeFileSync(path.join(bundleDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+
+    // Also keep a flat .sqlite copy alongside for quick inspection / legacy compatibility
+    const flatSqlite = path.join(backupDir, `caredesk-${stamp}.sqlite`);
+    fs.copyFileSync(dbDest, flatSqlite);
+
+    // Retention: keep last 30 bundles + last 30 flat sqlite copies
+    const cleanup = (filterFn: (n: string) => boolean) => {
+      const items = fs.readdirSync(backupDir)
+        .filter(filterFn)
+        .map((f) => ({ f, t: fs.statSync(path.join(backupDir, f)).mtimeMs }))
+        .sort((a, b) => b.t - a.t);
+      for (const old of items.slice(30)) {
+        const p = path.join(backupDir, old.f);
+        try {
+          const stat = fs.statSync(p);
+          if (stat.isDirectory()) fs.rmSync(p, { recursive: true, force: true });
+          else fs.unlinkSync(p);
+        } catch { /* ignore */ }
+      }
+      return items.length;
+    };
+    const totalBundles = cleanup((n) => n.startsWith('caredesk-') && fs.statSync(path.join(backupDir, n)).isDirectory());
+    cleanup((n) => n.startsWith('caredesk-') && n.endsWith('.sqlite'));
+
+    logAudit(getDb(), null, 'backup_run', 'backups', undefined, `${dbDest} · ${documentCount} docs`);
+
+    return { path: bundleDir, bundleDir, totalBundles: Math.min(totalBundles + 1, 30), documentCount };
+  }
+
+  ipcMain.handle('backup:now', async () => performBackup());
+
+  // Backup to a specific (user-chosen) directory — used by USB flow
+  async function performBackupTo(targetDir: string) {
+    const userData = app.getPath('userData');
+    const sqliteSrc = path.join(userData, 'caredesk.sqlite');
+    const docsSrc = path.join(userData, 'documents');
+    if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const bundleDir = path.join(targetDir, `caredesk-${stamp}`);
+    fs.mkdirSync(bundleDir, { recursive: true });
+    const dbDest = path.join(bundleDir, 'caredesk.sqlite');
+    try { await getDb().backup(dbDest); } catch { fs.copyFileSync(sqliteSrc, dbDest); }
+
+    let documentCount = 0;
+    if (fs.existsSync(docsSrc)) {
+      copyDirRecursive(docsSrc, path.join(bundleDir, 'documents'));
+      const countFiles = (dir: string): number => {
+        let n = 0;
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (e.isDirectory()) n += countFiles(path.join(dir, e.name));
+          else n += 1;
+        }
+        return n;
+      };
+      documentCount = countFiles(docsSrc);
     }
-    return { path: dest, totalBackups: Math.min(files.length + 1, 30) };
+
+    fs.writeFileSync(
+      path.join(bundleDir, 'manifest.json'),
+      JSON.stringify({
+        app: 'CareDesk HMS',
+        version: app.getVersion(),
+        created_at: new Date().toISOString(),
+        sqlite_size_bytes: fs.statSync(dbDest).size,
+        document_files: documentCount,
+        contents: ['caredesk.sqlite', 'documents/'],
+      }, null, 2)
+    );
+
+    logAudit(getDb(), null, 'backup_to_external', 'backups', undefined, bundleDir);
+    return { ok: true, path: bundleDir, documentCount };
+  }
+
+  ipcMain.handle('backup:nowTo', async (_e, targetDir: string) => {
+    if (!targetDir) return { ok: false, error: 'No folder selected' };
+    try { return await performBackupTo(targetDir); }
+    catch (err: any) { return { ok: false, error: err?.message || 'Failed' }; }
+  });
+
+  ipcMain.handle('dialog:pickFolder', async (_e, opts: { title?: string; defaultPath?: string } = {}) => {
+    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+    const r = await dialog.showOpenDialog(win, {
+      title: opts.title || 'Pick a folder',
+      defaultPath: opts.defaultPath,
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (r.canceled || r.filePaths.length === 0) return null;
+    return r.filePaths[0];
   });
 
   ipcMain.handle('backup:list', () => {
@@ -1296,22 +1414,11 @@ export function registerIpc() {
   });
 
   ipcMain.handle('backup:quitAfter', async () => {
-    // Run a fresh backup, then quit the app cleanly.
-    const userData = app.getPath('userData');
-    const s = getAllSettings(getDb());
-    const dir = s.backup_folder || path.join(userData, 'backups');
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const dest = path.join(dir, `caredesk-${stamp}.sqlite`);
-    try {
-      await getDb().backup(dest);
-    } catch {
-      fs.copyFileSync(path.join(userData, 'caredesk.sqlite'), dest);
-    }
-    logAudit(getDb(), null, 'backup_and_close', 'backups', undefined, dest);
+    const r = await performBackup();
+    logAudit(getDb(), null, 'backup_and_close', 'backups', undefined, r.bundleDir);
     closeDb();
     setTimeout(() => app.quit(), 250);
-    return { ok: true, path: dest };
+    return { ok: true, path: r.bundleDir };
   });
 
   // ===== Patient Origin (place stats) =====

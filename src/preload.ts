@@ -253,11 +253,16 @@ const api = {
       ipcRenderer.invoke('reports:run', params) as Promise<any[]>,
   },
   backup: {
-    now: () => ipcRenderer.invoke('backup:now') as Promise<{ path: string; totalBackups: number }>,
+    now: () => ipcRenderer.invoke('backup:now') as Promise<{ path: string; bundleDir: string; totalBundles: number; documentCount: number }>,
+    nowTo: (targetDir: string) => ipcRenderer.invoke('backup:nowTo', targetDir) as Promise<{ ok: boolean; path?: string; documentCount?: number; error?: string }>,
     list: () => ipcRenderer.invoke('backup:list') as Promise<{ name: string; path: string; size: number; mtime: string }[]>,
     open: () => ipcRenderer.invoke('backup:open') as Promise<void>,
     status: () => ipcRenderer.invoke('backup:status') as Promise<{ lastBackupAt: string | null; lastBackupName: string | null; totalBackups: number; dir: string }>,
     quitAfter: () => ipcRenderer.invoke('backup:quitAfter') as Promise<{ ok: boolean; path: string }>,
+  },
+  dialog: {
+    pickFolder: (opts?: { title?: string; defaultPath?: string }) =>
+      ipcRenderer.invoke('dialog:pickFolder', opts || {}) as Promise<string | null>,
   },
 };
 
