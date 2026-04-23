@@ -1264,6 +1264,23 @@ export function registerIpc() {
     return rows.length;
   }
 
+  // Excel hard limit per cell is 32,767 chars; truncate anything bigger to keep export safe.
+  const EXCEL_CELL_MAX = 32_000;
+  function safeCellValue(v: any): any {
+    if (v === null || v === undefined) return '';
+    if (typeof v === 'string' && v.length > EXCEL_CELL_MAX) {
+      return v.slice(0, EXCEL_CELL_MAX) + ` …[truncated, original ${v.length} chars]`;
+    }
+    return v;
+  }
+  function sanitizeRows(rows: any[]): any[] {
+    return rows.map((r) => {
+      const out: any = {};
+      for (const k of Object.keys(r)) out[k] = safeCellValue(r[k]);
+      return out;
+    });
+  }
+
   // Build a single .xlsx file with one sheet per major table.
   function exportAllToXlsx(db: any, destFile: string): { sheets: string[]; rowCounts: Record<string, number> } {
     const EXPORTS = buildExportSpecs();
@@ -1272,12 +1289,12 @@ export function registerIpc() {
     const sheets: string[] = [];
     for (const spec of EXPORTS) {
       try {
-        const rows = db.prepare(spec.sql).all() as any[];
+        const rawRows = db.prepare(spec.sql).all() as any[];
+        const rows = sanitizeRows(rawRows);
         const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{}]);
-        // Sheet names in Excel: max 31 chars, no / \ ? * [ ]
         const sheetName = spec.sheet.replace(/[\/\\?*\[\]]/g, '').slice(0, 31);
         XLSX.utils.book_append_sheet(wb, ws, sheetName);
-        rowCounts[sheetName] = rows.length;
+        rowCounts[sheetName] = rawRows.length;
         sheets.push(sheetName);
       } catch {
         rowCounts[spec.sheet] = -1;
@@ -1391,7 +1408,7 @@ export function registerIpc() {
         ORDER BY n.created_at DESC` },
       { sheet: 'Audit Log', sql: `SELECT id, at, username, role, action, entity, entity_id, details FROM audit_log ORDER BY at DESC` },
       { sheet: 'Users', sql: `SELECT id, username, role, display_name, doctor_id, is_active, last_login_at, created_at FROM users ORDER BY created_at DESC` },
-      { sheet: 'Settings', sql: `SELECT key, value FROM settings WHERE key NOT IN ('admin_password') ORDER BY key` },
+      { sheet: 'Settings', sql: `SELECT key, value FROM settings WHERE key NOT IN ('admin_password', 'clinic_logo') ORDER BY key` },
     ];
   }
 
