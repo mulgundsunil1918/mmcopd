@@ -175,8 +175,37 @@ function AppModeSelector() {
 }
 
 function BackupSettings() {
+  const toast = useToast();
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, ['backup_folder', 'backup_reminder_time']);
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [restoreSource, setRestoreSource] = useState<string | null>(null);
+  const [restorePhrase, setRestorePhrase] = useState('');
+  const [restoring, setRestoring] = useState(false);
+
+  const pickBundleFolder = async () => {
+    const p = await window.electronAPI.dialog.pickFolder({ title: 'Pick a CareDesk backup bundle folder (caredesk-<timestamp>)' });
+    if (p) { setRestoreSource(p); setRestoreOpen(true); }
+  };
+  const pickSqliteFile = async () => {
+    const p = await window.electronAPI.dialog.pickFile({
+      title: 'Pick a caredesk.sqlite backup file',
+      filters: [{ name: 'SQLite database', extensions: ['sqlite', 'db'] }],
+    });
+    if (p) { setRestoreSource(p); setRestoreOpen(true); }
+  };
+
+  const doRestore = async () => {
+    if (!restoreSource) return;
+    setRestoring(true);
+    try {
+      const r = await window.electronAPI.backup.restore(restoreSource, restorePhrase);
+      if (r.ok) toast('Restore complete. App is restarting…', 'info');
+      else toast(r.error || 'Restore failed', 'error');
+    } catch (e: any) {
+      toast(e.message || 'Restore failed', 'error');
+    } finally { setRestoring(false); }
+  };
 
   if (!settings) return null;
   return (
@@ -231,6 +260,55 @@ function BackupSettings() {
           </div>
         </div>
       </div>
+
+      {/* Restore / Import */}
+      <div className="mt-6 pt-5 border-t-2 border-red-200 dark:border-red-900">
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <div>
+            <div className="text-sm font-semibold text-red-800 dark:text-red-300">Restore / Import Backup</div>
+            <div className="text-[11px] text-red-700 dark:text-red-400 max-w-lg">
+              Replaces all current data (patients, bills, EMR, settings, users) with the selected backup. A safety snapshot of current data is taken first. App restarts after restore.
+            </div>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <button className="btn-secondary" onClick={pickBundleFolder}>Pick Bundle Folder</button>
+            <button className="btn-secondary" onClick={pickSqliteFile}>Pick .sqlite File</button>
+          </div>
+        </div>
+      </div>
+
+      <Modal open={restoreOpen} onClose={() => !restoring && setRestoreOpen(false)} title="⚠ Restore backup — replaces all current data" size="lg">
+        <div className="space-y-3">
+          <div className="text-sm text-gray-900 dark:text-slate-100">
+            You are about to restore from:
+          </div>
+          <div className="font-mono text-[11px] bg-gray-100 dark:bg-slate-800 p-2 rounded border border-gray-200 dark:border-slate-700 break-all">
+            {restoreSource}
+          </div>
+          <div className="text-[11px] text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-800 rounded p-2">
+            Before overwriting, I will make a safety snapshot of your current database + documents into your backup folder under <code>pre-restore-&lt;timestamp&gt;/</code>. If this restore is wrong, you can restore that snapshot back.
+          </div>
+          <div>
+            <label className="label">Type <code className="font-mono">REPLACE ALL DATA</code> to confirm</label>
+            <input
+              className="input font-mono"
+              value={restorePhrase}
+              onChange={(e) => setRestorePhrase(e.target.value)}
+              placeholder="REPLACE ALL DATA"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button className="btn-secondary" onClick={() => setRestoreOpen(false)} disabled={restoring}>Cancel</button>
+            <button
+              className="btn-danger"
+              disabled={restoring || restorePhrase !== 'REPLACE ALL DATA'}
+              onClick={doRestore}
+            >
+              {restoring ? 'Restoring…' : 'Restore & Restart App'}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </section>
   );
 }

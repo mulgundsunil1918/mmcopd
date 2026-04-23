@@ -1387,6 +1387,97 @@ export function registerIpc() {
     return r.filePaths[0];
   });
 
+  ipcMain.handle('dialog:pickFile', async (_e, opts: { title?: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] } = {}) => {
+    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+    const r = await dialog.showOpenDialog(win, {
+      title: opts.title || 'Pick a file',
+      defaultPath: opts.defaultPath,
+      filters: opts.filters,
+      properties: ['openFile'],
+    });
+    if (r.canceled || r.filePaths.length === 0) return null;
+    return r.filePaths[0];
+  });
+
+  // ===== Restore / Import =====
+  ipcMain.handle('backup:restore', async (_e, sourcePath: string, confirmPhrase: string) => {
+    if (confirmPhrase !== 'REPLACE ALL DATA') {
+      return { ok: false, error: 'Confirmation phrase required to proceed' };
+    }
+    if (!sourcePath || !fs.existsSync(sourcePath)) {
+      return { ok: false, error: 'Source path does not exist' };
+    }
+    const stat = fs.statSync(sourcePath);
+
+    // Resolve the source DB file + optional documents folder
+    let sourceSqlite: string;
+    let sourceDocs: string | null = null;
+
+    if (stat.isDirectory()) {
+      const candidate = path.join(sourcePath, 'caredesk.sqlite');
+      if (!fs.existsSync(candidate)) {
+        return { ok: false, error: 'Folder does not contain caredesk.sqlite (not a valid CareDesk bundle)' };
+      }
+      sourceSqlite = candidate;
+      const docsDir = path.join(sourcePath, 'documents');
+      if (fs.existsSync(docsDir) && fs.statSync(docsDir).isDirectory()) sourceDocs = docsDir;
+    } else {
+      if (!sourcePath.toLowerCase().endsWith('.sqlite')) {
+        return { ok: false, error: 'Pick a .sqlite file or a CareDesk bundle folder' };
+      }
+      sourceSqlite = sourcePath;
+    }
+
+    const userData = app.getPath('userData');
+    const currentDb = path.join(userData, 'caredesk.sqlite');
+    const currentDocs = path.join(userData, 'documents');
+
+    // 1) Safety-backup the current data first (always, no matter what)
+    try {
+      const s = getAllSettings(getDb());
+      const safeDir = s.backup_folder || path.join(userData, 'backups');
+      if (!fs.existsSync(safeDir)) fs.mkdirSync(safeDir, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const pre = path.join(safeDir, `pre-restore-${stamp}`);
+      fs.mkdirSync(pre, { recursive: true });
+      try { await getDb().backup(path.join(pre, 'caredesk.sqlite')); } catch { fs.copyFileSync(currentDb, path.join(pre, 'caredesk.sqlite')); }
+      if (fs.existsSync(currentDocs)) copyDirRecursive(currentDocs, path.join(pre, 'documents'));
+      logAudit(getDb(), null, 'pre_restore_backup', 'backups', undefined, pre);
+    } catch (e: any) {
+      return { ok: false, error: 'Could not make safety backup of current data: ' + (e?.message || e) };
+    }
+
+    // 2) Close the DB so we can overwrite the file
+    closeDb();
+
+    // 3) Replace caredesk.sqlite (and remove WAL sidecars so new DB is loaded cleanly)
+    try {
+      for (const sidecar of ['caredesk.sqlite-wal', 'caredesk.sqlite-shm']) {
+        const p = path.join(userData, sidecar);
+        if (fs.existsSync(p)) { try { fs.unlinkSync(p); } catch { /* ignore */ } }
+      }
+      fs.copyFileSync(sourceSqlite, currentDb);
+    } catch (e: any) {
+      return { ok: false, error: 'Failed to copy new database: ' + (e?.message || e) };
+    }
+
+    // 4) Replace documents folder (if the bundle has one)
+    try {
+      if (sourceDocs) {
+        if (fs.existsSync(currentDocs)) fs.rmSync(currentDocs, { recursive: true, force: true });
+        copyDirRecursive(sourceDocs, currentDocs);
+      }
+    } catch (e: any) {
+      return { ok: false, error: 'DB restored but documents copy failed: ' + (e?.message || e) };
+    }
+
+    logAudit(getDb(), null, 'restore_completed', 'backups', undefined, sourcePath);
+
+    // 5) Relaunch app so all queries re-open against the new DB
+    setTimeout(() => { app.relaunch(); app.exit(0); }, 300);
+    return { ok: true, restartIn: 1000 };
+  });
+
   ipcMain.handle('backup:list', () => {
     const userData = app.getPath('userData');
     const s = getAllSettings(getDb());

@@ -259,10 +259,14 @@ const api = {
     open: () => ipcRenderer.invoke('backup:open') as Promise<void>,
     status: () => ipcRenderer.invoke('backup:status') as Promise<{ lastBackupAt: string | null; lastBackupName: string | null; totalBackups: number; dir: string }>,
     quitAfter: () => ipcRenderer.invoke('backup:quitAfter') as Promise<{ ok: boolean; path: string }>,
+    restore: (sourcePath: string, confirmPhrase: string) =>
+      ipcRenderer.invoke('backup:restore', sourcePath, confirmPhrase) as Promise<{ ok: boolean; error?: string; restartIn?: number }>,
   },
   dialog: {
     pickFolder: (opts?: { title?: string; defaultPath?: string }) =>
       ipcRenderer.invoke('dialog:pickFolder', opts || {}) as Promise<string | null>,
+    pickFile: (opts?: { title?: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) =>
+      ipcRenderer.invoke('dialog:pickFile', opts || {}) as Promise<string | null>,
   },
 };
 
