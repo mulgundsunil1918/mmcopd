@@ -261,6 +261,7 @@ export interface Settings {
   default_district: string;
   known_villages: string;
   backup_folder: string;
+  backup_reminder_time: string;
   admin_password: string;
   sms_enabled: boolean;
   whatsapp_enabled: boolean;

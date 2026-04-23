@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { cn } from '../lib/utils';
 import { useTheme } from '../hooks/useTheme';
 import { useAuth, canAnyRole, type Role } from '../hooks/useAuth';
+import { BackupAndClose } from './BackupAndClose';
 import type { AppMode } from '../types';
 
 type NavItem = { to: string; label: string; icon: any; color: string; minMode: AppMode; roles: Role[]; adminOnly?: boolean };
@@ -112,6 +113,8 @@ export function Sidebar() {
             <span className="text-[10px] opacity-90">Lock</span>
           </button>
         )}
+
+        <BackupAndClose />
 
         <button
           onClick={toggle}

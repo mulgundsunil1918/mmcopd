@@ -256,6 +256,8 @@ const api = {
     now: () => ipcRenderer.invoke('backup:now') as Promise<{ path: string; totalBackups: number }>,
     list: () => ipcRenderer.invoke('backup:list') as Promise<{ name: string; path: string; size: number; mtime: string }[]>,
     open: () => ipcRenderer.invoke('backup:open') as Promise<void>,
+    status: () => ipcRenderer.invoke('backup:status') as Promise<{ lastBackupAt: string | null; lastBackupName: string | null; totalBackups: number; dir: string }>,
+    quitAfter: () => ipcRenderer.invoke('backup:quitAfter') as Promise<{ ok: boolean; path: string }>,
   },
 };
 

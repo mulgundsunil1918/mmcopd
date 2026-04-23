@@ -22,6 +22,7 @@ export function SettingsPage() {
         <ClinicInfo />
         <AppModeSelector />
         <DefaultLocation />
+        <BackupSettings />
         <FeesAndFlow />
         <DoctorsManagement />
         <ProviderSettings />
@@ -168,6 +169,52 @@ function AppModeSelector() {
             </button>
           );
         })}
+      </div>
+    </section>
+  );
+}
+
+function BackupSettings() {
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, ['backup_folder', 'backup_reminder_time']);
+
+  if (!settings) return null;
+  return (
+    <section className="card p-5">
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Backup & End-of-day Routine</h2>
+        <SaveBar dirty={dirty} saving={saving} onSave={save} onReset={reset} />
+      </div>
+      <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-4">
+        Where the daily SQLite backup is written. Tip: install{' '}
+        <a href="https://www.google.com/drive/download/" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Google Drive for Desktop</a>
+        {' '}and point this at a Drive-synced folder (e.g. <code className="font-mono">G:\My Drive\CareDesk Backups</code>) — files upload to the cloud automatically.
+      </p>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="col-span-2">
+          <label className="label">Backup Folder Path</label>
+          <input
+            className="input font-mono text-xs"
+            placeholder="G:\My Drive\CareDesk Backups"
+            value={draft.backup_folder ?? ''}
+            onChange={(e) => set('backup_folder', e.target.value)}
+          />
+          <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-1">
+            Leave blank to use the app's default folder ({'%APPDATA%\\CareDesk HMS\\backups'}).
+          </div>
+        </div>
+        <div>
+          <label className="label">Daily Reminder Time</label>
+          <input
+            type="time"
+            className="input"
+            value={draft.backup_reminder_time ?? '21:00'}
+            onChange={(e) => set('backup_reminder_time', e.target.value)}
+          />
+          <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-1">
+            Receptionist gets a popup at this time prompting "Backup & Close".
+          </div>
+        </div>
       </div>
     </section>
   );

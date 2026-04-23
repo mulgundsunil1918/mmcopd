@@ -16,6 +16,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   default_district: 'Gadag',
   known_villages: 'Mulgund, Gadag, Lakshmeshwar, Shirahatti, Naregal, Rona, Ron, Hulkoti, Koppal, Hubli, Dharwad',
   backup_folder: '',
+  backup_reminder_time: '21:00',
   admin_password: '1918',
   sms_enabled: 'false',
   whatsapp_enabled: 'false',

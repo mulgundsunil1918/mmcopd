@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { HeartPulse, Phone, MapPin, Clock } from 'lucide-react';
+import { HeartPulse, Phone, MapPin, Clock, CloudUpload, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 
 export function TopBar() {
@@ -14,6 +14,14 @@ export function TopBar() {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  const { data: backupStatus } = useQuery({
+    queryKey: ['backup-status'],
+    queryFn: () => window.electronAPI.backup.status(),
+    refetchInterval: 120_000,
+  });
+
+  const backedUpToday = backupStatus?.lastBackupAt?.slice(0, 10) === new Date().toISOString().slice(0, 10);
 
   return (
     <header className="no-print border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-6 py-3 flex items-center gap-4">
@@ -47,6 +55,20 @@ export function TopBar() {
         {settings?.clinic_phone && (
           <span className="inline-flex items-center gap-1"><Phone className="w-3 h-3 text-blue-600" /> {settings.clinic_phone}</span>
         )}
+      </div>
+
+      {/* Backup status pill */}
+      <div
+        className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border"
+        title={backupStatus?.lastBackupAt ? `Last backup ${format(new Date(backupStatus.lastBackupAt), 'dd MMM hh:mm a')}` : 'Never backed up'}
+        style={
+          backedUpToday
+            ? { borderColor: '#86efac', backgroundColor: 'rgba(16,185,129,0.12)', color: '#047857' }
+            : { borderColor: '#fdba74', backgroundColor: 'rgba(234,88,12,0.12)', color: '#c2410c' }
+        }
+      >
+        {backedUpToday ? <CloudUpload className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+        {backedUpToday ? 'Backed up today' : 'Backup pending'}
       </div>
 
       {/* Live clock */}

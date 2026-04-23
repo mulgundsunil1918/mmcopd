@@ -1279,6 +1279,41 @@ export function registerIpc() {
     shell.openPath(dir);
   });
 
+  ipcMain.handle('backup:status', () => {
+    const s = getAllSettings(getDb());
+    const dir = s.backup_folder || path.join(app.getPath('userData'), 'backups');
+    if (!fs.existsSync(dir)) return { lastBackupAt: null, totalBackups: 0, dir };
+    const files = fs.readdirSync(dir)
+      .filter((f) => f.startsWith('caredesk-') && f.endsWith('.sqlite'))
+      .map((f) => ({ name: f, mtimeMs: fs.statSync(path.join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+    return {
+      lastBackupAt: files[0] ? new Date(files[0].mtimeMs).toISOString() : null,
+      lastBackupName: files[0]?.name || null,
+      totalBackups: files.length,
+      dir,
+    };
+  });
+
+  ipcMain.handle('backup:quitAfter', async () => {
+    // Run a fresh backup, then quit the app cleanly.
+    const userData = app.getPath('userData');
+    const s = getAllSettings(getDb());
+    const dir = s.backup_folder || path.join(userData, 'backups');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const dest = path.join(dir, `caredesk-${stamp}.sqlite`);
+    try {
+      await getDb().backup(dest);
+    } catch {
+      fs.copyFileSync(path.join(userData, 'caredesk.sqlite'), dest);
+    }
+    logAudit(getDb(), null, 'backup_and_close', 'backups', undefined, dest);
+    closeDb();
+    setTimeout(() => app.quit(), 250);
+    return { ok: true, path: dest };
+  });
+
   // ===== Patient Origin (place stats) =====
   ipcMain.handle('origin:summary', (_e, filter: { from: string; to: string }) => {
     const db = getDb();
