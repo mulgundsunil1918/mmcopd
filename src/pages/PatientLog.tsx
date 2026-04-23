@@ -1,11 +1,14 @@
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { format, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfDay, subDays } from 'date-fns';
-import { Users, CalendarDays, CalendarRange, Clock4, TrendingUp, Search, Download, Repeat, Sparkles, Stethoscope, Printer } from 'lucide-react';
+import { Users, CalendarDays, CalendarRange, Clock4, TrendingUp, Search, Download, Repeat, Sparkles, Stethoscope, Printer, Trash2 } from 'lucide-react';
 import { cn, ageString, fmt12h, fmtDate, formatINR, todayISO } from '../lib/utils';
 import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
 import { OpdSlipFor } from '../components/OpdSlipFor';
+import { Modal } from '../components/Modal';
+import { useAuth } from '../hooks/useAuth';
+import { useToast } from '../hooks/useToast';
 import type { AppointmentWithJoins } from '../types';
 
 type Range = 'day' | 'week' | 'month' | 'custom';
@@ -231,6 +234,27 @@ function LogTable({
   rows: (AppointmentWithJoins & { bill_total: number | null; bill_payment_mode: string | null; bill_number: string | null })[];
   onPrint: (a: AppointmentWithJoins) => void;
 }) {
+  const { adminUnlocked } = useAuth();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+
+  const del = useMutation({
+    mutationFn: (id: number) => window.electronAPI.admin.deleteAppointment(id),
+    onSuccess: (r) => {
+      if (r.ok) {
+        toast(`Visit deleted (Token #${r.appointment.token_number})`);
+        qc.invalidateQueries({ queryKey: ['patient-log'] });
+        qc.invalidateQueries({ queryKey: ['appointments'] });
+        qc.invalidateQueries({ queryKey: ['stats'] });
+        qc.invalidateQueries({ queryKey: ['finance-summary'] });
+        setDeleteTarget(null);
+      } else {
+        toast(r.error || 'Failed', 'error');
+      }
+    },
+  });
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -277,15 +301,44 @@ function LogTable({
                   <span className="text-gray-400">—</span>
                 )}
               </td>
-              <td className="px-4 py-2 text-right">
+              <td className="px-4 py-2 text-right whitespace-nowrap">
                 <button className="btn-ghost text-xs" onClick={() => onPrint(r)} title="Print OPD slip">
                   <Printer className="w-3.5 h-3.5" />
                 </button>
+                {adminUnlocked && (
+                  <button
+                    className="btn-ghost text-xs text-red-600 hover:text-red-700"
+                    onClick={() => setDeleteTarget(r)}
+                    title="Delete this visit (admin)"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+
+      {deleteTarget && (
+        <Modal open onClose={() => setDeleteTarget(null)} title="Delete this visit?">
+          <div className="space-y-3">
+            <div className="text-sm text-gray-900 dark:text-slate-100">
+              Permanently delete <span className="font-bold">Token #{deleteTarget.token_number}</span> for {' '}
+              <span className="font-bold">{deleteTarget.patient_name}</span> on {fmtDate(deleteTarget.appointment_date)}?
+            </div>
+            <div className="text-[11px] text-gray-500 dark:text-slate-400">
+              Removes the appointment, its consultation, prescription, lab orders, pharmacy sales, and bill linked to this specific visit. Other visits of this patient are unaffected.
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button className="btn-secondary" onClick={() => setDeleteTarget(null)} disabled={del.isPending}>Cancel</button>
+              <button className="btn-danger" onClick={() => del.mutate(deleteTarget.id)} disabled={del.isPending}>
+                {del.isPending ? 'Deleting…' : 'Yes, delete this visit'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

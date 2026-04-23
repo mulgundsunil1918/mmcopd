@@ -52,6 +52,8 @@ const api = {
       ipcRenderer.invoke('admin:deletePatient', patientId) as Promise<{ ok: boolean; error?: string; patient?: any }>,
     deletePatients: (patientIds: number[]) =>
       ipcRenderer.invoke('admin:deletePatients', patientIds) as Promise<{ ok: boolean; error?: string; deleted?: number }>,
+    deleteAppointment: (appointmentId: number) =>
+      ipcRenderer.invoke('admin:deleteAppointment', appointmentId) as Promise<{ ok: boolean; error?: string; appointment?: any }>,
   },
   patients: {
     search: (q: string) => ipcRenderer.invoke('patients:search', q) as Promise<(Patient & { last_visit: string | null })[]>,

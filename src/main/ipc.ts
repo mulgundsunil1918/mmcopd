@@ -155,6 +155,33 @@ export function registerIpc() {
     return { ok: true, patient: p };
   });
 
+  ipcMain.handle('admin:deleteAppointment', (_e, appointmentId: number) => {
+    const db = getDb();
+    const a = db
+      .prepare(
+        `SELECT a.id, a.token_number, a.appointment_date, a.appointment_time,
+                (p.first_name || ' ' || p.last_name) as patient_name, p.uhid
+         FROM appointments a JOIN patients p ON p.id=a.patient_id WHERE a.id=?`
+      )
+      .get(appointmentId) as any;
+    if (!a) return { ok: false, error: 'Appointment not found' };
+    const tx = db.transaction(() => {
+      // Delete bills tied to this specific appointment (NOT NULL patient_id is fine — the bill goes away entirely)
+      db.prepare('DELETE FROM bills WHERE appointment_id = ?').run(appointmentId);
+      // Lab orders + items linked to this appointment
+      db.prepare('DELETE FROM lab_order_items WHERE lab_order_id IN (SELECT id FROM lab_orders WHERE appointment_id = ?)').run(appointmentId);
+      db.prepare('DELETE FROM lab_orders WHERE appointment_id = ?').run(appointmentId);
+      // Pharmacy sales linked to this appointment
+      db.prepare('DELETE FROM pharmacy_sale_items WHERE sale_id IN (SELECT id FROM pharmacy_sales WHERE appointment_id = ?)').run(appointmentId);
+      db.prepare('DELETE FROM pharmacy_sales WHERE appointment_id = ?').run(appointmentId);
+      // Now delete the appointment — consultation + Rx cascade
+      db.prepare('DELETE FROM appointments WHERE id = ?').run(appointmentId);
+    });
+    try { tx(); } catch (err: any) { return { ok: false, error: err?.message || 'Delete failed' }; }
+    logAudit(db, null, 'appointment_deleted', 'appointments', appointmentId, `Token #${a.token_number} · ${a.uhid} ${a.patient_name} · ${a.appointment_date} ${a.appointment_time}`);
+    return { ok: true, appointment: a };
+  });
+
   ipcMain.handle('admin:deletePatients', (_e, patientIds: number[]) => {
     const db = getDb();
     if (!Array.isArray(patientIds) || patientIds.length === 0) return { ok: true, deleted: 0 };
