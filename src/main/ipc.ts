@@ -1,7 +1,7 @@
 import { ipcMain, app, shell, dialog, BrowserWindow } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getDb } from '../db/db';
+import { getDb, closeDb } from '../db/db';
 import { getAllSettings, saveSettings } from '../db/settings';
 import { NotificationService } from '../services/notifications';
 import { createUser, verifyLogin, ensureDefaultAdmin, changePassword, listUsers, updateUser, logAudit, listAudit, type Role, type SessionUser } from './auth';
@@ -1245,6 +1245,147 @@ export function registerIpc() {
     }
   }
 
+  // Export every major table to a CSV (UTF-8 with BOM so Excel opens Unicode cleanly).
+  function exportTableToCsv(db: any, sql: string, destFile: string) {
+    const rows = db.prepare(sql).all() as any[];
+    const headers = rows[0] ? Object.keys(rows[0]) : [];
+    const csvValue = (v: any) => {
+      if (v === null || v === undefined) return '';
+      const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+      // Escape: wrap in quotes, double up existing quotes
+      return '"' + s.replace(/"/g, '""') + '"';
+    };
+    const lines: string[] = [];
+    if (headers.length) lines.push(headers.map(csvValue).join(','));
+    for (const r of rows) lines.push(headers.map((h) => csvValue(r[h])).join(','));
+    // UTF-8 BOM makes Excel open non-ASCII chars correctly
+    fs.writeFileSync(destFile, '\uFEFF' + lines.join('\r\n'), 'utf8');
+    return rows.length;
+  }
+
+  function exportAllCsvs(db: any, destDir: string): { files: string[]; rowCounts: Record<string, number> } {
+    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+    const EXPORTS: { name: string; sql: string }[] = [
+      { name: 'patients.csv', sql: `SELECT id, uhid, first_name, last_name, dob, gender, phone, email, address, blood_group, place, district, state, created_at FROM patients ORDER BY created_at DESC` },
+      { name: 'doctors.csv', sql: `SELECT id, name, specialty, qualifications, registration_no, phone, email, room_number, default_fee, is_active FROM doctors ORDER BY name` },
+      { name: 'appointments.csv', sql: `
+        SELECT a.id, a.token_number, a.appointment_date, a.appointment_time, a.status, a.notes, a.created_at,
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               d.name as doctor_name, d.specialty as doctor_specialty
+        FROM appointments a
+        JOIN patients p ON p.id = a.patient_id
+        JOIN doctors d ON d.id = a.doctor_id
+        ORDER BY a.appointment_date DESC, a.appointment_time DESC` },
+      { name: 'consultations.csv', sql: `
+        SELECT c.id, c.appointment_id, p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               d.name as doctor_name, c.history, c.vitals_json, c.examination, c.impression, c.advice, c.follow_up_date, c.created_at
+        FROM consultations c
+        JOIN patients p ON p.id = c.patient_id
+        JOIN doctors d ON d.id = c.doctor_id
+        ORDER BY c.created_at DESC` },
+      { name: 'prescriptions.csv', sql: `
+        SELECT r.id, r.appointment_id, a.appointment_date, p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               d.name as doctor_name, r.drug_name, r.dosage, r.frequency, r.duration, r.instructions
+        FROM prescription_items r
+        JOIN appointments a ON a.id = r.appointment_id
+        JOIN patients p ON p.id = a.patient_id
+        JOIN doctors d ON d.id = a.doctor_id
+        ORDER BY a.appointment_date DESC` },
+      { name: 'bills.csv', sql: `
+        SELECT b.id, b.bill_number, b.total, b.subtotal, b.discount, b.discount_type, b.payment_mode,
+               b.paid_at, b.created_at, b.items_json,
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               d.name as doctor_name
+        FROM bills b
+        LEFT JOIN patients p ON p.id = b.patient_id
+        LEFT JOIN appointments a ON a.id = b.appointment_id
+        LEFT JOIN doctors d ON d.id = a.doctor_id
+        ORDER BY b.created_at DESC` },
+      { name: 'lab_orders.csv', sql: `
+        SELECT o.id, o.order_number, o.status, o.ordered_at, o.collected_at, o.reported_at, o.notes,
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               d.name as doctor_name
+        FROM lab_orders o
+        JOIN patients p ON p.id = o.patient_id
+        LEFT JOIN doctors d ON d.id = o.doctor_id
+        ORDER BY o.ordered_at DESC` },
+      { name: 'lab_results.csv', sql: `
+        SELECT oi.id, oi.lab_order_id, lo.order_number, oi.test_name, oi.result, oi.unit, oi.ref_range, oi.is_abnormal,
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name
+        FROM lab_order_items oi
+        JOIN lab_orders lo ON lo.id = oi.lab_order_id
+        JOIN patients p ON p.id = lo.patient_id
+        ORDER BY lo.ordered_at DESC` },
+      { name: 'lab_test_catalog.csv', sql: `SELECT * FROM lab_tests ORDER BY name` },
+      { name: 'pharmacy_sales.csv', sql: `
+        SELECT s.id, s.sale_number, s.subtotal, s.discount, s.total, s.payment_mode, s.created_at,
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name
+        FROM pharmacy_sales s
+        LEFT JOIN patients p ON p.id = s.patient_id
+        ORDER BY s.created_at DESC` },
+      { name: 'pharmacy_sale_items.csv', sql: `
+        SELECT si.id, si.sale_id, s.sale_number, s.created_at as sale_date,
+               si.drug_name, si.qty, si.rate, si.amount
+        FROM pharmacy_sale_items si
+        JOIN pharmacy_sales s ON s.id = si.sale_id
+        ORDER BY s.created_at DESC` },
+      { name: 'pharmacy_inventory.csv', sql: `SELECT * FROM drug_inventory ORDER BY name` },
+      { name: 'ip_admissions.csv', sql: `
+        SELECT a.id, a.admission_number, a.admitted_at, a.discharged_at, a.ward, a.bed_number,
+               a.status, a.admission_notes, a.discharge_summary,
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               d.name as admission_doctor
+        FROM ip_admissions a
+        JOIN patients p ON p.id = a.patient_id
+        LEFT JOIN doctors d ON d.id = a.admission_doctor_id
+        ORDER BY a.admitted_at DESC` },
+      { name: 'emr_allergies.csv', sql: `
+        SELECT a.id, p.uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               a.allergen, a.reaction, a.severity, a.noted_at
+        FROM patient_allergies a JOIN patients p ON p.id = a.patient_id` },
+      { name: 'emr_conditions.csv', sql: `
+        SELECT c.id, p.uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               c.condition, c.since, c.notes, c.is_active
+        FROM patient_conditions c JOIN patients p ON p.id = c.patient_id` },
+      { name: 'emr_family_history.csv', sql: `
+        SELECT f.id, p.uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               f.relation, f.condition, f.notes
+        FROM patient_family_history f JOIN patients p ON p.id = f.patient_id` },
+      { name: 'emr_immunizations.csv', sql: `
+        SELECT i.id, p.uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               i.vaccine, i.given_at, i.dose, i.notes
+        FROM patient_immunizations i JOIN patients p ON p.id = i.patient_id` },
+      { name: 'emr_documents_index.csv', sql: `
+        SELECT d.id, p.uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               d.file_name, d.file_type, d.size_bytes, d.note, d.uploaded_at, d.file_path
+        FROM patient_documents d JOIN patients p ON p.id = d.patient_id
+        ORDER BY d.uploaded_at DESC` },
+      { name: 'notifications_log.csv', sql: `
+        SELECT n.id, p.uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               n.type, n.message, n.status, n.sent_at, n.created_at
+        FROM notification_log n LEFT JOIN patients p ON p.id = n.patient_id
+        ORDER BY n.created_at DESC` },
+      { name: 'audit_log.csv', sql: `
+        SELECT id, at, username, role, action, entity, entity_id, details
+        FROM audit_log ORDER BY at DESC` },
+      { name: 'users.csv', sql: `SELECT id, username, role, display_name, doctor_id, is_active, last_login_at, created_at FROM users ORDER BY created_at DESC` },
+      { name: 'settings.csv', sql: `SELECT key, value FROM settings WHERE key NOT IN ('admin_password') ORDER BY key` },
+    ];
+    const rowCounts: Record<string, number> = {};
+    const files: string[] = [];
+    for (const spec of EXPORTS) {
+      try {
+        const n = exportTableToCsv(db, spec.sql, path.join(destDir, spec.name));
+        rowCounts[spec.name] = n;
+        files.push(spec.name);
+      } catch (e: any) {
+        // Table may not exist on a fresh DB — skip but note it
+        rowCounts[spec.name] = -1;
+      }
+    }
+    return { files, rowCounts };
+  }
+
   function validateFolderPath(p: string): string | null {
     if (!p) return null;
     if (/^https?:\/\//i.test(p.trim())) return 'Backup folder is a web URL (http/https). You need a LOCAL folder path like G:\\My Drive\\CareDesk Backups — install Google Drive for Desktop and use the folder it creates.';
@@ -1284,6 +1425,9 @@ export function registerIpc() {
       documentCount = countFiles(docsSrc);
     }
 
+    // Export every major table to CSV for universal readability (Excel / Google Sheets / any tool)
+    const csv = exportAllCsvs(getDb(), path.join(bundleDir, 'excel'));
+
     // Manifest with what was backed up
     const manifest = {
       app: 'CareDesk HMS',
@@ -1291,7 +1435,10 @@ export function registerIpc() {
       created_at: new Date().toISOString(),
       sqlite_size_bytes: fs.statSync(dbDest).size,
       document_files: documentCount,
-      contents: ['caredesk.sqlite', 'documents/'],
+      csv_files: csv.files,
+      csv_row_counts: csv.rowCounts,
+      contents: ['caredesk.sqlite', 'documents/', 'excel/*.csv', 'manifest.json'],
+      note: 'If the app is ever unusable, open any .csv in the excel/ folder with Excel or Google Sheets to read your data.',
     };
     fs.writeFileSync(path.join(bundleDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
@@ -1352,6 +1499,9 @@ export function registerIpc() {
       documentCount = countFiles(docsSrc);
     }
 
+    // CSV exports for universal readability
+    const csv = exportAllCsvs(getDb(), path.join(bundleDir, 'excel'));
+
     fs.writeFileSync(
       path.join(bundleDir, 'manifest.json'),
       JSON.stringify({
@@ -1360,7 +1510,10 @@ export function registerIpc() {
         created_at: new Date().toISOString(),
         sqlite_size_bytes: fs.statSync(dbDest).size,
         document_files: documentCount,
-        contents: ['caredesk.sqlite', 'documents/'],
+        csv_files: csv.files,
+        csv_row_counts: csv.rowCounts,
+        contents: ['caredesk.sqlite', 'documents/', 'excel/*.csv', 'manifest.json'],
+        note: 'If the app is ever unusable, open any .csv in the excel/ folder with Excel or Google Sheets to read your data.',
       }, null, 2)
     );
 
