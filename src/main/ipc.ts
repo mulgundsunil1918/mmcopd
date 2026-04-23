@@ -1,6 +1,7 @@
 import { ipcMain, app, shell, dialog, BrowserWindow } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
+import * as XLSX from 'xlsx';
 import { getDb, closeDb } from '../db/db';
 import { getAllSettings, saveSettings } from '../db/settings';
 import { NotificationService } from '../services/notifications';
@@ -1263,6 +1264,138 @@ export function registerIpc() {
     return rows.length;
   }
 
+  // Build a single .xlsx file with one sheet per major table.
+  function exportAllToXlsx(db: any, destFile: string): { sheets: string[]; rowCounts: Record<string, number> } {
+    const EXPORTS = buildExportSpecs();
+    const wb = XLSX.utils.book_new();
+    const rowCounts: Record<string, number> = {};
+    const sheets: string[] = [];
+    for (const spec of EXPORTS) {
+      try {
+        const rows = db.prepare(spec.sql).all() as any[];
+        const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{}]);
+        // Sheet names in Excel: max 31 chars, no / \ ? * [ ]
+        const sheetName = spec.sheet.replace(/[\/\\?*\[\]]/g, '').slice(0, 31);
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+        rowCounts[sheetName] = rows.length;
+        sheets.push(sheetName);
+      } catch {
+        rowCounts[spec.sheet] = -1;
+      }
+    }
+    if (!fs.existsSync(path.dirname(destFile))) fs.mkdirSync(path.dirname(destFile), { recursive: true });
+    XLSX.writeFile(wb, destFile);
+    return { sheets, rowCounts };
+  }
+
+  function buildExportSpecs(): { sheet: string; sql: string }[] {
+    return [
+      { sheet: 'Patients', sql: `SELECT id, uhid, first_name, last_name, dob, gender, phone, email, address, blood_group, place, district, state, created_at FROM patients ORDER BY created_at DESC` },
+      { sheet: 'Doctors', sql: `SELECT id, name, specialty, qualifications, registration_no, phone, email, room_number, default_fee, is_active FROM doctors ORDER BY name` },
+      { sheet: 'Appointments', sql: `
+        SELECT a.id, a.token_number, a.appointment_date, a.appointment_time, a.status, a.notes, a.created_at,
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               d.name as doctor_name, d.specialty as doctor_specialty
+        FROM appointments a
+        JOIN patients p ON p.id = a.patient_id
+        JOIN doctors d ON d.id = a.doctor_id
+        ORDER BY a.appointment_date DESC, a.appointment_time DESC` },
+      { sheet: 'Consultations', sql: `
+        SELECT c.id, c.appointment_id, p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               d.name as doctor_name, c.history, c.vitals_json, c.examination, c.impression, c.advice, c.follow_up_date, c.created_at
+        FROM consultations c
+        JOIN patients p ON p.id = c.patient_id
+        JOIN doctors d ON d.id = c.doctor_id
+        ORDER BY c.created_at DESC` },
+      { sheet: 'Prescriptions', sql: `
+        SELECT r.id, r.appointment_id, a.appointment_date, p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               d.name as doctor_name, r.drug_name, r.dosage, r.frequency, r.duration, r.instructions
+        FROM prescription_items r
+        JOIN appointments a ON a.id = r.appointment_id
+        JOIN patients p ON p.id = a.patient_id
+        JOIN doctors d ON d.id = a.doctor_id
+        ORDER BY a.appointment_date DESC` },
+      { sheet: 'Bills', sql: `
+        SELECT b.id, b.bill_number, b.total, b.subtotal, b.discount, b.discount_type, b.payment_mode,
+               b.paid_at, b.created_at, b.items_json,
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               d.name as doctor_name
+        FROM bills b
+        LEFT JOIN patients p ON p.id = b.patient_id
+        LEFT JOIN appointments a ON a.id = b.appointment_id
+        LEFT JOIN doctors d ON d.id = a.doctor_id
+        ORDER BY b.created_at DESC` },
+      { sheet: 'Lab Orders', sql: `
+        SELECT o.id, o.order_number, o.status, o.ordered_at, o.collected_at, o.reported_at, o.notes,
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               d.name as doctor_name
+        FROM lab_orders o
+        JOIN patients p ON p.id = o.patient_id
+        LEFT JOIN doctors d ON d.id = o.doctor_id
+        ORDER BY o.ordered_at DESC` },
+      { sheet: 'Lab Results', sql: `
+        SELECT oi.id, oi.lab_order_id, lo.order_number, oi.test_name, oi.result, oi.unit, oi.ref_range, oi.is_abnormal,
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name
+        FROM lab_order_items oi
+        JOIN lab_orders lo ON lo.id = oi.lab_order_id
+        JOIN patients p ON p.id = lo.patient_id
+        ORDER BY lo.ordered_at DESC` },
+      { sheet: 'Lab Test Catalog', sql: `SELECT * FROM lab_tests ORDER BY name` },
+      { sheet: 'Pharmacy Sales', sql: `
+        SELECT s.id, s.sale_number, s.subtotal, s.discount, s.total, s.payment_mode, s.created_at,
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name
+        FROM pharmacy_sales s
+        LEFT JOIN patients p ON p.id = s.patient_id
+        ORDER BY s.created_at DESC` },
+      { sheet: 'Pharmacy Sale Items', sql: `
+        SELECT si.id, si.sale_id, s.sale_number, s.created_at as sale_date,
+               si.drug_name, si.qty, si.rate, si.amount
+        FROM pharmacy_sale_items si
+        JOIN pharmacy_sales s ON s.id = si.sale_id
+        ORDER BY s.created_at DESC` },
+      { sheet: 'Pharmacy Inventory', sql: `SELECT * FROM drug_inventory ORDER BY name` },
+      { sheet: 'IP Admissions', sql: `
+        SELECT a.id, a.admission_number, a.admitted_at, a.discharged_at, a.ward, a.bed_number,
+               a.status, a.admission_notes, a.discharge_summary,
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               d.name as admission_doctor
+        FROM ip_admissions a
+        JOIN patients p ON p.id = a.patient_id
+        LEFT JOIN doctors d ON d.id = a.admission_doctor_id
+        ORDER BY a.admitted_at DESC` },
+      { sheet: 'EMR Allergies', sql: `
+        SELECT a.id, p.uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               a.allergen, a.reaction, a.severity, a.noted_at
+        FROM patient_allergies a JOIN patients p ON p.id = a.patient_id` },
+      { sheet: 'EMR Conditions', sql: `
+        SELECT c.id, p.uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               c.condition, c.since, c.notes, c.is_active
+        FROM patient_conditions c JOIN patients p ON p.id = c.patient_id` },
+      { sheet: 'EMR Family History', sql: `
+        SELECT f.id, p.uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               f.relation, f.condition, f.notes
+        FROM patient_family_history f JOIN patients p ON p.id = f.patient_id` },
+      { sheet: 'EMR Immunizations', sql: `
+        SELECT i.id, p.uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               i.vaccine, i.given_at, i.dose, i.notes
+        FROM patient_immunizations i JOIN patients p ON p.id = i.patient_id` },
+      { sheet: 'EMR Documents Index', sql: `
+        SELECT d.id, p.uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               d.file_name, d.file_type, d.size_bytes, d.note, d.uploaded_at, d.file_path
+        FROM patient_documents d JOIN patients p ON p.id = d.patient_id
+        ORDER BY d.uploaded_at DESC` },
+      { sheet: 'Notifications', sql: `
+        SELECT n.id, p.uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               n.type, n.message, n.status, n.sent_at, n.created_at
+        FROM notification_log n LEFT JOIN patients p ON p.id = n.patient_id
+        ORDER BY n.created_at DESC` },
+      { sheet: 'Audit Log', sql: `SELECT id, at, username, role, action, entity, entity_id, details FROM audit_log ORDER BY at DESC` },
+      { sheet: 'Users', sql: `SELECT id, username, role, display_name, doctor_id, is_active, last_login_at, created_at FROM users ORDER BY created_at DESC` },
+      { sheet: 'Settings', sql: `SELECT key, value FROM settings WHERE key NOT IN ('admin_password') ORDER BY key` },
+    ];
+  }
+
+  // Old CSV function kept for compatibility — no longer called by default flow
   function exportAllCsvs(db: any, destDir: string): { files: string[]; rowCounts: Record<string, number> } {
     if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
     const EXPORTS: { name: string; sql: string }[] = [
@@ -1393,134 +1526,120 @@ export function registerIpc() {
     return null;
   }
 
-  async function performBackup(): Promise<{ path: string; bundleDir: string; totalBundles: number; documentCount: number }> {
+  // Count files recursively
+  function countFilesRec(dir: string): number {
+    if (!fs.existsSync(dir)) return 0;
+    let n = 0;
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) n += countFilesRec(path.join(dir, e.name));
+      else n += 1;
+    }
+    return n;
+  }
+
+  // Keep the last N items (files or folders) inside a directory
+  function retainLast(dir: string, n: number) {
+    if (!fs.existsSync(dir)) return;
+    const items = fs.readdirSync(dir)
+      .map((name) => ({ name, full: path.join(dir, name), t: fs.statSync(path.join(dir, name)).mtimeMs }))
+      .sort((a, b) => b.t - a.t);
+    for (const old of items.slice(n)) {
+      try {
+        const st = fs.statSync(old.full);
+        if (st.isDirectory()) fs.rmSync(old.full, { recursive: true, force: true });
+        else fs.unlinkSync(old.full);
+      } catch { /* ignore */ }
+    }
+  }
+
+  // Returns YYYY-MM-DD and HH-MM-SS (local time) for tidy folder naming
+  function dateParts(d = new Date()) {
+    const pad2 = (n: number) => String(n).padStart(2, '0');
+    const day = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    const time = `${pad2(d.getHours())}-${pad2(d.getMinutes())}-${pad2(d.getSeconds())}`;
+    return { day, time };
+  }
+
+  // Core backup routine. Layout:
+  //   <root>/sqlite/<YYYY-MM-DD>/<HH-MM-SS>/caredesk.sqlite + documents/ + manifest.json
+  //   <root>/excel/<YYYY-MM-DD>/<HH-MM-SS>.xlsx   (single xlsx with one sheet per table)
+  async function performBackupToRoot(root: string, label: 'backup' | 'pre-restore' = 'backup'):
+    Promise<{ ok: true; bundleDir: string; xlsxFile: string; documentCount: number; totalBackups: number }> {
     const userData = app.getPath('userData');
     const sqliteSrc = path.join(userData, 'caredesk.sqlite');
     const docsSrc = path.join(userData, 'documents');
-    const s = getAllSettings(getDb());
-    const invalid = validateFolderPath(s.backup_folder);
-    if (invalid) throw new Error(invalid);
-    const backupDir = s.backup_folder || path.join(userData, 'backups');
-    if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
 
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    // A bundle folder per backup contains the SQLite file + a copy of all uploaded documents.
-    const bundleDir = path.join(backupDir, `caredesk-${stamp}`);
+    const { day, time } = dateParts();
+    const folderName = label === 'pre-restore' ? `pre-restore-${time}` : time;
+
+    // sqlite/<day>/<time>/...
+    const bundleDir = path.join(root, 'sqlite', day, folderName);
     fs.mkdirSync(bundleDir, { recursive: true });
     const dbDest = path.join(bundleDir, 'caredesk.sqlite');
     try { await getDb().backup(dbDest); } catch { fs.copyFileSync(sqliteSrc, dbDest); }
+    if (fs.existsSync(docsSrc)) copyDirRecursive(docsSrc, path.join(bundleDir, 'documents'));
+    const documentCount = countFilesRec(docsSrc);
 
-    // Copy documents folder
-    let documentCount = 0;
-    if (fs.existsSync(docsSrc)) {
-      copyDirRecursive(docsSrc, path.join(bundleDir, 'documents'));
-      const countFiles = (dir: string): number => {
-        let n = 0;
-        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-          if (e.isDirectory()) n += countFiles(path.join(dir, e.name));
-          else n += 1;
-        }
-        return n;
-      };
-      documentCount = countFiles(docsSrc);
-    }
+    // excel/<day>/<time>.xlsx
+    const excelDayDir = path.join(root, 'excel', day);
+    fs.mkdirSync(excelDayDir, { recursive: true });
+    const xlsxFile = path.join(excelDayDir, `${folderName}.xlsx`);
+    const xlsx = exportAllToXlsx(getDb(), xlsxFile);
 
-    // Export every major table to CSV for universal readability (Excel / Google Sheets / any tool)
-    const csv = exportAllCsvs(getDb(), path.join(bundleDir, 'excel'));
-
-    // Manifest with what was backed up
+    // Manifest
     const manifest = {
       app: 'CareDesk HMS',
       version: app.getVersion(),
       created_at: new Date().toISOString(),
+      kind: label,
+      sqlite_path: dbDest,
+      xlsx_path: xlsxFile,
       sqlite_size_bytes: fs.statSync(dbDest).size,
+      xlsx_size_bytes: fs.statSync(xlsxFile).size,
       document_files: documentCount,
-      csv_files: csv.files,
-      csv_row_counts: csv.rowCounts,
-      contents: ['caredesk.sqlite', 'documents/', 'excel/*.csv', 'manifest.json'],
-      note: 'If the app is ever unusable, open any .csv in the excel/ folder with Excel or Google Sheets to read your data.',
+      sheets: xlsx.sheets,
+      sheet_row_counts: xlsx.rowCounts,
+      note: 'If the app is unusable, open the .xlsx file in Excel or Google Sheets — every table is a sheet inside it.',
     };
     fs.writeFileSync(path.join(bundleDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
-    // Also keep a flat .sqlite copy alongside for quick inspection / legacy compatibility
-    const flatSqlite = path.join(backupDir, `caredesk-${stamp}.sqlite`);
-    fs.copyFileSync(dbDest, flatSqlite);
+    // Retention (per-day): keep last 10 time folders in each day, last 30 days
+    retainLast(path.join(root, 'sqlite', day), 10);
+    retainLast(path.join(root, 'excel', day), 10);
+    retainLast(path.join(root, 'sqlite'), 30);
+    retainLast(path.join(root, 'excel'), 30);
 
-    // Retention: keep last 30 bundles + last 30 flat sqlite copies
-    const cleanup = (filterFn: (n: string) => boolean) => {
-      const items = fs.readdirSync(backupDir)
-        .filter(filterFn)
-        .map((f) => ({ f, t: fs.statSync(path.join(backupDir, f)).mtimeMs }))
-        .sort((a, b) => b.t - a.t);
-      for (const old of items.slice(30)) {
-        const p = path.join(backupDir, old.f);
-        try {
-          const stat = fs.statSync(p);
-          if (stat.isDirectory()) fs.rmSync(p, { recursive: true, force: true });
-          else fs.unlinkSync(p);
-        } catch { /* ignore */ }
-      }
-      return items.length;
-    };
-    const totalBundles = cleanup((n) => n.startsWith('caredesk-') && fs.statSync(path.join(backupDir, n)).isDirectory());
-    cleanup((n) => n.startsWith('caredesk-') && n.endsWith('.sqlite'));
+    // Count total backup folders for reporting
+    const totalBackups = fs.existsSync(path.join(root, 'sqlite'))
+      ? fs.readdirSync(path.join(root, 'sqlite')).reduce((acc, dayDir) => {
+          const p = path.join(root, 'sqlite', dayDir);
+          if (!fs.statSync(p).isDirectory()) return acc;
+          return acc + fs.readdirSync(p).filter((x) => fs.statSync(path.join(p, x)).isDirectory()).length;
+        }, 0)
+      : 0;
 
-    logAudit(getDb(), null, 'backup_run', 'backups', undefined, `${dbDest} · ${documentCount} docs`);
+    return { ok: true, bundleDir, xlsxFile, documentCount, totalBackups };
+  }
 
-    return { path: bundleDir, bundleDir, totalBundles: Math.min(totalBundles + 1, 30), documentCount };
+  async function performBackup() {
+    const s = getAllSettings(getDb());
+    const invalid = validateFolderPath(s.backup_folder);
+    if (invalid) throw new Error(invalid);
+    const root = s.backup_folder || path.join(app.getPath('userData'), 'backups');
+    if (!fs.existsSync(root)) fs.mkdirSync(root, { recursive: true });
+    const r = await performBackupToRoot(root, 'backup');
+    logAudit(getDb(), null, 'backup_run', 'backups', undefined, `${r.bundleDir} · ${r.documentCount} docs`);
+    return { path: r.bundleDir, bundleDir: r.bundleDir, xlsxFile: r.xlsxFile, totalBundles: r.totalBackups, documentCount: r.documentCount };
   }
 
   ipcMain.handle('backup:now', async () => performBackup());
 
-  // Backup to a specific (user-chosen) directory — used by USB flow
   async function performBackupTo(targetDir: string) {
-    const userData = app.getPath('userData');
-    const sqliteSrc = path.join(userData, 'caredesk.sqlite');
-    const docsSrc = path.join(userData, 'documents');
     if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
-
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const bundleDir = path.join(targetDir, `caredesk-${stamp}`);
-    fs.mkdirSync(bundleDir, { recursive: true });
-    const dbDest = path.join(bundleDir, 'caredesk.sqlite');
-    try { await getDb().backup(dbDest); } catch { fs.copyFileSync(sqliteSrc, dbDest); }
-
-    let documentCount = 0;
-    if (fs.existsSync(docsSrc)) {
-      copyDirRecursive(docsSrc, path.join(bundleDir, 'documents'));
-      const countFiles = (dir: string): number => {
-        let n = 0;
-        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-          if (e.isDirectory()) n += countFiles(path.join(dir, e.name));
-          else n += 1;
-        }
-        return n;
-      };
-      documentCount = countFiles(docsSrc);
-    }
-
-    // CSV exports for universal readability
-    const csv = exportAllCsvs(getDb(), path.join(bundleDir, 'excel'));
-
-    fs.writeFileSync(
-      path.join(bundleDir, 'manifest.json'),
-      JSON.stringify({
-        app: 'CareDesk HMS',
-        version: app.getVersion(),
-        created_at: new Date().toISOString(),
-        sqlite_size_bytes: fs.statSync(dbDest).size,
-        document_files: documentCount,
-        csv_files: csv.files,
-        csv_row_counts: csv.rowCounts,
-        contents: ['caredesk.sqlite', 'documents/', 'excel/*.csv', 'manifest.json'],
-        note: 'If the app is ever unusable, open any .csv in the excel/ folder with Excel or Google Sheets to read your data.',
-      }, null, 2)
-    );
-
-    logAudit(getDb(), null, 'backup_to_external', 'backups', undefined, bundleDir);
-    return { ok: true, path: bundleDir, documentCount };
+    const r = await performBackupToRoot(targetDir, 'backup');
+    logAudit(getDb(), null, 'backup_to_external', 'backups', undefined, r.bundleDir);
+    return { ok: true as const, path: r.bundleDir, bundleDir: r.bundleDir, xlsxFile: r.xlsxFile, documentCount: r.documentCount };
   }
-
   ipcMain.handle('backup:nowTo', async (_e, targetDir: string) => {
     if (!targetDir) return { ok: false, error: 'No folder selected' };
     const invalid = validateFolderPath(targetDir);
@@ -1590,12 +1709,8 @@ export function registerIpc() {
       const s = getAllSettings(getDb());
       const safeDir = s.backup_folder || path.join(userData, 'backups');
       if (!fs.existsSync(safeDir)) fs.mkdirSync(safeDir, { recursive: true });
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const pre = path.join(safeDir, `pre-restore-${stamp}`);
-      fs.mkdirSync(pre, { recursive: true });
-      try { await getDb().backup(path.join(pre, 'caredesk.sqlite')); } catch { fs.copyFileSync(currentDb, path.join(pre, 'caredesk.sqlite')); }
-      if (fs.existsSync(currentDocs)) copyDirRecursive(currentDocs, path.join(pre, 'documents'));
-      logAudit(getDb(), null, 'pre_restore_backup', 'backups', undefined, pre);
+      const r = await performBackupToRoot(safeDir, 'pre-restore');
+      logAudit(getDb(), null, 'pre_restore_backup', 'backups', undefined, r.bundleDir);
     } catch (e: any) {
       return { ok: false, error: 'Could not make safety backup of current data: ' + (e?.message || e) };
     }
