@@ -129,11 +129,28 @@ export function registerIpc() {
     return { ok: true, deleted: count };
   });
 
+  // Helper — manually cascades non-FK-cascade dependents so DELETE FROM patients can succeed.
+  const purgePatient = (db: any, id: number) => {
+    // Bills (NOT NULL FK, no cascade) — drop them; audit log captures the patient who was billed.
+    db.prepare('DELETE FROM bills WHERE patient_id = ?').run(id);
+    // Lab orders + their items
+    db.prepare('DELETE FROM lab_order_items WHERE lab_order_id IN (SELECT id FROM lab_orders WHERE patient_id = ?)').run(id);
+    db.prepare('DELETE FROM lab_orders WHERE patient_id = ?').run(id);
+    // Pharmacy sales + items
+    db.prepare('DELETE FROM pharmacy_sale_items WHERE sale_id IN (SELECT id FROM pharmacy_sales WHERE patient_id = ?)').run(id);
+    db.prepare('DELETE FROM pharmacy_sales WHERE patient_id = ?').run(id);
+    // IP admissions
+    db.prepare('DELETE FROM ip_admissions WHERE patient_id = ?').run(id);
+    // Now delete patient — appointments / consultations / Rx / EMR cascade automatically
+    db.prepare('DELETE FROM patients WHERE id = ?').run(id);
+  };
+
   ipcMain.handle('admin:deletePatient', (_e, patientId: number) => {
     const db = getDb();
     const p = db.prepare('SELECT uhid, first_name, last_name FROM patients WHERE id=?').get(patientId) as any;
     if (!p) return { ok: false, error: 'Patient not found' };
-    db.prepare('DELETE FROM patients WHERE id=?').run(patientId);
+    const tx = db.transaction(() => purgePatient(db, patientId));
+    try { tx(); } catch (err: any) { return { ok: false, error: err?.message || 'Delete failed' }; }
     logAudit(db, null, 'patient_deleted', 'patients', patientId, `${p.uhid} ${p.first_name} ${p.last_name}`);
     return { ok: true, patient: p };
   });
@@ -141,21 +158,27 @@ export function registerIpc() {
   ipcMain.handle('admin:deletePatients', (_e, patientIds: number[]) => {
     const db = getDb();
     if (!Array.isArray(patientIds) || patientIds.length === 0) return { ok: true, deleted: 0 };
+    const sel = db.prepare('SELECT uhid, first_name, last_name FROM patients WHERE id=?');
     const tx = db.transaction((ids: number[]) => {
-      const sel = db.prepare('SELECT uhid, first_name, last_name FROM patients WHERE id=?');
-      const del = db.prepare('DELETE FROM patients WHERE id=?');
       let count = 0;
+      const audits: { id: number; label: string }[] = [];
       for (const id of ids) {
         const p = sel.get(id) as any;
         if (!p) continue;
-        del.run(id);
-        logAudit(db, null, 'patient_deleted', 'patients', id, `${p.uhid} ${p.first_name} ${p.last_name}`);
+        purgePatient(db, id);
+        audits.push({ id, label: `${p.uhid} ${p.first_name} ${p.last_name}` });
         count++;
       }
+      // Log audit entries inside the same tx
+      for (const a of audits) logAudit(db, null, 'patient_deleted', 'patients', a.id, a.label);
       return count;
     });
-    const deleted = tx(patientIds);
-    return { ok: true, deleted };
+    try {
+      const deleted = tx(patientIds);
+      return { ok: true, deleted };
+    } catch (err: any) {
+      return { ok: false, error: err?.message || 'Bulk delete failed' };
+    }
   });
   ipcMain.handle('audit:log', (_e, user: SessionUser | null, action: string, entity?: string, entity_id?: number, details?: string) => {
     logAudit(getDb(), user, action, entity, entity_id, details);
