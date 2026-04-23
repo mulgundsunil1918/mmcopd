@@ -193,14 +193,29 @@ function BackupSettings() {
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2">
           <label className="label">Backup Folder Path</label>
-          <input
-            className="input font-mono text-xs"
-            placeholder="G:\My Drive\CareDesk Backups"
-            value={draft.backup_folder ?? ''}
-            onChange={(e) => set('backup_folder', e.target.value)}
-          />
-          <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-1">
-            Leave blank to use the app's default folder ({'%APPDATA%\\CareDesk HMS\\backups'}).
+          <div className="flex gap-2">
+            <input
+              className="input font-mono text-xs flex-1"
+              placeholder="G:\My Drive\CareDesk Backups"
+              value={draft.backup_folder ?? ''}
+              onChange={(e) => set('backup_folder', e.target.value)}
+            />
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={async () => {
+                const p = await window.electronAPI.dialog.pickFolder({ title: 'Pick the backup folder (e.g. your Google Drive Desktop folder)' });
+                if (p) set('backup_folder', p);
+              }}
+            >
+              Browse…
+            </button>
+          </div>
+          <div className="text-[11px] text-amber-700 dark:text-amber-300 mt-1">
+            ⚠ Must be a LOCAL folder on this PC (like <code>G:\My Drive\CareDesk Backups</code>). Google Drive web links (<code>drive.google.com/...</code>) don't work.
+          </div>
+          <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-0.5">
+            Leave blank to use the app's default folder (<code>%APPDATA%\CareDesk HMS\backups</code>).
           </div>
         </div>
         <div>

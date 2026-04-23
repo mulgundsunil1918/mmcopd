@@ -1245,11 +1245,20 @@ export function registerIpc() {
     }
   }
 
+  function validateFolderPath(p: string): string | null {
+    if (!p) return null;
+    if (/^https?:\/\//i.test(p.trim())) return 'Backup folder is a web URL (http/https). You need a LOCAL folder path like G:\\My Drive\\CareDesk Backups — install Google Drive for Desktop and use the folder it creates.';
+    if (p.includes('drive.google.com')) return 'That is a Google Drive sharing link, not a folder on this PC. Install Google Drive for Desktop and point this at the synced folder (usually G:\\My Drive\\...).';
+    return null;
+  }
+
   async function performBackup(): Promise<{ path: string; bundleDir: string; totalBundles: number; documentCount: number }> {
     const userData = app.getPath('userData');
     const sqliteSrc = path.join(userData, 'caredesk.sqlite');
     const docsSrc = path.join(userData, 'documents');
     const s = getAllSettings(getDb());
+    const invalid = validateFolderPath(s.backup_folder);
+    if (invalid) throw new Error(invalid);
     const backupDir = s.backup_folder || path.join(userData, 'backups');
     if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
 
@@ -1361,6 +1370,8 @@ export function registerIpc() {
 
   ipcMain.handle('backup:nowTo', async (_e, targetDir: string) => {
     if (!targetDir) return { ok: false, error: 'No folder selected' };
+    const invalid = validateFolderPath(targetDir);
+    if (invalid) return { ok: false, error: invalid };
     try { return await performBackupTo(targetDir); }
     catch (err: any) { return { ok: false, error: err?.message || 'Failed' }; }
   });
