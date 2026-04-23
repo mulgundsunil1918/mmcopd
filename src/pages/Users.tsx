@@ -342,11 +342,21 @@ function ConfirmBlock({ title, desc, action }: { title: string; desc: string; ac
   );
 }
 
+// Helper: race an IPC promise with a timeout so the UI never hangs forever.
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s — main process may be stale. Close the app and run npm start again.`)), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
+
 function DeletePatientBlock() {
   const qc = useQueryClient();
   const toast = useToast();
   const [q, setQ] = useState('');
   const [confirming, setConfirming] = useState<any | null>(null);
+  const [bulkConfirm, setBulkConfirm] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
 
   const { data: results = [] } = useQuery({
@@ -354,54 +364,118 @@ function DeletePatientBlock() {
     queryFn: () => window.electronAPI.patients.search(q),
   });
 
+  const refreshAll = () => {
+    qc.invalidateQueries({ queryKey: ['patients'] });
+    qc.invalidateQueries({ queryKey: ['patients-delete-search'] });
+    qc.invalidateQueries({ queryKey: ['patient-log'] });
+    qc.invalidateQueries({ queryKey: ['appointments'] });
+    qc.invalidateQueries({ queryKey: ['stats'] });
+  };
+
+  const toggle = (id: number) => {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const allChecked = results.length > 0 && results.every((p: any) => selected.has(p.id));
+  const toggleAll = () => {
+    if (allChecked) setSelected(new Set());
+    else setSelected(new Set(results.map((p: any) => p.id)));
+  };
+
   const doDelete = async (p: any) => {
     setBusy(true);
-    const r = await window.electronAPI.admin.deletePatient(p.id);
-    setBusy(false);
-    if (r.ok) {
-      toast(`Deleted patient ${r.patient.uhid}`);
-      // Refresh every patient-related query (search, recent, log, origin stats, etc.)
-      qc.invalidateQueries({ queryKey: ['patients'] });
-      qc.invalidateQueries({ queryKey: ['patients-delete-search'] });
-      qc.invalidateQueries({ queryKey: ['patient-log'] });
-      qc.invalidateQueries({ queryKey: ['appointments'] });
-      qc.invalidateQueries({ queryKey: ['stats'] });
-      setConfirming(null);
-      setQ('');
-    } else if (r.error === 'Confirmation phrase required') {
-      toast('App needs a full restart — the main process is from before the delete flow was simplified. Close the app and run npm start.', 'error');
-    } else {
-      toast(r.error || 'Failed', 'error');
+    try {
+      const r = await withTimeout(window.electronAPI.admin.deletePatient(p.id), 15_000, 'Delete patient');
+      if (r.ok) {
+        toast(`Deleted patient ${r.patient.uhid}`);
+        refreshAll();
+        setConfirming(null);
+      } else if (r.error === 'Confirmation phrase required') {
+        toast('Old main process — close the app and run npm start to load the new delete handler.', 'error');
+      } else {
+        toast(r.error || 'Failed', 'error');
+      }
+    } catch (e: any) {
+      toast(e.message || 'Failed', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doBulkDelete = async () => {
+    setBusy(true);
+    try {
+      const ids = Array.from(selected);
+      const r = await withTimeout(window.electronAPI.admin.deletePatients(ids), 30_000, 'Bulk delete');
+      if (r.ok) {
+        toast(`Deleted ${r.deleted} patient${r.deleted === 1 ? '' : 's'}`);
+        refreshAll();
+        setBulkConfirm(false);
+        setSelected(new Set());
+      } else {
+        toast(r.error || 'Bulk delete failed', 'error');
+      }
+    } catch (e: any) {
+      toast(e.message || 'Failed', 'error');
+    } finally {
+      setBusy(false);
     }
   };
 
   return (
     <div className="rounded-lg border-2 border-red-300 dark:border-red-800 p-4 bg-red-50/50 dark:bg-red-900/20">
       <div className="text-sm font-semibold text-red-800 dark:text-red-200 flex items-center gap-2">
-        <Trash2 className="w-4 h-4" /> Delete patient (and all their history)
+        <Trash2 className="w-4 h-4" /> Delete patients (and all their history)
       </div>
       <div className="text-[11px] text-red-700 dark:text-red-300 mt-0.5 mb-3">
-        Cascades: appointments, consultations, Rx, lab orders, EMR (allergies/conditions/family/immunizations/documents). Bills become orphaned but are preserved for audit.
+        Cascades: appointments, consultations, Rx, lab orders, EMR. Bills are orphaned but kept for audit. Tick rows to select multiple, or click the row's Delete for one.
       </div>
-      <div className="relative">
-        <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-        <input className="input pl-9" placeholder="Search patient by name / UHID / phone (blank = show all)" value={q} onChange={(e) => setQ(e.target.value)} />
+
+      <div className="flex items-center gap-2 mb-2">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input className="input pl-9" placeholder="Search patient by name / UHID / phone (blank = show all)" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        {selected.size > 0 && (
+          <button
+            className="btn-danger"
+            onClick={() => setBulkConfirm(true)}
+            disabled={busy}
+          >
+            <Trash2 className="w-4 h-4" /> Delete {selected.size} selected
+          </button>
+        )}
       </div>
-      <div className="mt-2 flex items-center justify-between text-[11px] text-gray-500 dark:text-slate-400">
-        <span>{results.length} patient{results.length === 1 ? '' : 's'}{q ? ' matching' : ' total (showing most recent 50)'}</span>
+
+      <div className="flex items-center justify-between text-[11px] text-gray-500 dark:text-slate-400 mb-1">
+        <label className="inline-flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={allChecked} onChange={toggleAll} />
+          <span>{allChecked ? 'Unselect all' : 'Select all visible'}</span>
+        </label>
+        <span>{results.length} patient{results.length === 1 ? '' : 's'}{q ? ' matching' : ' total (showing most recent 50)'} · {selected.size} selected</span>
       </div>
-      <ul className="max-h-[420px] overflow-auto mt-1 border border-gray-200 dark:border-slate-700 rounded-lg divide-y divide-gray-100 dark:divide-slate-700">
-        {results.map((p: any) => (
-          <li key={p.id} className="px-3 py-2 flex items-center justify-between gap-2 hover:bg-gray-50 dark:hover:bg-slate-700">
-            <div className="min-w-0">
-              <div className="text-sm text-gray-900 dark:text-slate-100">{p.first_name} {p.last_name}</div>
-              <div className="text-[11px] text-gray-500 dark:text-slate-400">{p.uhid} · {p.phone}</div>
-            </div>
-            <button className="btn-danger text-xs" onClick={() => setConfirming(p)}>
-              <Trash2 className="w-3.5 h-3.5" /> Delete
-            </button>
-          </li>
-        ))}
+
+      <ul className="max-h-[420px] overflow-auto border border-gray-200 dark:border-slate-700 rounded-lg divide-y divide-gray-100 dark:divide-slate-700">
+        {results.map((p: any) => {
+          const checked = selected.has(p.id);
+          return (
+            <li key={p.id} className={`px-3 py-2 flex items-center justify-between gap-2 ${checked ? 'bg-red-100 dark:bg-red-900/30' : 'hover:bg-gray-50 dark:hover:bg-slate-700'}`}>
+              <label className="flex items-center gap-3 min-w-0 cursor-pointer flex-1">
+                <input type="checkbox" checked={checked} onChange={() => toggle(p.id)} />
+                <div className="min-w-0">
+                  <div className="text-sm text-gray-900 dark:text-slate-100">{p.first_name} {p.last_name}</div>
+                  <div className="text-[11px] text-gray-500 dark:text-slate-400">{p.uhid} · {p.phone}</div>
+                </div>
+              </label>
+              <button className="btn-danger text-xs" onClick={() => setConfirming(p)} disabled={busy}>
+                <Trash2 className="w-3.5 h-3.5" /> Delete
+              </button>
+            </li>
+          );
+        })}
         {results.length === 0 && <li className="px-3 py-6 text-xs text-gray-400 text-center">No patients</li>}
       </ul>
 
@@ -411,13 +485,29 @@ function DeletePatientBlock() {
             <div className="text-sm text-gray-900 dark:text-slate-100">
               Permanently delete <span className="font-bold">{confirming.first_name} {confirming.last_name}</span> ({confirming.uhid}) and all their linked history?
             </div>
-            <div className="text-[11px] text-gray-500 dark:text-slate-400">
-              This cannot be undone. Bills remain in records (orphaned) for audit. Appointments, consultations, Rx, lab orders, and EMR entries are removed.
-            </div>
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-secondary" onClick={() => setConfirming(null)} disabled={busy}>Cancel</button>
               <button className="btn-danger" onClick={() => doDelete(confirming)} disabled={busy}>
                 {busy ? 'Deleting…' : 'Yes, delete permanently'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {bulkConfirm && (
+        <Modal open onClose={() => setBulkConfirm(false)} title={`Delete ${selected.size} patients?`}>
+          <div className="space-y-3">
+            <div className="text-sm text-gray-900 dark:text-slate-100">
+              Permanently delete <span className="font-bold">{selected.size} patient{selected.size === 1 ? '' : 's'}</span> and all their linked history?
+            </div>
+            <div className="text-[11px] text-gray-500 dark:text-slate-400">
+              This is a single transaction — all-or-nothing. Cannot be undone.
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button className="btn-secondary" onClick={() => setBulkConfirm(false)} disabled={busy}>Cancel</button>
+              <button className="btn-danger" onClick={doBulkDelete} disabled={busy}>
+                {busy ? 'Deleting…' : `Yes, delete all ${selected.size}`}
               </button>
             </div>
           </div>

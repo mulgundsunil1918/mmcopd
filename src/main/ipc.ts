@@ -133,11 +133,29 @@ export function registerIpc() {
     const db = getDb();
     const p = db.prepare('SELECT uhid, first_name, last_name FROM patients WHERE id=?').get(patientId) as any;
     if (!p) return { ok: false, error: 'Patient not found' };
-    // Cascade deletes happen automatically for rows with ON DELETE CASCADE
-    // For rows without cascade (bills, lab_orders with SET NULL), they are preserved but orphaned — acceptable for audit
     db.prepare('DELETE FROM patients WHERE id=?').run(patientId);
     logAudit(db, null, 'patient_deleted', 'patients', patientId, `${p.uhid} ${p.first_name} ${p.last_name}`);
     return { ok: true, patient: p };
+  });
+
+  ipcMain.handle('admin:deletePatients', (_e, patientIds: number[]) => {
+    const db = getDb();
+    if (!Array.isArray(patientIds) || patientIds.length === 0) return { ok: true, deleted: 0 };
+    const tx = db.transaction((ids: number[]) => {
+      const sel = db.prepare('SELECT uhid, first_name, last_name FROM patients WHERE id=?');
+      const del = db.prepare('DELETE FROM patients WHERE id=?');
+      let count = 0;
+      for (const id of ids) {
+        const p = sel.get(id) as any;
+        if (!p) continue;
+        del.run(id);
+        logAudit(db, null, 'patient_deleted', 'patients', id, `${p.uhid} ${p.first_name} ${p.last_name}`);
+        count++;
+      }
+      return count;
+    });
+    const deleted = tx(patientIds);
+    return { ok: true, deleted };
   });
   ipcMain.handle('audit:log', (_e, user: SessionUser | null, action: string, entity?: string, entity_id?: number, details?: string) => {
     logAudit(getDb(), user, action, entity, entity_id, details);
