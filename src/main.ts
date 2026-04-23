@@ -45,6 +45,7 @@ function createWindow() {
     minHeight: 700,
     title: settings.clinic_name || 'CareDesk HMS',
     backgroundColor: '#ffffff',
+    show: false, // hide until maximized to avoid the "shrink-then-grow" flash
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -52,6 +53,9 @@ function createWindow() {
       sandbox: false,
     },
   });
+
+  mainWindow.maximize();
+  mainWindow.show();
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
