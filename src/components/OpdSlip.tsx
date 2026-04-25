@@ -132,46 +132,104 @@ function Letterhead({
   }
 
   return (
-    <div style={{ borderTop: '4px solid #1d4ed8', borderBottom: '1px solid #cbd5e1' }} className="pb-3 mb-3">
-      <div className="flex items-start justify-between pt-3">
-        <div className="flex items-center gap-3">
+    <div style={{ borderTop: '4px solid #1d4ed8', borderBottom: '1px solid #cbd5e1' }} className="pb-2.5 mb-3 pt-2.5">
+      <div className="flex items-stretch justify-between gap-4">
+        {/* === LEFT: clinic identity === */}
+        <div className="flex items-start gap-3 flex-1 min-w-0">
           {settings.clinic_logo ? (
-            <img src={settings.clinic_logo} alt="Clinic logo" className="w-16 h-16 object-contain rounded-lg" style={{ background: '#ffffff' }} />
+            <img
+              src={settings.clinic_logo}
+              alt="Clinic logo"
+              className="w-[18mm] h-[18mm] object-contain rounded-lg flex-shrink-0"
+              style={{ background: '#ffffff' }}
+            />
           ) : (
-            <div className="w-16 h-16 rounded-xl flex items-center justify-center text-white shadow" style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #4f46e5 100%)' }}>
+            <div
+              className="w-[18mm] h-[18mm] rounded-xl flex items-center justify-center text-white shadow flex-shrink-0"
+              style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #4f46e5 100%)' }}
+            >
               <HeartPulse className="w-10 h-10" />
             </div>
           )}
-          <div>
-            <div className="text-2xl font-extrabold tracking-tight leading-tight" style={{ color: '#1e3a8a' }}>
+          <div className="min-w-0 flex-1">
+            <div
+              className="text-[20px] font-extrabold tracking-tight leading-[1.1]"
+              style={{ color: '#1e3a8a' }}
+            >
               {settings.clinic_name || 'Mulgund Multispeciality Clinic'}
             </div>
-            {settings.clinic_tagline && <div className="text-[10px] italic" style={{ color: '#475569' }}>{settings.clinic_tagline}</div>}
+            {settings.clinic_tagline && (
+              <div className="text-[10px] italic mt-0.5" style={{ color: '#475569' }}>
+                {settings.clinic_tagline}
+              </div>
+            )}
             {settings.clinic_registration_no && (
               <div className="text-[9px] uppercase tracking-wider mt-0.5" style={{ color: '#64748b' }}>
                 Reg. No.: {settings.clinic_registration_no}
               </div>
             )}
+            {/* Compact contact line — sits directly under name so it visually belongs */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1.5 text-[10px]" style={{ color: '#475569' }}>
+              {settings.clinic_address && (
+                <span className="inline-flex items-center gap-1">
+                  <MapPin className="w-3 h-3" style={{ color: '#1d4ed8' }} /> {settings.clinic_address}
+                </span>
+              )}
+              {settings.clinic_phone && (
+                <span className="inline-flex items-center gap-1">
+                  <Phone className="w-3 h-3" style={{ color: '#1d4ed8' }} /> {settings.clinic_phone}
+                </span>
+              )}
+              {settings.clinic_email && (
+                <span className="inline-flex items-center gap-1">
+                  <Mail className="w-3 h-3" style={{ color: '#1d4ed8' }} /> {settings.clinic_email}
+                </span>
+              )}
+            </div>
           </div>
         </div>
-        <div className="text-right">
-          <div className="inline-block px-2 py-0.5 rounded text-[10px] uppercase tracking-wider font-bold" style={{ background: '#1d4ed8', color: '#ffffff' }}>OPD Slip</div>
-          <div className="text-base font-bold mt-1" style={{ color: '#0f172a' }}>Token #{appointment.token_number}</div>
-          <div className="text-[10px]" style={{ color: '#475569' }}>{slipDate}</div>
+
+        {/* === RIGHT: single visit card — OPD slip + token + date + IDs all together === */}
+        <div
+          className="flex-shrink-0 rounded-lg overflow-hidden text-right"
+          style={{
+            border: '1.5px solid #1d4ed8',
+            minWidth: '60mm',
+          }}
+        >
+          {/* Top stripe: OPD SLIP label */}
           <div
-            className="mt-1 inline-block px-2 py-1 rounded text-right"
-            style={{ background: '#eff6ff', border: '1px solid #bfdbfe' }}
+            className="px-2.5 py-0.5 text-[10px] uppercase tracking-widest font-bold text-white"
+            style={{ background: '#1d4ed8' }}
           >
-            <div className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Patient ID</div>
-            <div className="text-[11px] font-mono font-bold" style={{ color: '#1e3a8a' }}>UHID: {appointment.patient_uhid}</div>
-            <div className="text-[11px] font-mono font-bold" style={{ color: '#1e40af' }}>Visit: {visitId}</div>
+            OPD Slip
+          </div>
+          {/* Token + date/time block */}
+          <div className="px-2.5 py-1.5" style={{ background: '#ffffff' }}>
+            <div className="text-lg font-extrabold leading-tight" style={{ color: '#0f172a' }}>
+              Token #{appointment.token_number}
+            </div>
+            <div className="text-[10px]" style={{ color: '#475569' }}>{slipDate}</div>
+          </div>
+          {/* Patient identifiers */}
+          <div
+            className="px-2.5 py-1.5 border-t"
+            style={{ background: '#eff6ff', borderTopColor: '#bfdbfe' }}
+          >
+            <div
+              className="text-[9px] uppercase tracking-wider font-semibold mb-0.5"
+              style={{ color: '#64748b' }}
+            >
+              Patient ID
+            </div>
+            <div className="text-[11px] font-mono font-bold" style={{ color: '#1e3a8a' }}>
+              UHID: {appointment.patient_uhid}
+            </div>
+            <div className="text-[11px] font-mono font-bold" style={{ color: '#1e40af' }}>
+              Visit: {visitId}
+            </div>
           </div>
         </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[10px]" style={{ color: '#475569' }}>
-        {settings.clinic_address && <span className="inline-flex items-center gap-1"><MapPin className="w-3 h-3" style={{ color: '#1d4ed8' }} /> {settings.clinic_address}</span>}
-        {settings.clinic_phone && <span className="inline-flex items-center gap-1"><Phone className="w-3 h-3" style={{ color: '#1d4ed8' }} /> {settings.clinic_phone}</span>}
-        {settings.clinic_email && <span className="inline-flex items-center gap-1"><Mail className="w-3 h-3" style={{ color: '#1d4ed8' }} /> {settings.clinic_email}</span>}
       </div>
     </div>
   );
@@ -393,7 +451,7 @@ function DateBlank({ w }: { w: string }) {
 function PageFooter({ pageNum, totalPages, clinicName }: { pageNum: number; totalPages: number; clinicName: string }) {
   return (
     <div className="text-center text-[9px] mt-2 pt-1" style={{ color: '#94a3b8', borderTop: '1px dashed #cbd5e1' }}>
-      System generated by {clinicName} · Page {pageNum} of {totalPages} · Not valid without doctor's signature
+      OPD slip generated by {clinicName} · Page {pageNum} of {totalPages}
     </div>
   );
 }
