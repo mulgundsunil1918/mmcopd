@@ -27,6 +27,7 @@ export function getAllSettings(db: Database.Database): Settings {
     auto_launch: map.auto_launch === 'true',
     minimize_to_tray: map.minimize_to_tray !== 'false',
     start_minimized: map.start_minimized === 'true',
+    keep_all_backups: map.keep_all_backups !== 'false',
     admin_password: map.admin_password || '1918',
     sms_enabled: map.sms_enabled === 'true',
     whatsapp_enabled: map.whatsapp_enabled === 'true',

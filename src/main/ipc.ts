@@ -1625,11 +1625,16 @@ export function registerIpc() {
     };
     fs.writeFileSync(path.join(bundleDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
-    // Retention (per-day): keep last 10 time folders in each day, last 30 days
-    retainLast(path.join(root, 'sqlite', day), 10);
-    retainLast(path.join(root, 'excel', day), 10);
-    retainLast(path.join(root, 'sqlite'), 30);
-    retainLast(path.join(root, 'excel'), 30);
+    // Retention is OFF by default (keep_all_backups=true) — deleting old local files would
+    // also delete them from a synced cloud folder (Google Drive Desktop is two-way sync).
+    // Receptionist can opt back into auto-cleanup from Settings if they want to save disk space.
+    const settings = getAllSettings(getDb());
+    if (!settings.keep_all_backups) {
+      retainLast(path.join(root, 'sqlite', day), 10);
+      retainLast(path.join(root, 'excel', day), 10);
+      retainLast(path.join(root, 'sqlite'), 30);
+      retainLast(path.join(root, 'excel'), 30);
+    }
 
     // Count total backup folders for reporting
     const totalBackups = fs.existsSync(path.join(root, 'sqlite'))

@@ -22,6 +22,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   auto_launch: 'true',
   minimize_to_tray: 'true',
   start_minimized: 'false',
+  keep_all_backups: 'true',
   admin_password: '1918',
   sms_enabled: 'false',
   whatsapp_enabled: 'false',

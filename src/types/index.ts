@@ -266,6 +266,10 @@ export interface Settings {
   backup_reminder_time: string;
   usb_reminder_weekday: number;
   usb_reminder_time: string;
+  auto_launch: boolean;
+  minimize_to_tray: boolean;
+  start_minimized: boolean;
+  keep_all_backups: boolean;
   admin_password: string;
   sms_enabled: boolean;
   whatsapp_enabled: boolean;
