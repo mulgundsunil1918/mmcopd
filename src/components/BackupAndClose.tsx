@@ -57,11 +57,16 @@ export function BackupAndClose() {
   const today = new Date().toISOString().slice(0, 10);
   const backedUpToday = status?.lastBackupAt?.slice(0, 10) === today;
 
+  const successMessage = (label: string, attachments: number) => {
+    const extra = attachments > 0 ? ` + ${attachments} EMR attachment${attachments === 1 ? '' : 's'}` : '';
+    return `${label} saved · full database${extra}`;
+  };
+
   const backupGoogleDrive = async () => {
     setBusy(true);
     try {
       const r = await window.electronAPI.backup.now();
-      toast(`Backup written to Google Drive folder · ${r.documentCount} docs`);
+      toast(successMessage('Google Drive backup', r.documentCount || 0));
       qc.invalidateQueries({ queryKey: ['backup-status'] });
       setDestChoice(false);
     } catch (e: any) {
@@ -76,7 +81,7 @@ export function BackupAndClose() {
     try {
       const r = await window.electronAPI.backup.nowTo(dir);
       if (r.ok) {
-        toast(`Backup saved to USB · ${r.documentCount} docs`);
+        toast(successMessage('USB backup', r.documentCount || 0));
         qc.invalidateQueries({ queryKey: ['backup-status'] });
         setDestChoice(false);
       } else {
