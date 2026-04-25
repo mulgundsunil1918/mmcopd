@@ -2,8 +2,8 @@ import type Database from 'better-sqlite3';
 
 const DEFAULT_SETTINGS: Record<string, string> = {
   clinic_name: 'Mulgund Multispeciality Clinic',
-  clinic_address: 'Mulgund, Karnataka',
-  clinic_phone: '',
+  clinic_address: '1st Floor, Arihant Plaza, Rotary Circle, Gadag - 582 101',
+  clinic_phone: '9019263206',
   clinic_email: '',
   clinic_tagline: 'Compassionate Care, Every Day',
   clinic_registration_no: '',
@@ -40,15 +40,17 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   whatsapp_country_code: '91',
   // Default click-to-WhatsApp template. Placeholders are case-insensitive.
   whatsapp_template:
-    'Namaste {{patient_name}},\n\n' +
+    'Namaste {{patient_name}} 🙏\n\n' +
     'Your appointment at *{{clinic_name}}* is confirmed.\n\n' +
-    '👨‍⚕️ Doctor: {{doctor_name}}\n' +
-    '📅 Date: {{date}}\n' +
-    '🕒 Time: {{time}}\n' +
-    '🎟️ Token: #{{token}}\n' +
-    '🆔 Visit ID: {{visit_id}}\n\n' +
-    'Please arrive 10 minutes early. For changes, reply to this message or call {{clinic_phone}}.\n\n' +
-    'Thank you,\n{{clinic_name}}',
+    '👨‍⚕️ *Doctor:* {{doctor_name}}\n' +
+    '📅 *Date:* {{date}}    🕒 *Time:* {{time}}\n' +
+    '🎟️ *Token:* #{{token}}\n\n' +
+    '🆔 *Patient ID (UHID):* {{uhid}}\n' +
+    '📋 *Visit ID:* {{visit_id}}\n\n' +
+    '📍 {{clinic_address}}\n' +
+    '☎️ {{clinic_phone}}\n\n' +
+    'Please arrive 10 minutes early. For any change, simply reply to this message or call us.\n\n' +
+    'Thank you,\n*{{clinic_name}}*',
 };
 
 export function seedIfEmpty(db: Database.Database) {
