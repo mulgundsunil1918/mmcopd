@@ -22,6 +22,7 @@ export function runMigrations(db: Database.Database) {
   addColumnIfMissing(db, 'doctors', 'signature', 'TEXT');
   addColumnIfMissing(db, 'doctors', 'qualifications', 'TEXT');
   addColumnIfMissing(db, 'doctors', 'registration_no', 'TEXT');
+  addColumnIfMissing(db, 'doctors', 'color', 'TEXT');
   addColumnIfMissing(db, 'patients', 'place', 'TEXT');
   addColumnIfMissing(db, 'patients', 'district', 'TEXT');
   addColumnIfMissing(db, 'patients', 'state', 'TEXT');

@@ -10,6 +10,7 @@ import { WhatsAppMessaging } from '../components/WhatsAppMessaging';
 import { AdminGate } from '../components/AdminGate';
 import { useToast } from '../hooks/useToast';
 import { INDIAN_STATES } from '../lib/india';
+import { DOCTOR_COLOR_OPTIONS, colorForDoctor } from '../lib/doctor-colors';
 import type { AppMode, Doctor, Settings } from '../types';
 
 export function SettingsPage() {
@@ -745,7 +746,7 @@ function ClinicInfo() {
 
 function FeesAndFlow() {
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
-  const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, ['consultation_fee', 'special_price', 'slot_duration', 'queue_flow_enabled']);
+  const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, ['consultation_fee', 'special_price', 'slot_duration', 'queue_flow_enabled', 'appointments_default_sort']);
 
   if (!settings) return null;
   return (
@@ -791,6 +792,23 @@ function FeesAndFlow() {
             <option value={20}>20 min</option>
             <option value={30}>30 min</option>
           </select>
+        </div>
+      </div>
+
+      <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-gray-200 dark:border-slate-700 pt-4">
+        <div>
+          <label className="label">Default Appointments Sort Order</label>
+          <select
+            className="input"
+            value={draft.appointments_default_sort ?? 'oldest_first'}
+            onChange={(e) => set('appointments_default_sort', e.target.value as any)}
+          >
+            <option value="oldest_first">Oldest first (token #1, #2, #3 …)</option>
+            <option value="newest_first">Newest first (latest booking on top)</option>
+          </select>
+          <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-1">
+            What the receptionist sees on opening Appointments. The toggle on the page can override per-session.
+          </div>
         </div>
       </div>
 
@@ -862,6 +880,7 @@ function DoctorsManagement() {
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left border-b border-gray-200 dark:border-slate-700 text-xs uppercase text-gray-500 dark:text-slate-400">
+            <th className="py-2 w-10">Color</th>
             <th className="py-2">Name</th>
             <th className="py-2">Specialty</th>
             <th className="py-2">Room</th>
@@ -874,6 +893,13 @@ function DoctorsManagement() {
         <tbody>
           {doctors.map((d) => (
             <tr key={d.id} className="border-b border-gray-100 dark:border-slate-800">
+              <td className="py-2">
+                <span
+                  className="inline-block w-4 h-4 rounded-full ring-2 ring-white dark:ring-slate-800 shadow"
+                  style={{ backgroundColor: colorForDoctor(d) }}
+                  title={d.color ? `Custom: ${d.color}` : 'Auto-assigned color'}
+                />
+              </td>
               <td className="py-2 font-medium text-gray-900 dark:text-slate-100">{d.name}</td>
               <td className="py-2 text-gray-600 dark:text-slate-300">{d.specialty}</td>
               <td className="py-2 text-gray-600 dark:text-slate-300">{d.room_number || '—'}</td>
@@ -940,6 +966,52 @@ function DoctorsManagement() {
               <Field label="Room Number">
                 <input className="input" value={editing.room_number || ''} onChange={(e) => setEditing({ ...editing, room_number: e.target.value })} />
               </Field>
+            </div>
+
+            {/* === Doctor color === */}
+            <div className="pt-2">
+              <label className="label flex items-center justify-between">
+                <span>Doctor Color (visual tag across the app)</span>
+                {editing.color && (
+                  <button
+                    type="button"
+                    className="text-[11px] text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200"
+                    onClick={() => setEditing({ ...editing, color: null })}
+                    title="Clear and use auto-assigned color"
+                  >
+                    Clear (use auto)
+                  </button>
+                )}
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {DOCTOR_COLOR_OPTIONS.map((c) => {
+                  const selected = (editing.color || '').toLowerCase() === c.hex.toLowerCase();
+                  return (
+                    <button
+                      key={c.hex}
+                      type="button"
+                      onClick={() => setEditing({ ...editing, color: c.hex })}
+                      title={c.label}
+                      className={cn(
+                        'relative w-9 h-9 rounded-lg shadow-sm transition active:scale-95',
+                        selected ? 'ring-2 ring-offset-2 ring-gray-900 dark:ring-white scale-110' : 'hover:scale-105'
+                      )}
+                      style={{ backgroundColor: c.hex }}
+                    >
+                      {selected && <Check className="w-4 h-4 text-white absolute inset-0 m-auto" strokeWidth={3} />}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-2 flex items-center gap-2 text-[11px] text-gray-600 dark:text-slate-300">
+                <span>Currently:</span>
+                <span
+                  className="inline-block w-4 h-4 rounded-full ring-2 ring-white dark:ring-slate-700 shadow"
+                  style={{ backgroundColor: colorForDoctor(editing as Doctor) }}
+                />
+                <span className="font-mono">{editing.color || '(auto)'}</span>
+                <span className="text-gray-400">— used as the doctor's color dot in Appointments, Today's queue, and lists.</span>
+              </div>
             </div>
 
             <ImageUpload

@@ -326,12 +326,12 @@ export function registerIpc() {
     const db = getDb();
     const info = db
       .prepare(
-        'INSERT INTO doctors (name, specialty, phone, email, room_number, is_active, default_fee, signature, qualifications, registration_no) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO doctors (name, specialty, phone, email, room_number, is_active, default_fee, signature, qualifications, registration_no, color) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       )
       .run(
         d.name ?? '', d.specialty ?? '', d.phone ?? null, d.email ?? null, d.room_number ?? null,
         d.is_active ?? 1, d.default_fee ?? 500, d.signature ?? null,
-        d.qualifications ?? null, d.registration_no ?? null
+        d.qualifications ?? null, d.registration_no ?? null, d.color ?? null
       );
     return db.prepare('SELECT * FROM doctors WHERE id=?').get(info.lastInsertRowid);
   });
@@ -339,11 +339,11 @@ export function registerIpc() {
   ipcMain.handle('doctors:update', (_e, id: number, d: Partial<Doctor>) => {
     const db = getDb();
     db.prepare(
-      'UPDATE doctors SET name=?, specialty=?, phone=?, email=?, room_number=?, is_active=?, default_fee=?, signature=?, qualifications=?, registration_no=? WHERE id=?'
+      'UPDATE doctors SET name=?, specialty=?, phone=?, email=?, room_number=?, is_active=?, default_fee=?, signature=?, qualifications=?, registration_no=?, color=? WHERE id=?'
     ).run(
       d.name ?? '', d.specialty ?? '', d.phone ?? null, d.email ?? null, d.room_number ?? null,
       d.is_active ?? 1, d.default_fee ?? 500, d.signature ?? null,
-      d.qualifications ?? null, d.registration_no ?? null, id
+      d.qualifications ?? null, d.registration_no ?? null, d.color ?? null, id
     );
     return db.prepare('SELECT * FROM doctors WHERE id=?').get(id);
   });

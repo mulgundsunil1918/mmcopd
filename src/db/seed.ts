@@ -38,6 +38,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   whatsapp_api_url: '',
   whatsapp_api_key: '',
   whatsapp_country_code: '91',
+  appointments_default_sort: 'oldest_first',
   // Default click-to-WhatsApp template. Placeholders are case-insensitive.
   whatsapp_template:
     'Namaste {{patient_name}} 🙏\n\n' +

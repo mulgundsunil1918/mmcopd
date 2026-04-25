@@ -50,6 +50,7 @@ export function getAllSettings(db: Database.Database): Settings {
         '📍 {{clinic_address}}\n☎️ {{clinic_phone}}\n\n' +
         'Please arrive 10 minutes early. For any change, simply reply to this message or call us.\n\nThank you,\n*{{clinic_name}}*',
     whatsapp_country_code: map.whatsapp_country_code || '91',
+    appointments_default_sort: (map.appointments_default_sort as any) || 'oldest_first',
   };
 }
 

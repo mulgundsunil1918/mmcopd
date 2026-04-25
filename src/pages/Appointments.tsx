@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Plus, Calendar, Search, Clock4, Loader2, CheckCircle2, Printer } from 'lucide-react';
+import { Plus, Calendar, Search, Clock4, Loader2, CheckCircle2, Printer, ArrowDownNarrowWide, ArrowUpNarrowWide } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
 import { OpdSlipFor } from '../components/OpdSlipFor';
 import { SendWhatsAppButton } from '../components/SendWhatsAppButton';
+import { colorForDoctor } from '../lib/doctor-colors';
 import { useToast } from '../hooks/useToast';
 import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut';
 import { cn, fmt12h, formatINR, generateTimeSlots, todayISO } from '../lib/utils';
@@ -16,18 +17,11 @@ const STATUS_FLOW: Record<AppointmentStatus, AppointmentStatus> = {
   'Waiting': 'In Progress',
   'In Progress': 'Send to Billing',
   'Send to Billing': 'Done',
+  'Ready for Print': 'Done',
   'Done': 'Done',
   'Cancelled': 'Cancelled',
 };
 
-const DOCTOR_PALETTE = [
-  { head: 'bg-emerald-500', ring: 'border-emerald-300 dark:border-emerald-800' },
-  { head: 'bg-purple-500', ring: 'border-purple-300 dark:border-purple-800' },
-  { head: 'bg-amber-500', ring: 'border-amber-300 dark:border-amber-800' },
-  { head: 'bg-pink-500', ring: 'border-pink-300 dark:border-pink-800' },
-  { head: 'bg-cyan-500', ring: 'border-cyan-300 dark:border-cyan-800' },
-  { head: 'bg-indigo-500', ring: 'border-indigo-300 dark:border-indigo-800' },
-];
 
 export function Appointments() {
   const location = useLocation();
@@ -41,6 +35,7 @@ export function Appointments() {
   const [searchQ, setSearchQ] = useState('');
   const [bookOpen, setBookOpen] = useState(false);
   const [printAppt, setPrintAppt] = useState<AppointmentWithJoins | null>(null);
+  const [sortOrder, setSortOrder] = useState<'oldest_first' | 'newest_first' | null>(null);
   const toast = useToast();
   const qc = useQueryClient();
 
@@ -63,6 +58,16 @@ export function Appointments() {
     queryFn: () => window.electronAPI.settings.get(),
   });
   const queueOn = appSettings?.queue_flow_enabled ?? false;
+
+  // First time settings load — adopt the admin's default. After that, the user's
+  // local toggle wins for this session.
+  useEffect(() => {
+    if (sortOrder == null && appSettings?.appointments_default_sort) {
+      setSortOrder(appSettings.appointments_default_sort);
+    }
+  }, [appSettings?.appointments_default_sort, sortOrder]);
+  const effectiveSort: 'oldest_first' | 'newest_first' =
+    sortOrder ?? (appSettings?.appointments_default_sort as any) ?? 'oldest_first';
 
   const { data: appts = [], isLoading } = useQuery({
     queryKey: ['appointments', date, doctorFilter],
@@ -103,7 +108,6 @@ export function Appointments() {
   });
 
   const visibleDoctors = doctorFilter === 'all' ? doctors : doctors.filter((d) => d.id === doctorFilter);
-  const colorFor = (idx: number) => DOCTOR_PALETTE[idx % DOCTOR_PALETTE.length];
 
   return (
     <div className="p-6 space-y-5">
@@ -194,28 +198,65 @@ export function Appointments() {
         </div>
       )}
 
-      {/* Search bar */}
-      <div className="relative max-w-md">
-        <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-        <input
-          className="input pl-9"
-          placeholder="Search patient name, token #, or doctor"
-          value={searchQ}
-          onChange={(e) => setSearchQ(e.target.value)}
-        />
+      {/* Search + sort toggle */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative max-w-md flex-1 min-w-[240px]">
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            className="input pl-9"
+            placeholder="Search patient name, token #, or doctor"
+            value={searchQ}
+            onChange={(e) => setSearchQ(e.target.value)}
+          />
+        </div>
+        <div className="inline-flex rounded-lg border border-gray-300 dark:border-slate-700 overflow-hidden text-xs">
+          <button
+            type="button"
+            onClick={() => setSortOrder('oldest_first')}
+            className={cn(
+              'px-3 py-2 inline-flex items-center gap-1.5 transition',
+              effectiveSort === 'oldest_first'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700'
+            )}
+            title="Earliest token first (#1, #2, #3 …)"
+          >
+            <ArrowUpNarrowWide className="w-3.5 h-3.5" /> Oldest first
+          </button>
+          <button
+            type="button"
+            onClick={() => setSortOrder('newest_first')}
+            className={cn(
+              'px-3 py-2 inline-flex items-center gap-1.5 transition border-l border-gray-300 dark:border-slate-700',
+              effectiveSort === 'newest_first'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700'
+            )}
+            title="Latest booking first (newest at top)"
+          >
+            <ArrowDownNarrowWide className="w-3.5 h-3.5" /> Newest first
+          </button>
+        </div>
       </div>
 
       {/* Vertical patient list */}
       <section className="card p-0 overflow-hidden">
         {(() => {
           const q = searchQ.trim().toLowerCase();
-          const list = appts.filter((a) => {
+          const filtered = appts.filter((a) => {
             if (!q) return true;
             return (
               a.patient_name?.toLowerCase().includes(q) ||
               String(a.token_number).includes(q) ||
               a.doctor_name?.toLowerCase().includes(q)
             );
+          });
+          const list = [...filtered].sort((a, b) => {
+            // Token number is monotonically issued per day, so it's a reliable proxy
+            // for booking order. id is the tiebreaker (multiple bookings same minute).
+            const at = a.token_number * 100000 + a.id;
+            const bt = b.token_number * 100000 + b.id;
+            return effectiveSort === 'newest_first' ? bt - at : at - bt;
           });
 
           if (isLoading) {
@@ -228,7 +269,8 @@ export function Appointments() {
           return (
             <ul className="divide-y divide-gray-100 dark:divide-slate-700">
               {list.map((a, idx) => {
-                const docColor = colorFor(doctors.findIndex((d) => d.id === a.doctor_id));
+                const doc = doctors.find((d) => d.id === a.doctor_id);
+                const docColor = colorForDoctor(doc);
                 return (
                   <li
                     key={a.id}
@@ -237,6 +279,7 @@ export function Appointments() {
                       a.status === 'Cancelled' && 'opacity-60',
                       a.status === 'Ready for Print' && 'bg-cyan-50 dark:bg-cyan-900/20'
                     )}
+                    style={{ borderLeft: `4px solid ${docColor}` }}
                   >
                     {/* Token */}
                     <div className="text-sm font-bold text-gray-700 dark:text-slate-200 w-12 text-center">#{a.token_number}</div>
@@ -248,7 +291,7 @@ export function Appointments() {
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">{a.patient_name}</div>
                       <div className="text-[11px] text-gray-500 dark:text-slate-400 truncate">
-                        <span className={cn('inline-block w-2 h-2 rounded-full align-middle mr-1.5', docColor.head)} />
+                        <span className="inline-block w-2.5 h-2.5 rounded-full align-middle mr-1.5" style={{ backgroundColor: docColor }} />
                         {a.doctor_name} · {a.doctor_specialty}{a.doctor_room ? ` · Room ${a.doctor_room}` : ''}
                       </div>
                       {a.notes && <div className="text-[11px] text-gray-600 dark:text-slate-300 italic truncate">"{a.notes}"</div>}
@@ -514,7 +557,8 @@ function BookAppointmentModal({
                       : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-300'
                   )}
                 >
-                  <div className={cn('text-sm font-semibold', doctorId === d.id ? 'text-blue-800 dark:text-blue-200' : 'text-gray-900 dark:text-slate-100')}>
+                  <div className={cn('text-sm font-semibold flex items-center gap-1.5', doctorId === d.id ? 'text-blue-800 dark:text-blue-200' : 'text-gray-900 dark:text-slate-100')}>
+                    <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: colorForDoctor(d) }} />
                     {d.name}
                   </div>
                   <div className="text-[11px] text-gray-500 dark:text-slate-400">{d.specialty}</div>

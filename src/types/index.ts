@@ -53,6 +53,7 @@ export interface Doctor {
   signature?: string | null;
   qualifications?: string | null;
   registration_no?: string | null;
+  color?: string | null;
 }
 
 export interface Appointment {
@@ -286,4 +287,5 @@ export interface Settings {
   whatsapp_api_key: string | null;
   whatsapp_template: string;
   whatsapp_country_code: string;
+  appointments_default_sort: 'oldest_first' | 'newest_first';
 }
