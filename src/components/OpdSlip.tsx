@@ -131,128 +131,171 @@ function Letterhead({
     );
   }
 
+  // Split appointment date/time for cleaner two-line display in the visit card.
+  const [apptDateLine, apptTimeLine] = (() => {
+    try {
+      const d = parseISO(`${appointment.appointment_date}T${appointment.appointment_time}:00`);
+      return [format(d, 'dd MMM yyyy'), format(d, 'hh:mm a')];
+    } catch {
+      return [appointment.appointment_date, fmt12h(appointment.appointment_time)];
+    }
+  })();
+
   return (
-    <div style={{ borderTop: '4px solid #1d4ed8', borderBottom: '1px solid #cbd5e1' }} className="pb-2.5 mb-3 pt-2.5">
-      <div className="flex items-stretch justify-between gap-4">
-        {/* === LEFT: clinic identity (Logo + Reg below) | (Name stacked + tagline + contacts) === */}
-        <div className="flex items-start gap-4 flex-1 min-w-0">
-          {/* Logo column — bigger logo with Reg No directly below it */}
-          <div className="flex-shrink-0 flex flex-col items-center">
+    <div className="mb-3" style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid #cbd5e1' }}>
+      {/* === Thin accent stripe (the brand line on top) === */}
+      <div style={{ height: 5, background: 'linear-gradient(90deg, #1d4ed8 0%, #4f46e5 50%, #1d4ed8 100%)' }} />
+
+      {/* === Hero band: logo | identity | visit card === */}
+      <div
+        className="px-3 py-3"
+        style={{ background: 'linear-gradient(180deg, #f0f7ff 0%, #ffffff 70%)' }}
+      >
+        <div className="flex items-center justify-between gap-4">
+          {/* === LOGO (large, in a soft white tile) === */}
+          <div className="flex-shrink-0">
             {settings.clinic_logo ? (
-              <img
-                src={settings.clinic_logo}
-                alt="Clinic logo"
-                className="w-[26mm] h-[26mm] object-contain rounded-lg"
-                style={{ background: '#ffffff' }}
-              />
+              <div
+                className="rounded-lg flex items-center justify-center"
+                style={{
+                  width: '28mm',
+                  height: '28mm',
+                  background: '#ffffff',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 2px rgba(15,23,42,0.05)',
+                }}
+              >
+                <img
+                  src={settings.clinic_logo}
+                  alt="Clinic logo"
+                  className="object-contain"
+                  style={{ maxWidth: '24mm', maxHeight: '24mm' }}
+                />
+              </div>
             ) : (
               <div
-                className="w-[26mm] h-[26mm] rounded-xl flex items-center justify-center text-white shadow"
-                style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #4f46e5 100%)' }}
+                className="rounded-lg flex items-center justify-center text-white shadow"
+                style={{
+                  width: '28mm',
+                  height: '28mm',
+                  background: 'linear-gradient(135deg, #1d4ed8 0%, #4f46e5 100%)',
+                }}
               >
-                <HeartPulse className="w-12 h-12" />
+                <HeartPulse className="w-14 h-14" />
+              </div>
+            )}
+          </div>
+
+          {/* === IDENTITY (clinic name, tagline, reg) — gets the big middle space === */}
+          <div className="min-w-0 flex-1">
+            <div
+              className="font-extrabold tracking-tight uppercase"
+              style={{ color: '#1e3a8a', fontSize: '24px', lineHeight: 1.1, letterSpacing: '0.5px' }}
+            >
+              {settings.clinic_name || 'Mulgund Multispeciality Clinic'}
+            </div>
+            {settings.clinic_tagline && (
+              <div
+                className="italic mt-1 inline-block"
+                style={{
+                  color: '#1e40af',
+                  fontSize: '13px',
+                  borderTop: '1px solid #bfdbfe',
+                  borderBottom: '1px solid #bfdbfe',
+                  padding: '1px 8px',
+                  letterSpacing: '0.4px',
+                }}
+              >
+                {settings.clinic_tagline}
               </div>
             )}
             {settings.clinic_registration_no && (
               <div
-                className="text-[10px] uppercase tracking-wider mt-1.5 text-center font-semibold"
-                style={{ color: '#64748b', maxWidth: '26mm' }}
+                className="text-[11px] uppercase tracking-wider mt-1.5 font-semibold"
+                style={{ color: '#475569' }}
               >
-                Reg. No.<br />{settings.clinic_registration_no}
+                Reg. No. {settings.clinic_registration_no}
               </div>
             )}
           </div>
 
-          {/* Name (one word per line) + tagline + contact info */}
-          <div className="min-w-0 flex-1">
-            <div
-              className="font-extrabold tracking-tight"
-              style={{ color: '#1e3a8a', fontSize: '26px', lineHeight: 1.05 }}
-            >
-              {(settings.clinic_name || 'Mulgund Multispeciality Clinic')
-                .split(/\s+/)
-                .filter(Boolean)
-                .map((word, i) => (
-                  <div key={i}>{word}</div>
-                ))}
-            </div>
-            {settings.clinic_tagline && (
-              <div className="text-[13px] italic mt-1" style={{ color: '#475569' }}>
-                {settings.clinic_tagline}
-              </div>
-            )}
-            {/* Compact contact line — sits directly under name so it visually belongs */}
-            <div
-              className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-2 text-[12px]"
-              style={{ color: '#475569' }}
-            >
-              {settings.clinic_address && (
-                <span className="inline-flex items-center gap-1">
-                  <MapPin className="w-3 h-3" style={{ color: '#1d4ed8' }} /> {settings.clinic_address}
-                </span>
-              )}
-              {settings.clinic_phone && (
-                <span className="inline-flex items-center gap-1">
-                  <Phone className="w-3 h-3" style={{ color: '#1d4ed8' }} /> {settings.clinic_phone}
-                </span>
-              )}
-              {settings.clinic_email && (
-                <span className="inline-flex items-center gap-1">
-                  <Mail className="w-3 h-3" style={{ color: '#1d4ed8' }} /> {settings.clinic_email}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* === RIGHT: visit card — OPD SLIP badge + Token + Room (big) + appointment date/time === */}
-        <div
-          className="flex-shrink-0 rounded-lg overflow-hidden text-center"
-          style={{
-            border: '1.5px solid #1d4ed8',
-            minWidth: '70mm',
-          }}
-        >
-          {/* Top stripe: OPD SLIP label */}
+          {/* === VISIT CARD (Token, Room, Date, Time) === */}
           <div
-            className="px-3 py-1 text-[13px] uppercase tracking-widest font-bold text-white"
-            style={{ background: '#1d4ed8' }}
+            className="flex-shrink-0 rounded-md overflow-hidden text-center"
+            style={{
+              border: '1.5px solid #1d4ed8',
+              minWidth: '60mm',
+              boxShadow: '0 1px 3px rgba(29,78,216,0.15)',
+            }}
           >
-            OPD Slip
-          </div>
-          {/* Token + Room — both big, side-by-side */}
-          <div className="px-3 py-2 flex items-stretch justify-around gap-3" style={{ background: '#ffffff' }}>
-            <div className="flex-1">
-              <div className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Token</div>
-              <div className="text-3xl font-extrabold leading-tight" style={{ color: '#0f172a' }}>
-                #{appointment.token_number}
-              </div>
+            <div
+              className="px-3 py-0.5 text-[11px] uppercase tracking-widest font-bold text-white"
+              style={{ background: '#1d4ed8' }}
+            >
+              OPD Slip
             </div>
-            {doctor.room_number && (
-              <>
-                <div style={{ borderLeft: '1px solid #cbd5e1' }} />
-                <div className="flex-1">
-                  <div className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Room</div>
-                  <div className="text-3xl font-extrabold leading-tight" style={{ color: '#1e3a8a' }}>
-                    {doctor.room_number}
-                  </div>
+            <div className="px-2 py-2 flex items-stretch justify-around gap-2" style={{ background: '#ffffff' }}>
+              <div className="flex-1">
+                <div className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Token</div>
+                <div className="text-3xl font-extrabold leading-none mt-0.5" style={{ color: '#0f172a' }}>
+                  #{appointment.token_number}
                 </div>
-              </>
-            )}
-          </div>
-          {/* Appointment date / time strip */}
-          <div
-            className="px-3 py-1.5 border-t"
-            style={{ background: '#eff6ff', borderTopColor: '#bfdbfe' }}
-          >
-            <div className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>
-              Appointment
+              </div>
+              {doctor.room_number && (
+                <>
+                  <div style={{ borderLeft: '1px solid #e2e8f0' }} />
+                  <div className="flex-1">
+                    <div className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Room</div>
+                    <div className="text-3xl font-extrabold leading-none mt-0.5" style={{ color: '#1e3a8a' }}>
+                      {doctor.room_number}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
-            <div className="text-[14px] font-bold" style={{ color: '#1e3a8a' }}>
-              {slipDate}
+            <div
+              className="px-2 py-1 flex items-center justify-around gap-2 border-t"
+              style={{ background: '#eff6ff', borderTopColor: '#bfdbfe' }}
+            >
+              <div className="flex-1">
+                <div className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Date</div>
+                <div className="text-[12px] font-bold" style={{ color: '#1e3a8a' }}>{apptDateLine}</div>
+              </div>
+              <div style={{ borderLeft: '1px solid #bfdbfe', height: 22 }} />
+              <div className="flex-1">
+                <div className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Time</div>
+                <div className="text-[12px] font-bold" style={{ color: '#1e3a8a' }}>{apptTimeLine}</div>
+              </div>
             </div>
           </div>
         </div>
+      </div>
+
+      {/* === Contact bar — full width, subtle background === */}
+      <div
+        className="px-3 py-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[12px]"
+        style={{ background: '#f8fafc', borderTop: '1px solid #e2e8f0', color: '#334155' }}
+      >
+        {settings.clinic_address && (
+          <span className="inline-flex items-center gap-1.5">
+            <MapPin className="w-3.5 h-3.5" style={{ color: '#1d4ed8' }} />
+            <span>{settings.clinic_address}</span>
+          </span>
+        )}
+        <span className="inline-flex items-center gap-x-3 gap-y-0 flex-wrap">
+          {settings.clinic_phone && (
+            <span className="inline-flex items-center gap-1.5">
+              <Phone className="w-3.5 h-3.5" style={{ color: '#1d4ed8' }} />
+              <span>{settings.clinic_phone}</span>
+            </span>
+          )}
+          {settings.clinic_email && (
+            <span className="inline-flex items-center gap-1.5">
+              <Mail className="w-3.5 h-3.5" style={{ color: '#1d4ed8' }} />
+              <span>{settings.clinic_email}</span>
+            </span>
+          )}
+        </span>
       </div>
     </div>
   );
