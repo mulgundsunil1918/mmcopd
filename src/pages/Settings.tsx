@@ -850,11 +850,17 @@ type DeleteState =
   | null
   | { mode: 'confirm'; doctor: Doctor }  // First "Are you sure?" popup
   | {
-      mode: 'has-records';
+      mode: 'has_records';
       doctor: Doctor;
       counts: { appointments: number; consultations: number; lab_orders: number; ip_admissions: number };
       total: number;
     };
+
+/** Show name without doubling 'Dr.' when the stored name already starts with it. */
+function dispName(name: string | undefined): string {
+  if (!name) return '';
+  return /^dr\.?\s/i.test(name) ? name : `Dr. ${name}`;
+}
 
 function DoctorsManagement() {
   const qc = useQueryClient();
@@ -903,7 +909,7 @@ function DoctorsManagement() {
       }
       const r = await window.electronAPI.doctors.delete(doc.id);
       if (r.ok) {
-        toast(`Dr. ${(r as any).doctorName || doc.name} deleted`);
+        toast(`${dispName((r as any).doctorName || doc.name)} deleted`);
         refreshDoctors();
         setDeleteState(null);
         setEditing(null);
@@ -911,8 +917,8 @@ function DoctorsManagement() {
       }
       // Refused because of historical records — switch popup to inactive offer.
       const hr = r as any;
-      if (hr.mode === 'has-records' && hr.counts) {
-        setDeleteState({ mode: 'has-records', doctor: doc, counts: hr.counts, total: hr.total });
+      if (hr.mode === 'has_records' && hr.counts) {
+        setDeleteState({ mode: 'has_records', doctor: doc, counts: hr.counts, total: hr.total });
         return;
       }
       toast(hr.error || 'Delete failed', 'error');
@@ -932,7 +938,7 @@ function DoctorsManagement() {
       }
       const r = await window.electronAPI.doctors.deactivate(doc.id);
       if (r.ok) {
-        toast(`Dr. ${r.doctorName || doc.name} marked Inactive — won't appear in new bookings`);
+        toast(`${dispName(r.doctorName || doc.name)} marked Inactive — won't appear in new bookings`);
         refreshDoctors();
         setDeleteState(null);
         setEditing(null);
@@ -1191,9 +1197,11 @@ function DoctorsManagement() {
         open={!!deleteState}
         onClose={() => !deleting && setDeleteState(null)}
         title={
-          deleteState?.mode === 'has-records'
-            ? `Cannot permanently delete Dr. ${deleteState.doctor.name}`
-            : `Are you sure you want to delete Dr. ${deleteState?.doctor.name}?`
+          deleteState?.mode === 'has_records'
+            ? `Cannot permanently delete ${dispName(deleteState.doctor.name)}`
+            : deleteState?.doctor
+            ? `Are you sure you want to delete ${dispName(deleteState.doctor.name)}?`
+            : ''
         }
         size="md"
       >
@@ -1202,7 +1210,7 @@ function DoctorsManagement() {
             <div className="flex items-start gap-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 rounded">
               <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
               <div className="text-sm text-gray-800 dark:text-slate-200">
-                You're about to delete <b>Dr. {deleteState.doctor.name}</b> ({deleteState.doctor.specialty}).
+                You're about to delete <b>{dispName(deleteState.doctor.name)}</b> ({deleteState.doctor.specialty}).
                 <br /><br />
                 If this doctor has past appointments or consultations, the app will offer to mark
                 them <b>Inactive</b> instead so historical records are preserved.
@@ -1219,12 +1227,12 @@ function DoctorsManagement() {
           </div>
         )}
 
-        {deleteState?.mode === 'has-records' && (
+        {deleteState?.mode === 'has_records' && (
           <div className="space-y-4">
             <div className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-800 rounded">
               <AlertCircle className="w-5 h-5 text-amber-700 dark:text-amber-300 flex-shrink-0 mt-0.5" />
               <div className="text-sm text-gray-800 dark:text-slate-200">
-                Dr. {deleteState.doctor.name} has <b>{deleteState.total} historical record(s)</b> in the database.
+                {dispName(deleteState.doctor.name)} has <b>{deleteState.total} historical record(s)</b> in the database.
                 Permanent deletion would orphan that data, which is not safe.
               </div>
             </div>

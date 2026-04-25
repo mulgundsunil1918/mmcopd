@@ -42,6 +42,7 @@ const api = {
   },
   admin: {
     verifyPassword: (password: string) => ipcRenderer.invoke('auth:verifyAdminPassword', password) as Promise<boolean>,
+    isDefaultAdminPassword: () => ipcRenderer.invoke('auth:isDefaultAdminPassword') as Promise<boolean>,
     changePassword: (currentPassword: string, newPassword: string) =>
       ipcRenderer.invoke('auth:changeAdminPassword', currentPassword, newPassword) as Promise<{ ok: boolean; error?: string }>,
     resetAuditLog: (confirmPhrase: string) =>

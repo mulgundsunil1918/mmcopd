@@ -201,11 +201,19 @@ function AdminPasswordModal({ onClose }: { onClose: () => void }) {
   const [next, setNext] = useState('');
   const [next2, setNext2] = useState('');
   const toast = useToast();
+  const qc = useQueryClient();
   const change = useMutation({
     mutationFn: () => window.electronAPI.admin.changePassword(current, next),
     onSuccess: (r) => {
-      if (r.ok) { toast('Admin password updated'); onClose(); }
-      else toast(r.error || 'Failed', 'error');
+      if (r.ok) {
+        toast('Admin password updated — the default 1918 will no longer work.');
+        // Refresh the gate's "is default password?" cache so the next unlock
+        // screen drops the "default is 1918" hint immediately.
+        qc.invalidateQueries({ queryKey: ['is-default-admin-password'] });
+        onClose();
+      } else {
+        toast(r.error || 'Failed', 'error');
+      }
     },
   });
   return (

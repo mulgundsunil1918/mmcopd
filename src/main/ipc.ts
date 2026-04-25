@@ -94,6 +94,13 @@ export function registerIpc() {
     logAudit(getDb(), null, ok ? 'admin_unlock' : 'admin_unlock_failed');
     return ok;
   });
+  // Returns true while the admin password is still the factory default (1918) or empty.
+  // Used by the unlock screen to decide whether to show the 'default is 1918' hint.
+  ipcMain.handle('auth:isDefaultAdminPassword', () => {
+    const settings = getAllSettings(getDb());
+    const stored = (settings.admin_password || '').trim();
+    return stored === '' || stored === '1918';
+  });
   ipcMain.handle('auth:changeAdminPassword', (_e, currentPassword: string, newPassword: string) => {
     const db = getDb();
     const settings = getAllSettings(db);
