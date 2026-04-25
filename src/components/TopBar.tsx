@@ -23,6 +23,17 @@ export function TopBar() {
 
   const backedUpToday = backupStatus?.lastBackupAt?.slice(0, 10) === new Date().toISOString().slice(0, 10);
 
+  const backupLabel = (() => {
+    if (!backupStatus?.lastBackupAt) return 'No backup yet';
+    const last = new Date(backupStatus.lastBackupAt);
+    const today = new Date();
+    const sameDay = last.toISOString().slice(0, 10) === today.toISOString().slice(0, 10);
+    if (sameDay) return `Backed up ${format(last, 'hh:mm a')}`;
+    const days = Math.floor((today.getTime() - last.getTime()) / 86400000);
+    if (days <= 0) return `Backed up ${format(last, 'hh:mm a')}`;
+    return `Last backup ${days}d ago — ${format(last, 'dd MMM')}`;
+  })();
+
   return (
     <header className="no-print border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-6 py-3 flex items-center gap-4">
       {settings?.clinic_logo ? (
@@ -59,8 +70,8 @@ export function TopBar() {
 
       {/* Backup status pill */}
       <div
-        className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border"
-        title={backupStatus?.lastBackupAt ? `Last backup ${format(new Date(backupStatus.lastBackupAt), 'dd MMM hh:mm a')}` : 'Never backed up'}
+        className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border whitespace-nowrap"
+        title={backupStatus?.lastBackupAt ? `Last backup ${format(new Date(backupStatus.lastBackupAt), 'dd MMM yyyy hh:mm a')}` : 'Never backed up'}
         style={
           backedUpToday
             ? { borderColor: '#86efac', backgroundColor: 'rgba(16,185,129,0.12)', color: '#047857' }
@@ -68,7 +79,7 @@ export function TopBar() {
         }
       >
         {backedUpToday ? <CloudUpload className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
-        {backedUpToday ? 'Backed up today' : 'Backup pending'}
+        {backupLabel}
       </div>
 
       {/* Live clock */}

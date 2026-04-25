@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Notification } from 'electron';
+import { app, BrowserWindow, ipcMain, Notification, Tray, Menu, nativeImage } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { registerIpc } from './main/ipc';
@@ -28,10 +28,94 @@ if (process.platform === 'win32') {
 }
 
 let mainWindowRef: BrowserWindow | null = null;
+let trayRef: Tray | null = null;
 let allowQuit = false;
+
+// 16x16 white plus on transparent — base64 PNG, used as fallback tray icon
+// (Windows uses 16x16 icons in the system tray.)
+const FALLBACK_TRAY_ICON_B64 =
+  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAU0lEQVR42u3OsQ2AMAxE0RtA' +
+  'gZ4FsgFTwACMABuwQiqWoaIK8h+gIE5HRPm+bF8gIqJ/jACMAQzPArwBHIBvAR4ANwAVgF6A' +
+  'Ej0KcvkCAJyJB1RsBUVNAAAAAElFTkSuQmCC';
+
+function makeTrayIcon(): Electron.NativeImage {
+  // Try to use the clinic logo first (user-uploaded base64 in settings)
+  try {
+    const s = getAllSettings(getDb());
+    if (s.clinic_logo && s.clinic_logo.startsWith('data:image/')) {
+      const img = nativeImage.createFromDataURL(s.clinic_logo);
+      if (!img.isEmpty()) return img.resize({ width: 16, height: 16 });
+    }
+  } catch { /* ignore */ }
+  return nativeImage.createFromBuffer(Buffer.from(FALLBACK_TRAY_ICON_B64, 'base64'));
+}
+
+function showWindow() {
+  if (!mainWindowRef) return;
+  if (mainWindowRef.isMinimized()) mainWindowRef.restore();
+  mainWindowRef.show();
+  mainWindowRef.focus();
+}
+
+function refreshTrayMenu() {
+  if (!trayRef) return;
+  const s = getAllSettings(getDb());
+  const menu = Menu.buildFromTemplate([
+    { label: `CareDesk HMS — ${s.clinic_name || 'Clinic'}`, enabled: false },
+    { type: 'separator' },
+    { label: 'Open dashboard', click: () => showWindow() },
+    {
+      label: 'Backup now…', click: () => {
+        showWindow();
+        mainWindowRef?.webContents.send('app:openBackupModal');
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit (with backup)',
+      click: () => {
+        showWindow();
+        mainWindowRef?.webContents.send('app:closeRequested');
+      },
+    },
+    {
+      label: 'Quit immediately',
+      click: () => { allowQuit = true; app.quit(); },
+    },
+  ]);
+  trayRef.setContextMenu(menu);
+  trayRef.setToolTip(`${s.clinic_name || 'CareDesk HMS'} — running in background`);
+}
+
+function ensureTray() {
+  if (trayRef) { refreshTrayMenu(); return; }
+  try {
+    trayRef = new Tray(makeTrayIcon());
+    trayRef.on('click', () => showWindow());
+    trayRef.on('double-click', () => showWindow());
+    refreshTrayMenu();
+  } catch (e) {
+    console.warn('Tray init failed:', e);
+  }
+}
+
+function applyAutoLaunch(enabled: boolean, startMinimized: boolean) {
+  try {
+    if (process.platform === 'darwin' || process.platform === 'win32') {
+      app.setLoginItemSettings({
+        openAtLogin: enabled,
+        openAsHidden: startMinimized,
+        args: startMinimized ? ['--hidden'] : [],
+      });
+    }
+  } catch (e) {
+    console.warn('setLoginItemSettings failed:', e);
+  }
+}
 
 function createWindow() {
   const settings = getAllSettings(getDb());
+  const startedHidden = process.argv.includes('--hidden') && settings.start_minimized;
   const mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -48,8 +132,11 @@ function createWindow() {
     },
   });
   mainWindowRef = mainWindow;
-  mainWindow.maximize();
-  mainWindow.show();
+
+  if (!startedHidden) {
+    mainWindow.maximize();
+    mainWindow.show();
+  }
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
@@ -57,19 +144,33 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`));
   }
 
-  // Intercept the X close button — show backup prompt instead of quitting silently.
   mainWindow.on('close', (e) => {
     if (allowQuit) return;
+    const s = getAllSettings(getDb());
+    if (s.minimize_to_tray) {
+      e.preventDefault();
+      mainWindow.hide();
+      try {
+        trayRef?.displayBalloon({
+          title: 'CareDesk HMS',
+          content: 'Still running in the background. Click the tray icon to reopen.',
+        });
+      } catch { /* ignore */ }
+      return;
+    }
     e.preventDefault();
     mainWindow.webContents.send('app:closeRequested');
   });
 
   ipcMain.handle('app:getClinicName', () => getAllSettings(getDb()).clinic_name);
-  // Renderer signals user said "close anyway" / "backup-and-close already done"
   ipcMain.handle('app:forceQuit', () => { allowQuit = true; setTimeout(() => app.quit(), 50); });
+  ipcMain.handle('app:setAutoLaunch', (_e, enabled: boolean, startMinimized: boolean) => {
+    applyAutoLaunch(enabled, startMinimized);
+    return true;
+  });
+  ipcMain.handle('app:refreshTray', () => refreshTrayMenu());
 }
 
-// Scan the new sqlite/<day>/<time>/caredesk.sqlite layout to find latest backup
 function latestBackupMtime(rootDir: string): number {
   const sqliteRoot = path.join(rootDir, 'sqlite');
   if (!fs.existsSync(sqliteRoot)) return 0;
@@ -100,7 +201,6 @@ async function runAutoBackupIfDue() {
     const latestMs = latestBackupMtime(dir);
     if (latestMs && new Date(latestMs).toISOString().slice(0, 10) === today) return;
 
-    // Use the new layout for auto-backups too
     const pad2 = (n: number) => String(n).padStart(2, '0');
     const now = new Date();
     const day = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
@@ -114,25 +214,20 @@ async function runAutoBackupIfDue() {
   }
 }
 
-// OS-level notifications at configured times.
 let lastNotifiedDailyKey = '';
 let lastNotifiedUsbKey = '';
-
 function fireOsNotification(title: string, body: string, channel: 'daily' | 'usb') {
   if (Notification.isSupported()) {
     const n = new Notification({ title, body, urgency: 'critical' });
     n.on('click', () => {
-      if (mainWindowRef) {
-        if (mainWindowRef.isMinimized()) mainWindowRef.restore();
-        mainWindowRef.focus();
-        if (channel === 'usb') mainWindowRef.webContents.send('app:usbReminderTick');
-        else mainWindowRef.webContents.send('app:closeRequested');
-      }
+      showWindow();
+      if (channel === 'usb') mainWindowRef?.webContents.send('app:usbReminderTick');
+      else mainWindowRef?.webContents.send('app:closeRequested');
     });
     n.show();
   }
   if (mainWindowRef) {
-    mainWindowRef.flashFrame(true);
+    if (mainWindowRef.isVisible()) mainWindowRef.flashFrame(true);
     if (channel === 'usb') mainWindowRef.webContents.send('app:usbReminderTick');
     else mainWindowRef.webContents.send('app:reminderTick', { reminder: '' });
   }
@@ -146,19 +241,13 @@ function tickReminder() {
     const hhmm = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
     const dateKey = now.toISOString().slice(0, 10);
 
-    // Daily backup reminder
     const reminder = s.backup_reminder_time || '21:00';
     const dailyKey = dateKey + '@' + reminder;
     if (hhmm === reminder && lastNotifiedDailyKey !== dailyKey) {
       lastNotifiedDailyKey = dailyKey;
-      fireOsNotification(
-        'CareDesk HMS — Time to backup & close',
-        `It's ${reminder}. Click to open the backup screen.`,
-        'daily'
-      );
+      fireOsNotification('CareDesk HMS — Time to backup & close', `It's ${reminder}. Click to open backup screen.`, 'daily');
     }
 
-    // Weekly USB backup reminder (e.g., every Monday morning)
     const usbWeekday = Number.isFinite(s.usb_reminder_weekday) ? s.usb_reminder_weekday : 1;
     const usbTime = s.usb_reminder_time || '09:30';
     const usbKey = dateKey + '@usb@' + usbTime;
@@ -179,10 +268,14 @@ app.whenReady().then(async () => {
   getDb();
   registerIpc();
   createWindow();
+  ensureTray();
+
+  // Apply current login-item config on every launch (handles upgrades/changes)
+  const s0 = getAllSettings(getDb());
+  applyAutoLaunch(s0.auto_launch, s0.start_minimized);
 
   await runAutoBackupIfDue();
   setInterval(runAutoBackupIfDue, 60 * 60 * 1000);
-  // Check the reminder every 30s so we hit the configured minute reliably
   setInterval(tickReminder, 30_000);
   tickReminder();
 
@@ -191,11 +284,13 @@ app.whenReady().then(async () => {
   });
 });
 
+// Keep app alive when window closes if minimize_to_tray is on
 app.on('window-all-closed', () => {
-  closeDb();
-  if (process.platform !== 'darwin') app.quit();
+  // Do not quit — tray keeps the app alive in background
 });
 
 app.on('before-quit', () => {
+  allowQuit = true;
   closeDb();
+  trayRef?.destroy();
 });

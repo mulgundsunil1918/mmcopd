@@ -395,6 +395,17 @@ function PatientForm({
           <Field label="Address (optional)" error={errors.address?.message}>
             <input className="input" {...register('address')} />
           </Field>
+          <Field label="Profession (optional)" error={errors.profession?.message}>
+            <input
+              className="input"
+              list="professions-list"
+              placeholder="e.g. Farmer, Teacher, Driver"
+              {...register('profession')}
+            />
+            <datalist id="professions-list">
+              {TOP_PROFESSIONS.map((p) => <option key={p} value={p} />)}
+            </datalist>
+          </Field>
         </div>
 
         <div className="mt-6 pt-5 border-t border-gray-200 dark:border-slate-700">
@@ -412,8 +423,9 @@ function PatientForm({
               />
               <datalist id="known-places-list">
                 {[
+                  // Admin-curated extras from Settings → Known Villages (custom additions only)
                   ...(settings?.known_villages || '').split(',').map((v) => v.trim()).filter(Boolean),
-                  ...(known?.places || []),
+                  // Built-in curated list (Gadag + Haveri + Koppal + Dharwad villages)
                   ...ALL_NEARBY_PLACES,
                 ].filter((v, i, arr) => arr.findIndex((x) => x.toLowerCase() === v.toLowerCase()) === i).map((v) => (
                   <option key={v} value={v} />
@@ -428,9 +440,9 @@ function PatientForm({
                 placeholder="e.g. Gadag"
               />
               <datalist id="known-districts-list">
-                {[settings?.default_district, ...(known?.districts || [])]
+                {[settings?.default_district, ...KARNATAKA_DISTRICTS]
                   .filter(Boolean)
-                  .filter((v, i, arr) => arr.indexOf(v) === i)
+                  .filter((v, i, arr) => arr.findIndex((x) => x?.toLowerCase() === v?.toLowerCase()) === i)
                   .map((v) => <option key={v} value={v!} />)}
               </datalist>
             </Field>
