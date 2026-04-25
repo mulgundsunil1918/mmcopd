@@ -848,8 +848,13 @@ function FeesAndFlow() {
 
 type DeleteState =
   | null
-  | { mode: 'confirm-delete'; doctor: Doctor }
-  | { mode: 'has-records'; doctor: Doctor; counts: { appointments: number; consultations: number; lab_orders: number; ip_admissions: number }; total: number };
+  | { mode: 'confirm'; doctor: Doctor }  // First "Are you sure?" popup
+  | {
+      mode: 'has-records';
+      doctor: Doctor;
+      counts: { appointments: number; consultations: number; lab_orders: number; ip_admissions: number };
+      total: number;
+    };
 
 function DoctorsManagement() {
   const qc = useQueryClient();
@@ -863,63 +868,82 @@ function DoctorsManagement() {
     queryFn: () => window.electronAPI.doctors.list(false),
   });
 
+  const refreshDoctors = () => {
+    qc.invalidateQueries({ queryKey: ['doctors'] });
+    qc.invalidateQueries({ queryKey: ['doctors-all'] });
+  };
+
   const saveMut = useMutation({
     mutationFn: (d: Partial<Doctor>) =>
       d.id ? window.electronAPI.doctors.update(d.id, d) : window.electronAPI.doctors.create(d),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['doctors'] });
-      qc.invalidateQueries({ queryKey: ['doctors-all'] });
+      refreshDoctors();
       toast('Doctor saved');
       setEditing(null);
     },
   });
 
-  const tryDelete = async (doc: Doctor) => {
-    // Pre-flight check — see if doctor has historical records
-    const dep = await window.electronAPI.doctors.dependents(doc.id);
-    if (dep.total === 0) {
-      setDeleteState({ mode: 'confirm-delete', doctor: doc });
-    } else {
-      setDeleteState({
-        mode: 'has-records',
-        doctor: doc,
-        counts: dep.counts,
-        total: dep.total,
-      });
-    }
+  // Step 1: clicking Delete just opens the "Are you sure?" popup IMMEDIATELY.
+  // No IPC call until the user actually confirms.
+  const askDelete = (doc: Doctor) => {
+    setDeleteState({ mode: 'confirm', doctor: doc });
   };
 
-  const confirmHardDelete = async () => {
-    if (!deleteState || deleteState.mode !== 'confirm-delete') return;
+  // Step 2: user confirmed in the popup → actually try to delete via IPC.
+  const reallyDelete = async () => {
+    if (!deleteState) return;
+    const doc = deleteState.doctor;
     setDeleting(true);
     try {
-      const r = await window.electronAPI.doctors.delete(deleteState.doctor.id);
+      // Defensive: the new IPC may not be loaded if the user is on a stale
+      // main process (no full restart since the IPC was added).
+      if (typeof window.electronAPI.doctors.delete !== 'function') {
+        toast('Delete is unavailable — please fully close and reopen the app to load the new feature.', 'error');
+        return;
+      }
+      const r = await window.electronAPI.doctors.delete(doc.id);
       if (r.ok) {
-        toast(`Dr. ${(r as any).doctorName} deleted`);
-        qc.invalidateQueries({ queryKey: ['doctors'] });
-        qc.invalidateQueries({ queryKey: ['doctors-all'] });
+        toast(`Dr. ${(r as any).doctorName || doc.name} deleted`);
+        refreshDoctors();
         setDeleteState(null);
         setEditing(null);
-      } else {
-        toast(r.error || 'Delete failed', 'error');
+        return;
       }
-    } finally { setDeleting(false); }
+      // Refused because of historical records — switch popup to inactive offer.
+      const hr = r as any;
+      if (hr.mode === 'has-records' && hr.counts) {
+        setDeleteState({ mode: 'has-records', doctor: doc, counts: hr.counts, total: hr.total });
+        return;
+      }
+      toast(hr.error || 'Delete failed', 'error');
+    } catch (e: any) {
+      toast(e?.message || 'Delete failed unexpectedly', 'error');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const markInactive = async (doc: Doctor) => {
     setDeleting(true);
     try {
+      if (typeof window.electronAPI.doctors.deactivate !== 'function') {
+        toast('Mark Inactive is unavailable — please fully close and reopen the app.', 'error');
+        return;
+      }
       const r = await window.electronAPI.doctors.deactivate(doc.id);
       if (r.ok) {
-        toast(`Dr. ${r.doctorName} marked Inactive — won't appear in new bookings`);
-        qc.invalidateQueries({ queryKey: ['doctors'] });
-        qc.invalidateQueries({ queryKey: ['doctors-all'] });
+        toast(`Dr. ${r.doctorName || doc.name} marked Inactive — won't appear in new bookings`);
+        refreshDoctors();
         setDeleteState(null);
         setEditing(null);
       } else {
         toast(r.error || 'Failed to mark inactive', 'error');
       }
-    } finally { setDeleting(false); }
+    } catch (e: any) {
+      toast(e?.message || 'Failed to mark inactive', 'error');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -979,7 +1003,7 @@ function DoctorsManagement() {
                 </button>
                 <button
                   className="text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 inline-flex items-center gap-1 px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20"
-                  onClick={() => tryDelete(d)}
+                  onClick={() => askDelete(d)}
                   title="Delete this doctor"
                 >
                   <Trash2 className="w-3.5 h-3.5" /> Delete
@@ -1144,7 +1168,7 @@ function DoctorsManagement() {
               {editing.id ? (
                 <button
                   className="text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 inline-flex items-center gap-1 px-3 py-2 rounded hover:bg-red-50 dark:hover:bg-red-900/20"
-                  onClick={() => tryDelete(editing as Doctor)}
+                  onClick={() => askDelete(editing as Doctor)}
                 >
                   <Trash2 className="w-3.5 h-3.5" /> Delete this doctor
                 </button>
@@ -1169,26 +1193,27 @@ function DoctorsManagement() {
         title={
           deleteState?.mode === 'has-records'
             ? `Cannot permanently delete Dr. ${deleteState.doctor.name}`
-            : `Delete Dr. ${deleteState?.doctor.name}?`
+            : `Are you sure you want to delete Dr. ${deleteState?.doctor.name}?`
         }
         size="md"
       >
-        {deleteState?.mode === 'confirm-delete' && (
+        {deleteState?.mode === 'confirm' && (
           <div className="space-y-4">
             <div className="flex items-start gap-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 rounded">
               <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
               <div className="text-sm text-gray-800 dark:text-slate-200">
-                You are about to <b>permanently delete</b> Dr. {deleteState.doctor.name}.
-                This doctor has <b>no appointments, consultations, lab orders, or admissions</b> linked,
-                so deletion is safe.
+                You're about to delete <b>Dr. {deleteState.doctor.name}</b> ({deleteState.doctor.specialty}).
+                <br /><br />
+                If this doctor has past appointments or consultations, the app will offer to mark
+                them <b>Inactive</b> instead so historical records are preserved.
               </div>
             </div>
             <div className="flex justify-end gap-2">
               <button className="btn-secondary" onClick={() => setDeleteState(null)} disabled={deleting}>
                 Cancel
               </button>
-              <button className="btn-danger" onClick={confirmHardDelete} disabled={deleting}>
-                {deleting ? 'Deleting…' : 'Permanently Delete'}
+              <button className="btn-danger" onClick={reallyDelete} disabled={deleting}>
+                <Trash2 className="w-4 h-4" /> {deleting ? 'Deleting…' : 'Yes, Delete'}
               </button>
             </div>
           </div>
