@@ -134,42 +134,58 @@ function Letterhead({
   return (
     <div style={{ borderTop: '4px solid #1d4ed8', borderBottom: '1px solid #cbd5e1' }} className="pb-2.5 mb-3 pt-2.5">
       <div className="flex items-stretch justify-between gap-4">
-        {/* === LEFT: clinic identity === */}
-        <div className="flex items-start gap-3 flex-1 min-w-0">
-          {settings.clinic_logo ? (
-            <img
-              src={settings.clinic_logo}
-              alt="Clinic logo"
-              className="w-[18mm] h-[18mm] object-contain rounded-lg flex-shrink-0"
-              style={{ background: '#ffffff' }}
-            />
-          ) : (
-            <div
-              className="w-[18mm] h-[18mm] rounded-xl flex items-center justify-center text-white shadow flex-shrink-0"
-              style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #4f46e5 100%)' }}
-            >
-              <HeartPulse className="w-10 h-10" />
-            </div>
-          )}
-          <div className="min-w-0 flex-1">
-            <div
-              className="text-[24px] font-extrabold tracking-tight leading-[1.1]"
-              style={{ color: '#1e3a8a' }}
-            >
-              {settings.clinic_name || 'Mulgund Multispeciality Clinic'}
-            </div>
-            {settings.clinic_tagline && (
-              <div className="text-[12px] italic mt-0.5" style={{ color: '#475569' }}>
-                {settings.clinic_tagline}
+        {/* === LEFT: clinic identity (Logo + Reg below) | (Name stacked + tagline + contacts) === */}
+        <div className="flex items-start gap-4 flex-1 min-w-0">
+          {/* Logo column — bigger logo with Reg No directly below it */}
+          <div className="flex-shrink-0 flex flex-col items-center">
+            {settings.clinic_logo ? (
+              <img
+                src={settings.clinic_logo}
+                alt="Clinic logo"
+                className="w-[26mm] h-[26mm] object-contain rounded-lg"
+                style={{ background: '#ffffff' }}
+              />
+            ) : (
+              <div
+                className="w-[26mm] h-[26mm] rounded-xl flex items-center justify-center text-white shadow"
+                style={{ background: 'linear-gradient(135deg, #1d4ed8 0%, #4f46e5 100%)' }}
+              >
+                <HeartPulse className="w-12 h-12" />
               </div>
             )}
             {settings.clinic_registration_no && (
-              <div className="text-[13px] uppercase tracking-wider mt-0.5" style={{ color: '#64748b' }}>
-                Reg. No.: {settings.clinic_registration_no}
+              <div
+                className="text-[10px] uppercase tracking-wider mt-1.5 text-center font-semibold"
+                style={{ color: '#64748b', maxWidth: '26mm' }}
+              >
+                Reg. No.<br />{settings.clinic_registration_no}
+              </div>
+            )}
+          </div>
+
+          {/* Name (one word per line) + tagline + contact info */}
+          <div className="min-w-0 flex-1">
+            <div
+              className="font-extrabold tracking-tight"
+              style={{ color: '#1e3a8a', fontSize: '26px', lineHeight: 1.05 }}
+            >
+              {(settings.clinic_name || 'Mulgund Multispeciality Clinic')
+                .split(/\s+/)
+                .filter(Boolean)
+                .map((word, i) => (
+                  <div key={i}>{word}</div>
+                ))}
+            </div>
+            {settings.clinic_tagline && (
+              <div className="text-[13px] italic mt-1" style={{ color: '#475569' }}>
+                {settings.clinic_tagline}
               </div>
             )}
             {/* Compact contact line — sits directly under name so it visually belongs */}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1.5 text-[12px]" style={{ color: '#475569' }}>
+            <div
+              className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-2 text-[12px]"
+              style={{ color: '#475569' }}
+            >
               {settings.clinic_address && (
                 <span className="inline-flex items-center gap-1">
                   <MapPin className="w-3 h-3" style={{ color: '#1d4ed8' }} /> {settings.clinic_address}
