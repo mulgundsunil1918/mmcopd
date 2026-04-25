@@ -146,11 +146,28 @@ html.dark .statusbar { background-color: #0b1220; border-top-color: #1e293b; col
 
 /* =======================
    PRINT
+   Supports both single-page slips and multi-page slips (.print-page wrappers).
    ======================= */
 @media print {
   body * { visibility: hidden; }
   .print-area, .print-area * { visibility: visible; }
-  .print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 24px; background: white !important; color: #0f172a !important; }
   .no-print { display: none !important; }
-  @page { margin: 12mm; }
+
+  /* Default: single print-area gets pinned to the page */
+  .print-area { background: white !important; color: #0f172a !important; }
+
+  /* Multi-page: each .print-page is a full A4 sheet, break after */
+  .print-page {
+    width: 210mm !important;
+    height: 297mm !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    page-break-after: always;
+    break-after: page;
+    overflow: hidden;
+  }
+  .print-page:last-child { page-break-after: auto; break-after: auto; }
+
+  /* Use @page with zero margin since each .print-page already has internal padding */
+  @page { size: A4; margin: 0; }
 }
