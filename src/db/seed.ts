@@ -24,8 +24,10 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   start_minimized: 'false',
   keep_all_backups: 'true',
   auto_backup_enabled: 'true',
-  auto_backup_frequency: 'daily', // hourly | every_3_hours | every_6_hours | twice_daily | daily
+  auto_backup_frequency: 'daily',
   auto_backup_time: '13:00',
+  update_check_enabled: 'true',
+  update_check_time: '10:30',
   admin_password: '1918',
   sms_enabled: 'false',
   whatsapp_enabled: 'false',

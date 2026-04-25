@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { StatusBar } from './StatusBar';
 import { TopBar } from './TopBar';
+import { UpdateBanner } from './UpdateBanner';
 
 export function Layout() {
   return (
@@ -16,6 +17,7 @@ export function Layout() {
         </main>
       </div>
       <StatusBar />
+      <UpdateBanner />
     </div>
   );
 }

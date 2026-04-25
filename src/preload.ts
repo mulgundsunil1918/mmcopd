@@ -245,6 +245,21 @@ const api = {
     summary: (filter: { from?: string; to?: string } = {}) =>
       ipcRenderer.invoke('finance:summary', filter) as Promise<any>,
   },
+  updates: {
+    state: () => ipcRenderer.invoke('updates:state') as Promise<{ state: string; appVersion: string; isPackaged: boolean; version?: string; releaseNotes?: string; error?: string }>,
+    checkNow: () => ipcRenderer.invoke('updates:checkNow') as Promise<{ ok: boolean; isPackaged: boolean }>,
+    installNow: () => ipcRenderer.invoke('updates:installNow') as Promise<{ ok: boolean }>,
+    onState: (cb: (s: any) => void) => {
+      const handler = (_e: any, info: any) => cb(info);
+      ipcRenderer.on('updates:state', handler);
+      return () => ipcRenderer.removeListener('updates:state', handler);
+    },
+    onPromptInstall: (cb: (s: any) => void) => {
+      const handler = (_e: any, info: any) => cb(info);
+      ipcRenderer.on('updates:promptInstall', handler);
+      return () => ipcRenderer.removeListener('updates:promptInstall', handler);
+    },
+  },
   app: {
     getClinicName: () => ipcRenderer.invoke('app:getClinicName') as Promise<string>,
     forceQuit: () => ipcRenderer.invoke('app:forceQuit') as Promise<void>,

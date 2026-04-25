@@ -273,6 +273,8 @@ export interface Settings {
   auto_backup_enabled: boolean;
   auto_backup_frequency: 'hourly' | 'every_3_hours' | 'every_6_hours' | 'twice_daily' | 'daily';
   auto_backup_time: string;
+  update_check_enabled: boolean;
+  update_check_time: string;
   admin_password: string;
   sms_enabled: boolean;
   whatsapp_enabled: boolean;

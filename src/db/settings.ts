@@ -31,6 +31,8 @@ export function getAllSettings(db: Database.Database): Settings {
     auto_backup_enabled: map.auto_backup_enabled !== 'false',
     auto_backup_frequency: (map.auto_backup_frequency as any) || 'daily',
     auto_backup_time: map.auto_backup_time || '13:00',
+    update_check_enabled: map.update_check_enabled !== 'false',
+    update_check_time: map.update_check_time || '10:30',
     admin_password: map.admin_password || '1918',
     sms_enabled: map.sms_enabled === 'true',
     whatsapp_enabled: map.whatsapp_enabled === 'true',

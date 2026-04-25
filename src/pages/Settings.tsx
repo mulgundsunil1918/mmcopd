@@ -186,7 +186,19 @@ function BackupSettings() {
     'keep_all_backups',
     'usb_reminder_weekday',
     'usb_reminder_time',
+    'update_check_enabled',
+    'update_check_time',
   ]);
+
+  const { data: updateState } = useQuery({
+    queryKey: ['updates-state'],
+    queryFn: () => window.electronAPI.updates.state(),
+    refetchInterval: 30_000,
+  });
+  const checkNow = useMutation({
+    mutationFn: () => window.electronAPI.updates.checkNow(),
+    onSuccess: (r) => toast(r.isPackaged ? 'Checking GitHub for updates…' : 'Updates only work in installed app, not in dev mode', 'info'),
+  });
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [restoreSource, setRestoreSource] = useState<string | null>(null);
   const [restorePhrase, setRestorePhrase] = useState('');
@@ -383,6 +395,60 @@ function BackupSettings() {
 
       <div className="mt-4 text-[11px] text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-800 rounded p-2">
         ⚠ <b>Sync warning:</b> Google Drive Desktop is two-way. If you delete a backup file from your local Drive folder, it also deletes from drive.google.com. Always keep retention ON, and take a USB backup weekly as physical protection.
+      </div>
+
+      {/* App updates */}
+      <div className="mt-6 pt-5 border-t border-gray-200 dark:border-slate-700">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">App Updates</h3>
+            <p className="text-[11px] text-gray-500 dark:text-slate-400">
+              Once a day at the configured time, the app checks GitHub for new releases. When a new version is found, it downloads silently and shows a "Restart & install" banner. Your data is never touched by an update.
+            </p>
+            <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1">
+              Current version: <span className="font-mono">{updateState?.appVersion || '?'}</span> · State: <span className="font-mono">{updateState?.state || '—'}</span>
+              {!updateState?.isPackaged && <span className="text-amber-600 dark:text-amber-400"> · (dev mode — checks are disabled)</span>}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => checkNow.mutate()}
+            disabled={checkNow.isPending}
+          >
+            Check now
+          </button>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-gray-700 dark:text-slate-200">Enable daily update check</span>
+          <button
+            type="button"
+            onClick={() => set('update_check_enabled', !draft.update_check_enabled)}
+            className={cn(
+              'w-12 h-7 rounded-full relative transition flex-shrink-0',
+              draft.update_check_enabled ? 'bg-blue-600' : 'bg-gray-300 dark:bg-slate-600'
+            )}
+          >
+            <span
+              className={cn('absolute top-0.5 w-6 h-6 rounded-full shadow-md transition-all', draft.update_check_enabled ? 'left-[26px]' : 'left-0.5')}
+              style={{ backgroundColor: '#ffffff' }}
+            />
+          </button>
+        </div>
+        {draft.update_check_enabled && (
+          <div className="grid grid-cols-2 gap-4 mt-3">
+            <div>
+              <label className="label">Check time</label>
+              <input
+                type="time"
+                className="input"
+                value={draft.update_check_time ?? '10:30'}
+                onChange={(e) => set('update_check_time', e.target.value)}
+              />
+              <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-1">Default 10:30 AM. App must be running at this time for the check to fire.</div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Restore / Import */}

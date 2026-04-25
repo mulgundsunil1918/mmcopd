@@ -5,17 +5,71 @@ import { registerIpc } from './main/ipc';
 import { getDb, closeDb } from './db/db';
 import { getAllSettings } from './db/settings';
 
+// Use Electron's autoUpdater directly so we have full control over WHEN to check.
+let updaterAvailable = false;
+let updateState: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error' = 'idle';
+let updateInfo: { version?: string; releaseNotes?: string; error?: string } = {};
+
 if (app.isPackaged) {
   try {
-    const { updateElectronApp, UpdateSourceType } = require('update-electron-app');
-    updateElectronApp({
-      updateSource: { type: UpdateSourceType.ElectronPublicUpdateService, repo: 'mulgundsunil1918/mmcopd' },
-      updateInterval: '1 hour',
-      logger: console,
-      notifyUser: true,
+    const { autoUpdater } = require('electron');
+    const feedURL = `https://update.electronjs.org/mulgundsunil1918/mmcopd/${process.platform}-${process.arch}/${app.getVersion()}`;
+    autoUpdater.setFeedURL({ url: feedURL });
+
+    autoUpdater.on('checking-for-update', () => { updateState = 'checking'; mainWindowRef?.webContents.send('updates:state', { state: updateState }); });
+    autoUpdater.on('update-not-available', () => { updateState = 'idle'; mainWindowRef?.webContents.send('updates:state', { state: updateState }); });
+    autoUpdater.on('update-available', () => {
+      updateState = 'downloading';
+      mainWindowRef?.webContents.send('updates:state', { state: updateState });
     });
+    autoUpdater.on('update-downloaded', (_e: any, releaseNotes: string, releaseName: string) => {
+      updateState = 'downloaded';
+      updateInfo = { version: releaseName, releaseNotes };
+      mainWindowRef?.webContents.send('updates:state', { state: updateState, ...updateInfo });
+      // Also a Windows OS notification
+      try {
+        if (Notification.isSupported()) {
+          const n = new Notification({
+            title: 'CareDesk HMS — Update ready',
+            body: `Version ${releaseName} downloaded. Click to install.`,
+            urgency: 'normal',
+          });
+          n.on('click', () => {
+            mainWindowRef?.show();
+            mainWindowRef?.webContents.send('updates:promptInstall', updateInfo);
+          });
+          n.show();
+        }
+      } catch { /* ignore */ }
+    });
+    autoUpdater.on('error', (err: Error) => {
+      updateState = 'error';
+      updateInfo = { error: String(err?.message || err) };
+      mainWindowRef?.webContents.send('updates:state', { state: updateState, ...updateInfo });
+    });
+    updaterAvailable = true;
   } catch (e) {
-    console.warn('Auto-update unavailable:', e);
+    console.warn('Auto-updater init failed:', e);
+  }
+}
+
+function safeCheckForUpdates() {
+  if (!updaterAvailable || !app.isPackaged) return;
+  try {
+    const { autoUpdater } = require('electron');
+    autoUpdater.checkForUpdates();
+  } catch (e) {
+    console.warn('checkForUpdates failed:', e);
+  }
+}
+function installNow() {
+  if (!updaterAvailable || !app.isPackaged) return;
+  try {
+    const { autoUpdater } = require('electron');
+    allowQuit = true;
+    autoUpdater.quitAndInstall();
+  } catch (e) {
+    console.warn('quitAndInstall failed:', e);
   }
 }
 
@@ -169,6 +223,15 @@ function createWindow() {
     return true;
   });
   ipcMain.handle('app:refreshTray', () => refreshTrayMenu());
+
+  ipcMain.handle('updates:state', () => ({
+    state: updateState,
+    appVersion: app.getVersion(),
+    isPackaged: app.isPackaged,
+    ...updateInfo,
+  }));
+  ipcMain.handle('updates:checkNow', () => { safeCheckForUpdates(); return { ok: true, isPackaged: app.isPackaged }; });
+  ipcMain.handle('updates:installNow', () => { installNow(); return { ok: true }; });
 }
 
 function latestBackupMtime(rootDir: string): number {
@@ -265,6 +328,7 @@ function fireOsNotification(title: string, body: string, channel: 'daily' | 'usb
   }
 }
 
+let lastUpdateCheckKey = '';
 function tickReminder() {
   try {
     const s = getAllSettings(getDb());
@@ -290,6 +354,16 @@ function tickReminder() {
         'Plug in your USB drive and take this week\'s physical backup. Click to open.',
         'usb'
       );
+    }
+
+    // Daily update check
+    if (s.update_check_enabled !== false) {
+      const updateTime = s.update_check_time || '10:30';
+      const updateKey = dateKey + '@upd@' + updateTime;
+      if (hhmm === updateTime && lastUpdateCheckKey !== updateKey) {
+        lastUpdateCheckKey = updateKey;
+        safeCheckForUpdates();
+      }
     }
   } catch (e) {
     console.warn('Reminder tick failed:', e);
