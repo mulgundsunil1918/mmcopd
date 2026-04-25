@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save } from 'lucide-react';
+import { Building2, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle } from 'lucide-react';
+import { format, parseISO } from 'date-fns';
 import { cn } from '../lib/utils';
 import { Check } from 'lucide-react';
 import { Modal } from '../components/Modal';
@@ -174,6 +175,63 @@ function AppModeSelector() {
   );
 }
 
+type RestorePreview = {
+  ok: true;
+  sourcePath: string;
+  sqlitePath: string;
+  hasBundleDocs: boolean;
+  documentFileCount: number | null;
+  backupTakenAt: string | null;
+  backup: { counts: Record<string, number | null>; totalRows: number };
+  current: { counts: Record<string, number | null>; totalRows: number };
+  currentDbPath: string;
+};
+
+const RESTORE_ROWS: { key: string; label: string }[] = [
+  { key: 'patients', label: 'Patients' },
+  { key: 'appointments', label: 'Appointments' },
+  { key: 'bills', label: 'Bills' },
+  { key: 'consultations', label: 'Consultations / EMR' },
+  { key: 'prescription_items', label: 'Prescription items' },
+  { key: 'lab_orders', label: 'Lab orders' },
+  { key: 'pharmacy_sales', label: 'Pharmacy sales' },
+  { key: 'ip_admissions', label: 'IP admissions' },
+  { key: 'drug_inventory', label: 'Drugs in inventory' },
+  { key: 'doctors', label: 'Doctors' },
+  { key: 'users', label: 'User accounts' },
+  { key: 'patient_documents', label: 'Patient documents (EMR)' },
+  { key: 'notification_log', label: 'Notification log' },
+  { key: 'audit_log', label: 'Audit log entries' },
+];
+
+function formatBackupTimestamp(iso: string): string {
+  try {
+    const d = parseISO(iso);
+    return format(d, "dd MMM yyyy '·' hh:mm a");
+  } catch {
+    return iso;
+  }
+}
+
+function RestoreRow({ label, now, after }: { label: string; now: number; after: number }) {
+  const delta = after - now;
+  const tone =
+    delta === 0 ? 'text-gray-500 dark:text-slate-400' :
+    delta > 0 ? 'text-emerald-700 dark:text-emerald-300 font-semibold' :
+    'text-red-700 dark:text-red-300 font-semibold';
+  const sign = delta > 0 ? '+' : '';
+  return (
+    <tr className="border-t border-gray-100 dark:border-slate-800">
+      <td className="px-3 py-1.5 text-gray-900 dark:text-slate-100">{label}</td>
+      <td className="px-3 py-1.5 text-right font-mono text-gray-700 dark:text-slate-200">{now.toLocaleString('en-IN')}</td>
+      <td className="px-3 py-1.5 text-right font-mono text-gray-900 dark:text-slate-100 font-semibold">{after.toLocaleString('en-IN')}</td>
+      <td className={cn('px-3 py-1.5 text-right font-mono', tone)}>
+        {delta === 0 ? '—' : `${sign}${delta.toLocaleString('en-IN')}`}
+      </td>
+    </tr>
+  );
+}
+
 function BackupSettings() {
   const toast = useToast();
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
@@ -203,17 +261,38 @@ function BackupSettings() {
   const [restoreSource, setRestoreSource] = useState<string | null>(null);
   const [restorePhrase, setRestorePhrase] = useState('');
   const [restoring, setRestoring] = useState(false);
+  const [preview, setPreview] = useState<RestorePreview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  const openRestoreFor = async (sourcePath: string) => {
+    setRestoreSource(sourcePath);
+    setRestorePhrase('');
+    setPreview(null);
+    setPreviewError(null);
+    setRestoreOpen(true);
+    setPreviewing(true);
+    try {
+      const r = await window.electronAPI.backup.previewRestore(sourcePath);
+      if (r.ok) setPreview(r);
+      else setPreviewError(r.error);
+    } catch (e: any) {
+      setPreviewError(e?.message || 'Could not read backup');
+    } finally {
+      setPreviewing(false);
+    }
+  };
 
   const pickBundleFolder = async () => {
     const p = await window.electronAPI.dialog.pickFolder({ title: 'Pick a CareDesk backup bundle folder (caredesk-<timestamp>)' });
-    if (p) { setRestoreSource(p); setRestoreOpen(true); }
+    if (p) await openRestoreFor(p);
   };
   const pickSqliteFile = async () => {
     const p = await window.electronAPI.dialog.pickFile({
       title: 'Pick a caredesk.sqlite backup file',
       filters: [{ name: 'SQLite database', extensions: ['sqlite', 'db'] }],
     });
-    if (p) { setRestoreSource(p); setRestoreOpen(true); }
+    if (p) await openRestoreFor(p);
   };
 
   const doRestore = async () => {
@@ -467,31 +546,107 @@ function BackupSettings() {
         </div>
       </div>
 
-      <Modal open={restoreOpen} onClose={() => !restoring && setRestoreOpen(false)} title="⚠ Restore backup — replaces all current data" size="lg">
+      <Modal open={restoreOpen} onClose={() => !restoring && setRestoreOpen(false)} title="Review backup before restoring" size="lg">
         <div className="space-y-3">
-          <div className="text-sm text-gray-900 dark:text-slate-100">
-            You are about to restore from:
-          </div>
-          <div className="font-mono text-[11px] bg-gray-100 dark:bg-slate-800 p-2 rounded border border-gray-200 dark:border-slate-700 break-all">
-            {restoreSource}
-          </div>
-          <div className="text-[11px] text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-800 rounded p-2">
-            Before overwriting, I will make a safety snapshot of your current database + documents into your backup folder under <code>pre-restore-&lt;timestamp&gt;/</code>. If this restore is wrong, you can restore that snapshot back.
-          </div>
+          {/* Source path */}
           <div>
-            <label className="label">Type <code className="font-mono">REPLACE ALL DATA</code> to confirm</label>
-            <input
-              className="input font-mono"
-              value={restorePhrase}
-              onChange={(e) => setRestorePhrase(e.target.value)}
-              placeholder="REPLACE ALL DATA"
-            />
+            <div className="text-[11px] uppercase font-semibold text-gray-500 dark:text-slate-400 mb-1">Backup source</div>
+            <div className="font-mono text-[11px] bg-gray-100 dark:bg-slate-800 p-2 rounded border border-gray-200 dark:border-slate-700 break-all">
+              {restoreSource}
+            </div>
           </div>
+
+          {/* Preview status */}
+          {previewing && (
+            <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-slate-300 p-3 bg-gray-50 dark:bg-slate-800/50 rounded">
+              <Loader2 className="w-4 h-4 animate-spin" /> Reading backup contents…
+            </div>
+          )}
+          {previewError && (
+            <div className="flex items-start gap-2 text-sm text-red-700 dark:text-red-300 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 rounded">
+              <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              <div>{previewError}</div>
+            </div>
+          )}
+
+          {/* Preview details */}
+          {preview && (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="card p-3 flex items-center gap-3">
+                  <CalIcon className="w-5 h-5 text-blue-600" />
+                  <div>
+                    <div className="text-[10px] uppercase font-semibold text-gray-500 dark:text-slate-400">Backup taken on</div>
+                    <div className="text-sm font-bold text-gray-900 dark:text-slate-100">
+                      {preview.backupTakenAt ? formatBackupTimestamp(preview.backupTakenAt) : '— (unknown timestamp)'}
+                    </div>
+                  </div>
+                </div>
+                <div className="card p-3 flex items-center gap-3">
+                  <DbIcon className="w-5 h-5 text-emerald-600" />
+                  <div>
+                    <div className="text-[10px] uppercase font-semibold text-gray-500 dark:text-slate-400">Total rows in backup</div>
+                    <div className="text-sm font-bold text-gray-900 dark:text-slate-100">
+                      {preview.backup.totalRows.toLocaleString('en-IN')}
+                      {preview.hasBundleDocs && preview.documentFileCount != null && (
+                        <span className="ml-2 text-[11px] font-normal text-gray-500 dark:text-slate-400">
+                          + {preview.documentFileCount} document file(s)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[11px] uppercase font-semibold text-gray-500 dark:text-slate-400 mb-1">
+                  What you have now <ArrowRight className="inline w-3 h-3" /> What the backup will restore
+                </div>
+                <div className="border border-gray-200 dark:border-slate-700 rounded-lg overflow-hidden max-h-72 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50 dark:bg-slate-800">
+                      <tr className="text-left text-[10px] uppercase text-gray-500 dark:text-slate-400">
+                        <th className="px-3 py-1.5">Data</th>
+                        <th className="px-3 py-1.5 text-right">Now</th>
+                        <th className="px-3 py-1.5 text-right">After Restore</th>
+                        <th className="px-3 py-1.5 text-right">Change</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {RESTORE_ROWS.map((r) => (
+                        <RestoreRow
+                          key={r.key}
+                          label={r.label}
+                          now={preview.current.counts[r.key] ?? 0}
+                          after={preview.backup.counts[r.key] ?? 0}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="text-[11px] text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-800 rounded p-2">
+                Before overwriting, a <b>safety snapshot</b> of your current database + documents is saved to <code>pre-restore-&lt;timestamp&gt;/</code> in your backup folder. If this restore turns out to be wrong, you can restore that snapshot back.
+              </div>
+
+              <div>
+                <label className="label">Type <code className="font-mono">REPLACE ALL DATA</code> to confirm</label>
+                <input
+                  className="input font-mono"
+                  value={restorePhrase}
+                  onChange={(e) => setRestorePhrase(e.target.value)}
+                  placeholder="REPLACE ALL DATA"
+                />
+              </div>
+            </>
+          )}
+
           <div className="flex justify-end gap-2 pt-2">
             <button className="btn-secondary" onClick={() => setRestoreOpen(false)} disabled={restoring}>Cancel</button>
             <button
               className="btn-danger"
-              disabled={restoring || restorePhrase !== 'REPLACE ALL DATA'}
+              disabled={restoring || previewing || !preview || restorePhrase !== 'REPLACE ALL DATA'}
               onClick={doRestore}
             >
               {restoring ? 'Restoring…' : 'Restore & Restart App'}

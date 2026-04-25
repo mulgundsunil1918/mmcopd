@@ -299,12 +299,18 @@ function PageTwo({
         <BlankArea value={consultation?.advice} grow />
       </Section>
 
-      {/* Footer with follow-up + signature */}
+      {/* Next Visit box — pre-printed, blank, filled by receptionist at checkout */}
+      <NextVisitBox suggestedDate={consultation?.follow_up_date || null} />
+
+      {/* Footer with signature */}
       <div className="grid grid-cols-2 gap-4 mt-3 pt-3" style={{ borderTop: '1px solid #cbd5e1' }}>
         <div>
-          <div className="text-[9px] uppercase font-semibold" style={{ color: '#64748b' }}>Follow-up</div>
-          <div className="text-xs mt-0.5" style={{ color: '#0f172a' }}>
-            {consultation?.follow_up_date ? fmtDate(consultation.follow_up_date) : ''}
+          <div className="text-[9px] uppercase font-semibold" style={{ color: '#64748b' }}>Patient ID</div>
+          <div className="text-[10px] mt-0.5 font-mono" style={{ color: '#0f172a' }}>
+            UHID: {appointment.patient_uhid}
+          </div>
+          <div className="text-[10px] font-mono" style={{ color: '#0f172a' }}>
+            Visit ID: {appointment.patient_uhid}/V{appointment.id}
           </div>
         </div>
         <div className="text-right">
@@ -321,6 +327,59 @@ function PageTwo({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Pre-printed Next Visit box — receptionist fills date/time/reason at checkout. */
+function NextVisitBox({ suggestedDate }: { suggestedDate: string | null }) {
+  return (
+    <div
+      className="mt-3 rounded"
+      style={{
+        border: '1.5px solid #1d4ed8',
+        background: '#eff6ff',
+        padding: '6px 10px',
+      }}
+    >
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="text-[10px] uppercase tracking-wider font-bold" style={{ color: '#1e3a8a' }}>
+          📅 Next Visit
+        </div>
+        {suggestedDate && (
+          <div className="text-[9px]" style={{ color: '#475569' }}>
+            Doctor suggested: <b>{fmtDate(suggestedDate)}</b>
+          </div>
+        )}
+      </div>
+      <div className="grid grid-cols-12 gap-2 items-center text-[10px]" style={{ color: '#0f172a' }}>
+        <span className="col-span-1 font-semibold">Date:</span>
+        <span className="col-span-5 inline-flex items-end gap-1">
+          <DateBlank w="10mm" />/<DateBlank w="10mm" />/<DateBlank w="14mm" />
+        </span>
+        <span className="col-span-1 font-semibold text-right">Time:</span>
+        <span className="col-span-5 inline-flex items-end gap-1">
+          <DateBlank w="10mm" />:<DateBlank w="10mm" />
+          <span className="ml-1 text-[9px]" style={{ color: '#475569' }}>AM / PM</span>
+        </span>
+        <span className="col-span-1 font-semibold">Reason:</span>
+        <span className="col-span-11">
+          <span style={{ display: 'inline-block', borderBottom: '1px solid #94a3b8', width: '100%', height: '12px' }} />
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function DateBlank({ w }: { w: string }) {
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        borderBottom: '1px solid #94a3b8',
+        width: w,
+        height: '12px',
+      }}
+    />
   );
 }
 

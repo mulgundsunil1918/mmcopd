@@ -2,6 +2,7 @@ import { ipcMain, app, shell, dialog, BrowserWindow } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import * as XLSX from 'xlsx';
+import Database from 'better-sqlite3';
 import { getDb, closeDb } from '../db/db';
 import { getAllSettings, saveSettings } from '../db/settings';
 import { NotificationService } from '../services/notifications';
@@ -1696,6 +1697,119 @@ export function registerIpc() {
     });
     if (r.canceled || r.filePaths.length === 0) return null;
     return r.filePaths[0];
+  });
+
+  // ===== Restore preview =====
+  // Tables we count for the restore summary. Order = display order in the UI.
+  const COUNT_TABLES = [
+    'patients', 'appointments', 'bills', 'prescription_items',
+    'lab_orders', 'lab_order_items', 'pharmacy_sales', 'pharmacy_sale_items',
+    'ip_admissions', 'consultations', 'drug_inventory',
+    'doctors', 'users', 'notification_log', 'audit_log',
+    'patient_documents', 'patient_allergies', 'patient_conditions',
+  ];
+
+  function countTablesIn(sqlitePath: string): { counts: Record<string, number | null>; totalRows: number } {
+    const db = new Database(sqlitePath, { readonly: true, fileMustExist: true });
+    try {
+      const counts: Record<string, number | null> = {};
+      let totalRows = 0;
+      for (const t of COUNT_TABLES) {
+        try {
+          const r = db.prepare(`SELECT COUNT(*) as c FROM ${t}`).get() as { c: number };
+          counts[t] = r.c;
+          totalRows += r.c;
+        } catch {
+          // Table doesn't exist in this backup (older schema) — mark as unknown
+          counts[t] = null;
+        }
+      }
+      return { counts, totalRows };
+    } finally {
+      db.close();
+    }
+  }
+
+  /** Pulls timestamp out of a `sqlite/YYYY-MM-DD/HH-MM-SS/...` path. Falls back to file mtime. */
+  function parseBackupTimestamp(sourcePath: string, sqliteFilePath: string): string | null {
+    const m = sourcePath.replace(/\\/g, '/').match(/sqlite\/(\d{4}-\d{2}-\d{2})\/(\d{2})-(\d{2})-(\d{2})(?:\/|$)/);
+    if (m) {
+      const [, date, hh, mm, ss] = m;
+      // Treat as local time; build ISO that re-renders cleanly client-side.
+      const local = new Date(`${date}T${hh}:${mm}:${ss}`);
+      if (!isNaN(local.getTime())) return local.toISOString();
+    }
+    try {
+      const st = fs.statSync(sqliteFilePath);
+      return st.mtime.toISOString();
+    } catch { return null; }
+  }
+
+  function resolveSourceSqlite(sourcePath: string): { ok: true; sqlitePath: string; docsDir: string | null } | { ok: false; error: string } {
+    if (!sourcePath || !fs.existsSync(sourcePath)) return { ok: false, error: 'Source path does not exist' };
+    const stat = fs.statSync(sourcePath);
+    if (stat.isDirectory()) {
+      const cand = path.join(sourcePath, 'caredesk.sqlite');
+      if (!fs.existsSync(cand)) return { ok: false, error: 'Folder does not contain caredesk.sqlite (not a valid CareDesk bundle)' };
+      const docsDir = path.join(sourcePath, 'documents');
+      return { ok: true, sqlitePath: cand, docsDir: fs.existsSync(docsDir) && fs.statSync(docsDir).isDirectory() ? docsDir : null };
+    }
+    if (!sourcePath.toLowerCase().endsWith('.sqlite') && !sourcePath.toLowerCase().endsWith('.db')) {
+      return { ok: false, error: 'Pick a .sqlite file or a CareDesk bundle folder' };
+    }
+    return { ok: true, sqlitePath: sourcePath, docsDir: null };
+  }
+
+  ipcMain.handle('backup:previewRestore', async (_e, sourcePath: string) => {
+    try {
+      const resolved = resolveSourceSqlite(sourcePath);
+      if (!resolved.ok) return { ok: false, error: resolved.error };
+
+      const backupTakenAt = parseBackupTimestamp(sourcePath, resolved.sqlitePath);
+
+      let backup: { counts: Record<string, number | null>; totalRows: number };
+      try {
+        backup = countTablesIn(resolved.sqlitePath);
+      } catch (e: any) {
+        return { ok: false, error: 'Could not read backup database: ' + (e?.message || e) };
+      }
+
+      const userData = app.getPath('userData');
+      const currentDbPath = path.join(userData, 'caredesk.sqlite');
+      let current: { counts: Record<string, number | null>; totalRows: number } = { counts: {}, totalRows: 0 };
+      try {
+        // Use the live db, not a separate connection — avoids WAL conflict.
+        const db = getDb();
+        for (const t of COUNT_TABLES) {
+          try {
+            const r = db.prepare(`SELECT COUNT(*) as c FROM ${t}`).get() as { c: number };
+            current.counts[t] = r.c;
+            current.totalRows += r.c;
+          } catch {
+            current.counts[t] = null;
+          }
+        }
+      } catch { /* ignore — show backup counts only */ }
+
+      let docsCount: number | null = null;
+      if (resolved.docsDir) {
+        try { docsCount = fs.readdirSync(resolved.docsDir).length; } catch { docsCount = null; }
+      }
+
+      return {
+        ok: true,
+        sourcePath,
+        sqlitePath: resolved.sqlitePath,
+        hasBundleDocs: !!resolved.docsDir,
+        documentFileCount: docsCount,
+        backupTakenAt,
+        backup: backup,
+        current,
+        currentDbPath,
+      };
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) };
+    }
   });
 
   // ===== Restore / Import =====

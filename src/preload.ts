@@ -294,6 +294,16 @@ const api = {
     quitAfter: () => ipcRenderer.invoke('backup:quitAfter') as Promise<{ ok: boolean; path: string }>,
     restore: (sourcePath: string, confirmPhrase: string) =>
       ipcRenderer.invoke('backup:restore', sourcePath, confirmPhrase) as Promise<{ ok: boolean; error?: string; restartIn?: number }>,
+    previewRestore: (sourcePath: string) =>
+      ipcRenderer.invoke('backup:previewRestore', sourcePath) as Promise<
+        | { ok: true; sourcePath: string; sqlitePath: string; hasBundleDocs: boolean; documentFileCount: number | null;
+            backupTakenAt: string | null;
+            backup: { counts: Record<string, number | null>; totalRows: number };
+            current: { counts: Record<string, number | null>; totalRows: number };
+            currentDbPath: string;
+          }
+        | { ok: false; error: string }
+      >,
   },
   dialog: {
     pickFolder: (opts?: { title?: string; defaultPath?: string }) =>
