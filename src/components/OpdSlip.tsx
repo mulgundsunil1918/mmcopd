@@ -1,6 +1,6 @@
 import { format, parseISO } from 'date-fns';
 import { Printer, X, MapPin, Phone, Mail, HeartPulse } from 'lucide-react';
-import { age, fmt12h, fmtDate, fmtDateTime } from '../lib/utils';
+import { ageStringFull, fmt12h, fmtDate, fmtDateTime } from '../lib/utils';
 import type { AppointmentWithJoins, Consultation, Doctor, LabOrder, PrescriptionItem, Settings, Vitals } from '../types';
 
 export function OpdSlip({
@@ -158,7 +158,14 @@ function Letterhead({
           <div className="inline-block px-2 py-0.5 rounded text-[10px] uppercase tracking-wider font-bold" style={{ background: '#1d4ed8', color: '#ffffff' }}>OPD Slip</div>
           <div className="text-base font-bold mt-1" style={{ color: '#0f172a' }}>Token #{appointment.token_number}</div>
           <div className="text-[10px]" style={{ color: '#475569' }}>{slipDate}</div>
-          <div className="text-[10px] font-mono" style={{ color: '#1e40af' }}>Visit ID: {visitId}</div>
+          <div
+            className="mt-1 inline-block px-2 py-1 rounded text-right"
+            style={{ background: '#eff6ff', border: '1px solid #bfdbfe' }}
+          >
+            <div className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Patient ID</div>
+            <div className="text-[11px] font-mono font-bold" style={{ color: '#1e3a8a' }}>UHID: {appointment.patient_uhid}</div>
+            <div className="text-[11px] font-mono font-bold" style={{ color: '#1e40af' }}>Visit: {visitId}</div>
+          </div>
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[10px]" style={{ color: '#475569' }}>
@@ -203,23 +210,23 @@ function PageOne({
           </div>
           <div className="flex flex-wrap gap-x-4 text-[10px]" style={{ color: '#374151' }}>
             <span><b>UHID:</b> {appointment.patient_uhid}</span>
-            <span>Age: {age(appointment.patient_dob)} yrs</span>
-            <span>Sex: {appointment.patient_gender}</span>
-            <span>Ph: {appointment.patient_phone}</span>
-            {appointment.patient_blood_group && <span>BG: {appointment.patient_blood_group}</span>}
+            <span><b>Age:</b> {ageStringFull(appointment.patient_dob)}</span>
+            <span><b>Sex:</b> {appointment.patient_gender}</span>
+            <span><b>Ph:</b> {appointment.patient_phone}</span>
+            {appointment.patient_blood_group && <span><b>BG:</b> {appointment.patient_blood_group}</span>}
           </div>
           {regDate && <div className="text-[9px] mt-0.5" style={{ color: '#64748b' }}>Registered: {regDate}</div>}
         </div>
       </div>
 
-      {/* Vitals strip */}
+      {/* Vitals strip — order: Temp, Pulse, RR, SpO2, BP, Weight, Height */}
       <Section title="Vitals">
         <div className="grid grid-cols-7 gap-2 mt-1 text-center">
-          <Vital label="BP (mmHg)" value={vitals.bp} />
-          <Vital label="Pulse" value={vitals.pulse} />
           <Vital label="Temp (°F)" value={vitals.temp} />
-          <Vital label="SpO₂ (%)" value={vitals.spo2} />
+          <Vital label="Pulse" value={vitals.pulse} />
           <Vital label="RR" value={vitals.rr} />
+          <Vital label="SpO₂ (%)" value={vitals.spo2} />
+          <Vital label="BP (mmHg)" value={vitals.bp} />
           <Vital label="Weight (kg)" value={vitals.weight} />
           <Vital label="Height (cm)" value={vitals.height} />
         </div>

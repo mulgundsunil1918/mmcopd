@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Stethoscope, Clock4, CheckCircle2, PlayCircle, Receipt, User, Phone, Cake, ArrowLeft } from 'lucide-react';
-import { age, ageString, cn, fmt12h, fmtDate, todayISO, waitMinutes } from '../lib/utils';
+import { ageString, ageStringFull, cn, fmt12h, fmtDate, todayISO, waitMinutes } from '../lib/utils';
 import { StatusBadge } from '../components/StatusBadge';
 import { EmptyState } from '../components/EmptyState';
 import { ConsultationPanel } from '../components/ConsultationPanel';
@@ -160,7 +160,7 @@ export function DoctorDashboard() {
                     <div className="text-xs text-gray-500">Token #{selected.token_number} · {selected.appointment_time}</div>
                     <h2 className="text-xl font-bold text-gray-900 mt-1">{selected.patient_name}</h2>
                     <div className="flex flex-wrap gap-3 text-xs text-gray-600 mt-2">
-                      <span className="flex items-center gap-1"><Cake className="w-3 h-3" /> {age(selected.patient_dob)} yrs · {selected.patient_gender}</span>
+                      <span className="flex items-center gap-1"><Cake className="w-3 h-3" /> {ageStringFull(selected.patient_dob)} · {selected.patient_gender}</span>
                       <span className="flex items-center gap-1"><Phone className="w-3 h-3" /> {selected.patient_phone}</span>
                       {selected.patient_blood_group && <span className="badge bg-red-50 text-red-700">{selected.patient_blood_group}</span>}
                     </div>

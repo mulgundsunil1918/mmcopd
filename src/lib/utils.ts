@@ -11,6 +11,33 @@ export function age(dob: string): number {
   }
 }
 
+/** Exact Y / M / D breakdown — important for pediatric (newborns + infants). */
+export function ageDetailed(dob: string): { years: number; months: number; days: number } {
+  try {
+    const d = parseISO(dob);
+    const now = new Date();
+    const years = differenceInYears(now, d);
+    const afterYears = subYears(now, years);
+    const months = differenceInMonths(afterYears, d);
+    const afterMonths = subMonths(afterYears, months);
+    const days = differenceInDays(afterMonths, d);
+    return { years, months, days };
+  } catch {
+    return { years: 0, months: 0, days: 0 };
+  }
+}
+
+/** Full Y/M/D age label, omits zero parts. e.g. "5y 2m 18d", "18d", "2m 5d", "32y 4m". */
+export function ageStringFull(dob: string): string {
+  const { years, months, days } = ageDetailed(dob);
+  if (years === 0 && months === 0 && days === 0) return 'Today (0d)';
+  const parts: string[] = [];
+  if (years > 0) parts.push(`${years}y`);
+  if (months > 0) parts.push(`${months}m`);
+  if (days > 0) parts.push(`${days}d`);
+  return parts.join(' ');
+}
+
 /** Smart age label: >=1yr → "Xy Ym", >=6m → "Nm", else "Nm Dd" or "Dd". */
 export function ageString(dob: string): string {
   try {

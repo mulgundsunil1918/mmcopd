@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, UserPlus, Phone, Cake, Pencil, Calendar as CalendarIcon, IdCard } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { Patient, PatientInput } from '../types';
-import { age, ageString, dobFromAge, fmtDate, cn } from '../lib/utils';
+import { ageString, ageStringFull, dobFromAge, fmtDate, cn } from '../lib/utils';
 import { INDIAN_STATES } from '../lib/india';
 import { TOP_PROFESSIONS } from '../lib/professions';
 import { ALL_NEARBY_PLACES, KARNATAKA_DISTRICTS } from '../lib/places';
@@ -275,7 +275,7 @@ function PatientForm({
   };
 
   const totalDays = (parseInt(ageY || '0', 10) * 365) + (parseInt(ageM || '0', 10) * 30) + parseInt(ageD || '0', 10);
-  const agePreview = currentDob ? ageString(currentDob) : '';
+  const agePreview = currentDob ? ageStringFull(currentDob) : '';
 
   const create = useMutation({
     mutationFn: (data: PatientInput) => window.electronAPI.patients.create(data),
@@ -530,7 +530,7 @@ function PatientCard({
             <div className="text-xs text-gray-500 flex items-center gap-1"><IdCard className="w-3 h-3" />{patient.uhid}</div>
             <h2 className="text-2xl font-bold text-gray-900 mt-1">{patient.first_name} {patient.last_name}</h2>
             <div className="mt-3 flex flex-wrap gap-4 text-sm text-gray-600">
-              <span className="flex items-center gap-1"><Cake className="w-3.5 h-3.5" /> {fmtDate(patient.dob)} · {age(patient.dob)} yrs · {patient.gender}</span>
+              <span className="flex items-center gap-1"><Cake className="w-3.5 h-3.5" /> {fmtDate(patient.dob)} · {ageStringFull(patient.dob)} · {patient.gender}</span>
               <span className="flex items-center gap-1"><Phone className="w-3.5 h-3.5" /> {patient.phone}</span>
               {patient.blood_group && <span className="badge bg-red-50 text-red-700">{patient.blood_group}</span>}
             </div>

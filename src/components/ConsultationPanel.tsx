@@ -184,11 +184,11 @@ export function ConsultationPanel({
       <div>
         <div className="label">Vitals</div>
         <div className="grid grid-cols-4 gap-2">
-          <VInput label="BP (mmHg)" value={vitals.bp} placeholder="120/80" onChange={(v) => setVitals({ ...vitals, bp: v })} />
-          <VInput label="Pulse" value={vitals.pulse} placeholder="78" onChange={(v) => setVitals({ ...vitals, pulse: v })} />
           <VInput label="Temp (°F)" value={vitals.temp} placeholder="98.4" onChange={(v) => setVitals({ ...vitals, temp: v })} />
-          <VInput label="SpO₂ (%)" value={vitals.spo2} placeholder="98" onChange={(v) => setVitals({ ...vitals, spo2: v })} />
+          <VInput label="Pulse" value={vitals.pulse} placeholder="78" onChange={(v) => setVitals({ ...vitals, pulse: v })} />
           <VInput label="RR" value={vitals.rr} placeholder="16" onChange={(v) => setVitals({ ...vitals, rr: v })} />
+          <VInput label="SpO₂ (%)" value={vitals.spo2} placeholder="98" onChange={(v) => setVitals({ ...vitals, spo2: v })} />
+          <VInput label="BP (mmHg)" value={vitals.bp} placeholder="120/80" onChange={(v) => setVitals({ ...vitals, bp: v })} />
           <VInput label="Weight (kg)" value={vitals.weight} placeholder="65" onChange={(v) => setVitals({ ...vitals, weight: v })} />
           <VInput label="Height (cm)" value={vitals.height} placeholder="170" onChange={(v) => setVitals({ ...vitals, height: v })} />
           <VInput label="Follow-up Date" value={followUp} placeholder="" type="date" onChange={setFollowUp} />
