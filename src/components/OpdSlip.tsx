@@ -189,44 +189,51 @@ function Letterhead({
           </div>
         </div>
 
-        {/* === RIGHT: single visit card — OPD slip + token + date + IDs all together === */}
+        {/* === RIGHT: visit card — OPD SLIP badge + Token + Room (big) + appointment date/time === */}
         <div
-          className="flex-shrink-0 rounded-lg overflow-hidden text-right"
+          className="flex-shrink-0 rounded-lg overflow-hidden text-center"
           style={{
             border: '1.5px solid #1d4ed8',
-            minWidth: '60mm',
+            minWidth: '70mm',
           }}
         >
           {/* Top stripe: OPD SLIP label */}
           <div
-            className="px-2.5 py-0.5 text-[12px] uppercase tracking-widest font-bold text-white"
+            className="px-3 py-1 text-[13px] uppercase tracking-widest font-bold text-white"
             style={{ background: '#1d4ed8' }}
           >
             OPD Slip
           </div>
-          {/* Token + date/time block */}
-          <div className="px-2.5 py-1.5" style={{ background: '#ffffff' }}>
-            <div className="text-xl font-extrabold leading-tight" style={{ color: '#0f172a' }}>
-              Token #{appointment.token_number}
+          {/* Token + Room — both big, side-by-side */}
+          <div className="px-3 py-2 flex items-stretch justify-around gap-3" style={{ background: '#ffffff' }}>
+            <div className="flex-1">
+              <div className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Token</div>
+              <div className="text-3xl font-extrabold leading-tight" style={{ color: '#0f172a' }}>
+                #{appointment.token_number}
+              </div>
             </div>
-            <div className="text-[12px]" style={{ color: '#475569' }}>{slipDate}</div>
+            {doctor.room_number && (
+              <>
+                <div style={{ borderLeft: '1px solid #cbd5e1' }} />
+                <div className="flex-1">
+                  <div className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Room</div>
+                  <div className="text-3xl font-extrabold leading-tight" style={{ color: '#1e3a8a' }}>
+                    {doctor.room_number}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
-          {/* Patient identifiers */}
+          {/* Appointment date / time strip */}
           <div
-            className="px-2.5 py-1.5 border-t"
+            className="px-3 py-1.5 border-t"
             style={{ background: '#eff6ff', borderTopColor: '#bfdbfe' }}
           >
-            <div
-              className="text-[13px] uppercase tracking-wider font-semibold mb-0.5"
-              style={{ color: '#64748b' }}
-            >
-              Patient ID
+            <div className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>
+              Appointment
             </div>
-            <div className="text-[13px] font-mono font-bold" style={{ color: '#1e3a8a' }}>
-              UHID: {appointment.patient_uhid}
-            </div>
-            <div className="text-[13px] font-mono font-bold" style={{ color: '#1e40af' }}>
-              Visit: {visitId}
+            <div className="text-[14px] font-bold" style={{ color: '#1e3a8a' }}>
+              {slipDate}
             </div>
           </div>
         </div>
