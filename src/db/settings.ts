@@ -42,6 +42,12 @@ export function getAllSettings(db: Database.Database): Settings {
     sms_from_number: map.sms_from_number || null,
     whatsapp_api_url: map.whatsapp_api_url || null,
     whatsapp_api_key: map.whatsapp_api_key || null,
+    whatsapp_template:
+      map.whatsapp_template ||
+      'Namaste {{patient_name}},\n\nYour appointment at *{{clinic_name}}* is confirmed.\n\n' +
+        '👨‍⚕️ Doctor: {{doctor_name}}\n📅 Date: {{date}}\n🕒 Time: {{time}}\n🎟️ Token: #{{token}}\n🆔 Visit ID: {{visit_id}}\n\n' +
+        'Please arrive 10 minutes early. For changes, reply to this message or call {{clinic_phone}}.\n\nThank you,\n{{clinic_name}}',
+    whatsapp_country_code: map.whatsapp_country_code || '91',
   };
 }
 

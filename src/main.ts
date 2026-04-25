@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Notification, Tray, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, Notification, Tray, Menu, nativeImage, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { registerIpc } from './main/ipc';
@@ -223,6 +223,25 @@ function createWindow() {
     return true;
   });
   ipcMain.handle('app:refreshTray', () => refreshTrayMenu());
+  // Allowlisted external opener — used for "click-to-WhatsApp" (wa.me) + tel/mailto.
+  ipcMain.handle('app:openExternal', async (_e, url: string) => {
+    try {
+      if (typeof url !== 'string') return { ok: false, error: 'Invalid URL' };
+      const lower = url.toLowerCase();
+      const ok =
+        lower.startsWith('https://wa.me/') ||
+        lower.startsWith('https://api.whatsapp.com/') ||
+        lower.startsWith('tel:') ||
+        lower.startsWith('mailto:') ||
+        lower.startsWith('https://www.google.com/maps') ||
+        lower.startsWith('https://maps.google.com/');
+      if (!ok) return { ok: false, error: 'URL not allowed' };
+      await shell.openExternal(url);
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  });
 
   ipcMain.handle('updates:state', () => ({
     state: updateState,

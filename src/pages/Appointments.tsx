@@ -6,6 +6,7 @@ import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
 import { OpdSlipFor } from '../components/OpdSlipFor';
+import { SendWhatsAppButton } from '../components/SendWhatsAppButton';
 import { useToast } from '../hooks/useToast';
 import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut';
 import { cn, fmt12h, formatINR, generateTimeSlots, todayISO } from '../lib/utils';
@@ -161,6 +162,7 @@ export function Appointments() {
                     <div className="text-[11px] text-gray-500 dark:text-slate-400">{a.doctor_name}</div>
                   </div>
                   <div className="flex items-center gap-1">
+                    <SendWhatsAppButton appointment={a} variant="icon" />
                     <button className="btn-primary text-xs" onClick={() => setPrintAppt(a)}>
                       <Printer className="w-3.5 h-3.5" /> Print
                     </button>
@@ -257,6 +259,7 @@ export function Appointments() {
 
                     {/* Actions */}
                     <div className="flex items-center gap-1">
+                      <SendWhatsAppButton appointment={a} variant="pill" />
                       <button
                         className="btn-ghost text-xs"
                         onClick={() => setPrintAppt(a)}

@@ -284,4 +284,6 @@ export interface Settings {
   sms_from_number: string | null;
   whatsapp_api_url: string | null;
   whatsapp_api_key: string | null;
+  whatsapp_template: string;
+  whatsapp_country_code: string;
 }

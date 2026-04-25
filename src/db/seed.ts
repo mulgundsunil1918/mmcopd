@@ -37,6 +37,18 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   sms_from_number: '',
   whatsapp_api_url: '',
   whatsapp_api_key: '',
+  whatsapp_country_code: '91',
+  // Default click-to-WhatsApp template. Placeholders are case-insensitive.
+  whatsapp_template:
+    'Namaste {{patient_name}},\n\n' +
+    'Your appointment at *{{clinic_name}}* is confirmed.\n\n' +
+    '👨‍⚕️ Doctor: {{doctor_name}}\n' +
+    '📅 Date: {{date}}\n' +
+    '🕒 Time: {{time}}\n' +
+    '🎟️ Token: #{{token}}\n' +
+    '🆔 Visit ID: {{visit_id}}\n\n' +
+    'Please arrive 10 minutes early. For changes, reply to this message or call {{clinic_phone}}.\n\n' +
+    'Thank you,\n{{clinic_name}}',
 };
 
 export function seedIfEmpty(db: Database.Database) {

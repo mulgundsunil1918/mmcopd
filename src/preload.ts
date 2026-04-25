@@ -263,6 +263,8 @@ const api = {
   app: {
     getClinicName: () => ipcRenderer.invoke('app:getClinicName') as Promise<string>,
     forceQuit: () => ipcRenderer.invoke('app:forceQuit') as Promise<void>,
+    openExternal: (url: string) =>
+      ipcRenderer.invoke('app:openExternal', url) as Promise<{ ok: boolean; error?: string }>,
     onCloseRequested: (cb: () => void) => {
       const handler = () => cb();
       ipcRenderer.on('app:closeRequested', handler);

@@ -5,7 +5,7 @@ import { cn } from '../lib/utils';
 import { Check } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { ImageUpload } from '../components/ImageUpload';
-import { ProviderSettings } from '../components/ProviderSettings';
+import { WhatsAppMessaging } from '../components/WhatsAppMessaging';
 import { AdminGate } from '../components/AdminGate';
 import { useToast } from '../hooks/useToast';
 import { INDIAN_STATES } from '../lib/india';
@@ -25,7 +25,7 @@ export function SettingsPage() {
         <BackupSettings />
         <FeesAndFlow />
         <DoctorsManagement />
-        <ProviderSettings />
+        <WhatsAppMessaging />
       </div>
     </AdminGate>
   );

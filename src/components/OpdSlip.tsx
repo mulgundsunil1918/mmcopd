@@ -1,7 +1,7 @@
 import { format, parseISO } from 'date-fns';
 import { Printer, X, MapPin, Phone, Mail, HeartPulse } from 'lucide-react';
 import { age, fmt12h, fmtDate, fmtDateTime } from '../lib/utils';
-import type { AppointmentWithJoins, Consultation, Doctor, LabOrder, PrescriptionItem, Settings } from '../types';
+import type { AppointmentWithJoins, Consultation, Doctor, LabOrder, PrescriptionItem, Settings, Vitals } from '../types';
 
 export function OpdSlip({
   appointment,
@@ -177,7 +177,7 @@ function PageOne({
   consultation: Consultation | null;
   doctor: Doctor;
   settings: Settings;
-  vitals: Record<string, string | undefined>;
+  vitals: Vitals;
 }) {
   const regDate = appointment.patient_created_at
     ? (() => { try { return fmtDateTime(appointment.patient_created_at); } catch { return appointment.patient_created_at; } })()
