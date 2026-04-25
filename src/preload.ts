@@ -91,6 +91,19 @@ const api = {
     get: (id: number) => ipcRenderer.invoke('doctors:get', id) as Promise<Doctor | undefined>,
     create: (d: Partial<Doctor>) => ipcRenderer.invoke('doctors:create', d) as Promise<Doctor>,
     update: (id: number, d: Partial<Doctor>) => ipcRenderer.invoke('doctors:update', id, d) as Promise<Doctor>,
+    dependents: (id: number) =>
+      ipcRenderer.invoke('doctors:dependents', id) as Promise<{
+        counts: { appointments: number; consultations: number; lab_orders: number; ip_admissions: number };
+        total: number;
+      }>,
+    delete: (id: number) =>
+      ipcRenderer.invoke('doctors:delete', id) as Promise<
+        | { ok: true; mode: 'hard_deleted'; doctorName: string }
+        | { ok: false; mode: 'has_records'; counts: { appointments: number; consultations: number; lab_orders: number; ip_admissions: number }; total: number; doctorName: string; error: string }
+        | { ok: false; error: string }
+      >,
+    deactivate: (id: number) =>
+      ipcRenderer.invoke('doctors:deactivate', id) as Promise<{ ok: boolean; doctorName?: string; error?: string }>,
   },
   appointments: {
     bookedSlots: (doctorId: number, date: string) =>

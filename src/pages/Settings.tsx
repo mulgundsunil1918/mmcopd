@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle } from 'lucide-react';
+import { Building2, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle, Trash2, User as UserIcon, IndianRupee, PenTool, Power, AlertCircle } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { cn } from '../lib/utils';
 import { Check } from 'lucide-react';
@@ -846,10 +846,17 @@ function FeesAndFlow() {
   );
 }
 
+type DeleteState =
+  | null
+  | { mode: 'confirm-delete'; doctor: Doctor }
+  | { mode: 'has-records'; doctor: Doctor; counts: { appointments: number; consultations: number; lab_orders: number; ip_admissions: number }; total: number };
+
 function DoctorsManagement() {
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState<Partial<Doctor> | null>(null);
+  const [deleteState, setDeleteState] = useState<DeleteState>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const { data: doctors = [] } = useQuery({
     queryKey: ['doctors-all'],
@@ -866,6 +873,54 @@ function DoctorsManagement() {
       setEditing(null);
     },
   });
+
+  const tryDelete = async (doc: Doctor) => {
+    // Pre-flight check — see if doctor has historical records
+    const dep = await window.electronAPI.doctors.dependents(doc.id);
+    if (dep.total === 0) {
+      setDeleteState({ mode: 'confirm-delete', doctor: doc });
+    } else {
+      setDeleteState({
+        mode: 'has-records',
+        doctor: doc,
+        counts: dep.counts,
+        total: dep.total,
+      });
+    }
+  };
+
+  const confirmHardDelete = async () => {
+    if (!deleteState || deleteState.mode !== 'confirm-delete') return;
+    setDeleting(true);
+    try {
+      const r = await window.electronAPI.doctors.delete(deleteState.doctor.id);
+      if (r.ok) {
+        toast(`Dr. ${(r as any).doctorName} deleted`);
+        qc.invalidateQueries({ queryKey: ['doctors'] });
+        qc.invalidateQueries({ queryKey: ['doctors-all'] });
+        setDeleteState(null);
+        setEditing(null);
+      } else {
+        toast(r.error || 'Delete failed', 'error');
+      }
+    } finally { setDeleting(false); }
+  };
+
+  const markInactive = async (doc: Doctor) => {
+    setDeleting(true);
+    try {
+      const r = await window.electronAPI.doctors.deactivate(doc.id);
+      if (r.ok) {
+        toast(`Dr. ${r.doctorName} marked Inactive — won't appear in new bookings`);
+        qc.invalidateQueries({ queryKey: ['doctors'] });
+        qc.invalidateQueries({ queryKey: ['doctors-all'] });
+        setDeleteState(null);
+        setEditing(null);
+      } else {
+        toast(r.error || 'Failed to mark inactive', 'error');
+      }
+    } finally { setDeleting(false); }
+  };
 
   return (
     <section className="card p-5">
@@ -918,9 +973,16 @@ function DoctorsManagement() {
                   {d.is_active ? 'Active' : 'Inactive'}
                 </span>
               </td>
-              <td className="py-2 text-right">
+              <td className="py-2 text-right whitespace-nowrap">
                 <button className="btn-ghost text-xs" onClick={() => setEditing(d)}>
                   <Pencil className="w-3.5 h-3.5" /> Edit
+                </button>
+                <button
+                  className="text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 inline-flex items-center gap-1 px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20"
+                  onClick={() => tryDelete(d)}
+                  title="Delete this doctor"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Delete
                 </button>
               </td>
             </tr>
@@ -930,119 +992,290 @@ function DoctorsManagement() {
 
       <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? 'Edit Doctor' : 'Add Doctor'} size="lg">
         {editing && (
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Name *">
-                <input className="input" value={editing.name || ''} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
-              </Field>
-              <Field label="Specialty *">
-                <input className="input" value={editing.specialty || ''} onChange={(e) => setEditing({ ...editing, specialty: e.target.value })} />
-              </Field>
-              <div className="col-span-2">
-                <Field label="Qualifications / Degrees (shown on OPD slip)">
+          <div className="space-y-5">
+            {/* ========= SECTION 1: PROFILE ========= */}
+            <DoctorSection icon={<UserIcon className="w-4 h-4" />} title="Profile" subtitle="Identity, contact, room and color tag">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Name *">
+                  <input className="input" value={editing.name || ''} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
+                </Field>
+                <Field label="Specialty *">
+                  <input className="input" value={editing.specialty || ''} onChange={(e) => setEditing({ ...editing, specialty: e.target.value })} />
+                </Field>
+                <div className="col-span-2">
+                  <Field label="Qualifications / Degrees (shown on OPD slip)">
+                    <input
+                      className="input"
+                      placeholder="e.g. MBBS, MD (Medicine), DNB Cardiology"
+                      value={editing.qualifications || ''}
+                      onChange={(e) => setEditing({ ...editing, qualifications: e.target.value })}
+                    />
+                  </Field>
+                </div>
+                <Field label="Medical Registration No.">
                   <input
                     className="input"
-                    placeholder="e.g. MBBS, MD (Medicine), DNB Cardiology"
-                    value={editing.qualifications || ''}
-                    onChange={(e) => setEditing({ ...editing, qualifications: e.target.value })}
+                    placeholder="e.g. KMC-12345"
+                    value={editing.registration_no || ''}
+                    onChange={(e) => setEditing({ ...editing, registration_no: e.target.value })}
                   />
                 </Field>
+                <Field label="Phone">
+                  <input className="input" value={editing.phone || ''} onChange={(e) => setEditing({ ...editing, phone: e.target.value })} />
+                </Field>
+                <Field label="Email">
+                  <input className="input" value={editing.email || ''} onChange={(e) => setEditing({ ...editing, email: e.target.value })} />
+                </Field>
+                <Field label="Room Number">
+                  <input className="input" value={editing.room_number || ''} onChange={(e) => setEditing({ ...editing, room_number: e.target.value })} />
+                </Field>
               </div>
-              <Field label="Medical Registration No.">
-                <input
-                  className="input"
-                  placeholder="e.g. KMC-12345"
-                  value={editing.registration_no || ''}
-                  onChange={(e) => setEditing({ ...editing, registration_no: e.target.value })}
-                />
-              </Field>
-              <Field label="Default Consultation Fee (₹)">
-                <input type="number" className="input" value={editing.default_fee || 0} onChange={(e) => setEditing({ ...editing, default_fee: Number(e.target.value) })} />
-              </Field>
-              <Field label="Phone">
-                <input className="input" value={editing.phone || ''} onChange={(e) => setEditing({ ...editing, phone: e.target.value })} />
-              </Field>
-              <Field label="Email">
-                <input className="input" value={editing.email || ''} onChange={(e) => setEditing({ ...editing, email: e.target.value })} />
-              </Field>
-              <Field label="Room Number">
-                <input className="input" value={editing.room_number || ''} onChange={(e) => setEditing({ ...editing, room_number: e.target.value })} />
-              </Field>
-            </div>
 
-            {/* === Doctor color === */}
-            <div className="pt-2">
-              <label className="label flex items-center justify-between">
-                <span>Doctor Color (visual tag across the app)</span>
-                {editing.color && (
-                  <button
-                    type="button"
-                    className="text-[11px] text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200"
-                    onClick={() => setEditing({ ...editing, color: null })}
-                    title="Clear and use auto-assigned color"
-                  >
-                    Clear (use auto)
-                  </button>
-                )}
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {DOCTOR_COLOR_OPTIONS.map((c) => {
-                  const selected = (editing.color || '').toLowerCase() === c.hex.toLowerCase();
-                  return (
+              {/* Color picker */}
+              <div className="mt-4">
+                <label className="label flex items-center justify-between">
+                  <span>Color Tag (visual identifier across the app)</span>
+                  {editing.color && (
                     <button
-                      key={c.hex}
                       type="button"
-                      onClick={() => setEditing({ ...editing, color: c.hex })}
-                      title={c.label}
-                      className={cn(
-                        'relative w-9 h-9 rounded-lg shadow-sm transition active:scale-95',
-                        selected ? 'ring-2 ring-offset-2 ring-gray-900 dark:ring-white scale-110' : 'hover:scale-105'
-                      )}
-                      style={{ backgroundColor: c.hex }}
+                      className="text-[11px] text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200"
+                      onClick={() => setEditing({ ...editing, color: null })}
+                      title="Clear and use auto-assigned color"
                     >
-                      {selected && <Check className="w-4 h-4 text-white absolute inset-0 m-auto" strokeWidth={3} />}
+                      Clear (use auto)
                     </button>
-                  );
-                })}
+                  )}
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {DOCTOR_COLOR_OPTIONS.map((c) => {
+                    const selected = (editing.color || '').toLowerCase() === c.hex.toLowerCase();
+                    return (
+                      <button
+                        key={c.hex}
+                        type="button"
+                        onClick={() => setEditing({ ...editing, color: c.hex })}
+                        title={c.label}
+                        className={cn(
+                          'relative w-9 h-9 rounded-lg shadow-sm transition active:scale-95',
+                          selected ? 'ring-2 ring-offset-2 ring-gray-900 dark:ring-white scale-110' : 'hover:scale-105'
+                        )}
+                        style={{ backgroundColor: c.hex }}
+                      >
+                        {selected && <Check className="w-4 h-4 text-white absolute inset-0 m-auto" strokeWidth={3} />}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 flex items-center gap-2 text-[11px] text-gray-600 dark:text-slate-300">
+                  <span>Currently:</span>
+                  <span
+                    className="inline-block w-4 h-4 rounded-full ring-2 ring-white dark:ring-slate-700 shadow"
+                    style={{ backgroundColor: colorForDoctor(editing as Doctor) }}
+                  />
+                  <span className="font-mono">{editing.color || '(auto)'}</span>
+                </div>
               </div>
-              <div className="mt-2 flex items-center gap-2 text-[11px] text-gray-600 dark:text-slate-300">
-                <span>Currently:</span>
-                <span
-                  className="inline-block w-4 h-4 rounded-full ring-2 ring-white dark:ring-slate-700 shadow"
-                  style={{ backgroundColor: colorForDoctor(editing as Doctor) }}
-                />
-                <span className="font-mono">{editing.color || '(auto)'}</span>
-                <span className="text-gray-400">— used as the doctor's color dot in Appointments, Today's queue, and lists.</span>
+
+              {/* Active toggle */}
+              <div className="mt-4 flex items-center justify-between border-t border-gray-200 dark:border-slate-700 pt-3">
+                <div className="flex items-start gap-2">
+                  <Power className={cn('w-4 h-4 mt-0.5', editing.is_active === 1 ? 'text-emerald-600' : 'text-gray-400')} />
+                  <div>
+                    <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Active</div>
+                    <div className="text-[11px] text-gray-500 dark:text-slate-400">
+                      Inactive doctors don't appear in new appointment bookings; their history stays.
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditing({ ...editing, is_active: editing.is_active === 1 ? 0 : 1 })}
+                  className={cn(
+                    'w-12 h-7 rounded-full relative transition flex-shrink-0',
+                    editing.is_active === 1 ? 'bg-emerald-600' : 'bg-gray-300 dark:bg-slate-600'
+                  )}
+                >
+                  <span
+                    className={cn('absolute top-0.5 w-6 h-6 rounded-full shadow-md transition-all', editing.is_active === 1 ? 'left-[26px]' : 'left-0.5')}
+                    style={{ backgroundColor: '#ffffff' }}
+                  />
+                </button>
+              </div>
+            </DoctorSection>
+
+            {/* ========= SECTION 2: FEES ========= */}
+            <DoctorSection icon={<IndianRupee className="w-4 h-4" />} title="Fees" subtitle="Default consultation fee charged at booking" tone="amber">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Default Consultation Fee (₹)">
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-slate-400">₹</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      className="input pl-7"
+                      value={editing.default_fee == null ? '' : String(editing.default_fee)}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/[^0-9]/g, '');
+                        setEditing({ ...editing, default_fee: v === '' ? 0 : Number(v) });
+                      }}
+                    />
+                  </div>
+                  <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-1">
+                    Receptionist can override per booking using "Special" or "Custom" fee options.
+                  </div>
+                </Field>
+              </div>
+            </DoctorSection>
+
+            {/* ========= SECTION 3: SIGNATURE ========= */}
+            <DoctorSection icon={<PenTool className="w-4 h-4" />} title="Signature" subtitle="Printed on the OPD slip above the doctor's name" tone="violet">
+              <ImageUpload
+                label="Signature image"
+                value={editing.signature}
+                onChange={(v) => setEditing({ ...editing, signature: v })}
+                aspect="wide"
+                placeholder="Upload JPG / PNG signature"
+                hint="Upload a high-quality scanned signature (JPG / PNG). Max 5 MB. Transparent PNG or white background gives the cleanest print."
+              />
+            </DoctorSection>
+
+            {/* ========= ACTION BAR ========= */}
+            <div className="flex items-center justify-between gap-2 pt-4 border-t border-gray-200 dark:border-slate-700">
+              {editing.id ? (
+                <button
+                  className="text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 inline-flex items-center gap-1 px-3 py-2 rounded hover:bg-red-50 dark:hover:bg-red-900/20"
+                  onClick={() => tryDelete(editing as Doctor)}
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Delete this doctor
+                </button>
+              ) : (
+                <span />
+              )}
+              <div className="flex gap-2">
+                <button className="btn-secondary" onClick={() => setEditing(null)}>Cancel</button>
+                <button className="btn-primary" onClick={() => saveMut.mutate(editing)} disabled={saveMut.isPending}>
+                  {saveMut.isPending ? 'Saving…' : 'Save'}
+                </button>
               </div>
             </div>
+          </div>
+        )}
+      </Modal>
 
-            <ImageUpload
-              label="Doctor's Signature (shown on OPD slip)"
-              value={editing.signature}
-              onChange={(v) => setEditing({ ...editing, signature: v })}
-              aspect="wide"
-              placeholder="Upload JPG / PNG signature"
-              hint="⚠ Upload a high-quality signature (JPG / PNG). Max 5 MB. Prefer a transparent PNG or white background for best print clarity."
-            />
+      {/* ========= DELETE CONFIRMATION MODAL ========= */}
+      <Modal
+        open={!!deleteState}
+        onClose={() => !deleting && setDeleteState(null)}
+        title={
+          deleteState?.mode === 'has-records'
+            ? `Cannot permanently delete Dr. ${deleteState.doctor.name}`
+            : `Delete Dr. ${deleteState?.doctor.name}?`
+        }
+        size="md"
+      >
+        {deleteState?.mode === 'confirm-delete' && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 rounded">
+              <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-gray-800 dark:text-slate-200">
+                You are about to <b>permanently delete</b> Dr. {deleteState.doctor.name}.
+                This doctor has <b>no appointments, consultations, lab orders, or admissions</b> linked,
+                so deletion is safe.
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button className="btn-secondary" onClick={() => setDeleteState(null)} disabled={deleting}>
+                Cancel
+              </button>
+              <button className="btn-danger" onClick={confirmHardDelete} disabled={deleting}>
+                {deleting ? 'Deleting…' : 'Permanently Delete'}
+              </button>
+            </div>
+          </div>
+        )}
 
-            <label className="flex items-center gap-2 text-sm pt-2">
-              <input
-                type="checkbox"
-                checked={editing.is_active === 1}
-                onChange={(e) => setEditing({ ...editing, is_active: e.target.checked ? 1 : 0 })}
-              />
-              <span>Active</span>
-            </label>
-            <div className="flex justify-end gap-2 pt-4">
-              <button className="btn-secondary" onClick={() => setEditing(null)}>Cancel</button>
-              <button className="btn-primary" onClick={() => saveMut.mutate(editing)} disabled={saveMut.isPending}>
-                {saveMut.isPending ? 'Saving…' : 'Save'}
+        {deleteState?.mode === 'has-records' && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-800 rounded">
+              <AlertCircle className="w-5 h-5 text-amber-700 dark:text-amber-300 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-gray-800 dark:text-slate-200">
+                Dr. {deleteState.doctor.name} has <b>{deleteState.total} historical record(s)</b> in the database.
+                Permanent deletion would orphan that data, which is not safe.
+              </div>
+            </div>
+            <div className="border border-gray-200 dark:border-slate-700 rounded overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 dark:bg-slate-800 text-[10px] uppercase text-gray-500 dark:text-slate-400">
+                  <tr>
+                    <th className="px-3 py-1.5 text-left">Record type</th>
+                    <th className="px-3 py-1.5 text-right">Count</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <DepRow label="Appointments" count={deleteState.counts.appointments} />
+                  <DepRow label="Consultations / EMR" count={deleteState.counts.consultations} />
+                  <DepRow label="Lab orders" count={deleteState.counts.lab_orders} />
+                  <DepRow label="IP admissions" count={deleteState.counts.ip_admissions} />
+                </tbody>
+              </table>
+            </div>
+            <div className="text-[12px] text-gray-700 dark:text-slate-300 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-900 rounded p-2.5">
+              <b>Recommended:</b> mark the doctor <b>Inactive</b> instead. They won't appear in
+              new appointment bookings, but all past records (and the doctor's name on those slips)
+              stay intact for audit and patient history.
+            </div>
+            <div className="flex justify-end gap-2">
+              <button className="btn-secondary" onClick={() => setDeleteState(null)} disabled={deleting}>
+                Cancel
+              </button>
+              <button className="btn-warning" onClick={() => markInactive(deleteState.doctor)} disabled={deleting}>
+                <Power className="w-4 h-4" /> {deleting ? 'Updating…' : 'Mark as Inactive'}
               </button>
             </div>
           </div>
         )}
       </Modal>
     </section>
+  );
+}
+
+function DoctorSection({
+  icon, title, subtitle, tone = 'blue', children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  tone?: 'blue' | 'amber' | 'violet';
+  children: React.ReactNode;
+}) {
+  const tones: Record<string, string> = {
+    blue: 'border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-900/10 text-blue-800 dark:text-blue-300',
+    amber: 'border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-900/10 text-amber-800 dark:text-amber-300',
+    violet: 'border-violet-200 dark:border-violet-900 bg-violet-50/50 dark:bg-violet-900/10 text-violet-800 dark:text-violet-300',
+  };
+  return (
+    <div className={cn('rounded-lg border', tones[tone])}>
+      <div className="flex items-start gap-2 px-4 py-2 border-b border-current/20">
+        <span className="mt-0.5">{icon}</span>
+        <div>
+          <div className="text-xs font-bold uppercase tracking-wider">{title}</div>
+          {subtitle && <div className="text-[10px] opacity-80">{subtitle}</div>}
+        </div>
+      </div>
+      <div className="p-4 bg-white dark:bg-slate-900/50 rounded-b-lg">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function DepRow({ label, count }: { label: string; count: number }) {
+  if (count === 0) return null;
+  return (
+    <tr className="border-t border-gray-100 dark:border-slate-800">
+      <td className="px-3 py-1.5 text-gray-900 dark:text-slate-100">{label}</td>
+      <td className="px-3 py-1.5 text-right font-mono font-semibold">{count.toLocaleString('en-IN')}</td>
+    </tr>
   );
 }
 

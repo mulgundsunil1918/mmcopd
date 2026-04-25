@@ -336,6 +336,63 @@ export function registerIpc() {
     return db.prepare('SELECT * FROM doctors WHERE id=?').get(info.lastInsertRowid);
   });
 
+  ipcMain.handle('doctors:dependents', (_e, id: number) => {
+    const db = getDb();
+    const c = (sql: string) => (db.prepare(sql).get(id) as { c: number }).c;
+    const counts = {
+      appointments: c('SELECT COUNT(*) as c FROM appointments WHERE doctor_id=?'),
+      consultations: c('SELECT COUNT(*) as c FROM consultations WHERE doctor_id=?'),
+      lab_orders: c('SELECT COUNT(*) as c FROM lab_orders WHERE doctor_id=?'),
+      ip_admissions: c('SELECT COUNT(*) as c FROM ip_admissions WHERE admission_doctor_id=?'),
+    };
+    const total = counts.appointments + counts.consultations + counts.lab_orders + counts.ip_admissions;
+    return { counts, total };
+  });
+
+  ipcMain.handle('doctors:delete', (_e, id: number) => {
+    const db = getDb();
+    const doc = db.prepare('SELECT name FROM doctors WHERE id=?').get(id) as { name: string } | undefined;
+    if (!doc) return { ok: false, error: 'Doctor not found' };
+
+    const c = (sql: string) => (db.prepare(sql).get(id) as { c: number }).c;
+    const counts = {
+      appointments: c('SELECT COUNT(*) as c FROM appointments WHERE doctor_id=?'),
+      consultations: c('SELECT COUNT(*) as c FROM consultations WHERE doctor_id=?'),
+      lab_orders: c('SELECT COUNT(*) as c FROM lab_orders WHERE doctor_id=?'),
+      ip_admissions: c('SELECT COUNT(*) as c FROM ip_admissions WHERE admission_doctor_id=?'),
+    };
+    const total = counts.appointments + counts.consultations + counts.lab_orders + counts.ip_admissions;
+
+    if (total === 0) {
+      try {
+        db.prepare('DELETE FROM doctors WHERE id=?').run(id);
+        logAudit(db, null, 'doctor_deleted', 'doctors', id, doc.name);
+        return { ok: true, mode: 'hard_deleted' as const, doctorName: doc.name };
+      } catch (e: any) {
+        return { ok: false, error: e?.message || String(e) };
+      }
+    }
+
+    // Has historical records — refuse hard delete; caller should use 'doctors:deactivate'
+    return {
+      ok: false,
+      mode: 'has_records' as const,
+      counts,
+      total,
+      doctorName: doc.name,
+      error: `Cannot permanently delete — Dr. ${doc.name} has ${total} historical record(s).`,
+    };
+  });
+
+  ipcMain.handle('doctors:deactivate', (_e, id: number) => {
+    const db = getDb();
+    const doc = db.prepare('SELECT name FROM doctors WHERE id=?').get(id) as { name: string } | undefined;
+    if (!doc) return { ok: false, error: 'Doctor not found' };
+    db.prepare('UPDATE doctors SET is_active=0 WHERE id=?').run(id);
+    logAudit(db, null, 'doctor_deactivated', 'doctors', id, doc.name);
+    return { ok: true, doctorName: doc.name };
+  });
+
   ipcMain.handle('doctors:update', (_e, id: number, d: Partial<Doctor>) => {
     const db = getDb();
     db.prepare(
