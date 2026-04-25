@@ -241,8 +241,8 @@ export function registerIpc() {
     const db = getDb();
     const uhid = generateUHID();
     const stmt = db.prepare(
-      `INSERT INTO patients (uhid, first_name, last_name, dob, gender, phone, email, address, blood_group, place, district, state)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO patients (uhid, first_name, last_name, dob, gender, phone, email, address, blood_group, place, district, state, profession)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     const info = stmt.run(
       uhid,
@@ -256,7 +256,8 @@ export function registerIpc() {
       input.blood_group ?? null,
       input.place?.trim() || null,
       input.district?.trim() || null,
-      input.state?.trim() || null
+      input.state?.trim() || null,
+      input.profession?.trim() || null
     );
     return db.prepare('SELECT * FROM patients WHERE id=?').get(info.lastInsertRowid);
   });
@@ -264,7 +265,7 @@ export function registerIpc() {
   ipcMain.handle('patients:update', (_e, id: number, input: PatientInput) => {
     const db = getDb();
     db.prepare(
-      `UPDATE patients SET first_name=?, last_name=?, dob=?, gender=?, phone=?, email=?, address=?, blood_group=?, place=?, district=?, state=? WHERE id=?`
+      `UPDATE patients SET first_name=?, last_name=?, dob=?, gender=?, phone=?, email=?, address=?, blood_group=?, place=?, district=?, state=?, profession=? WHERE id=?`
     ).run(
       input.first_name.trim(),
       (input.last_name || '').trim(),
@@ -277,6 +278,7 @@ export function registerIpc() {
       input.place?.trim() || null,
       input.district?.trim() || null,
       input.state?.trim() || null,
+      input.profession?.trim() || null,
       id
     );
     return db.prepare('SELECT * FROM patients WHERE id=?').get(id);
@@ -1301,7 +1303,10 @@ export function registerIpc() {
       }
     }
     if (!fs.existsSync(path.dirname(destFile))) fs.mkdirSync(path.dirname(destFile), { recursive: true });
-    XLSX.writeFile(wb, destFile);
+    // SheetJS doesn't reliably auto-detect Node fs inside a Vite-bundled Electron main —
+    // generate the workbook into a buffer and write it ourselves.
+    const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' }) as Buffer;
+    fs.writeFileSync(destFile, buf);
     return { sheets, rowCounts };
   }
 
@@ -1784,20 +1789,40 @@ export function registerIpc() {
     shell.openPath(dir);
   });
 
+  function scanBackupStatus(dir: string) {
+    if (!fs.existsSync(dir)) return { lastBackupAt: null, lastBackupName: null, totalBackups: 0, dir };
+    const sqliteRoot = path.join(dir, 'sqlite');
+    let latestMtime = 0;
+    let latestPath: string | null = null;
+    let total = 0;
+    if (fs.existsSync(sqliteRoot)) {
+      for (const day of fs.readdirSync(sqliteRoot)) {
+        const dayDir = path.join(sqliteRoot, day);
+        try { if (!fs.statSync(dayDir).isDirectory()) continue; } catch { continue; }
+        for (const time of fs.readdirSync(dayDir)) {
+          const timeDir = path.join(dayDir, time);
+          try { if (!fs.statSync(timeDir).isDirectory()) continue; } catch { continue; }
+          const dbFile = path.join(timeDir, 'caredesk.sqlite');
+          if (fs.existsSync(dbFile)) {
+            total++;
+            const mt = fs.statSync(dbFile).mtimeMs;
+            if (mt > latestMtime) { latestMtime = mt; latestPath = dbFile; }
+          }
+        }
+      }
+    }
+    return {
+      lastBackupAt: latestMtime ? new Date(latestMtime).toISOString() : null,
+      lastBackupName: latestPath,
+      totalBackups: total,
+      dir,
+    };
+  }
+
   ipcMain.handle('backup:status', () => {
     const s = getAllSettings(getDb());
     const dir = s.backup_folder || path.join(app.getPath('userData'), 'backups');
-    if (!fs.existsSync(dir)) return { lastBackupAt: null, totalBackups: 0, dir };
-    const files = fs.readdirSync(dir)
-      .filter((f) => f.startsWith('caredesk-') && f.endsWith('.sqlite'))
-      .map((f) => ({ name: f, mtimeMs: fs.statSync(path.join(dir, f)).mtimeMs }))
-      .sort((a, b) => b.mtimeMs - a.mtimeMs);
-    return {
-      lastBackupAt: files[0] ? new Date(files[0].mtimeMs).toISOString() : null,
-      lastBackupName: files[0]?.name || null,
-      totalBackups: files.length,
-      dir,
-    };
+    return scanBackupStatus(dir);
   });
 
   ipcMain.handle('backup:quitAfter', async () => {

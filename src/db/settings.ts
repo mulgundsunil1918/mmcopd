@@ -22,6 +22,8 @@ export function getAllSettings(db: Database.Database): Settings {
     known_villages: map.known_villages || '',
     backup_folder: map.backup_folder || '',
     backup_reminder_time: map.backup_reminder_time || '21:00',
+    usb_reminder_weekday: parseInt(map.usb_reminder_weekday || '1', 10),
+    usb_reminder_time: map.usb_reminder_time || '09:30',
     admin_password: map.admin_password || '1918',
     sms_enabled: map.sms_enabled === 'true',
     whatsapp_enabled: map.whatsapp_enabled === 'true',

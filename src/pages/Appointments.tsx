@@ -37,6 +37,7 @@ export function Appointments() {
 
   const [date, setDate] = useState<string>(todayISO());
   const [doctorFilter, setDoctorFilter] = useState<number | 'all'>('all');
+  const [searchQ, setSearchQ] = useState('');
   const [bookOpen, setBookOpen] = useState(false);
   const [printAppt, setPrintAppt] = useState<AppointmentWithJoins | null>(null);
   const toast = useToast();
@@ -191,89 +192,102 @@ export function Appointments() {
         </div>
       )}
 
-      {/* Board */}
-      <div className="flex gap-4 overflow-x-auto pb-4">
-        {visibleDoctors.length === 0 ? (
-          <div className="flex-1">
-            <EmptyState title="No doctors configured" description="Add doctors from Settings." />
-          </div>
-        ) : (
-          visibleDoctors.map((d, idx) => {
-            const list = apptsByDoctor.get(d.id) || [];
-            const color = colorFor(idx);
-            return (
-              <div key={d.id} className={cn('min-w-[300px] w-[300px] card overflow-hidden border-t-4', color.head.replace('bg-', 'border-t-'))}>
-                <div className={cn('px-4 py-3 flex items-start justify-between', color.head, 'text-white')}>
-                  <div>
-                    <div className="text-sm font-semibold">{d.name}</div>
-                    <div className="text-[11px] opacity-90">{d.specialty}{d.room_number ? ` · Room ${d.room_number}` : ''}</div>
-                  </div>
-                  <span className="badge bg-white/20 text-white">{list.length}</span>
-                </div>
-                <div className="p-3">
-                  {isLoading ? (
-                    <div className="text-xs text-gray-500 dark:text-slate-400 py-6 text-center">Loading…</div>
-                  ) : list.length === 0 ? (
-                    <div className="text-xs text-gray-400 dark:text-slate-500 py-6 text-center border border-dashed border-gray-200 dark:border-slate-700 rounded-lg">
-                      No appointments
-                    </div>
-                  ) : (
-                    <ul className="space-y-2">
-                      {list.map((a) => (
-                        <li
-                          key={a.id}
-                          className={cn(
-                            'rounded-lg border p-3 shadow-sm',
-                            a.status === 'Waiting' && 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/30',
-                            a.status === 'In Progress' && 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-900/30',
-                            a.status === 'Done' && 'border-gray-200 bg-gray-50 dark:border-slate-700 dark:bg-slate-800',
-                            a.status === 'Cancelled' && 'border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-900/20',
-                            a.status === 'Send to Billing' && 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/30'
-                          )}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-gray-700 dark:text-slate-200">#{a.token_number}</span>
-                            {queueOn && <StatusBadge status={a.status} />}
-                          </div>
-                          <div className="text-sm font-medium text-gray-900 dark:text-slate-100 mt-1">{a.patient_name}</div>
-                          <div className="flex items-center justify-between mt-1">
-                            <span className="text-[11px] text-gray-500 dark:text-slate-400">{fmt12h(a.appointment_time)}</span>
-                            <div className="flex items-center gap-2">
-                              <button
-                                className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-0.5"
-                                onClick={() => setPrintAppt(a)}
-                                title="Print OPD slip"
-                              >
-                                <Printer className="w-3 h-3" /> Slip
-                              </button>
-                              {queueOn && a.status !== 'Done' && a.status !== 'Cancelled' && (
-                                <>
-                                  <button
-                                    className="text-[11px] text-emerald-700 dark:text-emerald-400 hover:underline"
-                                    onClick={() => updateStatus.mutate({ id: a.id, status: STATUS_FLOW[a.status] })}
-                                  >
-                                    Advance
-                                  </button>
-                                  <button
-                                    className="text-[11px] text-red-600 dark:text-red-400 hover:underline"
-                                    onClick={() => updateStatus.mutate({ id: a.id, status: 'Cancelled' })}
-                                  >
-                                    Cancel
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </div>
-            );
-          })
-        )}
+      {/* Search bar */}
+      <div className="relative max-w-md">
+        <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        <input
+          className="input pl-9"
+          placeholder="Search patient name, token #, or doctor"
+          value={searchQ}
+          onChange={(e) => setSearchQ(e.target.value)}
+        />
       </div>
+
+      {/* Vertical patient list */}
+      <section className="card p-0 overflow-hidden">
+        {(() => {
+          const q = searchQ.trim().toLowerCase();
+          const list = appts.filter((a) => {
+            if (!q) return true;
+            return (
+              a.patient_name?.toLowerCase().includes(q) ||
+              String(a.token_number).includes(q) ||
+              a.doctor_name?.toLowerCase().includes(q)
+            );
+          });
+
+          if (isLoading) {
+            return <div className="p-6 text-xs text-gray-500 dark:text-slate-400">Loading…</div>;
+          }
+          if (list.length === 0) {
+            return <EmptyState icon={Calendar} title={q ? 'No matches' : 'No appointments'} description={q ? `Nothing matches "${searchQ}"` : 'Book a new appointment to start the day.'} />;
+          }
+
+          return (
+            <ul className="divide-y divide-gray-100 dark:divide-slate-700">
+              {list.map((a, idx) => {
+                const docColor = colorFor(doctors.findIndex((d) => d.id === a.doctor_id));
+                return (
+                  <li
+                    key={a.id}
+                    className={cn(
+                      'flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-slate-700/40',
+                      a.status === 'Cancelled' && 'opacity-60',
+                      a.status === 'Ready for Print' && 'bg-cyan-50 dark:bg-cyan-900/20'
+                    )}
+                  >
+                    {/* Token */}
+                    <div className="text-sm font-bold text-gray-700 dark:text-slate-200 w-12 text-center">#{a.token_number}</div>
+
+                    {/* Time */}
+                    <div className="text-xs text-gray-500 dark:text-slate-400 w-20">{fmt12h(a.appointment_time)}</div>
+
+                    {/* Patient + doctor */}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">{a.patient_name}</div>
+                      <div className="text-[11px] text-gray-500 dark:text-slate-400 truncate">
+                        <span className={cn('inline-block w-2 h-2 rounded-full align-middle mr-1.5', docColor.head)} />
+                        {a.doctor_name} · {a.doctor_specialty}{a.doctor_room ? ` · Room ${a.doctor_room}` : ''}
+                      </div>
+                      {a.notes && <div className="text-[11px] text-gray-600 dark:text-slate-300 italic truncate">"{a.notes}"</div>}
+                    </div>
+
+                    {/* Status */}
+                    {queueOn && <StatusBadge status={a.status} />}
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-1">
+                      <button
+                        className="btn-ghost text-xs"
+                        onClick={() => setPrintAppt(a)}
+                        title="Print OPD slip"
+                      >
+                        <Printer className="w-3.5 h-3.5" /> Slip
+                      </button>
+                      {queueOn && a.status !== 'Done' && a.status !== 'Cancelled' && (
+                        <>
+                          <button
+                            className="text-[11px] text-emerald-700 dark:text-emerald-400 hover:underline px-2"
+                            onClick={() => updateStatus.mutate({ id: a.id, status: STATUS_FLOW[a.status] })}
+                          >
+                            Advance
+                          </button>
+                          <button
+                            className="text-[11px] text-red-600 dark:text-red-400 hover:underline px-2"
+                            onClick={() => updateStatus.mutate({ id: a.id, status: 'Cancelled' })}
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          );
+        })()}
+      </section>
 
       <BookAppointmentModal
         open={bookOpen}

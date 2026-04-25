@@ -22,6 +22,7 @@ export interface Patient {
   place: string | null;
   district: string | null;
   state: string | null;
+  profession: string | null;
   created_at: string;
 }
 
@@ -37,6 +38,7 @@ export interface PatientInput {
   place?: string | null;
   district?: string | null;
   state?: string | null;
+  profession?: string | null;
 }
 
 export interface Doctor {
@@ -262,6 +264,8 @@ export interface Settings {
   known_villages: string;
   backup_folder: string;
   backup_reminder_time: string;
+  usb_reminder_weekday: number;
+  usb_reminder_time: string;
   admin_password: string;
   sms_enabled: boolean;
   whatsapp_enabled: boolean;

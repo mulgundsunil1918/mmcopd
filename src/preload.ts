@@ -247,6 +247,22 @@ const api = {
   },
   app: {
     getClinicName: () => ipcRenderer.invoke('app:getClinicName') as Promise<string>,
+    forceQuit: () => ipcRenderer.invoke('app:forceQuit') as Promise<void>,
+    onCloseRequested: (cb: () => void) => {
+      const handler = () => cb();
+      ipcRenderer.on('app:closeRequested', handler);
+      return () => ipcRenderer.removeListener('app:closeRequested', handler);
+    },
+    onReminderTick: (cb: (info: { reminder: string }) => void) => {
+      const handler = (_e: any, info: any) => cb(info);
+      ipcRenderer.on('app:reminderTick', handler);
+      return () => ipcRenderer.removeListener('app:reminderTick', handler);
+    },
+    onUsbReminderTick: (cb: () => void) => {
+      const handler = () => cb();
+      ipcRenderer.on('app:usbReminderTick', handler);
+      return () => ipcRenderer.removeListener('app:usbReminderTick', handler);
+    },
   },
   reports: {
     run: (params: { kind: string; from?: string; to?: string }) =>

@@ -7,6 +7,8 @@ import { useNavigate } from 'react-router-dom';
 import type { Patient, PatientInput } from '../types';
 import { age, ageString, dobFromAge, fmtDate, cn } from '../lib/utils';
 import { INDIAN_STATES } from '../lib/india';
+import { TOP_PROFESSIONS } from '../lib/professions';
+import { ALL_NEARBY_PLACES, KARNATAKA_DISTRICTS } from '../lib/places';
 import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
 import { MedicalRecord } from '../components/MedicalRecord';
@@ -25,6 +27,7 @@ const patientSchema = z.object({
   place: z.string().optional().or(z.literal('')),
   district: z.string().optional().or(z.literal('')),
   state: z.string().optional().or(z.literal('')),
+  profession: z.string().optional().or(z.literal('')),
 });
 
 type FormData = z.infer<typeof patientSchema>;
@@ -229,6 +232,7 @@ function PatientForm({
           place: initial.place || '',
           district: initial.district || '',
           state: initial.state || '',
+          profession: initial.profession || '',
         }
       : {
           gender: 'M' as const,
@@ -236,6 +240,7 @@ function PatientForm({
           place: '',
           district: settings?.default_district || '',
           state: settings?.default_state || '',
+          profession: '',
         },
   });
 
@@ -409,7 +414,8 @@ function PatientForm({
                 {[
                   ...(settings?.known_villages || '').split(',').map((v) => v.trim()).filter(Boolean),
                   ...(known?.places || []),
-                ].filter((v, i, arr) => arr.indexOf(v) === i).map((v) => (
+                  ...ALL_NEARBY_PLACES,
+                ].filter((v, i, arr) => arr.findIndex((x) => x.toLowerCase() === v.toLowerCase()) === i).map((v) => (
                   <option key={v} value={v} />
                 ))}
               </datalist>

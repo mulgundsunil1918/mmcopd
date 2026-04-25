@@ -17,6 +17,8 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   known_villages: 'Mulgund, Gadag, Lakshmeshwar, Shirahatti, Naregal, Rona, Ron, Hulkoti, Koppal, Hubli, Dharwad',
   backup_folder: '',
   backup_reminder_time: '21:00',
+  usb_reminder_weekday: '1', // 0=Sun..6=Sat — Monday by default
+  usb_reminder_time: '09:30',
   admin_password: '1918',
   sms_enabled: 'false',
   whatsapp_enabled: 'false',

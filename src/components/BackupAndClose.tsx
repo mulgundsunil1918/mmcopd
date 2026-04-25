@@ -23,28 +23,33 @@ export function BackupAndClose() {
     queryFn: () => window.electronAPI.settings.get(),
   });
 
-  // Daily reminder at the configured time
+  // Listen for the main-process close request + reminder ticks (daily and weekly-USB).
   useEffect(() => {
-    if (!settings?.backup_reminder_time) return;
-    const tick = () => {
-      const now = new Date();
-      const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-      const todayKey = now.toISOString().slice(0, 10) + '@' + settings.backup_reminder_time;
-      if (hhmm === settings.backup_reminder_time && reminderShownAtRef.current !== todayKey) {
-        reminderShownAtRef.current = todayKey;
-        toast(`It's ${settings.backup_reminder_time} — time to back up & close.`, 'info');
-        setOpen(true);
-      }
-    };
-    const t = setInterval(tick, 30_000);
-    tick();
-    return () => clearInterval(t);
-  }, [settings?.backup_reminder_time]);
+    const off1 = window.electronAPI.app.onCloseRequested(() => {
+      toast('Backup before closing?', 'info');
+      setOpen(true);
+    });
+    const off2 = window.electronAPI.app.onReminderTick(() => {
+      toast('Daily backup reminder', 'info');
+      setOpen(true);
+    });
+    const off3 = window.electronAPI.app.onUsbReminderTick(() => {
+      toast('Weekly USB backup reminder — please plug in your USB drive', 'info');
+      setOpen(true);
+      setDestChoice(true);
+    });
+    return () => { off1?.(); off2?.(); off3?.(); };
+  }, []);
 
   const backupAndQuit = useMutation({
     mutationFn: async () => window.electronAPI.backup.quitAfter(),
     onError: (e: any) => { toast(e.message || 'Backup failed — not closing', 'error'); setBusy(false); },
   });
+
+  const closeWithoutBackup = async () => {
+    setBusy(true);
+    await window.electronAPI.app.forceQuit();
+  };
 
   const lastAgeHours = status?.lastBackupAt
     ? (Date.now() - new Date(status.lastBackupAt).getTime()) / (1000 * 60 * 60)
@@ -140,24 +145,34 @@ export function BackupAndClose() {
             </button>
           </div>
 
-          <div className="flex justify-end gap-2 pt-1 flex-wrap">
-            <button className="btn-secondary" onClick={() => setOpen(false)} disabled={busy}>Not now</button>
+          <div className="flex justify-between items-center gap-2 pt-1 flex-wrap">
             <button
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold border-2 border-blue-600 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30"
-              onClick={() => setDestChoice(true)}
+              className="text-xs text-red-600 hover:underline"
+              onClick={closeWithoutBackup}
               disabled={busy}
+              title="Close without making a backup"
             >
-              <HardDriveDownload className="w-4 h-4" /> Backup Now
+              Close without backup
             </button>
-            <button
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white shadow"
-              style={{ background: 'linear-gradient(135deg, #2563eb, #4f46e5)' }}
-              onClick={() => { setBusy(true); backupAndQuit.mutate(); }}
-              disabled={busy}
-            >
-              <CloudUpload className="w-4 h-4" />
-              {busy ? 'Backing up & closing…' : 'Backup & Close App'}
-            </button>
+            <div className="flex gap-2 flex-wrap">
+              <button className="btn-secondary" onClick={() => setOpen(false)} disabled={busy}>Not now</button>
+              <button
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold border-2 border-blue-600 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30"
+                onClick={() => setDestChoice(true)}
+                disabled={busy}
+              >
+                <HardDriveDownload className="w-4 h-4" /> Backup Now
+              </button>
+              <button
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white shadow"
+                style={{ background: 'linear-gradient(135deg, #2563eb, #4f46e5)' }}
+                onClick={() => { setBusy(true); backupAndQuit.mutate(); }}
+                disabled={busy}
+              >
+                <CloudUpload className="w-4 h-4" />
+                {busy ? 'Backing up & closing…' : 'Backup & Close App'}
+              </button>
+            </div>
           </div>
         </div>
       </Modal>
