@@ -17,12 +17,15 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   known_villages: '',
   backup_folder: '',
   backup_reminder_time: '21:00',
-  usb_reminder_weekday: '1', // 0=Sun..6=Sat — Monday by default
+  usb_reminder_weekday: '1',
   usb_reminder_time: '09:30',
   auto_launch: 'true',
   minimize_to_tray: 'true',
   start_minimized: 'false',
   keep_all_backups: 'true',
+  auto_backup_enabled: 'true',
+  auto_backup_frequency: 'daily', // hourly | every_3_hours | every_6_hours | twice_daily | daily
+  auto_backup_time: '13:00',
   admin_password: '1918',
   sms_enabled: 'false',
   whatsapp_enabled: 'false',

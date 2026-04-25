@@ -270,6 +270,9 @@ export interface Settings {
   minimize_to_tray: boolean;
   start_minimized: boolean;
   keep_all_backups: boolean;
+  auto_backup_enabled: boolean;
+  auto_backup_frequency: 'hourly' | 'every_3_hours' | 'every_6_hours' | 'twice_daily' | 'daily';
+  auto_backup_time: string;
   admin_password: string;
   sms_enabled: boolean;
   whatsapp_enabled: boolean;

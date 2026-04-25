@@ -177,7 +177,16 @@ function AppModeSelector() {
 function BackupSettings() {
   const toast = useToast();
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
-  const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, ['backup_folder', 'backup_reminder_time']);
+  const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, [
+    'backup_folder',
+    'backup_reminder_time',
+    'auto_backup_enabled',
+    'auto_backup_frequency',
+    'auto_backup_time',
+    'keep_all_backups',
+    'usb_reminder_weekday',
+    'usb_reminder_time',
+  ]);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [restoreSource, setRestoreSource] = useState<string | null>(null);
   const [restorePhrase, setRestorePhrase] = useState('');
@@ -248,7 +257,7 @@ function BackupSettings() {
           </div>
         </div>
         <div>
-          <label className="label">Daily Reminder Time</label>
+          <label className="label">End-of-day Reminder Time</label>
           <input
             type="time"
             className="input"
@@ -256,9 +265,124 @@ function BackupSettings() {
             onChange={(e) => set('backup_reminder_time', e.target.value)}
           />
           <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-1">
-            Receptionist gets a popup at this time prompting "Backup & Close".
+            Reminder popup + Windows notification at this time.
           </div>
         </div>
+      </div>
+
+      {/* Automatic backup section */}
+      <div className="mt-6 pt-5 border-t border-gray-200 dark:border-slate-700">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Automatic Backup</h3>
+            <p className="text-[11px] text-gray-500 dark:text-slate-400">App quietly creates a backup on schedule, even if no one clicks anything.</p>
+          </div>
+          <label className="inline-flex items-center cursor-pointer">
+            <button
+              type="button"
+              onClick={() => set('auto_backup_enabled', !draft.auto_backup_enabled)}
+              className={cn(
+                'w-12 h-7 rounded-full relative transition flex-shrink-0',
+                draft.auto_backup_enabled ? 'bg-emerald-600' : 'bg-gray-300 dark:bg-slate-600'
+              )}
+            >
+              <span
+                className={cn('absolute top-0.5 w-6 h-6 rounded-full shadow-md transition-all', draft.auto_backup_enabled ? 'left-[26px]' : 'left-0.5')}
+                style={{ backgroundColor: '#ffffff' }}
+              />
+            </button>
+          </label>
+        </div>
+        {draft.auto_backup_enabled && (
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="label">Frequency</label>
+              <select
+                className="input"
+                value={draft.auto_backup_frequency ?? 'daily'}
+                onChange={(e) => set('auto_backup_frequency', e.target.value as any)}
+              >
+                <option value="hourly">Every hour</option>
+                <option value="every_3_hours">Every 3 hours</option>
+                <option value="every_6_hours">Every 6 hours</option>
+                <option value="twice_daily">Twice a day</option>
+                <option value="daily">Once a day</option>
+              </select>
+            </div>
+            {(draft.auto_backup_frequency === 'daily' || draft.auto_backup_frequency === 'twice_daily') && (
+              <div>
+                <label className="label">
+                  {draft.auto_backup_frequency === 'twice_daily' ? 'First Run Time (second runs +12h)' : 'Time of Day'}
+                </label>
+                <input
+                  type="time"
+                  className="input"
+                  value={draft.auto_backup_time ?? '13:00'}
+                  onChange={(e) => set('auto_backup_time', e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Weekly USB reminder */}
+      <div className="mt-6 pt-5 border-t border-gray-200 dark:border-slate-700">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-3">Weekly USB Backup Reminder</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="label">Day of Week</label>
+            <select
+              className="input"
+              value={draft.usb_reminder_weekday ?? 1}
+              onChange={(e) => set('usb_reminder_weekday', Number(e.target.value) as any)}
+            >
+              <option value={0}>Sunday</option>
+              <option value={1}>Monday</option>
+              <option value={2}>Tuesday</option>
+              <option value={3}>Wednesday</option>
+              <option value={4}>Thursday</option>
+              <option value={5}>Friday</option>
+              <option value={6}>Saturday</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">Time</label>
+            <input
+              type="time"
+              className="input"
+              value={draft.usb_reminder_time ?? '09:30'}
+              onChange={(e) => set('usb_reminder_time', e.target.value)}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Retention */}
+      <div className="mt-5 flex items-start justify-between gap-3 pt-4 border-t border-gray-200 dark:border-slate-700">
+        <div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Keep all backup snapshots</div>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400 max-w-md">
+            <b>Recommended ON.</b> When ON, no old snapshot is ever auto-deleted — safer for cloud-synced folders. When OFF, only the last 30 snapshots are kept (saves disk).
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => set('keep_all_backups', !draft.keep_all_backups)}
+          className={cn(
+            'w-12 h-7 rounded-full relative transition flex-shrink-0',
+            draft.keep_all_backups ? 'bg-emerald-600' : 'bg-gray-300 dark:bg-slate-600'
+          )}
+        >
+          <span
+            className={cn('absolute top-0.5 w-6 h-6 rounded-full shadow-md transition-all', draft.keep_all_backups ? 'left-[26px]' : 'left-0.5')}
+            style={{ backgroundColor: '#ffffff' }}
+          />
+        </button>
+      </div>
+
+      <div className="mt-4 text-[11px] text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-800 rounded p-2">
+        ⚠ <b>Sync warning:</b> Google Drive Desktop is two-way. If you delete a backup file from your local Drive folder, it also deletes from drive.google.com. Always keep retention ON, and take a USB backup weekly as physical protection.
       </div>
 
       {/* Restore / Import */}

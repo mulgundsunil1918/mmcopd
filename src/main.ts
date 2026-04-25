@@ -189,17 +189,44 @@ function latestBackupMtime(rootDir: string): number {
   return latest;
 }
 
-async function runAutoBackupIfDue() {
+const FREQUENCY_HOURS: Record<string, number> = {
+  hourly: 1,
+  every_3_hours: 3,
+  every_6_hours: 6,
+  twice_daily: 12,
+  daily: 24,
+};
+
+async function runScheduledBackup(reason: 'startup' | 'tick') {
   try {
     const db = getDb();
     const s = getAllSettings(db);
+    if (!s.auto_backup_enabled) return;
     const userData = app.getPath('userData');
     const dir = s.backup_folder || path.join(userData, 'backups');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-    const today = new Date().toISOString().slice(0, 10);
+    const intervalHours = FREQUENCY_HOURS[s.auto_backup_frequency] || 24;
+    const intervalMs = intervalHours * 3600 * 1000;
     const latestMs = latestBackupMtime(dir);
-    if (latestMs && new Date(latestMs).toISOString().slice(0, 10) === today) return;
+    const dueByInterval = !latestMs || (Date.now() - latestMs) >= intervalMs;
+
+    // For 'daily' / 'twice_daily', also honour the configured wall-clock time:
+    // only run if we've crossed that time today AND we don't already have a backup since.
+    let dueByTime = true;
+    if (s.auto_backup_frequency === 'daily' || s.auto_backup_frequency === 'twice_daily') {
+      const [hh, mm] = (s.auto_backup_time || '13:00').split(':').map((x) => parseInt(x, 10));
+      const target = new Date();
+      target.setHours(hh, mm, 0, 0);
+      // For twice_daily: also accept target + 12h
+      const target2 = new Date(target.getTime() + 12 * 3600 * 1000);
+      const validTimes = s.auto_backup_frequency === 'twice_daily' ? [target, target2] : [target];
+      dueByTime = validTimes.some((t) => Date.now() >= t.getTime() && (!latestMs || latestMs < t.getTime()));
+      // On startup, if interval is satisfied, run anyway so we never skip a missed window
+      if (reason === 'startup' && dueByInterval) dueByTime = true;
+    }
+
+    if (!(dueByInterval && dueByTime)) return;
 
     const pad2 = (n: number) => String(n).padStart(2, '0');
     const now = new Date();
@@ -209,10 +236,15 @@ async function runAutoBackupIfDue() {
     fs.mkdirSync(bundleDir, { recursive: true });
     const dest = path.join(bundleDir, 'caredesk.sqlite');
     try { await db.backup(dest); } catch { fs.copyFileSync(path.join(userData, 'caredesk.sqlite'), dest); }
+    // Notify the renderer so the status pill refreshes immediately
+    mainWindowRef?.webContents.send('app:autoBackupRan', { at: new Date().toISOString(), reason });
   } catch (e) {
-    console.error('Auto-backup failed:', e);
+    console.error('Scheduled backup failed:', e);
   }
 }
+
+// Backwards compat name (still called from app.whenReady)
+async function runAutoBackupIfDue() { return runScheduledBackup('startup'); }
 
 let lastNotifiedDailyKey = '';
 let lastNotifiedUsbKey = '';
@@ -275,7 +307,8 @@ app.whenReady().then(async () => {
   applyAutoLaunch(s0.auto_launch, s0.start_minimized);
 
   await runAutoBackupIfDue();
-  setInterval(runAutoBackupIfDue, 60 * 60 * 1000);
+  // Check every 5 minutes — frequency check is internal so this is cheap
+  setInterval(() => runScheduledBackup('tick'), 5 * 60 * 1000);
   setInterval(tickReminder, 30_000);
   tickReminder();
 
