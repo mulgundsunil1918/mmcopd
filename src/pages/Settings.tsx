@@ -7,6 +7,7 @@ import { Check } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { ImageUpload } from '../components/ImageUpload';
 import { WhatsAppMessaging } from '../components/WhatsAppMessaging';
+import { SlipPreviewLauncher } from '../components/SlipPreviewLauncher';
 import { AdminGate } from '../components/AdminGate';
 import { useToast } from '../hooks/useToast';
 import { INDIAN_STATES } from '../lib/india';
@@ -27,6 +28,7 @@ export function SettingsPage() {
         <BackupSettings />
         <FeesAndFlow />
         <DoctorsManagement />
+        <SlipPreviewLauncher />
         <WhatsAppMessaging />
       </div>
     </AdminGate>

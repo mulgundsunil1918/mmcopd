@@ -118,14 +118,14 @@ function Letterhead({
             </div>
           )}
           <div>
-            <div className="text-sm font-extrabold tracking-tight" style={{ color: '#1e3a8a' }}>{settings.clinic_name || 'Mulgund Multispeciality Clinic'}</div>
-            <div className="text-[9px]" style={{ color: '#64748b' }}>Continued — Page 2 of 2</div>
+            <div className="text-base font-extrabold tracking-tight" style={{ color: '#1e3a8a' }}>{settings.clinic_name || 'Mulgund Multispeciality Clinic'}</div>
+            <div className="text-[13px]" style={{ color: '#64748b' }}>Continued — Page 2 of 2</div>
           </div>
         </div>
         <div className="text-right">
-          <div className="text-xs font-bold" style={{ color: '#0f172a' }}>{appointment.patient_name}</div>
-          <div className="text-[9px]" style={{ color: '#475569' }}>UHID: {appointment.patient_uhid} · Visit ID: {visitId}</div>
-          <div className="text-[9px]" style={{ color: '#475569' }}>Token #{appointment.token_number} · {slipDate}</div>
+          <div className="text-base font-bold" style={{ color: '#0f172a' }}>{appointment.patient_name}</div>
+          <div className="text-[13px]" style={{ color: '#475569' }}>UHID: {appointment.patient_uhid} · Visit ID: {visitId}</div>
+          <div className="text-[13px]" style={{ color: '#475569' }}>Token #{appointment.token_number} · {slipDate}</div>
         </div>
       </div>
     );
@@ -153,23 +153,23 @@ function Letterhead({
           )}
           <div className="min-w-0 flex-1">
             <div
-              className="text-[20px] font-extrabold tracking-tight leading-[1.1]"
+              className="text-[24px] font-extrabold tracking-tight leading-[1.1]"
               style={{ color: '#1e3a8a' }}
             >
               {settings.clinic_name || 'Mulgund Multispeciality Clinic'}
             </div>
             {settings.clinic_tagline && (
-              <div className="text-[10px] italic mt-0.5" style={{ color: '#475569' }}>
+              <div className="text-[12px] italic mt-0.5" style={{ color: '#475569' }}>
                 {settings.clinic_tagline}
               </div>
             )}
             {settings.clinic_registration_no && (
-              <div className="text-[9px] uppercase tracking-wider mt-0.5" style={{ color: '#64748b' }}>
+              <div className="text-[13px] uppercase tracking-wider mt-0.5" style={{ color: '#64748b' }}>
                 Reg. No.: {settings.clinic_registration_no}
               </div>
             )}
             {/* Compact contact line — sits directly under name so it visually belongs */}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1.5 text-[10px]" style={{ color: '#475569' }}>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1.5 text-[12px]" style={{ color: '#475569' }}>
               {settings.clinic_address && (
                 <span className="inline-flex items-center gap-1">
                   <MapPin className="w-3 h-3" style={{ color: '#1d4ed8' }} /> {settings.clinic_address}
@@ -199,17 +199,17 @@ function Letterhead({
         >
           {/* Top stripe: OPD SLIP label */}
           <div
-            className="px-2.5 py-0.5 text-[10px] uppercase tracking-widest font-bold text-white"
+            className="px-2.5 py-0.5 text-[12px] uppercase tracking-widest font-bold text-white"
             style={{ background: '#1d4ed8' }}
           >
             OPD Slip
           </div>
           {/* Token + date/time block */}
           <div className="px-2.5 py-1.5" style={{ background: '#ffffff' }}>
-            <div className="text-lg font-extrabold leading-tight" style={{ color: '#0f172a' }}>
+            <div className="text-xl font-extrabold leading-tight" style={{ color: '#0f172a' }}>
               Token #{appointment.token_number}
             </div>
-            <div className="text-[10px]" style={{ color: '#475569' }}>{slipDate}</div>
+            <div className="text-[12px]" style={{ color: '#475569' }}>{slipDate}</div>
           </div>
           {/* Patient identifiers */}
           <div
@@ -217,15 +217,15 @@ function Letterhead({
             style={{ background: '#eff6ff', borderTopColor: '#bfdbfe' }}
           >
             <div
-              className="text-[9px] uppercase tracking-wider font-semibold mb-0.5"
+              className="text-[13px] uppercase tracking-wider font-semibold mb-0.5"
               style={{ color: '#64748b' }}
             >
               Patient ID
             </div>
-            <div className="text-[11px] font-mono font-bold" style={{ color: '#1e3a8a' }}>
+            <div className="text-[13px] font-mono font-bold" style={{ color: '#1e3a8a' }}>
               UHID: {appointment.patient_uhid}
             </div>
-            <div className="text-[11px] font-mono font-bold" style={{ color: '#1e40af' }}>
+            <div className="text-[13px] font-mono font-bold" style={{ color: '#1e40af' }}>
               Visit: {visitId}
             </div>
           </div>
@@ -249,31 +249,31 @@ function PageOne({
     : null;
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', fontSize: '11px', lineHeight: 1.35 }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', fontSize: '13px', lineHeight: 1.35 }}>
       <Letterhead appointment={appointment} doctor={doctor} settings={settings} />
 
       {/* Doctor + Patient blocks */}
       <div className="grid grid-cols-2 gap-4">
         <div className="border border-gray-300 rounded p-2">
-          <div className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Consulting Doctor</div>
-          <div className="text-sm font-bold mt-0.5" style={{ color: '#0f172a' }}>{doctor.name}</div>
-          {doctor.qualifications && <div className="text-[10px] font-medium" style={{ color: '#1e40af' }}>{doctor.qualifications}</div>}
-          <div className="text-[10px]" style={{ color: '#475569' }}>{doctor.specialty}{doctor.room_number ? ` · Room ${doctor.room_number}` : ''}</div>
-          {doctor.registration_no && <div className="text-[9px]" style={{ color: '#64748b' }}>Reg: {doctor.registration_no}</div>}
+          <div className="text-[13px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Consulting Doctor</div>
+          <div className="text-base font-bold mt-0.5" style={{ color: '#0f172a' }}>{doctor.name}</div>
+          {doctor.qualifications && <div className="text-[12px] font-medium" style={{ color: '#1e40af' }}>{doctor.qualifications}</div>}
+          <div className="text-[12px]" style={{ color: '#475569' }}>{doctor.specialty}{doctor.room_number ? ` · Room ${doctor.room_number}` : ''}</div>
+          {doctor.registration_no && <div className="text-[13px]" style={{ color: '#64748b' }}>Reg: {doctor.registration_no}</div>}
         </div>
         <div className="border border-gray-300 rounded p-2">
-          <div className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Patient</div>
+          <div className="text-[13px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Patient</div>
           <div className="flex flex-wrap gap-x-4 mt-0.5">
-            <div className="text-sm font-bold" style={{ color: '#0f172a' }}>{appointment.patient_name}</div>
+            <div className="text-base font-bold" style={{ color: '#0f172a' }}>{appointment.patient_name}</div>
           </div>
-          <div className="flex flex-wrap gap-x-4 text-[10px]" style={{ color: '#374151' }}>
+          <div className="flex flex-wrap gap-x-4 text-[12px]" style={{ color: '#374151' }}>
             <span><b>UHID:</b> {appointment.patient_uhid}</span>
             <span><b>Age:</b> {ageStringFull(appointment.patient_dob)}</span>
             <span><b>Sex:</b> {appointment.patient_gender}</span>
             <span><b>Ph:</b> {appointment.patient_phone}</span>
             {appointment.patient_blood_group && <span><b>BG:</b> {appointment.patient_blood_group}</span>}
           </div>
-          {regDate && <div className="text-[9px] mt-0.5" style={{ color: '#64748b' }}>Registered: {regDate}</div>}
+          {regDate && <div className="text-[13px] mt-0.5" style={{ color: '#64748b' }}>Registered: {regDate}</div>}
         </div>
       </div>
 
@@ -314,7 +314,7 @@ function PageTwo({
   labOrders: LabOrder[];
 }) {
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', fontSize: '11px', lineHeight: 1.35 }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', fontSize: '13px', lineHeight: 1.35 }}>
       <Letterhead appointment={appointment} doctor={doctor} settings={settings} compact />
 
       {/* Impression / Diagnosis — 3 to 4 lines */}
@@ -325,7 +325,7 @@ function PageTwo({
       {/* Investigations (if any) */}
       {labOrders.length > 0 && (
         <Section title="Investigations Ordered">
-          <ul style={{ marginLeft: 14, listStyle: 'disc' }} className="text-[10px]">
+          <ul style={{ marginLeft: 14, listStyle: 'disc' }} className="text-[12px]">
             {labOrders.map((o) => (
               <li key={o.id}>
                 <span className="font-mono" style={{ color: '#1e40af' }}>{o.order_number}</span> ({o.status.replace('_', ' ')})
@@ -338,7 +338,7 @@ function PageTwo({
       {/* Advice / Prescription — rest of the page */}
       <Section title="Advice / Prescription (Rx)" grow>
         {rxItems.length > 0 && (
-          <table className="w-full text-[10px] mb-2" style={{ borderCollapse: 'collapse' }}>
+          <table className="w-full text-[12px] mb-2" style={{ borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid #cbd5e1' }}>
                 <th style={{ textAlign: 'left', padding: '2px 4px' }}>Drug</th>
@@ -370,11 +370,11 @@ function PageTwo({
       {/* Footer with signature */}
       <div className="grid grid-cols-2 gap-4 mt-3 pt-3" style={{ borderTop: '1px solid #cbd5e1' }}>
         <div>
-          <div className="text-[9px] uppercase font-semibold" style={{ color: '#64748b' }}>Patient ID</div>
-          <div className="text-[10px] mt-0.5 font-mono" style={{ color: '#0f172a' }}>
+          <div className="text-[13px] uppercase font-semibold" style={{ color: '#64748b' }}>Patient ID</div>
+          <div className="text-[12px] mt-0.5 font-mono" style={{ color: '#0f172a' }}>
             UHID: {appointment.patient_uhid}
           </div>
-          <div className="text-[10px] font-mono" style={{ color: '#0f172a' }}>
+          <div className="text-[12px] font-mono" style={{ color: '#0f172a' }}>
             Visit ID: {appointment.patient_uhid}/V{appointment.id}
           </div>
         </div>
@@ -385,7 +385,7 @@ function PageTwo({
             ) : (
               <div className="border-b border-gray-900 h-12 w-48" />
             )}
-            <div className="text-[10px] mt-1" style={{ color: '#475569' }}>
+            <div className="text-[12px] mt-1" style={{ color: '#475569' }}>
               {doctor.name}{doctor.qualifications ? `, ${doctor.qualifications}` : ''} — Signature
             </div>
           </div>
@@ -407,16 +407,16 @@ function NextVisitBox({ suggestedDate }: { suggestedDate: string | null }) {
       }}
     >
       <div className="flex items-center justify-between mb-1.5">
-        <div className="text-[10px] uppercase tracking-wider font-bold" style={{ color: '#1e3a8a' }}>
+        <div className="text-[12px] uppercase tracking-wider font-bold" style={{ color: '#1e3a8a' }}>
           📅 Next Visit
         </div>
         {suggestedDate && (
-          <div className="text-[9px]" style={{ color: '#475569' }}>
+          <div className="text-[13px]" style={{ color: '#475569' }}>
             Doctor suggested: <b>{fmtDate(suggestedDate)}</b>
           </div>
         )}
       </div>
-      <div className="grid grid-cols-12 gap-2 items-center text-[10px]" style={{ color: '#0f172a' }}>
+      <div className="grid grid-cols-12 gap-2 items-center text-[12px]" style={{ color: '#0f172a' }}>
         <span className="col-span-1 font-semibold">Date:</span>
         <span className="col-span-5 inline-flex items-end gap-1">
           <DateBlank w="10mm" />/<DateBlank w="10mm" />/<DateBlank w="14mm" />
@@ -424,7 +424,7 @@ function NextVisitBox({ suggestedDate }: { suggestedDate: string | null }) {
         <span className="col-span-1 font-semibold text-right">Time:</span>
         <span className="col-span-5 inline-flex items-end gap-1">
           <DateBlank w="10mm" />:<DateBlank w="10mm" />
-          <span className="ml-1 text-[9px]" style={{ color: '#475569' }}>AM / PM</span>
+          <span className="ml-1 text-[13px]" style={{ color: '#475569' }}>AM / PM</span>
         </span>
         <span className="col-span-1 font-semibold">Reason:</span>
         <span className="col-span-11">
@@ -450,7 +450,7 @@ function DateBlank({ w }: { w: string }) {
 
 function PageFooter({ pageNum, totalPages, clinicName }: { pageNum: number; totalPages: number; clinicName: string }) {
   return (
-    <div className="text-center text-[9px] mt-2 pt-1" style={{ color: '#94a3b8', borderTop: '1px dashed #cbd5e1' }}>
+    <div className="text-center text-[13px] mt-2 pt-1" style={{ color: '#94a3b8', borderTop: '1px dashed #cbd5e1' }}>
       OPD slip generated by {clinicName} · Page {pageNum} of {totalPages}
     </div>
   );
@@ -459,7 +459,7 @@ function PageFooter({ pageNum, totalPages, clinicName }: { pageNum: number; tota
 function Section({ title, children, grow = false }: { title: string; children: React.ReactNode; grow?: boolean }) {
   return (
     <div className="mt-3" style={grow ? { flex: 1, display: 'flex', flexDirection: 'column' } : undefined}>
-      <div className="text-[10px] uppercase tracking-wider font-bold pb-0.5 mb-1" style={{ color: '#1e40af', borderBottom: '1px solid #bfdbfe' }}>
+      <div className="text-[12px] uppercase tracking-wider font-bold pb-0.5 mb-1" style={{ color: '#1e40af', borderBottom: '1px solid #bfdbfe' }}>
         {title}
       </div>
       {grow ? <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>{children}</div> : children}
@@ -470,8 +470,8 @@ function Section({ title, children, grow = false }: { title: string; children: R
 function Vital({ label, value }: { label: string; value?: string }) {
   return (
     <div className="border border-gray-200 rounded py-1 px-1">
-      <div className="text-[8px] uppercase tracking-wider" style={{ color: '#64748b' }}>{label}</div>
-      <div className="text-xs font-semibold mt-0.5 min-h-[16px]" style={{ color: '#0f172a' }}>{value || '\u00A0'}</div>
+      <div className="text-[12px] uppercase tracking-wider" style={{ color: '#64748b' }}>{label}</div>
+      <div className="text-sm font-semibold mt-0.5 min-h-[18px]" style={{ color: '#0f172a' }}>{value || '\u00A0'}</div>
     </div>
   );
 }
@@ -481,7 +481,7 @@ function BlankArea({ value, minHeight, grow = false }: { value?: string | null; 
   if (value && value.trim()) {
     return (
       <div
-        className="text-[11px] whitespace-pre-wrap leading-relaxed"
+        className="text-[13px] whitespace-pre-wrap leading-relaxed"
         style={{
           color: '#0f172a',
           minHeight: minHeight,
