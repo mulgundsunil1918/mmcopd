@@ -20,7 +20,10 @@ const config: ForgeConfig = {
       name: 'caredesk_hms',
       setupExe: 'CareDesk-HMS-Setup.exe',
     }),
-    new MakerZIP({}, ['darwin']),
+    // ZIP fallback for Windows + macOS — extract the zip and run the .exe
+    // directly. Always works even when Squirrel's installer toolchain is
+    // missing helper binaries on the build machine.
+    new MakerZIP({}, ['darwin', 'win32']),
     new MakerRpm({}),
     new MakerDeb({}),
   ],
