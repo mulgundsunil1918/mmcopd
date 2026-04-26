@@ -153,17 +153,42 @@ function ensureTray() {
   }
 }
 
-function applyAutoLaunch(enabled: boolean, startMinimized: boolean) {
+function applyAutoLaunch(enabled: boolean, startMinimized: boolean): { ok: boolean; reason?: string; registered?: boolean; exePath?: string } {
   try {
-    if (process.platform === 'darwin' || process.platform === 'win32') {
-      app.setLoginItemSettings({
-        openAtLogin: enabled,
-        openAsHidden: startMinimized,
-        args: startMinimized ? ['--hidden'] : [],
-      });
+    if (process.platform !== 'win32' && process.platform !== 'darwin') {
+      return { ok: false, reason: `Auto-launch is only supported on Windows and macOS (running on ${process.platform}).` };
     }
-  } catch (e) {
-    console.warn('setLoginItemSettings failed:', e);
+    if (!app.isPackaged) {
+      // In dev mode (npm start), app.getPath('exe') points at electron.exe inside
+      // node_modules — registering that in the Windows Run key would launch a bare
+      // Electron, not CareDesk. Skip and tell the UI.
+      return { ok: false, reason: 'Auto-launch only takes effect in installed builds — running in dev mode (npm start) does NOT register with Windows. After installing the .exe, this will work.' };
+    }
+    const exePath = app.getPath('exe');
+    app.setLoginItemSettings({
+      openAtLogin: enabled,
+      openAsHidden: startMinimized,
+      path: exePath,
+      args: startMinimized ? ['--hidden'] : [],
+    });
+    // Verify the change actually stuck in the OS registry / launchd.
+    const actual = app.getLoginItemSettings({ path: exePath });
+    return { ok: true, registered: actual.openAtLogin, exePath };
+  } catch (e: any) {
+    return { ok: false, reason: e?.message || String(e) };
+  }
+}
+
+function readAutoLaunchStatus(): { supported: boolean; isPackaged: boolean; registered: boolean; exePath: string | null; reason?: string } {
+  const supported = process.platform === 'win32' || process.platform === 'darwin';
+  if (!supported) return { supported: false, isPackaged: app.isPackaged, registered: false, exePath: null, reason: `Not supported on ${process.platform}` };
+  if (!app.isPackaged) return { supported: true, isPackaged: false, registered: false, exePath: null, reason: 'Dev mode — registry write skipped. Install the .exe to enable auto-launch.' };
+  try {
+    const exePath = app.getPath('exe');
+    const actual = app.getLoginItemSettings({ path: exePath });
+    return { supported: true, isPackaged: true, registered: actual.openAtLogin, exePath };
+  } catch (e: any) {
+    return { supported: true, isPackaged: true, registered: false, exePath: null, reason: e?.message || String(e) };
   }
 }
 
@@ -229,9 +254,9 @@ function createWindow() {
   ipcMain.handle('app:getClinicName', () => getAllSettings(getDb()).clinic_name);
   ipcMain.handle('app:forceQuit', () => { allowQuit = true; setTimeout(() => app.quit(), 50); });
   ipcMain.handle('app:setAutoLaunch', (_e, enabled: boolean, startMinimized: boolean) => {
-    applyAutoLaunch(enabled, startMinimized);
-    return true;
+    return applyAutoLaunch(enabled, startMinimized);
   });
+  ipcMain.handle('app:getAutoLaunchStatus', () => readAutoLaunchStatus());
   ipcMain.handle('app:refreshTray', () => refreshTrayMenu());
   // Allowlisted external opener — used for "click-to-WhatsApp" (wa.me) + tel/mailto.
   ipcMain.handle('app:openExternal', async (_e, url: string) => {

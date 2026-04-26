@@ -18,21 +18,67 @@ import type { AppMode, Doctor, Settings } from '../types';
 export function SettingsPage() {
   return (
     <AdminGate title="Settings — Administrator area">
-      <div className="p-6 space-y-5 max-w-5xl">
+      <div className="p-6 space-y-6 max-w-5xl">
         <div>
           <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Settings</h1>
-          <p className="text-xs text-gray-500 dark:text-slate-400">Clinic branding, fees, queue flow, and doctor management.</p>
+          <p className="text-xs text-gray-500 dark:text-slate-400">
+            Organized by area. Use the section headings below to find what you need.
+          </p>
         </div>
-        <ClinicInfo />
-        <AppModeSelector />
-        <DefaultLocation />
-        <BackupSettings />
-        <FeesAndFlow />
-        <DoctorsManagement />
-        <SlipPreviewLauncher />
-        <WhatsAppMessaging />
+
+        {/* === GROUP 1: Identity & Modules === */}
+        <SettingsGroup title="Clinic Identity" subtitle="Name, logo, address, contact details printed on every OPD slip.">
+          <ClinicInfo />
+        </SettingsGroup>
+
+        <SettingsGroup title="App Mode" subtitle="Pick which modules are visible in the sidebar (Reception, Pharmacy, Doctor, Lab, IPD).">
+          <AppModeSelector />
+        </SettingsGroup>
+
+        {/* === GROUP 2: Doctors & Workflow === */}
+        <SettingsGroup title="Doctors" subtitle="Add doctors, set their fees, signature, and color tag.">
+          <DoctorsManagement />
+        </SettingsGroup>
+
+        <SettingsGroup title="Patients & Locations" subtitle="Default state, district, and bundled village list.">
+          <DefaultLocation />
+        </SettingsGroup>
+
+        <SettingsGroup title="Fees, Queue Flow & Display" subtitle="Consultation fees, queue toggle, and sidebar visibility for the user badge / Billing module.">
+          <FeesAndFlow />
+        </SettingsGroup>
+
+        {/* === GROUP 3: System === */}
+        <SettingsGroup title="Startup & Background" subtitle="Auto-launch with Windows, minimize to tray, start hidden.">
+          <StartupBehavior />
+        </SettingsGroup>
+
+        <SettingsGroup title="Backup, Restore & Updates" subtitle="Where backups go, daily auto-backup, weekly USB reminder, restore, and app updates.">
+          <BackupSettings />
+        </SettingsGroup>
+
+        {/* === GROUP 4: Communication & Output === */}
+        <SettingsGroup title="WhatsApp Messaging" subtitle="Click-to-WhatsApp template editor + live preview.">
+          <WhatsAppMessaging />
+        </SettingsGroup>
+
+        <SettingsGroup title="OPD Slip Preview" subtitle="See exactly how the printed slip looks with sample data.">
+          <SlipPreviewLauncher />
+        </SettingsGroup>
       </div>
     </AdminGate>
+  );
+}
+
+function SettingsGroup({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <div className="px-1">
+        <div className="text-[11px] font-bold uppercase tracking-widest text-blue-700 dark:text-blue-300">{title}</div>
+        <div className="text-[11px] text-gray-500 dark:text-slate-400">{subtitle}</div>
+      </div>
+      {children}
+    </div>
   );
 }
 
@@ -874,6 +920,133 @@ function ClinicInfo() {
         </div>
       </div>
     </section>
+  );
+}
+
+function StartupBehavior() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { data: status, refetch: refetchStatus } = useQuery({
+    queryKey: ['auto-launch-status'],
+    queryFn: () => window.electronAPI.app.getAutoLaunchStatus(),
+    refetchInterval: 30_000,
+  });
+
+  // Save the setting AND immediately call the OS-level register/unregister IPC.
+  const save = useMutation({
+    mutationFn: async (patch: { auto_launch?: boolean; start_minimized?: boolean; minimize_to_tray?: boolean }) => {
+      const next = { ...settings, ...patch } as Settings;
+      await window.electronAPI.settings.save(patch);
+      // Re-register with the OS only if auto_launch or start_minimized changed.
+      if ('auto_launch' in patch || 'start_minimized' in patch) {
+        const r = await window.electronAPI.app.setAutoLaunch(!!next.auto_launch, !!next.start_minimized);
+        return r;
+      }
+      return { ok: true };
+    },
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ['settings'] });
+      refetchStatus();
+      if (!r.ok && r.reason) {
+        toast(r.reason, 'info');
+      } else {
+        toast('Saved');
+      }
+    },
+    onError: (e: any) => toast(e?.message || 'Save failed', 'error'),
+  });
+
+  if (!settings) return null;
+
+  return (
+    <section className="card p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Startup & Background Behavior</h2>
+      </div>
+      <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-4">
+        Run CareDesk silently in the background like Google Drive Desktop — opens with your PC, sits in the tray, ready when you need it.
+      </p>
+
+      {/* Live OS-registration status pill */}
+      <div className={cn(
+        'rounded-lg p-3 mb-4 text-[11px] flex items-start gap-2',
+        status?.registered
+          ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
+          : status?.supported && status?.isPackaged
+          ? 'bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300'
+          : 'bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200'
+      )}>
+        <span className="text-base leading-none mt-0.5">{status?.registered ? '✓' : status?.isPackaged ? '○' : '⚠'}</span>
+        <div>
+          <b>OS status:</b>{' '}
+          {!status ? 'Checking…' :
+            !status.supported ? `Not supported on this platform (${status.reason})` :
+            !status.isPackaged ? 'Auto-launch only works in installed builds. In dev mode (npm start) the toggle saves but does NOT register with Windows. Build + install the app once, then the toggle below will actually register.' :
+            status.registered ? `Registered with Windows. App will start on login from: ${status.exePath || ''}` :
+            'NOT registered with Windows yet. Toggle on below to register.'
+          }
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <ToggleRow
+          label="Start CareDesk with Windows"
+          subtitle="Launches automatically when you log into Windows. Recommended ON for clinics that keep the app running all day."
+          checked={settings.auto_launch}
+          onChange={(v) => save.mutate({ auto_launch: v })}
+          tone="emerald"
+        />
+        <ToggleRow
+          label="Start minimized to tray"
+          subtitle="Skips the main window on launch. App sits in the system tray; click the tray icon to open. Pairs with the toggle above."
+          checked={settings.start_minimized}
+          onChange={(v) => save.mutate({ start_minimized: v })}
+          disabled={!settings.auto_launch}
+          tone="indigo"
+        />
+        <ToggleRow
+          label="Minimize to tray when window is closed (X button)"
+          subtitle="When ON, clicking X hides the window to the tray instead of quitting. Right-click tray icon → Quit to fully exit."
+          checked={settings.minimize_to_tray}
+          onChange={(v) => save.mutate({ minimize_to_tray: v })}
+          tone="blue"
+        />
+      </div>
+    </section>
+  );
+}
+
+function ToggleRow({ label, subtitle, checked, onChange, disabled, tone = 'blue' }: {
+  label: string; subtitle?: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; tone?: 'blue' | 'emerald' | 'indigo';
+}) {
+  const tones: Record<string, string> = {
+    blue: 'bg-blue-600',
+    emerald: 'bg-emerald-600',
+    indigo: 'bg-indigo-600',
+  };
+  return (
+    <div className={cn('flex items-start justify-between gap-3', disabled && 'opacity-60')}>
+      <div className="flex-1">
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">{label}</div>
+        {subtitle && <div className="text-[11px] text-gray-500 dark:text-slate-400 max-w-xl">{subtitle}</div>}
+      </div>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className={cn(
+          'w-12 h-7 rounded-full relative transition flex-shrink-0',
+          checked ? tones[tone] : 'bg-gray-300 dark:bg-slate-600',
+          disabled && 'cursor-not-allowed'
+        )}
+      >
+        <span
+          className={cn('absolute top-0.5 w-6 h-6 rounded-full shadow-md transition-all', checked ? 'left-[26px]' : 'left-0.5')}
+          style={{ backgroundColor: '#ffffff' }}
+        />
+      </button>
+    </div>
   );
 }
 
