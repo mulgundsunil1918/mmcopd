@@ -49,8 +49,10 @@ export function Sidebar() {
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
 
   const currentMode = (settings?.app_mode || 'reception_pharmacy_doctor') as AppMode;
+  const billingHidden = settings?.show_billing_module === false;
   const visibleNav = NAV.filter((n) => {
     if (!n.modes.has(currentMode)) return false;
+    if (n.to === '/billing' && billingHidden) return false;
     return canAnyRole(user, n.roles, adminUnlocked);
   });
 
@@ -99,7 +101,7 @@ export function Sidebar() {
       </nav>
 
       <div className="px-3 py-3 border-t sidebar-divider space-y-2">
-        {user && (
+        {user && (settings?.show_user_badge !== false) && (
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg sidebar-link">
             <UserCircle2 className="w-4 h-4 text-blue-500 flex-shrink-0" />
             <div className="flex-1 min-w-0">

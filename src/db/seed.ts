@@ -11,6 +11,8 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   consultation_fee: '250',
   special_price: '150',
   queue_flow_enabled: 'false',
+  show_user_badge: 'true',
+  show_billing_module: 'true',
   app_mode: 'reception_pharmacy_doctor',
   default_state: 'Karnataka',
   default_district: 'Gadag',

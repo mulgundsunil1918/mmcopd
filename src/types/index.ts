@@ -412,6 +412,8 @@ export interface Settings {
   consultation_fee: number;
   special_price: number;
   queue_flow_enabled: boolean;
+  show_user_badge: boolean;
+  show_billing_module: boolean;
   app_mode: AppMode;
   default_state: string;
   default_district: string;
