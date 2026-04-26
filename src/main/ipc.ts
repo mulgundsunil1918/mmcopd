@@ -1090,6 +1090,61 @@ export function registerIpc() {
       .get(batch.drug_master_id, batch.batch_no);
   });
 
+  // Bulk delete drugs — same safety model as doctors:
+  //   - If a drug has zero stock-batches / Rx / sale / dispensing-register / purchase
+  //     references → HARD delete (drug_master row removed entirely).
+  //   - Otherwise → SOFT delete (is_active=0). Drug stays in history but disappears
+  //     from active dispense + master listings.
+  // Returns a per-drug summary so the UI can explain what happened.
+  ipcMain.handle('pharmacy:bulkDeleteDrugs', (_e, ids: number[]) => {
+    if (!Array.isArray(ids) || ids.length === 0) return { ok: true, hardDeleted: 0, softDeleted: 0, results: [] };
+    const db = getDb();
+    const countRefs = (id: number) => {
+      const c = (sql: string) => (db.prepare(sql).get(id) as { c: number }).c;
+      return {
+        batches: c('SELECT COUNT(*) as c FROM drug_stock_batches WHERE drug_master_id=?'),
+        rx: c('SELECT COUNT(*) as c FROM prescription_items WHERE drug_master_id=?'),
+        sale_items: c('SELECT COUNT(*) as c FROM pharmacy_sale_items WHERE drug_master_id=?'),
+        dispensed: c('SELECT COUNT(*) as c FROM dispensing_register WHERE drug_master_id=?'),
+        purchase_lines: c('SELECT COUNT(*) as c FROM purchase_invoice_items WHERE drug_master_id=?'),
+      };
+    };
+
+    const results: Array<{ id: number; name: string; mode: 'hard_deleted' | 'soft_deleted' | 'failed'; refs?: any; error?: string }> = [];
+    let hardDeleted = 0;
+    let softDeleted = 0;
+
+    const tx = db.transaction(() => {
+      for (const id of ids) {
+        const drug = db.prepare('SELECT id, name FROM drug_master WHERE id=?').get(id) as { id: number; name: string } | undefined;
+        if (!drug) {
+          results.push({ id, name: '(not found)', mode: 'failed', error: 'Drug not found' });
+          continue;
+        }
+        const refs = countRefs(id);
+        const total = refs.batches + refs.rx + refs.sale_items + refs.dispensed + refs.purchase_lines;
+        if (total === 0) {
+          try {
+            db.prepare('DELETE FROM drug_master WHERE id=?').run(id);
+            logAudit(db, null, 'drug_deleted', 'drug_master', id, drug.name);
+            results.push({ id, name: drug.name, mode: 'hard_deleted' });
+            hardDeleted++;
+          } catch (e: any) {
+            results.push({ id, name: drug.name, mode: 'failed', error: e?.message || String(e), refs });
+          }
+        } else {
+          db.prepare('UPDATE drug_master SET is_active=0 WHERE id=?').run(id);
+          logAudit(db, null, 'drug_deactivated', 'drug_master', id, `${drug.name} (kept ${total} historical record(s))`);
+          results.push({ id, name: drug.name, mode: 'soft_deleted', refs });
+          softDeleted++;
+        }
+      }
+    });
+    tx();
+
+    return { ok: true, hardDeleted, softDeleted, results };
+  });
+
   ipcMain.handle('pharmacy:alerts', () => {
     const db = getDb();
     // Low stock = sum of qty_remaining across active batches <= threshold.

@@ -405,6 +405,8 @@ function DrugMasterTab() {
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState<Partial<DrugMaster> | null>(null);
   const [scanOpen, setScanOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const { data: drugs = [] } = useQuery({
     queryKey: ['pharmacy-drugs', q, false],
@@ -419,6 +421,41 @@ function DrugMasterTab() {
       toast('Saved'); setEditing(null);
     },
   });
+  const bulkDelete = useMutation({
+    mutationFn: (ids: number[]) => window.electronAPI.pharmacy.bulkDeleteDrugs(ids),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ['pharmacy-drugs'] });
+      qc.invalidateQueries({ queryKey: ['pharmacy-drugs-active'] });
+      qc.invalidateQueries({ queryKey: ['pharmacy-alerts'] });
+      const parts: string[] = [];
+      if (r.hardDeleted) parts.push(`${r.hardDeleted} permanently deleted`);
+      if (r.softDeleted) parts.push(`${r.softDeleted} marked Inactive (had history)`);
+      const failed = r.results.filter((x) => x.mode === 'failed').length;
+      if (failed) parts.push(`${failed} failed`);
+      toast(parts.join(' · ') || 'No drugs deleted');
+      setSelectedIds(new Set());
+      setConfirmDelete(false);
+    },
+    onError: (e: any) => toast(e?.message || 'Bulk delete failed', 'error'),
+  });
+
+  const allSelected = drugs.length > 0 && drugs.every((d) => selectedIds.has(d.id));
+  const someSelected = selectedIds.size > 0 && !allSelected;
+  const toggleAll = () => {
+    if (allSelected) setSelectedIds(new Set());
+    else setSelectedIds(new Set(drugs.map((d) => d.id)));
+  };
+  const toggleOne = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  // Pre-flight: count how many selected drugs have historical references vs none.
+  // (For the confirmation modal copy — actual delete logic is server-side.)
+  const selectedDrugs = drugs.filter((d) => selectedIds.has(d.id));
 
   // Scan flow: lookup the barcode in the master.
   // - If exactly one match → open it for editing.
@@ -452,10 +489,44 @@ function DrugMasterTab() {
       </div>
       <div className="text-[11px] text-gray-500 dark:text-slate-400 mb-2">
         💡 Add drug definitions here. Stock + batches come from <b>Purchases</b> (the legal source) or manual entry in <b>Stock & Batches</b>.
+        Tick the checkboxes to bulk-delete drugs (drugs with history get marked Inactive instead).
       </div>
+
+      {/* Bulk action bar — only shows when at least one drug is selected */}
+      {selectedIds.size > 0 && (
+        <div className="mb-3 flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800">
+          <div className="text-sm text-blue-900 dark:text-blue-100">
+            <b>{selectedIds.size}</b> drug{selectedIds.size === 1 ? '' : 's'} selected
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              className="text-xs text-gray-600 dark:text-slate-300 hover:underline"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Clear selection
+            </button>
+            <button
+              className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-md font-semibold bg-red-600 hover:bg-red-700 text-white"
+              onClick={() => setConfirmDelete(true)}
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Delete Selected
+            </button>
+          </div>
+        </div>
+      )}
+
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
+            <th className="py-2 w-8">
+              <input
+                type="checkbox"
+                aria-label="Select all"
+                checked={allSelected}
+                ref={(el) => { if (el) el.indeterminate = someSelected; }}
+                onChange={toggleAll}
+              />
+            </th>
             <th className="py-2">Name</th>
             <th className="py-2">Form / Strength</th>
             <th className="py-2">Schedule</th>
@@ -469,8 +540,23 @@ function DrugMasterTab() {
           {drugs.map((d) => {
             const stock = (d as any).stock_qty ?? 0;
             const low = stock <= d.low_stock_threshold;
+            const checked = selectedIds.has(d.id);
             return (
-              <tr key={d.id} className="border-b border-gray-100 dark:border-slate-800">
+              <tr
+                key={d.id}
+                className={cn(
+                  'border-b border-gray-100 dark:border-slate-800',
+                  checked && 'bg-blue-50/60 dark:bg-blue-900/20'
+                )}
+              >
+                <td className="py-2 w-8">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleOne(d.id)}
+                    aria-label={`Select ${d.name}`}
+                  />
+                </td>
                 <td className="py-2">
                   <div className="font-medium text-gray-900 dark:text-slate-100">{d.name}</div>
                   <div className="text-[11px] text-gray-500 dark:text-slate-400">{d.generic_name || '—'}{d.manufacturer ? ` · ${d.manufacturer}` : ''}</div>
@@ -492,6 +578,59 @@ function DrugMasterTab() {
           })}
         </tbody>
       </table>
+
+      {/* === Bulk delete confirmation modal === */}
+      <Modal
+        open={confirmDelete}
+        onClose={() => !bulkDelete.isPending && setConfirmDelete(false)}
+        title={`Delete ${selectedIds.size} drug${selectedIds.size === 1 ? '' : 's'}?`}
+        size="md"
+      >
+        <div className="space-y-3">
+          <div className="flex items-start gap-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 rounded">
+            <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-gray-800 dark:text-slate-200">
+              You're about to delete <b>{selectedIds.size}</b> drug{selectedIds.size === 1 ? '' : 's'} from the master.
+              The app will check each one:
+              <ul className="list-disc pl-5 mt-2 space-y-0.5 text-[12px]">
+                <li><b>No history</b> (no batches, Rx, sales, dispenses, purchases) → permanently deleted.</li>
+                <li><b>Has history</b> → marked <b>Inactive</b> instead. Past records stay; the drug disappears from active dispense + lists.</li>
+              </ul>
+            </div>
+          </div>
+          <div className="border border-gray-200 dark:border-slate-700 rounded max-h-48 overflow-y-auto">
+            <ul className="text-xs divide-y divide-gray-100 dark:divide-slate-800">
+              {selectedDrugs.map((d) => (
+                <li key={d.id} className="px-3 py-1.5 flex items-center justify-between">
+                  <div>
+                    <span className="font-medium text-gray-900 dark:text-slate-100">{d.name}</span>
+                    <span className="text-[11px] text-gray-500 dark:text-slate-400 ml-2">
+                      {d.form || ''} {d.strength ? `· ${d.strength}` : ''}
+                    </span>
+                  </div>
+                  <ScheduleBadge schedule={d.schedule} />
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              className="btn-secondary"
+              onClick={() => setConfirmDelete(false)}
+              disabled={bulkDelete.isPending}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn-danger"
+              onClick={() => bulkDelete.mutate([...selectedIds])}
+              disabled={bulkDelete.isPending || selectedIds.size === 0}
+            >
+              <Trash2 className="w-4 h-4" /> {bulkDelete.isPending ? 'Deleting…' : `Yes, Delete ${selectedIds.size}`}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? 'Edit Drug' : 'Add Drug to Master'} size="lg">
         {editing && (

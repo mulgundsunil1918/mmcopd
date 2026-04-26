@@ -218,6 +218,13 @@ const api = {
       ipcRenderer.invoke('pharmacy:upsertDrug', drug) as Promise<DrugMaster>,
     upsertBatch: (batch: Partial<DrugStockBatch>) =>
       ipcRenderer.invoke('pharmacy:upsertBatch', batch) as Promise<DrugStockBatch>,
+    bulkDeleteDrugs: (ids: number[]) =>
+      ipcRenderer.invoke('pharmacy:bulkDeleteDrugs', ids) as Promise<{
+        ok: boolean;
+        hardDeleted: number;
+        softDeleted: number;
+        results: Array<{ id: number; name: string; mode: 'hard_deleted' | 'soft_deleted' | 'failed'; refs?: any; error?: string }>;
+      }>,
     alerts: () =>
       ipcRenderer.invoke('pharmacy:alerts') as Promise<{ lowStock: (DrugMaster & Drug)[]; expiringSoon: DrugStockBatch[] }>,
     pendingRx: () => ipcRenderer.invoke('pharmacy:pendingRx') as Promise<(AppointmentWithJoins & { rx_count: number })[]>,
