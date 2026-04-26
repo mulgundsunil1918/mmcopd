@@ -317,6 +317,34 @@ const api = {
     summary: (filter: { from?: string; to?: string } = {}) =>
       ipcRenderer.invoke('finance:summary', filter) as Promise<any>,
   },
+  analytics: {
+    overview: () => ipcRenderer.invoke('analytics:overview') as Promise<{
+      asOf: string;
+      todayVisits: number; todayDone: number; todayRevenue: number;
+      monthRevenue: number; pharmacyMonthRevenue: number;
+      totalPatients: number; patientsThisMonth: number; activeDoctors: number;
+      pendingRx: number;
+      lowStockDrugs: number; expiringSoonBatches: number; expiredBatches: number;
+    }>,
+    demographics: () => ipcRenderer.invoke('analytics:demographics') as Promise<{
+      total: number;
+      byGender: { gender: string; c: number }[];
+      byAgeGroup: { label: string; c: number }[];
+      byBloodGroup: { label: string; c: number }[];
+      byProfession: { label: string; c: number }[];
+      newPatientsByMonth: { month: string; c: number }[];
+    }>,
+    pharmacyOverview: (filter: { from: string; to: string }) =>
+      ipcRenderer.invoke('analytics:pharmacyOverview', filter) as Promise<{
+        totalDispensed: number; scheduleHCount: number;
+        totalRevenue: number; totalSales: number;
+        topDrugs: { name: string; units: number; revenue: number; sales: number }[];
+        salesMix: { kind: string; count: number; revenue: number }[];
+        scheduleMix: { schedule: string; count: number; units: number }[];
+        lowStock: { name: string; stock: number; low_stock_threshold: number }[];
+        expiringSoon: { drug_name: string; batch_no: string; expiry: string; qty_remaining: number; days: number }[];
+      }>,
+  },
   updates: {
     state: () => ipcRenderer.invoke('updates:state') as Promise<{ state: string; appVersion: string; isPackaged: boolean; version?: string; releaseNotes?: string; error?: string }>,
     checkNow: () => ipcRenderer.invoke('updates:checkNow') as Promise<{ ok: boolean; isPackaged: boolean }>,

@@ -2546,6 +2546,153 @@ export function registerIpc() {
     return { ok: true, path: r.bundleDir };
   });
 
+  // ============================================================
+  // ANALYTICS — top-level snapshot, demographics, pharmacy mix.
+  // (Finance / origin / reports already have their own handlers above; the
+  //  Analytics page reuses those plus the three new ones below.)
+  // ============================================================
+  ipcMain.handle('analytics:overview', () => {
+    const db = getDb();
+    const today = new Date().toISOString().slice(0, 10);
+    const monthStart = today.slice(0, 8) + '01';
+    const sc = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { c: number }).c;
+    const ss = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { t: number }).t || 0;
+    return {
+      asOf: new Date().toISOString(),
+      todayVisits: sc(`SELECT COUNT(*) as c FROM appointments WHERE appointment_date=?`, today),
+      todayDone: sc(`SELECT COUNT(*) as c FROM appointments WHERE appointment_date=? AND status='Done'`, today),
+      todayRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM bills WHERE date(created_at)=?`, today),
+      monthRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM bills WHERE date(created_at) >= ?`, monthStart),
+      pharmacyMonthRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM pharmacy_sales WHERE date(created_at) >= ?`, monthStart),
+      totalPatients: sc(`SELECT COUNT(*) as c FROM patients`),
+      patientsThisMonth: sc(`SELECT COUNT(*) as c FROM patients WHERE date(created_at) >= ?`, monthStart),
+      activeDoctors: sc(`SELECT COUNT(*) as c FROM doctors WHERE is_active=1`),
+      pendingRx: sc(`
+        SELECT COUNT(DISTINCT a.id) as c FROM appointments a
+        WHERE a.id IN (SELECT DISTINCT appointment_id FROM prescription_items)
+          AND a.id NOT IN (SELECT COALESCE(appointment_id, 0) FROM pharmacy_sales)
+          AND a.appointment_date >= date('now', '-7 days')
+      `),
+      lowStockDrugs: sc(`
+        SELECT COUNT(*) as c FROM drug_master m
+        WHERE m.is_active=1 AND
+          (SELECT COALESCE(SUM(b.qty_remaining), 0) FROM drug_stock_batches b
+           WHERE b.drug_master_id=m.id AND b.is_active=1) <= m.low_stock_threshold
+      `),
+      expiringSoonBatches: sc(`
+        SELECT COUNT(*) as c FROM drug_stock_batches
+        WHERE is_active=1 AND qty_remaining > 0 AND date(expiry) BETWEEN date('now') AND date('now', '+90 days')
+      `),
+      expiredBatches: sc(`
+        SELECT COUNT(*) as c FROM drug_stock_batches
+        WHERE is_active=1 AND qty_remaining > 0 AND date(expiry) < date('now')
+      `),
+    };
+  });
+
+  ipcMain.handle('analytics:demographics', () => {
+    const db = getDb();
+    const total = (db.prepare(`SELECT COUNT(*) as c FROM patients`).get() as any).c;
+    return {
+      total,
+      byGender: db.prepare(`
+        SELECT COALESCE(NULLIF(gender,''), '(unknown)') as gender, COUNT(*) as c
+        FROM patients GROUP BY gender ORDER BY c DESC
+      `).all(),
+      byAgeGroup: db.prepare(`
+        SELECT
+          CASE
+            WHEN dob IS NULL OR dob = '' THEN '(unknown)'
+            WHEN (julianday('now') - julianday(dob)) / 365.25 < 1 THEN '< 1 yr (Infant)'
+            WHEN (julianday('now') - julianday(dob)) / 365.25 < 5 THEN '1-4 yrs (Toddler)'
+            WHEN (julianday('now') - julianday(dob)) / 365.25 < 13 THEN '5-12 yrs (Child)'
+            WHEN (julianday('now') - julianday(dob)) / 365.25 < 18 THEN '13-17 yrs (Teen)'
+            WHEN (julianday('now') - julianday(dob)) / 365.25 < 30 THEN '18-29 yrs'
+            WHEN (julianday('now') - julianday(dob)) / 365.25 < 45 THEN '30-44 yrs'
+            WHEN (julianday('now') - julianday(dob)) / 365.25 < 60 THEN '45-59 yrs'
+            WHEN (julianday('now') - julianday(dob)) / 365.25 < 75 THEN '60-74 yrs (Senior)'
+            ELSE '75+ yrs (Elderly)'
+          END as label,
+          COUNT(*) as c
+        FROM patients GROUP BY label
+        ORDER BY MIN(julianday(dob)) DESC
+      `).all(),
+      byBloodGroup: db.prepare(`
+        SELECT COALESCE(NULLIF(blood_group,''), '(unknown)') as label, COUNT(*) as c
+        FROM patients GROUP BY label ORDER BY c DESC
+      `).all(),
+      byProfession: db.prepare(`
+        SELECT COALESCE(NULLIF(profession,''), '(unknown)') as label, COUNT(*) as c
+        FROM patients GROUP BY label ORDER BY c DESC LIMIT 20
+      `).all(),
+      newPatientsByMonth: db.prepare(`
+        SELECT strftime('%Y-%m', created_at) as month, COUNT(*) as c
+        FROM patients WHERE created_at >= date('now', '-12 months')
+        GROUP BY month ORDER BY month
+      `).all(),
+    };
+  });
+
+  ipcMain.handle('analytics:pharmacyOverview', (_e, filter: { from: string; to: string }) => {
+    const db = getDb();
+    const sc = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { c: number }).c;
+    const ss = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { t: number }).t || 0;
+    return {
+      totalDispensed: sc(`SELECT COUNT(*) as c FROM dispensing_register WHERE date(dispensed_at) BETWEEN ? AND ?`, filter.from, filter.to),
+      scheduleHCount: sc(`SELECT COUNT(*) as c FROM dispensing_register WHERE date(dispensed_at) BETWEEN ? AND ? AND schedule IN ('H','H1')`, filter.from, filter.to),
+      totalRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM pharmacy_sales WHERE date(created_at) BETWEEN ? AND ?`, filter.from, filter.to),
+      totalSales: sc(`SELECT COUNT(*) as c FROM pharmacy_sales WHERE date(created_at) BETWEEN ? AND ?`, filter.from, filter.to),
+      topDrugs: db.prepare(`
+        SELECT COALESCE(m.name, ps.drug_name) as name,
+               SUM(ps.qty) as units,
+               SUM(ps.amount) as revenue,
+               COUNT(DISTINCT ps.sale_id) as sales
+        FROM pharmacy_sale_items ps
+        JOIN pharmacy_sales s ON s.id = ps.sale_id
+        LEFT JOIN drug_master m ON m.id = ps.drug_master_id
+        WHERE date(s.created_at) BETWEEN ? AND ?
+        GROUP BY name
+        ORDER BY revenue DESC LIMIT 20
+      `).all(filter.from, filter.to),
+      salesMix: db.prepare(`
+        SELECT
+          CASE WHEN appointment_id IS NULL THEN 'Counter Sale (walk-in)' ELSE 'Rx-driven (from doctor)' END as kind,
+          COUNT(*) as count,
+          COALESCE(SUM(total),0) as revenue
+        FROM pharmacy_sales
+        WHERE date(created_at) BETWEEN ? AND ?
+        GROUP BY kind
+      `).all(filter.from, filter.to),
+      scheduleMix: db.prepare(`
+        SELECT schedule, COUNT(*) as count, SUM(qty) as units
+        FROM dispensing_register
+        WHERE date(dispensed_at) BETWEEN ? AND ?
+        GROUP BY schedule
+        ORDER BY count DESC
+      `).all(filter.from, filter.to),
+      lowStock: db.prepare(`
+        SELECT m.name,
+               (SELECT COALESCE(SUM(b.qty_remaining), 0) FROM drug_stock_batches b
+                WHERE b.drug_master_id=m.id AND b.is_active=1) as stock,
+               m.low_stock_threshold
+        FROM drug_master m
+        WHERE m.is_active=1
+          AND (SELECT COALESCE(SUM(b.qty_remaining), 0) FROM drug_stock_batches b
+               WHERE b.drug_master_id=m.id AND b.is_active=1) <= m.low_stock_threshold
+        ORDER BY stock ASC LIMIT 20
+      `).all(),
+      expiringSoon: db.prepare(`
+        SELECT m.name as drug_name, b.batch_no, b.expiry, b.qty_remaining,
+               CAST((julianday(b.expiry) - julianday('now')) AS INTEGER) as days
+        FROM drug_stock_batches b
+        JOIN drug_master m ON m.id=b.drug_master_id
+        WHERE b.is_active=1 AND b.qty_remaining > 0
+          AND date(b.expiry) BETWEEN date('now') AND date('now', '+90 days')
+        ORDER BY date(b.expiry) ASC LIMIT 30
+      `).all(),
+    };
+  });
+
   // ===== Patient Origin (place stats) =====
   ipcMain.handle('origin:summary', (_e, filter: { from: string; to: string }) => {
     const db = getDb();

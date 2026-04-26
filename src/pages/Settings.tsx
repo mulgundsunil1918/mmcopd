@@ -1155,38 +1155,40 @@ function DoctorsManagement() {
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left border-b border-gray-200 dark:border-slate-700 text-xs uppercase text-gray-500 dark:text-slate-400">
-            <th className="py-2 w-10">Color</th>
-            <th className="py-2">Name</th>
-            <th className="py-2">Specialty</th>
-            <th className="py-2">Room</th>
-            <th className="py-2 text-right">Fee</th>
-            <th className="py-2">Signature</th>
-            <th className="py-2">Status</th>
-            <th></th>
+            <th className="py-2 px-2 w-10">Color</th>
+            <th className="py-2 px-2">Name</th>
+            <th className="py-2 px-2">Specialty</th>
+            <th className="py-2 px-2 w-16">Room</th>
+            <th className="py-2 px-3 text-right w-24 border-l border-gray-200 dark:border-slate-700">Fee</th>
+            <th className="py-2 px-3 w-32 border-l border-gray-200 dark:border-slate-700">Signature</th>
+            <th className="py-2 px-2 w-20">Status</th>
+            <th className="py-2 px-2"></th>
           </tr>
         </thead>
         <tbody>
           {doctors.map((d) => (
             <tr key={d.id} className="border-b border-gray-100 dark:border-slate-800">
-              <td className="py-2">
+              <td className="py-2 px-2">
                 <span
                   className="inline-block w-4 h-4 rounded-full ring-2 ring-white dark:ring-slate-800 shadow"
                   style={{ backgroundColor: colorForDoctor(d) }}
                   title={d.color ? `Custom: ${d.color}` : 'Auto-assigned color'}
                 />
               </td>
-              <td className="py-2 font-medium text-gray-900 dark:text-slate-100">{d.name}</td>
-              <td className="py-2 text-gray-600 dark:text-slate-300">{d.specialty}</td>
-              <td className="py-2 text-gray-600 dark:text-slate-300">{d.room_number || '—'}</td>
-              <td className="py-2 text-right">₹{d.default_fee}</td>
-              <td className="py-2">
+              <td className="py-2 px-2 font-medium text-gray-900 dark:text-slate-100">{d.name}</td>
+              <td className="py-2 px-2 text-gray-600 dark:text-slate-300">{d.specialty}</td>
+              <td className="py-2 px-2 text-gray-600 dark:text-slate-300">{d.room_number || '—'}</td>
+              <td className="py-2 px-3 text-right font-semibold border-l border-gray-100 dark:border-slate-800">
+                ₹{d.default_fee}
+              </td>
+              <td className="py-2 px-3 border-l border-gray-100 dark:border-slate-800">
                 {d.signature ? (
-                  <img src={d.signature} className="h-6 object-contain" alt="signature" />
+                  <img src={d.signature} className="h-7 max-w-[100px] object-contain" alt="signature" />
                 ) : (
-                  <span className="text-[11px] text-gray-400">—</span>
+                  <span className="text-[11px] text-gray-400 italic">— not set —</span>
                 )}
               </td>
-              <td className="py-2">
+              <td className="py-2 px-2">
                 <span className={d.is_active ? 'badge bg-green-100 text-green-700' : 'badge bg-gray-200 text-gray-600'}>
                   {d.is_active ? 'Active' : 'Inactive'}
                 </span>
