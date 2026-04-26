@@ -117,6 +117,7 @@ function TabBtn({ active, onClick, icon, children }: { active: boolean; onClick:
    =================================================================== */
 function DispenseQueue() {
   const [activeAppt, setActiveAppt] = useState<any | null>(null);
+  const [counterOpen, setCounterOpen] = useState(false);
   const { data: pending = [], isLoading } = useQuery({
     queryKey: ['pharmacy-pending'],
     queryFn: () => window.electronAPI.pharmacy.pendingRx(),
@@ -126,17 +127,32 @@ function DispenseQueue() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
       <div className="lg:col-span-1 card p-4">
-        <div className="text-xs font-semibold text-gray-600 dark:text-slate-300 uppercase tracking-wide mb-3">Pending Rx · {pending.length}</div>
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-xs font-semibold text-gray-600 dark:text-slate-300 uppercase tracking-wide">
+            Pending Rx · {pending.length}
+          </div>
+          <button
+            className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-md font-semibold bg-emerald-600 hover:bg-emerald-700 text-white"
+            onClick={() => { setActiveAppt(null); setCounterOpen(true); }}
+            title="Walk-in / over-the-counter sale (no prescription required)"
+          >
+            <ShoppingCart className="w-3.5 h-3.5" /> Counter Sale
+          </button>
+        </div>
         {isLoading ? (
           <div className="text-xs text-gray-500 dark:text-slate-400">Loading…</div>
         ) : pending.length === 0 ? (
-          <EmptyState icon={Pill} title="Nothing pending" description="Prescriptions from consultations will appear here once a doctor writes them." />
+          <EmptyState
+            icon={Pill}
+            title="Nothing pending"
+            description="No prescriptions waiting. Click 'Counter Sale' on the right to dispense to a walk-in customer without a prescription."
+          />
         ) : (
           <ul className="space-y-1 max-h-[70vh] overflow-auto">
             {pending.map((a: any) => (
               <li
                 key={a.id}
-                onClick={() => setActiveAppt(a)}
+                onClick={() => { setCounterOpen(false); setActiveAppt(a); }}
                 className={cn(
                   'rounded-lg p-2.5 border cursor-pointer transition',
                   activeAppt?.id === a.id
@@ -156,8 +172,18 @@ function DispenseQueue() {
         )}
       </div>
       <div className="lg:col-span-2">
-        {activeAppt ? <DispenseForm appointment={activeAppt} onDone={() => setActiveAppt(null)} /> : (
-          <div className="card p-6"><EmptyState icon={ShoppingCart} title="Select a pending Rx" description="Pick an appointment on the left to dispense." /></div>
+        {counterOpen ? (
+          <CounterSaleForm onDone={() => setCounterOpen(false)} />
+        ) : activeAppt ? (
+          <DispenseForm appointment={activeAppt} onDone={() => setActiveAppt(null)} />
+        ) : (
+          <div className="card p-6">
+            <EmptyState
+              icon={ShoppingCart}
+              title="Select a pending Rx — or click 'Counter Sale'"
+              description="Click an appointment on the left to dispense a doctor's prescription, or click the green Counter Sale button to dispense to a walk-in customer without a prescription."
+            />
+          </div>
         )}
       </div>
     </div>
@@ -383,6 +409,270 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
         onClose={() => setScanOpen(false)}
         onScan={handleScan}
         hint="Scan a drug barcode to add it to this dispense. Drug must already be in Drug Master with a barcode set."
+      />
+    </div>
+  );
+}
+
+/* ===================================================================
+   COUNTER SALE — walk-in / OTC dispense without a doctor's prescription.
+   For chemist-counter operations or quick OTC sales. Optional patient
+   lookup (so repeat customers can be tracked) but not required.
+   =================================================================== */
+function CounterSaleForm({ onDone }: { onDone: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data: drugs = [] } = useQuery({
+    queryKey: ['pharmacy-drugs-active'],
+    queryFn: () => window.electronAPI.pharmacy.listDrugs({ activeOnly: true }),
+  });
+
+  type Row = { drug_master_id?: number; drug_name: string; qty: number; rate: number; nextBatch?: string; nextExpiry?: string; stock?: number; schedule?: DrugSchedule };
+  const [rows, setRows] = useState<Row[]>([]);
+  const [discount, setDiscount] = useState(0);
+  const [paymentMode, setPaymentMode] = useState('Cash');
+  const [scanOpen, setScanOpen] = useState(false);
+
+  // Optional patient picker
+  const [patientQuery, setPatientQuery] = useState('');
+  const [patient, setPatient] = useState<{ id: number; uhid: string; first_name: string; last_name: string; phone: string } | null>(null);
+  const { data: patientResults = [] } = useQuery({
+    queryKey: ['pharmacy-counter-patient-search', patientQuery],
+    queryFn: () => window.electronAPI.patients.search(patientQuery),
+    enabled: !patient && patientQuery.trim().length > 0,
+  });
+
+  const subtotal = useMemo(() => rows.reduce((s, r) => s + r.qty * r.rate, 0), [rows]);
+  const total = Math.max(0, subtotal - discount);
+
+  const setRow = (idx: number, patch: Partial<Row>) =>
+    setRows((r) => { const n = [...r]; n[idx] = { ...n[idx], ...patch }; return n; });
+
+  const handleScan = async (code: string) => {
+    setScanOpen(false);
+    const matches = await window.electronAPI.pharmacy.listDrugs({ q: code, activeOnly: true });
+    const exact = matches.find((d) => (d.barcode || '').trim() === code.trim());
+    if (!exact) {
+      toast(`No drug with barcode ${code}`, 'error');
+      return;
+    }
+    setRows((prev) => [
+      ...prev,
+      {
+        drug_master_id: exact.id,
+        drug_name: exact.name,
+        qty: 1,
+        rate: exact.mrp ?? exact.default_mrp ?? 0,
+        nextBatch: exact.batch || undefined,
+        nextExpiry: exact.expiry || undefined,
+        stock: exact.stock_qty ?? 0,
+        schedule: exact.schedule,
+      },
+    ]);
+    toast(`Added ${exact.name}`);
+  };
+
+  const sell = useMutation({
+    mutationFn: () =>
+      window.electronAPI.pharmacy.sell({
+        appointment_id: null,
+        patient_id: patient?.id ?? null,
+        items: rows.filter((r) => r.drug_name && r.qty > 0).map((r) => ({
+          drug_master_id: r.drug_master_id,
+          drug_name: r.drug_name,
+          qty: r.qty,
+          rate: r.rate,
+        })),
+        discount,
+        payment_mode: paymentMode,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pharmacy-sales'] });
+      qc.invalidateQueries({ queryKey: ['pharmacy-drugs'] });
+      qc.invalidateQueries({ queryKey: ['pharmacy-drugs-active'] });
+      qc.invalidateQueries({ queryKey: ['pharmacy-alerts'] });
+      qc.invalidateQueries({ queryKey: ['pharmacy-batches'] });
+      toast(`Counter sale recorded — ${formatINR(total)}`);
+      onDone();
+    },
+    onError: (e: any) => toast(e?.message || 'Counter sale failed', 'error'),
+  });
+
+  // Highlight if any selected drug needs a prescription (Schedule H/H1) — informational, not blocking.
+  const hasScheduleH = rows.some((r) => r.schedule === 'H' || r.schedule === 'H1');
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center justify-between pb-3 border-b border-gray-200 dark:border-slate-700 mb-3">
+        <div>
+          <div className="text-sm font-semibold text-emerald-700 dark:text-emerald-300 inline-flex items-center gap-1.5">
+            <ShoppingCart className="w-4 h-4" /> Counter Sale (Walk-in)
+          </div>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400">No prescription required. FEFO batches are still allocated automatically.</div>
+        </div>
+      </div>
+
+      {/* Optional patient picker */}
+      <div className="mb-3">
+        <label className="label">Customer (optional — leave blank for cash walk-in)</label>
+        {patient ? (
+          <div className="flex items-center justify-between p-2 rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20">
+            <div>
+              <div className="text-sm font-medium text-gray-900 dark:text-slate-100">{patient.first_name} {patient.last_name}</div>
+              <div className="text-[11px] text-gray-500 dark:text-slate-400">{patient.uhid} · {patient.phone}</div>
+            </div>
+            <button className="btn-ghost text-xs" onClick={() => { setPatient(null); setPatientQuery(''); }}>Change</button>
+          </div>
+        ) : (
+          <div>
+            <div className="relative">
+              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                className="input pl-9"
+                placeholder="Search by name / phone / UHID — or skip"
+                value={patientQuery}
+                onChange={(e) => setPatientQuery(e.target.value)}
+              />
+            </div>
+            {patientQuery.trim().length > 0 && patientResults.length > 0 && (
+              <ul className="mt-1 max-h-40 overflow-auto rounded-lg border border-gray-200 dark:border-slate-700 divide-y divide-gray-100 dark:divide-slate-800">
+                {patientResults.slice(0, 8).map((p: any) => (
+                  <li
+                    key={p.id}
+                    className="px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800 text-sm"
+                    onClick={() => { setPatient(p); setPatientQuery(''); }}
+                  >
+                    <div className="font-medium text-gray-900 dark:text-slate-100">{p.first_name} {p.last_name}</div>
+                    <div className="text-[11px] text-gray-500 dark:text-slate-400">{p.uhid} · {p.phone}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+
+      {hasScheduleH && (
+        <div className="mb-2 flex items-start gap-2 p-2 rounded-md text-[11px] text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800">
+          <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <div>
+            <b>Schedule H/H1 drug in this sale</b> — by law, dispense only against a valid prescription. The dispensing register will record this entry.
+          </div>
+        </div>
+      )}
+
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
+            <th className="py-2">Drug</th>
+            <th className="py-2 w-20 text-right">Qty</th>
+            <th className="py-2 w-24 text-right">Rate</th>
+            <th className="py-2 w-28 text-right">Amount</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={5} className="py-6 text-center text-xs text-gray-400 dark:text-slate-500">
+                No drugs yet — type a name below or click Scan.
+              </td>
+            </tr>
+          ) : rows.map((r, idx) => (
+            <tr key={idx} className="border-b border-gray-100 dark:border-slate-800 align-top">
+              <td className="py-1.5 pr-2">
+                <input
+                  list="counter-drugs-list"
+                  className="input"
+                  placeholder="Search drug…"
+                  value={r.drug_name}
+                  onChange={(e) => {
+                    const match = drugs.find((d) => d.name === e.target.value);
+                    setRow(idx, match
+                      ? {
+                          drug_master_id: match.id,
+                          drug_name: match.name,
+                          rate: match.mrp ?? match.default_mrp ?? 0,
+                          nextBatch: match.batch || undefined,
+                          nextExpiry: match.expiry || undefined,
+                          stock: match.stock_qty ?? 0,
+                          schedule: match.schedule,
+                        }
+                      : { drug_master_id: undefined, drug_name: e.target.value, schedule: undefined, nextBatch: undefined, nextExpiry: undefined, stock: undefined }
+                    );
+                  }}
+                />
+                {r.nextBatch && (
+                  <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-0.5">
+                    FEFO batch <span className="font-mono">{r.nextBatch}</span>
+                    {r.nextExpiry && <> · exp {r.nextExpiry}</>}
+                    {r.stock != null && <> · {r.stock} in stock</>}
+                  </div>
+                )}
+                {r.drug_master_id != null && (r.stock ?? 0) < r.qty && (
+                  <div className="text-[10px] text-red-600 dark:text-red-400 mt-0.5">⚠ Only {r.stock} in stock</div>
+                )}
+              </td>
+              <td className="py-1.5 px-1"><input type="number" className="input text-right" value={r.qty} onChange={(e) => setRow(idx, { qty: Number(e.target.value) })} /></td>
+              <td className="py-1.5 px-1"><input type="number" className="input text-right" value={r.rate} onChange={(e) => setRow(idx, { rate: Number(e.target.value) })} /></td>
+              <td className="py-1.5 px-1 text-right font-medium">{formatINR(r.qty * r.rate)}</td>
+              <td>
+                <button className="text-red-500 hover:text-red-700 p-1" onClick={() => setRows(rows.filter((_, i) => i !== idx))}>
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <datalist id="counter-drugs-list">
+        {drugs.map((d) => <option key={d.id} value={d.name} />)}
+      </datalist>
+
+      <div className="flex gap-2 mt-2">
+        <button className="btn-ghost text-xs" onClick={() => setRows([...rows, { drug_name: '', qty: 1, rate: 0 }])}>
+          <Plus className="w-3.5 h-3.5" /> Add drug
+        </button>
+        <button className="btn-ghost text-xs" onClick={() => setScanOpen(true)} title="Scan barcode">
+          <Scan className="w-3.5 h-3.5" /> Scan
+        </button>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-4">
+        <div>
+          <div className="label">Payment Mode</div>
+          <div className="flex gap-2">
+            {['Cash', 'Card', 'UPI'].map((m) => (
+              <button key={m} type="button" onClick={() => setPaymentMode(m)}
+                className={cn('px-3 py-1.5 text-xs rounded-md border',
+                  paymentMode === m ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-200'
+                )}>{m}</button>
+            ))}
+          </div>
+        </div>
+        <div className="card p-3 bg-gray-50 dark:bg-slate-900">
+          <div className="flex justify-between text-xs"><span>Subtotal</span><span>{formatINR(subtotal)}</span></div>
+          <div className="flex justify-between text-xs items-center"><span>Discount</span>
+            <input type="number" className="input w-24 text-right py-1" value={discount} onChange={(e) => setDiscount(Number(e.target.value))} />
+          </div>
+          <div className="flex justify-between text-sm font-bold pt-2 border-t border-gray-300 dark:border-slate-700 mt-1">
+            <span>Total</span><span className="text-emerald-700 dark:text-emerald-300">{formatINR(total)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-2 mt-4">
+        <button className="btn-secondary" onClick={onDone}>Cancel</button>
+        <button className="btn-success" onClick={() => sell.mutate()} disabled={sell.isPending || rows.length === 0}>
+          {sell.isPending ? 'Recording…' : 'Record Sale & Charge'}
+        </button>
+      </div>
+
+      <BarcodeScanModal
+        open={scanOpen}
+        onClose={() => setScanOpen(false)}
+        onScan={handleScan}
+        hint="Scan a drug barcode to add it to this counter sale. Drug must already be in Drug Master with a barcode."
       />
     </div>
   );
