@@ -11,7 +11,14 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: true,
+    // Native modules (better-sqlite3) MUST be unpacked from app.asar — their
+    // .node binaries can't be loaded from inside an asar archive. Vite's
+    // bundling hides the dep so AutoUnpackNativesPlugin alone misses it;
+    // adding an explicit unpack glob guarantees the .node files are sitting
+    // in resources/app.asar.unpacked/node_modules/better-sqlite3/build/.
+    asar: {
+      unpack: '**/node_modules/{better-sqlite3,bindings,file-uri-to-path}/**',
+    },
     name: 'CareDesk HMS',
   },
   rebuildConfig: {},
