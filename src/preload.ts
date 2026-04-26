@@ -9,6 +9,9 @@ import type {
   Consultation,
   Doctor,
   Drug,
+  DrugMaster,
+  DrugStockBatch,
+  DispensingRow,
   IpAdmission,
   LabOrder,
   LabOrderItem,
@@ -19,8 +22,11 @@ import type {
   PaymentMode,
   PharmacySale,
   PrescriptionItem,
+  PurchaseInvoice,
+  PurchaseInvoiceInput,
   Settings,
   Vitals,
+  Wholesaler,
 } from './types';
 
 type Role = 'admin' | 'receptionist' | 'doctor' | 'lab_tech' | 'pharmacist';
@@ -202,23 +208,53 @@ const api = {
       ipcRenderer.invoke('lab:updateResults', orderId, items) as Promise<LabOrderItem[]>,
   },
   pharmacy: {
+    // listDrugs returns DrugMaster rows joined with summed batch qty + earliest expiry.
+    // Returns shape stays Drug-compatible for legacy callers (mrp/batch/expiry/stock_qty aliased).
     listDrugs: (filter?: { q?: string; activeOnly?: boolean }) =>
-      ipcRenderer.invoke('pharmacy:listDrugs', filter || {}) as Promise<Drug[]>,
-    upsertDrug: (drug: Partial<Drug>) => ipcRenderer.invoke('pharmacy:upsertDrug', drug) as Promise<Drug>,
-    alerts: () => ipcRenderer.invoke('pharmacy:alerts') as Promise<{ lowStock: Drug[]; expiringSoon: Drug[] }>,
+      ipcRenderer.invoke('pharmacy:listDrugs', filter || {}) as Promise<(DrugMaster & Drug)[]>,
+    listBatches: (drugMasterId: number) =>
+      ipcRenderer.invoke('pharmacy:listBatches', drugMasterId) as Promise<DrugStockBatch[]>,
+    upsertDrug: (drug: Partial<DrugMaster>) =>
+      ipcRenderer.invoke('pharmacy:upsertDrug', drug) as Promise<DrugMaster>,
+    upsertBatch: (batch: Partial<DrugStockBatch>) =>
+      ipcRenderer.invoke('pharmacy:upsertBatch', batch) as Promise<DrugStockBatch>,
+    alerts: () =>
+      ipcRenderer.invoke('pharmacy:alerts') as Promise<{ lowStock: (DrugMaster & Drug)[]; expiringSoon: DrugStockBatch[] }>,
     pendingRx: () => ipcRenderer.invoke('pharmacy:pendingRx') as Promise<(AppointmentWithJoins & { rx_count: number })[]>,
     getAppointmentRx: (appointmentId: number) =>
       ipcRenderer.invoke('pharmacy:getAppointmentRx', appointmentId) as Promise<PrescriptionItem[]>,
     sell: (payload: {
       patient_id?: number | null;
       appointment_id?: number | null;
-      items: { drug_id?: number | null; drug_name: string; qty: number; rate: number }[];
+      items: { drug_id?: number | null; drug_master_id?: number | null; drug_name: string; qty: number; rate: number; gst_amount?: number }[];
       discount?: number;
       payment_mode?: string;
       sold_by?: string;
     }) => ipcRenderer.invoke('pharmacy:sell', payload) as Promise<PharmacySale>,
     listSales: (filter?: { from?: string; to?: string }) =>
       ipcRenderer.invoke('pharmacy:listSales', filter || {}) as Promise<(PharmacySale & { patient_name: string | null; patient_uhid: string | null })[]>,
+  },
+  wholesalers: {
+    list: (filter?: { activeOnly?: boolean }) =>
+      ipcRenderer.invoke('wholesalers:list', filter || {}) as Promise<Wholesaler[]>,
+    upsert: (w: Partial<Wholesaler>) =>
+      ipcRenderer.invoke('wholesalers:upsert', w) as Promise<Wholesaler>,
+    delete: (id: number) =>
+      ipcRenderer.invoke('wholesalers:delete', id) as Promise<{ ok: boolean }>,
+  },
+  purchases: {
+    list: (filter?: { from?: string; to?: string; wholesaler_id?: number }) =>
+      ipcRenderer.invoke('purchase:list', filter || {}) as Promise<(PurchaseInvoice & { wholesaler_name: string; wholesaler_license_no: string })[]>,
+    get: (id: number) =>
+      ipcRenderer.invoke('purchase:get', id) as Promise<(PurchaseInvoice & { wholesaler_name: string; items: any[] }) | null>,
+    create: (payload: PurchaseInvoiceInput) =>
+      ipcRenderer.invoke('purchase:create', payload) as Promise<PurchaseInvoice>,
+    attachScan: (invoiceId: number, fileDataUrl: string, ext: string) =>
+      ipcRenderer.invoke('purchase:attachScan', invoiceId, fileDataUrl, ext) as Promise<{ ok: boolean; path?: string; error?: string }>,
+  },
+  dispensing: {
+    register: (filter: { from: string; to: string; schedule?: string }) =>
+      ipcRenderer.invoke('dispensing:register', filter) as Promise<DispensingRow[]>,
   },
   ip: {
     list: (filter?: { status?: string }) =>

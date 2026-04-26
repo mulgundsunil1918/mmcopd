@@ -49,11 +49,14 @@ export function Pharmacy() {
           {alerts.expiringSoon.length > 0 && (
             <div className="rounded-lg border-2 border-red-400 bg-red-50 dark:bg-red-900/30 p-3">
               <div className="flex items-center gap-2 text-sm font-semibold text-red-900 dark:text-red-200">
-                <AlertTriangle className="w-4 h-4" /> Expiring within 30 days ({alerts.expiringSoon.length})
+                <AlertTriangle className="w-4 h-4" /> Expiring within 90 days ({alerts.expiringSoon.length})
               </div>
               <ul className="text-[11px] text-red-800 dark:text-red-200 mt-2 space-y-0.5 max-h-24 overflow-auto">
-                {alerts.expiringSoon.slice(0, 10).map((d: Drug) => (
-                  <li key={d.id}>{d.name} — expires {d.expiry}</li>
+                {alerts.expiringSoon.slice(0, 10).map((b) => (
+                  <li key={b.id}>
+                    {b.drug_name || `Drug #${b.drug_master_id}`} · Batch {b.batch_no} — expires {b.expiry}
+                    {b.qty_remaining ? ` · ${b.qty_remaining} left` : ''}
+                  </li>
                 ))}
               </ul>
             </div>

@@ -206,6 +206,7 @@ export interface LabOrderItem {
   is_abnormal: number;
 }
 
+/** Legacy single-batch drug shape. Kept for the old IPC shim during v0.2.x. */
 export interface Drug {
   id: number;
   name: string;
@@ -219,6 +220,146 @@ export interface Drug {
   stock_qty: number;
   low_stock_threshold: number;
   is_active: number;
+}
+
+export type DrugSchedule = 'H' | 'H1' | 'G' | 'X' | 'OTC';
+
+/** Master SKU. Stock lives in DrugStockBatch; sum across batches for total qty. */
+export interface DrugMaster {
+  id: number;
+  name: string;
+  generic_name: string | null;
+  manufacturer: string | null;
+  form: string | null;
+  strength: string | null;
+  pack_size: number | null;
+  schedule: DrugSchedule;
+  hsn_code: string | null;
+  gst_rate: number;
+  default_mrp: number;
+  low_stock_threshold: number;
+  barcode: string | null;
+  is_active: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Aggregated from drug_stock_batches by listDrugs (not stored in row). */
+  stock_qty?: number;
+  /** Earliest expiry across active batches (not stored in row). */
+  next_expiry?: string | null;
+}
+
+export interface DrugStockBatch {
+  id: number;
+  drug_master_id: number;
+  purchase_item_id: number | null;
+  batch_no: string;
+  expiry: string;
+  qty_received: number;
+  qty_remaining: number;
+  purchase_price: number | null;
+  mrp: number;
+  manufacturer_license_no: string | null;
+  received_at: string;
+  is_active: number;
+  /** Joined for display only. */
+  drug_name?: string;
+  schedule?: DrugSchedule;
+}
+
+export interface Wholesaler {
+  id: number;
+  name: string;
+  contact_person: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  drug_license_no: string;
+  gstin: string | null;
+  is_active: number;
+  notes: string | null;
+  created_at: string;
+}
+
+export type PurchasePaymentStatus = 'paid' | 'unpaid' | 'partial';
+
+export interface PurchaseInvoice {
+  id: number;
+  invoice_number: string;
+  wholesaler_id: number;
+  invoice_date: string;
+  received_date: string;
+  subtotal: number;
+  cgst: number;
+  sgst: number;
+  igst: number;
+  discount: number;
+  total: number;
+  payment_mode: string | null;
+  payment_status: PurchasePaymentStatus;
+  scan_path: string | null;
+  ocr_job_id: number | null;
+  notes: string | null;
+  created_at: string;
+  /** Joined for display only. */
+  wholesaler_name?: string;
+}
+
+export interface PurchaseInvoiceItem {
+  id: number;
+  invoice_id: number;
+  drug_master_id: number;
+  batch_no: string;
+  expiry: string;
+  qty_received: number;
+  pack_qty: number | null;
+  free_qty: number;
+  purchase_price: number;
+  mrp: number;
+  gst_rate: number;
+  manufacturer_license_no: string | null;
+  line_total: number;
+  /** Joined for display only. */
+  drug_name?: string;
+}
+
+export interface PurchaseInvoiceInput {
+  invoice_number: string;
+  wholesaler_id: number;
+  invoice_date: string;
+  received_date?: string;
+  subtotal?: number;
+  cgst?: number;
+  sgst?: number;
+  igst?: number;
+  discount?: number;
+  total?: number;
+  payment_mode?: string | null;
+  payment_status?: PurchasePaymentStatus;
+  notes?: string | null;
+  items: Array<Omit<PurchaseInvoiceItem, 'id' | 'invoice_id' | 'drug_name'>>;
+}
+
+export interface DispensingRow {
+  id: number;
+  sale_item_id: number;
+  sale_id: number;
+  patient_id: number | null;
+  doctor_id: number | null;
+  drug_master_id: number;
+  batch_id: number;
+  batch_no: string;
+  expiry: string;
+  schedule: DrugSchedule;
+  qty: number;
+  rate: number;
+  rx_reference: string | null;
+  dispensed_at: string;
+  dispensed_by: string | null;
+  /** Joined for display only. */
+  patient_name?: string | null;
+  drug_name?: string | null;
+  doctor_name?: string | null;
 }
 
 export interface PharmacySaleItem {

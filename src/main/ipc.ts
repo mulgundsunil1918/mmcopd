@@ -952,55 +952,144 @@ export function registerIpc() {
     return db.prepare('SELECT * FROM lab_order_items WHERE lab_order_id=?').all(orderId);
   });
 
-  // ===== Pharmacy =====
+  // ===== Pharmacy (v2 — batch-tracked, FEFO, Schedule H compliant) =====
+  // Listing returns drug_master rows with summed qty_remaining + earliest expiry
+  // joined in. Old fields (mrp, batch, expiry, stock_qty) are aliased so any
+  // remaining UI code that still expects the legacy Drug shape keeps working.
   ipcMain.handle('pharmacy:listDrugs', (_e, filter: { q?: string; activeOnly?: boolean } = {}) => {
     const db = getDb();
     const conds: string[] = [];
     const params: any[] = [];
-    if (filter.activeOnly !== false) conds.push('is_active=1');
+    if (filter.activeOnly !== false) conds.push('m.is_active=1');
     if (filter.q) {
-      conds.push('(name LIKE ? OR generic_name LIKE ?)');
+      conds.push('(m.name LIKE ? OR m.generic_name LIKE ? OR m.barcode = ?)');
       const like = `%${filter.q}%`;
-      params.push(like, like);
+      params.push(like, like, filter.q);
     }
     const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
-    return db.prepare(`SELECT * FROM drug_inventory ${where} ORDER BY name LIMIT 500`).all(...params);
+    return db.prepare(`
+      SELECT m.*,
+        m.default_mrp as mrp,
+        (SELECT COALESCE(SUM(b.qty_remaining), 0) FROM drug_stock_batches b
+          WHERE b.drug_master_id=m.id AND b.is_active=1) as stock_qty,
+        (SELECT b.batch_no FROM drug_stock_batches b
+          WHERE b.drug_master_id=m.id AND b.is_active=1 AND b.qty_remaining>0
+          ORDER BY date(b.expiry) ASC LIMIT 1) as batch,
+        (SELECT b.expiry FROM drug_stock_batches b
+          WHERE b.drug_master_id=m.id AND b.is_active=1 AND b.qty_remaining>0
+          ORDER BY date(b.expiry) ASC LIMIT 1) as expiry,
+        (SELECT b.expiry FROM drug_stock_batches b
+          WHERE b.drug_master_id=m.id AND b.is_active=1 AND b.qty_remaining>0
+          ORDER BY date(b.expiry) ASC LIMIT 1) as next_expiry
+      FROM drug_master m
+      ${where}
+      ORDER BY m.name LIMIT 500
+    `).all(...params);
+  });
+
+  ipcMain.handle('pharmacy:listBatches', (_e, drugMasterId: number) => {
+    const db = getDb();
+    return db.prepare(`
+      SELECT b.*, m.name as drug_name, m.schedule as schedule
+      FROM drug_stock_batches b
+      JOIN drug_master m ON m.id=b.drug_master_id
+      WHERE b.drug_master_id=?
+      ORDER BY date(b.expiry) ASC, b.received_at ASC
+    `).all(drugMasterId);
   });
 
   ipcMain.handle('pharmacy:upsertDrug', (_e, drug: any) => {
     const db = getDb();
     if (drug.id) {
-      db.prepare(
-        `UPDATE drug_inventory SET name=?, generic_name=?, form=?, strength=?, mrp=?, purchase_price=?,
-         batch=?, expiry=?, stock_qty=?, low_stock_threshold=?, is_active=? WHERE id=?`
-      ).run(
-        drug.name, drug.generic_name ?? null, drug.form ?? null, drug.strength ?? null,
-        drug.mrp ?? 0, drug.purchase_price ?? null, drug.batch ?? null, drug.expiry ?? null,
-        drug.stock_qty ?? 0, drug.low_stock_threshold ?? 10, drug.is_active ?? 1, drug.id
+      db.prepare(`
+        UPDATE drug_master SET
+          name=?, generic_name=?, manufacturer=?, form=?, strength=?, pack_size=?,
+          schedule=?, hsn_code=?, gst_rate=?, default_mrp=?, low_stock_threshold=?,
+          barcode=?, is_active=?, notes=?, updated_at=datetime('now')
+        WHERE id=?
+      `).run(
+        drug.name, drug.generic_name ?? null, drug.manufacturer ?? null,
+        drug.form ?? null, drug.strength ?? null, drug.pack_size ?? null,
+        drug.schedule ?? 'OTC', drug.hsn_code ?? null, drug.gst_rate ?? 12,
+        drug.default_mrp ?? drug.mrp ?? 0, drug.low_stock_threshold ?? 10,
+        drug.barcode ?? null, drug.is_active ?? 1, drug.notes ?? null, drug.id
       );
-      return db.prepare('SELECT * FROM drug_inventory WHERE id=?').get(drug.id);
+      return db.prepare('SELECT * FROM drug_master WHERE id=?').get(drug.id);
     }
-    const info = db.prepare(
-      `INSERT INTO drug_inventory (name, generic_name, form, strength, mrp, purchase_price, batch, expiry, stock_qty, low_stock_threshold, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      drug.name, drug.generic_name ?? null, drug.form ?? null, drug.strength ?? null,
-      drug.mrp ?? 0, drug.purchase_price ?? null, drug.batch ?? null, drug.expiry ?? null,
-      drug.stock_qty ?? 0, drug.low_stock_threshold ?? 10, drug.is_active ?? 1
+    const info = db.prepare(`
+      INSERT INTO drug_master
+        (name, generic_name, manufacturer, form, strength, pack_size, schedule,
+         hsn_code, gst_rate, default_mrp, low_stock_threshold, barcode, is_active, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      drug.name, drug.generic_name ?? null, drug.manufacturer ?? null,
+      drug.form ?? null, drug.strength ?? null, drug.pack_size ?? null,
+      drug.schedule ?? 'OTC', drug.hsn_code ?? null, drug.gst_rate ?? 12,
+      drug.default_mrp ?? drug.mrp ?? 0, drug.low_stock_threshold ?? 10,
+      drug.barcode ?? null, drug.is_active ?? 1, drug.notes ?? null
     );
-    return db.prepare('SELECT * FROM drug_inventory WHERE id=?').get(info.lastInsertRowid);
+    return db.prepare('SELECT * FROM drug_master WHERE id=?').get(info.lastInsertRowid);
+  });
+
+  // Manual batch entry (corrections, sample stock without a purchase invoice).
+  ipcMain.handle('pharmacy:upsertBatch', (_e, batch: any) => {
+    const db = getDb();
+    if (batch.id) {
+      db.prepare(`
+        UPDATE drug_stock_batches SET
+          batch_no=?, expiry=?, qty_received=?, qty_remaining=?, purchase_price=?,
+          mrp=?, manufacturer_license_no=?, is_active=?
+        WHERE id=?
+      `).run(
+        batch.batch_no, batch.expiry, batch.qty_received, batch.qty_remaining,
+        batch.purchase_price ?? null, batch.mrp ?? 0,
+        batch.manufacturer_license_no ?? null, batch.is_active ?? 1, batch.id
+      );
+      return db.prepare('SELECT * FROM drug_stock_batches WHERE id=?').get(batch.id);
+    }
+    const info = db.prepare(`
+      INSERT INTO drug_stock_batches
+        (drug_master_id, batch_no, expiry, qty_received, qty_remaining,
+         purchase_price, mrp, manufacturer_license_no, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(drug_master_id, batch_no) DO UPDATE SET
+        expiry=excluded.expiry,
+        qty_received=qty_received + excluded.qty_received,
+        qty_remaining=qty_remaining + excluded.qty_remaining,
+        mrp=excluded.mrp
+    `).run(
+      batch.drug_master_id, batch.batch_no, batch.expiry,
+      batch.qty_received, batch.qty_remaining ?? batch.qty_received,
+      batch.purchase_price ?? null, batch.mrp ?? 0,
+      batch.manufacturer_license_no ?? null, batch.is_active ?? 1
+    );
+    return db.prepare('SELECT * FROM drug_stock_batches WHERE drug_master_id=? AND batch_no=?')
+      .get(batch.drug_master_id, batch.batch_no);
   });
 
   ipcMain.handle('pharmacy:alerts', () => {
     const db = getDb();
-    const lowStock = db
-      .prepare('SELECT * FROM drug_inventory WHERE is_active=1 AND stock_qty <= low_stock_threshold ORDER BY stock_qty ASC LIMIT 50')
-      .all();
-    const expiringSoon = db
-      .prepare(
-        "SELECT * FROM drug_inventory WHERE is_active=1 AND expiry IS NOT NULL AND expiry <> '' AND date(expiry) <= date('now', '+30 days') ORDER BY expiry ASC LIMIT 50"
-      )
-      .all();
+    // Low stock = sum of qty_remaining across active batches <= threshold.
+    const lowStock = db.prepare(`
+      SELECT m.*, m.default_mrp as mrp,
+        (SELECT COALESCE(SUM(b.qty_remaining), 0) FROM drug_stock_batches b
+          WHERE b.drug_master_id=m.id AND b.is_active=1) as stock_qty
+      FROM drug_master m
+      WHERE m.is_active=1
+        AND (SELECT COALESCE(SUM(b.qty_remaining), 0) FROM drug_stock_batches b
+             WHERE b.drug_master_id=m.id AND b.is_active=1) <= m.low_stock_threshold
+      ORDER BY stock_qty ASC LIMIT 50
+    `).all();
+    // Expiring soon = batch-level, any active batch with qty_remaining > 0
+    // expiring within 90 days (more useful than the old 30-day window).
+    const expiringSoon = db.prepare(`
+      SELECT b.*, m.name as drug_name, m.schedule as schedule, m.default_mrp as mrp
+      FROM drug_stock_batches b
+      JOIN drug_master m ON m.id=b.drug_master_id
+      WHERE b.is_active=1 AND b.qty_remaining > 0
+        AND date(b.expiry) <= date('now', '+90 days')
+      ORDER BY date(b.expiry) ASC LIMIT 50
+    `).all();
     return { lowStock, expiringSoon };
   });
 
@@ -1030,6 +1119,10 @@ export function registerIpc() {
     return getDb().prepare('SELECT * FROM prescription_items WHERE appointment_id=?').all(appointmentId);
   });
 
+  // FEFO dispense — for each sale line, allocate from drug_stock_batches
+  // ordered by expiry ASC. One sale line may consume multiple batches; emit
+  // one dispensing_register row per batch slice (the legal record).
+  // The whole flow runs in a transaction so partial allocation rolls back.
   ipcMain.handle(
     'pharmacy:sell',
     (
@@ -1037,7 +1130,8 @@ export function registerIpc() {
       payload: {
         patient_id?: number | null;
         appointment_id?: number | null;
-        items: { drug_id?: number | null; drug_name: string; qty: number; rate: number }[];
+        // drug_id (legacy) is treated as drug_master_id (post-migration they're aligned).
+        items: { drug_id?: number | null; drug_master_id?: number | null; drug_name: string; qty: number; rate: number; gst_amount?: number }[];
         discount?: number;
         payment_mode?: string;
         sold_by?: string;
@@ -1052,30 +1146,87 @@ export function registerIpc() {
       const discount = Number(payload.discount ?? 0);
       const total = Math.max(0, subtotal - discount);
 
+      // Look up the prescribing doctor + an Rx reference once, for the register.
+      let doctorId: number | null = null;
+      let rxReference: string | null = null;
+      if (payload.appointment_id) {
+        const a = db.prepare(
+          `SELECT a.doctor_id, a.appointment_date, a.appointment_time, d.name as doctor_name
+           FROM appointments a JOIN doctors d ON d.id=a.doctor_id WHERE a.id=?`
+        ).get(payload.appointment_id) as any;
+        if (a) {
+          doctorId = a.doctor_id;
+          rxReference = `Rx ${a.appointment_date} ${a.appointment_time} · ${a.doctor_name}`;
+        }
+      }
+
       const tx = db.transaction(() => {
-        const info = db
-          .prepare(
-            'INSERT INTO pharmacy_sales (sale_number, patient_id, appointment_id, subtotal, discount, total, payment_mode, sold_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-          )
-          .run(
-            saleNumber,
-            payload.patient_id ?? null,
-            payload.appointment_id ?? null,
-            subtotal,
-            discount,
-            total,
-            payload.payment_mode ?? null,
-            payload.sold_by ?? null
-          );
-        const saleId = Number(info.lastInsertRowid);
-        const insItem = db.prepare(
-          'INSERT INTO pharmacy_sale_items (sale_id, drug_id, drug_name, qty, rate, amount) VALUES (?, ?, ?, ?, ?, ?)'
+        const info = db.prepare(
+          'INSERT INTO pharmacy_sales (sale_number, patient_id, appointment_id, subtotal, discount, total, payment_mode, sold_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        ).run(
+          saleNumber,
+          payload.patient_id ?? null,
+          payload.appointment_id ?? null,
+          subtotal, discount, total,
+          payload.payment_mode ?? null,
+          payload.sold_by ?? null
         );
-        const deduct = db.prepare('UPDATE drug_inventory SET stock_qty = MAX(0, stock_qty - ?) WHERE id=?');
+        const saleId = Number(info.lastInsertRowid);
+
+        const insSaleItem = db.prepare(`
+          INSERT INTO pharmacy_sale_items
+            (sale_id, drug_id, drug_master_id, batch_id, drug_name, qty, rate, amount, gst_amount)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const insRegister = db.prepare(`
+          INSERT INTO dispensing_register
+            (sale_item_id, sale_id, patient_id, doctor_id, drug_master_id, batch_id,
+             batch_no, expiry, schedule, qty, rate, rx_reference, dispensed_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const decrementBatch = db.prepare(
+          'UPDATE drug_stock_batches SET qty_remaining = qty_remaining - ? WHERE id=?'
+        );
+        const fetchBatches = db.prepare(`
+          SELECT b.id, b.batch_no, b.expiry, b.qty_remaining, m.schedule
+          FROM drug_stock_batches b
+          JOIN drug_master m ON m.id=b.drug_master_id
+          WHERE b.drug_master_id=? AND b.is_active=1 AND b.qty_remaining > 0
+          ORDER BY date(b.expiry) ASC, b.received_at ASC
+        `);
+
         for (const it of payload.items) {
+          const masterId = it.drug_master_id ?? it.drug_id ?? null;
           const amount = Number(it.qty) * Number(it.rate);
-          insItem.run(saleId, it.drug_id ?? null, it.drug_name, it.qty, it.rate, amount);
-          if (it.drug_id) deduct.run(it.qty, it.drug_id);
+          // Pick the first FEFO batch for the sale_items row's batch_id (denormalized).
+          const batches = masterId
+            ? (fetchBatches.all(masterId) as Array<{ id: number; batch_no: string; expiry: string; qty_remaining: number; schedule: string }>)
+            : [];
+          const firstBatchId = batches[0]?.id ?? null;
+          const saleItemInfo = insSaleItem.run(
+            saleId, masterId, masterId, firstBatchId,
+            it.drug_name, it.qty, it.rate, amount, Number(it.gst_amount ?? 0)
+          );
+          const saleItemId = Number(saleItemInfo.lastInsertRowid);
+
+          if (masterId) {
+            let need = Number(it.qty);
+            for (const b of batches) {
+              if (need <= 0) break;
+              const take = Math.min(need, b.qty_remaining);
+              decrementBatch.run(take, b.id);
+              insRegister.run(
+                saleItemId, saleId,
+                payload.patient_id ?? null, doctorId,
+                masterId, b.id, b.batch_no, b.expiry, b.schedule || 'OTC',
+                take, it.rate, rxReference, payload.sold_by ?? null
+              );
+              need -= take;
+            }
+            if (need > 0) {
+              throw new Error(`Insufficient stock for ${it.drug_name} — short by ${need}`);
+            }
+          }
         }
         return saleId;
       });
@@ -1100,6 +1251,186 @@ export function registerIpc() {
          ORDER BY s.created_at DESC LIMIT 300`
       )
       .all(...params);
+  });
+
+  // ===== Wholesalers =====
+  ipcMain.handle('wholesalers:list', (_e, filter: { activeOnly?: boolean } = {}) => {
+    const db = getDb();
+    const where = filter.activeOnly !== false ? 'WHERE is_active=1' : '';
+    return db.prepare(`SELECT * FROM wholesalers ${where} ORDER BY name`).all();
+  });
+
+  ipcMain.handle('wholesalers:upsert', (_e, w: any) => {
+    const db = getDb();
+    if (w.id) {
+      db.prepare(`
+        UPDATE wholesalers SET
+          name=?, contact_person=?, phone=?, email=?, address=?,
+          drug_license_no=?, gstin=?, is_active=?, notes=?
+        WHERE id=?
+      `).run(
+        w.name, w.contact_person ?? null, w.phone ?? null, w.email ?? null, w.address ?? null,
+        w.drug_license_no, w.gstin ?? null, w.is_active ?? 1, w.notes ?? null, w.id
+      );
+      return db.prepare('SELECT * FROM wholesalers WHERE id=?').get(w.id);
+    }
+    const info = db.prepare(`
+      INSERT INTO wholesalers
+        (name, contact_person, phone, email, address, drug_license_no, gstin, is_active, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      w.name, w.contact_person ?? null, w.phone ?? null, w.email ?? null, w.address ?? null,
+      w.drug_license_no, w.gstin ?? null, w.is_active ?? 1, w.notes ?? null
+    );
+    return db.prepare('SELECT * FROM wholesalers WHERE id=?').get(info.lastInsertRowid);
+  });
+
+  ipcMain.handle('wholesalers:delete', (_e, id: number) => {
+    // Soft delete — preserve referential integrity for purchase_invoices.
+    getDb().prepare('UPDATE wholesalers SET is_active=0 WHERE id=?').run(id);
+    return { ok: true };
+  });
+
+  // ===== Purchase invoices =====
+  ipcMain.handle('purchase:list', (_e, filter: { from?: string; to?: string; wholesaler_id?: number } = {}) => {
+    const db = getDb();
+    const conds: string[] = [];
+    const params: any[] = [];
+    if (filter.from) { conds.push('date(pi.invoice_date) >= ?'); params.push(filter.from); }
+    if (filter.to) { conds.push('date(pi.invoice_date) <= ?'); params.push(filter.to); }
+    if (filter.wholesaler_id) { conds.push('pi.wholesaler_id = ?'); params.push(filter.wholesaler_id); }
+    const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+    return db.prepare(`
+      SELECT pi.*, w.name as wholesaler_name, w.drug_license_no as wholesaler_license_no
+      FROM purchase_invoices pi
+      JOIN wholesalers w ON w.id=pi.wholesaler_id
+      ${where}
+      ORDER BY date(pi.invoice_date) DESC, pi.id DESC LIMIT 500
+    `).all(...params);
+  });
+
+  ipcMain.handle('purchase:get', (_e, id: number) => {
+    const db = getDb();
+    const header = db.prepare(`
+      SELECT pi.*, w.name as wholesaler_name, w.drug_license_no as wholesaler_license_no
+      FROM purchase_invoices pi
+      JOIN wholesalers w ON w.id=pi.wholesaler_id
+      WHERE pi.id=?
+    `).get(id) as any;
+    if (!header) return null;
+    const items = db.prepare(`
+      SELECT pii.*, m.name as drug_name, m.generic_name, m.form, m.strength
+      FROM purchase_invoice_items pii
+      JOIN drug_master m ON m.id=pii.drug_master_id
+      WHERE pii.invoice_id=?
+      ORDER BY pii.id
+    `).all(id);
+    return { ...header, items };
+  });
+
+  // Atomic purchase create — header + items + auto-create/update batches.
+  ipcMain.handle('purchase:create', (_e, payload: any) => {
+    const db = getDb();
+    const tx = db.transaction(() => {
+      const info = db.prepare(`
+        INSERT INTO purchase_invoices
+          (invoice_number, wholesaler_id, invoice_date, received_date,
+           subtotal, cgst, sgst, igst, discount, total,
+           payment_mode, payment_status, scan_path, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        payload.invoice_number, payload.wholesaler_id, payload.invoice_date,
+        payload.received_date || new Date().toISOString().slice(0, 10),
+        payload.subtotal ?? 0, payload.cgst ?? 0, payload.sgst ?? 0, payload.igst ?? 0,
+        payload.discount ?? 0, payload.total ?? 0,
+        payload.payment_mode ?? null, payload.payment_status ?? 'unpaid',
+        payload.scan_path ?? null, payload.notes ?? null
+      );
+      const invoiceId = Number(info.lastInsertRowid);
+
+      const insLine = db.prepare(`
+        INSERT INTO purchase_invoice_items
+          (invoice_id, drug_master_id, batch_no, expiry, qty_received, pack_qty,
+           free_qty, purchase_price, mrp, gst_rate, manufacturer_license_no, line_total)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const upsertBatch = db.prepare(`
+        INSERT INTO drug_stock_batches
+          (drug_master_id, purchase_item_id, batch_no, expiry, qty_received, qty_remaining,
+           purchase_price, mrp, manufacturer_license_no, received_at, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, date('now'), 1)
+        ON CONFLICT(drug_master_id, batch_no) DO UPDATE SET
+          expiry=excluded.expiry,
+          qty_received=qty_received + excluded.qty_received,
+          qty_remaining=qty_remaining + excluded.qty_received,
+          mrp=excluded.mrp,
+          purchase_price=excluded.purchase_price,
+          manufacturer_license_no=COALESCE(excluded.manufacturer_license_no, manufacturer_license_no),
+          purchase_item_id=excluded.purchase_item_id
+      `);
+
+      for (const it of (payload.items || [])) {
+        const lineTotal = Number(it.line_total ?? Number(it.qty_received) * Number(it.purchase_price ?? 0));
+        const lineInfo = insLine.run(
+          invoiceId, it.drug_master_id, it.batch_no, it.expiry,
+          Number(it.qty_received), it.pack_qty ?? null, Number(it.free_qty ?? 0),
+          Number(it.purchase_price), Number(it.mrp), Number(it.gst_rate ?? 12),
+          it.manufacturer_license_no ?? null, lineTotal
+        );
+        const lineId = Number(lineInfo.lastInsertRowid);
+        const totalUnits = Number(it.qty_received) + Number(it.free_qty ?? 0);
+        upsertBatch.run(
+          it.drug_master_id, lineId, it.batch_no, it.expiry,
+          totalUnits, totalUnits,
+          it.purchase_price ?? null, it.mrp ?? 0,
+          it.manufacturer_license_no ?? null
+        );
+      }
+      return invoiceId;
+    });
+    const newId = tx();
+    return db.prepare('SELECT * FROM purchase_invoices WHERE id=?').get(newId);
+  });
+
+  ipcMain.handle('purchase:attachScan', async (_e, invoiceId: number, fileDataUrl: string, ext: string) => {
+    if (!invoiceId) return { ok: false, error: 'Missing invoice id' };
+    const userData = app.getPath('userData');
+    const dir = path.join(userData, 'purchases');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const safeExt = (ext || 'pdf').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || 'pdf';
+    const fp = path.join(dir, `${invoiceId}.${safeExt}`);
+    try {
+      const base64 = fileDataUrl.replace(/^data:[^;]+;base64,/, '');
+      fs.writeFileSync(fp, Buffer.from(base64, 'base64'));
+      getDb().prepare('UPDATE purchase_invoices SET scan_path=? WHERE id=?').run(fp, invoiceId);
+      return { ok: true, path: fp };
+    } catch (err: any) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  });
+
+  // ===== Dispensing register =====
+  ipcMain.handle('dispensing:register', (_e, filter: { from: string; to: string; schedule?: string }) => {
+    const db = getDb();
+    const conds: string[] = ['date(dr.dispensed_at) >= ?', 'date(dr.dispensed_at) <= ?'];
+    const params: any[] = [filter.from, filter.to];
+    if (filter.schedule) {
+      conds.push('dr.schedule = ?');
+      params.push(filter.schedule);
+    }
+    return db.prepare(`
+      SELECT dr.*,
+        (p.first_name || ' ' || p.last_name) as patient_name,
+        p.uhid as patient_uhid,
+        m.name as drug_name,
+        d.name as doctor_name
+      FROM dispensing_register dr
+      LEFT JOIN patients p ON p.id=dr.patient_id
+      LEFT JOIN doctors d ON d.id=dr.doctor_id
+      JOIN drug_master m ON m.id=dr.drug_master_id
+      WHERE ${conds.join(' AND ')}
+      ORDER BY dr.dispensed_at ASC
+    `).all(...params);
   });
 
   // ===== IP Admissions =====
@@ -1459,7 +1790,60 @@ export function registerIpc() {
         FROM pharmacy_sale_items si
         JOIN pharmacy_sales s ON s.id = si.sale_id
         ORDER BY s.created_at DESC` },
-      { sheet: 'Pharmacy Inventory', sql: `SELECT * FROM drug_inventory ORDER BY name` },
+      { sheet: 'Pharmacy Inventory (legacy)', sql: `SELECT * FROM drug_inventory ORDER BY name` },
+      { sheet: 'Drug Master', sql: `
+        SELECT id, name, generic_name, manufacturer, form, strength, pack_size,
+               schedule, hsn_code, gst_rate, default_mrp, low_stock_threshold,
+               barcode, is_active, notes, created_at
+        FROM drug_master ORDER BY name
+      `},
+      { sheet: 'Drug Stock Batches', sql: `
+        SELECT b.id, m.name as drug_name, b.batch_no, b.expiry,
+               b.qty_received, b.qty_remaining, b.purchase_price, b.mrp,
+               b.manufacturer_license_no, b.received_at, b.is_active
+        FROM drug_stock_batches b
+        JOIN drug_master m ON m.id=b.drug_master_id
+        ORDER BY m.name, date(b.expiry)
+      `},
+      { sheet: 'Wholesalers', sql: `
+        SELECT id, name, contact_person, phone, email, address,
+               drug_license_no, gstin, is_active, notes, created_at
+        FROM wholesalers ORDER BY name
+      `},
+      { sheet: 'Purchase Invoices', sql: `
+        SELECT pi.id, pi.invoice_number, w.name as wholesaler_name,
+               w.drug_license_no as wholesaler_license_no,
+               pi.invoice_date, pi.received_date, pi.subtotal, pi.cgst, pi.sgst, pi.igst,
+               pi.discount, pi.total, pi.payment_mode, pi.payment_status,
+               pi.scan_path, pi.notes, pi.created_at
+        FROM purchase_invoices pi
+        JOIN wholesalers w ON w.id=pi.wholesaler_id
+        ORDER BY date(pi.invoice_date) DESC
+      `},
+      { sheet: 'Purchase Invoice Items', sql: `
+        SELECT pii.id, pi.invoice_number, w.name as wholesaler_name,
+               m.name as drug_name, pii.batch_no, pii.expiry,
+               pii.qty_received, pii.pack_qty, pii.free_qty,
+               pii.purchase_price, pii.mrp, pii.gst_rate,
+               pii.manufacturer_license_no, pii.line_total
+        FROM purchase_invoice_items pii
+        JOIN purchase_invoices pi ON pi.id=pii.invoice_id
+        JOIN wholesalers w ON w.id=pi.wholesaler_id
+        JOIN drug_master m ON m.id=pii.drug_master_id
+        ORDER BY date(pi.invoice_date) DESC, pii.id
+      `},
+      { sheet: 'Dispensing Register', sql: `
+        SELECT dr.id, dr.dispensed_at, dr.schedule,
+               (p.first_name || ' ' || p.last_name) as patient_name, p.uhid as patient_uhid,
+               m.name as drug_name, dr.batch_no, dr.expiry,
+               dr.qty, dr.rate, d.name as doctor_name,
+               dr.rx_reference, dr.dispensed_by
+        FROM dispensing_register dr
+        LEFT JOIN patients p ON p.id=dr.patient_id
+        LEFT JOIN doctors d ON d.id=dr.doctor_id
+        JOIN drug_master m ON m.id=dr.drug_master_id
+        ORDER BY dr.dispensed_at DESC
+      `},
       { sheet: 'IP Admissions', sql: `
         SELECT a.id, a.admission_number, a.admitted_at, a.discharged_at, a.ward, a.bed_number,
                a.status, a.admission_notes, a.discharge_summary,
@@ -1787,7 +2171,12 @@ export function registerIpc() {
   const COUNT_TABLES = [
     'patients', 'appointments', 'bills', 'prescription_items',
     'lab_orders', 'lab_order_items', 'pharmacy_sales', 'pharmacy_sale_items',
-    'ip_admissions', 'consultations', 'drug_inventory',
+    'ip_admissions', 'consultations',
+    // Pharmacy compliance v2 tables
+    'drug_master', 'drug_stock_batches', 'wholesalers',
+    'purchase_invoices', 'purchase_invoice_items', 'dispensing_register',
+    // Legacy (kept as safety net during v0.2.x; remove in v0.3.0)
+    'drug_inventory',
     'doctors', 'users', 'notification_log', 'audit_log',
     'patient_documents', 'patient_allergies', 'patient_conditions',
   ];
