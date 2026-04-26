@@ -11,6 +11,7 @@ import { SlipPreviewLauncher } from '../components/SlipPreviewLauncher';
 import { AdminGate } from '../components/AdminGate';
 import { useToast } from '../hooks/useToast';
 import { INDIAN_STATES } from '../lib/india';
+import { KARNATAKA_PLACES, ALL_NEARBY_PLACES } from '../lib/places';
 import { DOCTOR_COLOR_OPTIONS, colorForDoctor } from '../lib/doctor-colors';
 import type { AppMode, Doctor, Settings } from '../types';
 
@@ -685,13 +686,131 @@ function DefaultLocation() {
         </div>
         <TxtField label="Default District" value={draft.default_district ?? ''} onChange={(v) => set('default_district', v)} />
         <div className="col-span-2">
-          <TxtField label="Known Villages / Places (comma-separated)" value={draft.known_villages ?? ''} onChange={(v) => set('known_villages', v)} />
+          <TxtField label="Known Villages / Places (your custom additions, comma-separated)" value={draft.known_villages ?? ''} onChange={(v) => set('known_villages', v)} />
           <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-1">
-            e.g. <i>Mulgund, Gadag, Lakshmeshwar, Naregal, Shirahatti</i> — these show as autocomplete in the Reception Place field.
+            Anything you add here appears as autocomplete in the Reception <b>Place</b> field — on top of the bundled list shown below.
           </div>
+        </div>
+        <div className="col-span-2">
+          <BundledVillagesBrowser
+            knownVillages={draft.known_villages ?? ''}
+            onAdd={(v) => {
+              const current = (draft.known_villages ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+              if (current.some((x) => x.toLowerCase() === v.toLowerCase())) return;
+              set('known_villages', [...current, v].join(', '));
+            }}
+          />
         </div>
       </div>
     </section>
+  );
+}
+
+function BundledVillagesBrowser({
+  knownVillages,
+  onAdd,
+}: {
+  knownVillages: string;
+  onAdd: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const known = new Set(knownVillages.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
+  const districts = Object.keys(KARNATAKA_PLACES).sort();
+
+  const filtered = (() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return KARNATAKA_PLACES;
+    const out: Record<string, string[]> = {};
+    for (const d of districts) {
+      const matches = KARNATAKA_PLACES[d].filter((v) => v.toLowerCase().includes(q));
+      if (matches.length) out[d] = matches;
+    }
+    return out;
+  })();
+  const filteredDistricts = Object.keys(filtered).sort();
+  const totalShown = filteredDistricts.reduce((s, d) => s + filtered[d].length, 0);
+
+  return (
+    <div className="rounded-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-slate-800/50 hover:bg-gray-100 dark:hover:bg-slate-800"
+      >
+        <div className="flex items-center gap-2 text-sm">
+          <span className="font-semibold text-gray-900 dark:text-slate-100">📍 Bundled Villages & Towns</span>
+          <span className="text-[11px] text-gray-500 dark:text-slate-400">
+            {ALL_NEARBY_PLACES.length.toLocaleString('en-IN')} places ·
+            Gadag · Haveri · Koppal · Dharwad — already auto-suggesting in Reception
+          </span>
+        </div>
+        <span className="text-xs text-gray-500 dark:text-slate-400">{open ? '▲ Hide' : '▼ Show'}</span>
+      </button>
+
+      {open && (
+        <div className="p-3 bg-white dark:bg-slate-900/30">
+          <div className="text-[11px] text-gray-600 dark:text-slate-300 mb-2">
+            These ~{ALL_NEARBY_PLACES.length} villages and towns are <b>already built into the app</b> and show as autocomplete suggestions when the receptionist types in the Place field. Use this list to verify coverage. Click the <b>+ Add</b> chip to also pin a place to the top of suggestions.
+          </div>
+          <div className="relative mb-3">
+            <input
+              type="text"
+              className="input pl-3"
+              placeholder={`Search ${ALL_NEARBY_PLACES.length.toLocaleString('en-IN')} villages…`}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          {totalShown === 0 ? (
+            <div className="text-center text-xs text-gray-500 dark:text-slate-400 py-6">
+              No villages match "{search}". The receptionist can still type any place name freely.
+            </div>
+          ) : (
+            <>
+              {search && (
+                <div className="text-[10px] text-gray-500 dark:text-slate-400 mb-2">
+                  Showing {totalShown.toLocaleString('en-IN')} match{totalShown === 1 ? '' : 'es'} across {filteredDistricts.length} district{filteredDistricts.length === 1 ? '' : 's'}
+                </div>
+              )}
+              <div className="max-h-72 overflow-y-auto space-y-3 pr-1">
+                {filteredDistricts.map((district) => (
+                  <div key={district}>
+                    <div className="sticky top-0 z-10 bg-white dark:bg-slate-900 py-1 text-[10px] uppercase tracking-wider font-bold text-blue-700 dark:text-blue-300 border-b border-blue-100 dark:border-blue-900">
+                      {district} District · {filtered[district].length} places
+                    </div>
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {filtered[district].map((v) => {
+                        const isAdded = known.has(v.toLowerCase());
+                        return (
+                          <button
+                            key={v}
+                            type="button"
+                            onClick={() => !isAdded && onAdd(v)}
+                            disabled={isAdded}
+                            className={cn(
+                              'text-[11px] px-2 py-0.5 rounded border inline-flex items-center gap-1 transition',
+                              isAdded
+                                ? 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200 cursor-default'
+                                : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-200 hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-pointer'
+                            )}
+                            title={isAdded ? 'Already in your Known Villages list' : 'Click to pin to your Known Villages'}
+                          >
+                            {v}
+                            {isAdded ? <Check className="w-3 h-3" /> : <span className="text-[9px] text-blue-600 dark:text-blue-400">+ pin</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
