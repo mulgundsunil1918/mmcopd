@@ -6,6 +6,7 @@ export const DEFAULT_WHATSAPP_TEMPLATE =
   'Namaste {{patient_name}} 🙏\n\n' +
   'Your appointment at *{{clinic_name}}* is confirmed.\n\n' +
   '👨‍⚕️ *Doctor:* {{doctor_name}}\n' +
+  '🚪 *Room:* {{room}}\n' +
   '📅 *Date:* {{date}}    🕒 *Time:* {{time}}\n' +
   '🎟️ *Token:* #{{token}}\n\n' +
   '🆔 *Patient ID (UHID):* {{uhid}}\n' +
@@ -31,9 +32,9 @@ export const TEMPLATE_SNIPPETS: { id: string; label: string; description: string
   },
   {
     id: 'doctor-block',
-    label: 'Doctor + Token block',
-    description: 'Highlights doctor name and token number',
-    insert: '\n👨‍⚕️ *Doctor:* {{doctor_name}}\n🎟️ *Token:* #{{token}}\n',
+    label: 'Doctor + Token + Room block',
+    description: 'Doctor name, room number, and token number',
+    insert: '\n👨‍⚕️ *Doctor:* {{doctor_name}}\n🚪 *Room:* {{room}}\n🎟️ *Token:* #{{token}}\n',
   },
   {
     id: 'date-time-block',
@@ -62,6 +63,7 @@ export const WHATSAPP_PLACEHOLDERS: { token: string; sample: string; help: strin
   { token: '{{date}}', sample: '25 Apr 2026', help: 'Appointment date' },
   { token: '{{time}}', sample: '10:30 AM', help: 'Appointment time (12-hr)' },
   { token: '{{token}}', sample: '7', help: 'Token / queue number' },
+  { token: '{{room}}', sample: '101', help: 'Doctor consulting room number' },
   { token: '{{visit_id}}', sample: 'MMC0007/V42', help: 'UHID / Visit ID combo' },
   { token: '{{uhid}}', sample: 'MMC0007', help: "Patient's UHID" },
   { token: '{{clinic_name}}', sample: 'Mulgund Multispeciality Clinic', help: 'Clinic name' },
@@ -75,6 +77,7 @@ export interface WhatsAppContext {
   date: string;
   time: string;
   token: string;
+  room: string;
   visit_id: string;
   uhid: string;
   clinic_name: string;
@@ -105,6 +108,7 @@ export function buildContext(appointment: AppointmentWithJoins, settings: Settin
     date: dateStr,
     time: fmt12h(appointment.appointment_time),
     token: String(appointment.token_number ?? ''),
+    room: appointment.doctor_room || '',
     visit_id: `${appointment.patient_uhid}/V${appointment.id}`,
     uhid: appointment.patient_uhid || '',
     clinic_name: settings.clinic_name || '',

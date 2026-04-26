@@ -44,6 +44,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
     'Namaste {{patient_name}} 🙏\n\n' +
     'Your appointment at *{{clinic_name}}* is confirmed.\n\n' +
     '👨‍⚕️ *Doctor:* {{doctor_name}}\n' +
+    '🚪 *Room:* {{room}}\n' +
     '📅 *Date:* {{date}}    🕒 *Time:* {{time}}\n' +
     '🎟️ *Token:* #{{token}}\n\n' +
     '🆔 *Patient ID (UHID):* {{uhid}}\n' +

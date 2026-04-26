@@ -82,6 +82,7 @@ export function WhatsAppMessaging({ defaultOpen = true }: { defaultOpen?: boolea
     { label: 'Date', token: '{{date}}' },
     { label: 'Time', token: '{{time}}' },
     { label: 'Token #', token: '{{token}}' },
+    { label: 'Room number', token: '{{room}}' },
     { label: 'Visit ID', token: '{{visit_id}}' },
     { label: 'Clinic name', token: '{{clinic_name}}' },
     { label: 'Clinic phone', token: '{{clinic_phone}}' },
