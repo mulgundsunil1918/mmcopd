@@ -369,12 +369,13 @@ export function registerIpc() {
     const db = getDb();
     const info = db
       .prepare(
-        'INSERT INTO doctors (name, specialty, phone, email, room_number, is_active, default_fee, signature, qualifications, registration_no, color) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO doctors (name, specialty, phone, email, room_number, is_active, default_fee, signature, qualifications, registration_no, color, available_from, available_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       )
       .run(
         d.name ?? '', d.specialty ?? '', d.phone ?? null, d.email ?? null, d.room_number ?? null,
         d.is_active ?? 1, d.default_fee ?? 500, d.signature ?? null,
-        d.qualifications ?? null, d.registration_no ?? null, d.color ?? null
+        d.qualifications ?? null, d.registration_no ?? null, d.color ?? null,
+        d.available_from || null, d.available_to || null
       );
     return db.prepare('SELECT * FROM doctors WHERE id=?').get(info.lastInsertRowid);
   });
@@ -439,11 +440,12 @@ export function registerIpc() {
   ipcMain.handle('doctors:update', (_e, id: number, d: Partial<Doctor>) => {
     const db = getDb();
     db.prepare(
-      'UPDATE doctors SET name=?, specialty=?, phone=?, email=?, room_number=?, is_active=?, default_fee=?, signature=?, qualifications=?, registration_no=?, color=? WHERE id=?'
+      'UPDATE doctors SET name=?, specialty=?, phone=?, email=?, room_number=?, is_active=?, default_fee=?, signature=?, qualifications=?, registration_no=?, color=?, available_from=?, available_to=? WHERE id=?'
     ).run(
       d.name ?? '', d.specialty ?? '', d.phone ?? null, d.email ?? null, d.room_number ?? null,
       d.is_active ?? 1, d.default_fee ?? 500, d.signature ?? null,
-      d.qualifications ?? null, d.registration_no ?? null, d.color ?? null, id
+      d.qualifications ?? null, d.registration_no ?? null, d.color ?? null,
+      d.available_from || null, d.available_to || null, id
     );
     return db.prepare('SELECT * FROM doctors WHERE id=?').get(id);
   });
@@ -462,6 +464,38 @@ export function registerIpc() {
 
   ipcMain.handle('appointments:create', (_e, payload: Omit<Appointment, 'id' | 'created_at' | 'token_number' | 'consultation_token' | 'status'> & { status?: AppointmentStatus }) => {
     const db = getDb();
+
+    // === Guard 1: doctor's daily availability window ===
+    // If the doctor has available_from / available_to set (HH:MM strings),
+    // refuse bookings outside that window. Empty = no constraint.
+    const docHours = db
+      .prepare('SELECT name, available_from, available_to FROM doctors WHERE id=?')
+      .get(payload.doctor_id) as { name: string; available_from: string | null; available_to: string | null } | undefined;
+    if (docHours?.available_from && docHours?.available_to && payload.appointment_time) {
+      const t = payload.appointment_time;
+      // String compare works because all are HH:MM zero-padded.
+      if (t < docHours.available_from || t > docHours.available_to) {
+        throw new Error(
+          `${docHours.name} is only available between ${docHours.available_from} and ${docHours.available_to}. The slot ${t} is outside that window.`
+        );
+      }
+    }
+
+    // === Guard 2: double-booking ===
+    // No two non-cancelled appointments for the same doctor at the same minute.
+    if (payload.appointment_time) {
+      const clash = db
+        .prepare(
+          "SELECT id, token_number FROM appointments WHERE doctor_id=? AND appointment_date=? AND appointment_time=? AND status <> 'Cancelled' LIMIT 1"
+        )
+        .get(payload.doctor_id, payload.appointment_date, payload.appointment_time) as { id: number; token_number: number } | undefined;
+      if (clash) {
+        throw new Error(
+          `That time slot (${payload.appointment_time}) is already booked for ${docHours?.name || 'this doctor'} (Token #${clash.token_number}). Pick a different time.`
+        );
+      }
+    }
+
     // Clinic-wide token: serial number of this patient across ALL doctors for the day.
     const tokenRow = db
       .prepare(

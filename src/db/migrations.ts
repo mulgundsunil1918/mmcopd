@@ -23,6 +23,9 @@ export function runMigrations(db: Database.Database) {
   addColumnIfMissing(db, 'doctors', 'qualifications', 'TEXT');
   addColumnIfMissing(db, 'doctors', 'registration_no', 'TEXT');
   addColumnIfMissing(db, 'doctors', 'color', 'TEXT');
+  // Optional consulting-window per doctor (HH:MM strings, empty = always available).
+  addColumnIfMissing(db, 'doctors', 'available_from', 'TEXT');
+  addColumnIfMissing(db, 'doctors', 'available_to', 'TEXT');
   addColumnIfMissing(db, 'patients', 'place', 'TEXT');
   addColumnIfMissing(db, 'patients', 'district', 'TEXT');
   addColumnIfMissing(db, 'patients', 'state', 'TEXT');

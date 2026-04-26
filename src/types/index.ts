@@ -54,6 +54,9 @@ export interface Doctor {
   qualifications?: string | null;
   registration_no?: string | null;
   color?: string | null;
+  /** Optional daily availability window. HH:MM 24h. Empty = always available. */
+  available_from?: string | null;
+  available_to?: string | null;
 }
 
 export interface Appointment {

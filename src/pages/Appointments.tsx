@@ -594,31 +594,58 @@ function BookAppointmentModal({
             <input type="date" className="input" value={apptDate} onChange={(e) => setApptDate(e.target.value)} />
           </div>
           <div>
-            <label className="label">Time Slot (optional)</label>
-            <div className="flex flex-wrap gap-1.5 max-h-40 overflow-auto p-2 border border-gray-200 dark:border-slate-700 rounded-lg">
+            <label className="label">
+              Time {selectedDoctor?.available_from && selectedDoctor?.available_to
+                ? <span className="text-[10px] font-normal text-blue-600 dark:text-blue-300">· {selectedDoctor.name} works {fmt12h(selectedDoctor.available_from)} – {fmt12h(selectedDoctor.available_to)}</span>
+                : null}
+            </label>
+            {/* Custom time input — any minute, not restricted to slot boundaries */}
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
+              <input
+                type="time"
+                className="input w-auto"
+                value={slot}
+                onChange={(e) => setSlot(e.target.value)}
+              />
               <button
                 type="button"
+                className="text-xs text-gray-500 hover:underline px-2"
                 onClick={() => setSlot('')}
-                className={cn(
-                  'text-xs px-2 py-1 rounded border',
-                  !slot ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-200 hover:border-indigo-400'
-                )}
               >
                 Walk-in (now)
               </button>
+              {slot && bookedSet.has(slot) && (
+                <span className="text-[11px] text-red-700 dark:text-red-300 font-semibold">
+                  ⚠ Already booked — pick another time
+                </span>
+              )}
+              {slot && selectedDoctor?.available_from && selectedDoctor?.available_to &&
+                (slot < selectedDoctor.available_from || slot > selectedDoctor.available_to) && (
+                <span className="text-[11px] text-amber-700 dark:text-amber-300 font-semibold">
+                  ⚠ Outside {selectedDoctor.name}'s hours
+                </span>
+              )}
+            </div>
+            {/* Quick-pick presets — same {slot_duration}-minute boundaries as before */}
+            <div className="text-[10px] text-gray-500 dark:text-slate-400 mb-1">Quick-pick presets:</div>
+            <div className="flex flex-wrap gap-1.5 max-h-32 overflow-auto p-2 border border-gray-200 dark:border-slate-700 rounded-lg">
               {slots.map((s) => {
                 const isBooked = bookedSet.has(s);
+                const outsideHours = !!(selectedDoctor?.available_from && selectedDoctor?.available_to &&
+                  (s < selectedDoctor.available_from || s > selectedDoctor.available_to));
+                const disabled = isBooked || outsideHours;
                 return (
                   <button
                     key={s}
                     type="button"
-                    disabled={isBooked}
+                    disabled={disabled}
                     onClick={() => setSlot(s)}
+                    title={isBooked ? 'Already booked' : outsideHours ? `Outside doctor's hours (${selectedDoctor?.available_from}–${selectedDoctor?.available_to})` : undefined}
                     className={cn(
                       'text-xs px-2 py-1 rounded border',
-                      isBooked && 'bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-slate-500 line-through border-gray-200 dark:border-slate-700 cursor-not-allowed',
-                      !isBooked && slot === s && 'bg-blue-600 text-white border-blue-600',
-                      !isBooked && slot !== s && 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-200 hover:border-blue-400'
+                      disabled && 'bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-slate-500 line-through border-gray-200 dark:border-slate-700 cursor-not-allowed',
+                      !disabled && slot === s && 'bg-blue-600 text-white border-blue-600',
+                      !disabled && slot !== s && 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-200 hover:border-blue-400'
                     )}
                   >
                     {fmt12h(s)}

@@ -1422,7 +1422,29 @@ function DoctorsManagement() {
                 <Field label="Room Number">
                   <input className="input" value={editing.room_number || ''} onChange={(e) => setEditing({ ...editing, room_number: e.target.value })} />
                 </Field>
+                <Field label="Available From (optional)">
+                  <input
+                    type="time"
+                    className="input"
+                    value={editing.available_from || ''}
+                    onChange={(e) => setEditing({ ...editing, available_from: e.target.value || null })}
+                  />
+                </Field>
+                <Field label="Available To (optional)">
+                  <input
+                    type="time"
+                    className="input"
+                    value={editing.available_to || ''}
+                    onChange={(e) => setEditing({ ...editing, available_to: e.target.value || null })}
+                  />
+                </Field>
               </div>
+              {(editing.available_from || editing.available_to) && (
+                <div className="text-[11px] text-blue-700 dark:text-blue-300 -mt-2 px-1">
+                  💡 Bookings outside <b>{editing.available_from || '—'} – {editing.available_to || '—'}</b> will be blocked at save time.
+                  Leave both blank to allow any time.
+                </div>
+              )}
 
               {/* Color picker */}
               <div className="mt-4">
