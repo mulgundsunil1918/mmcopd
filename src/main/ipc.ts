@@ -829,17 +829,23 @@ export function registerIpc() {
     (
       _e,
       appointmentId: number,
-      items: { drug_name: string; dosage?: string; frequency?: string; duration?: string; instructions?: string }[]
+      items: { drug_name: string; drug_master_id?: number | null; dosage?: string; frequency?: string; duration?: string; instructions?: string }[]
     ) => {
       const db = getDb();
       const tx = db.transaction(() => {
         db.prepare('DELETE FROM prescription_items WHERE appointment_id=?').run(appointmentId);
         const ins = db.prepare(
-          'INSERT INTO prescription_items (appointment_id, drug_name, dosage, frequency, duration, instructions, order_idx) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          'INSERT INTO prescription_items (appointment_id, drug_master_id, drug_name, dosage, frequency, duration, instructions, order_idx) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         items.forEach((it, idx) => {
           if (!it.drug_name?.trim()) return;
-          ins.run(appointmentId, it.drug_name.trim(), it.dosage ?? null, it.frequency ?? null, it.duration ?? null, it.instructions ?? null, idx);
+          ins.run(
+            appointmentId,
+            it.drug_master_id ?? null,
+            it.drug_name.trim(),
+            it.dosage ?? null, it.frequency ?? null, it.duration ?? null, it.instructions ?? null,
+            idx
+          );
         });
       });
       tx();

@@ -162,6 +162,7 @@ export type AppMode =
 export interface PrescriptionItem {
   id?: number;
   appointment_id: number;
+  drug_master_id?: number | null;
   drug_name: string;
   dosage?: string | null;
   frequency?: string | null;

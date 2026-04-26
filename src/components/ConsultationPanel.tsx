@@ -7,6 +7,9 @@ import { Modal } from './Modal';
 import type { AppointmentWithJoins, Consultation, Doctor, PrescriptionItem, Vitals } from '../types';
 
 type RxRow = {
+  /** When the receptionist later dispenses this Rx, knowing which inventory
+   *  SKU the doctor meant kills fragile fuzzy-name matching at the pharmacy. */
+  drug_master_id?: number | null;
   drug_name: string;
   dosage: string;
   frequency: string;
@@ -14,7 +17,7 @@ type RxRow = {
   instructions: string;
 };
 
-const EMPTY_RX: RxRow = { drug_name: '', dosage: '', frequency: '', duration: '', instructions: '' };
+const EMPTY_RX: RxRow = { drug_master_id: null, drug_name: '', dosage: '', frequency: '', duration: '', instructions: '' };
 
 export function ConsultationPanel({
   appointment,
@@ -73,6 +76,7 @@ export function ConsultationPanel({
     if (rxItems.length > 0) {
       setRxRows(
         rxItems.map((r: PrescriptionItem) => ({
+          drug_master_id: r.drug_master_id ?? null,
           drug_name: r.drug_name || '',
           dosage: r.dosage || '',
           frequency: r.frequency || '',
@@ -84,6 +88,12 @@ export function ConsultationPanel({
       setRxRows([{ ...EMPTY_RX }]);
     }
   }, [appointment.id, rxItems.length]);
+
+  // Drug master for autocomplete
+  const { data: drugCatalog = [] } = useQuery({
+    queryKey: ['pharmacy-drugs-active'],
+    queryFn: () => window.electronAPI.pharmacy.listDrugs({ activeOnly: true }),
+  });
 
   const save = useMutation({
     mutationFn: async () => {
@@ -103,6 +113,7 @@ export function ConsultationPanel({
         rxRows
           .filter((r) => r.drug_name.trim())
           .map((r) => ({
+            drug_master_id: r.drug_master_id ?? null,
             drug_name: r.drug_name.trim(),
             dosage: r.dosage || null,
             frequency: r.frequency || null,
@@ -211,7 +222,27 @@ export function ConsultationPanel({
         <div className="space-y-2">
           {rxRows.map((row, idx) => (
             <div key={idx} className="grid grid-cols-[2fr_1fr_1fr_1fr_2fr_auto] gap-2 items-start">
-              <input className="input" placeholder="Drug name (e.g. Paracetamol 500mg)" value={row.drug_name} onChange={(e) => setRx(idx, { drug_name: e.target.value })} />
+              <div>
+                <input
+                  className="input"
+                  list="rx-drug-master"
+                  placeholder="Drug name (e.g. Paracetamol 500mg)"
+                  value={row.drug_name}
+                  onChange={(e) => {
+                    const typed = e.target.value;
+                    const match = drugCatalog.find((d) => d.name === typed);
+                    setRx(idx, match
+                      ? { drug_master_id: match.id, drug_name: match.name }
+                      : { drug_master_id: null, drug_name: typed }
+                    );
+                  }}
+                />
+                {row.drug_master_id != null && (
+                  <div className="text-[10px] text-emerald-700 dark:text-emerald-300 mt-0.5">
+                    ✓ linked to inventory · auto-deducts on dispense
+                  </div>
+                )}
+              </div>
               <input className="input" placeholder="Dosage (1 tab)" value={row.dosage} onChange={(e) => setRx(idx, { dosage: e.target.value })} />
               <input className="input" placeholder="Frequency (1-0-1)" value={row.frequency} onChange={(e) => setRx(idx, { frequency: e.target.value })} />
               <input className="input" placeholder="Duration (5 days)" value={row.duration} onChange={(e) => setRx(idx, { duration: e.target.value })} />
@@ -228,6 +259,13 @@ export function ConsultationPanel({
             </div>
           ))}
         </div>
+        <datalist id="rx-drug-master">
+          {drugCatalog.map((d) => (
+            <option key={d.id} value={d.name}>
+              {[d.generic_name, d.form, d.strength, d.manufacturer].filter(Boolean).join(' · ')}
+            </option>
+          ))}
+        </datalist>
       </div>
 
       {/* Lab Orders */}
