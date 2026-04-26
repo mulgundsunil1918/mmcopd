@@ -17,7 +17,10 @@ const config: ForgeConfig = {
     // adding an explicit unpack glob guarantees the .node files are sitting
     // in resources/app.asar.unpacked/node_modules/better-sqlite3/build/.
     asar: {
-      unpack: '**/node_modules/{better-sqlite3,bindings,file-uri-to-path}/**',
+      // Native-binary safe glob — any .node file gets unpacked. Simpler and
+      // more robust than per-package patterns (the brace-expansion form
+      // doesn't always match through electron-packager → asar's minimatch).
+      unpack: '**/*.node',
     },
     name: 'CareDesk HMS',
   },
