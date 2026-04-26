@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { Stethoscope, ArrowRight, Clock4, CheckCircle2 } from 'lucide-react';
 import { EmptyState } from '../components/EmptyState';
 import { todayISO } from '../lib/utils';
+import { colorForDoctor } from '../lib/doctor-colors';
 
 export function DoctorSelect() {
   const { data: doctors = [], isLoading } = useQuery({
@@ -54,18 +55,29 @@ export function DoctorSelect() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {doctors.map((d) => {
             const s = statsByDoctor.get(d.id) || { pending: 0, done: 0, total: 0 };
+            const docColor = colorForDoctor(d);
             return (
               <Link
                 key={d.id}
                 to={`/doctor/${d.id}`}
-                className="card p-5 hover:border-blue-400 hover:shadow-md transition group"
+                className="card p-5 hover:shadow-md transition group"
+                style={{ borderLeft: `5px solid ${docColor}` }}
               >
                 <div className="flex items-start gap-4">
-                  <div className="w-12 h-12 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 flex items-center justify-center">
+                  <div
+                    className="w-12 h-12 rounded-lg flex items-center justify-center text-white shadow"
+                    style={{ backgroundColor: docColor }}
+                  >
                     <Stethoscope className="w-6 h-6" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-gray-900 dark:text-slate-100">{d.name}</div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: docColor }}
+                      />
+                      <div className="font-semibold text-gray-900 dark:text-slate-100 truncate">{d.name}</div>
+                    </div>
                     {d.qualifications && (
                       <div className="text-[11px] text-blue-600 dark:text-blue-300 font-medium truncate">{d.qualifications}</div>
                     )}

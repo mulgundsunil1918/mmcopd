@@ -298,27 +298,28 @@ async function runScheduledBackup(reason: 'startup' | 'tick') {
     const dir = s.backup_folder || path.join(userData, 'backups');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
+    const isWallClockMode = s.auto_backup_frequency === 'daily' || s.auto_backup_frequency === 'twice_daily';
     const intervalHours = FREQUENCY_HOURS[s.auto_backup_frequency] || 24;
     const intervalMs = intervalHours * 3600 * 1000;
     const latestMs = latestBackupMtime(dir);
-    const dueByInterval = !latestMs || (Date.now() - latestMs) >= intervalMs;
 
-    // For 'daily' / 'twice_daily', also honour the configured wall-clock time:
-    // only run if we've crossed that time today AND we don't already have a backup since.
-    let dueByTime = true;
-    if (s.auto_backup_frequency === 'daily' || s.auto_backup_frequency === 'twice_daily') {
+    if (isWallClockMode) {
+      // Wall-clock mode (daily / twice-daily): the configured time IS the schedule.
+      // Don't apply the interval check — it would block today's run if any backup
+      // (manual or yesterday's auto) happened within the past 24 hours.
       const [hh, mm] = (s.auto_backup_time || '13:00').split(':').map((x) => parseInt(x, 10));
       const target = new Date();
       target.setHours(hh, mm, 0, 0);
-      // For twice_daily: also accept target + 12h
       const target2 = new Date(target.getTime() + 12 * 3600 * 1000);
       const validTimes = s.auto_backup_frequency === 'twice_daily' ? [target, target2] : [target];
-      dueByTime = validTimes.some((t) => Date.now() >= t.getTime() && (!latestMs || latestMs < t.getTime()));
-      // On startup, if interval is satisfied, run anyway so we never skip a missed window
-      if (reason === 'startup' && dueByInterval) dueByTime = true;
+      // Fire if we've crossed any target window AND no backup taken since that window.
+      const dueByTime = validTimes.some((t) => Date.now() >= t.getTime() && (!latestMs || latestMs < t.getTime()));
+      if (!dueByTime) return;
+    } else {
+      // Interval mode (hourly / every_3_hours / every_6_hours): plain elapsed-time check.
+      const dueByInterval = !latestMs || (Date.now() - latestMs) >= intervalMs;
+      if (!dueByInterval) return;
     }
-
-    if (!(dueByInterval && dueByTime)) return;
 
     // Prefer the full backup routine (sqlite + xlsx + manifest) so an automated
     // backup leaves the same recovery payload a manual one would. Fall back to
