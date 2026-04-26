@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export function createSchema(db: Database.Database) {
   db.exec(`
@@ -283,5 +283,135 @@ export function createSchema(db: Database.Database) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_consult_patient ON consultations(patient_id);
+
+    -- =========================================================
+    -- PHARMACY COMPLIANCE (Schedule H/H1, FEFO, batch tracking)
+    -- =========================================================
+
+    -- Master drug catalog (one row per SKU). Stock lives in drug_stock_batches.
+    CREATE TABLE IF NOT EXISTS drug_master (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      generic_name TEXT,
+      manufacturer TEXT,
+      form TEXT,
+      strength TEXT,
+      pack_size INTEGER,
+      schedule TEXT NOT NULL DEFAULT 'OTC' CHECK (schedule IN ('H','H1','G','X','OTC')),
+      hsn_code TEXT,
+      gst_rate REAL NOT NULL DEFAULT 12,
+      default_mrp REAL NOT NULL DEFAULT 0,
+      low_stock_threshold INTEGER NOT NULL DEFAULT 10,
+      barcode TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_drug_master_name ON drug_master(name);
+    CREATE INDEX IF NOT EXISTS idx_drug_master_generic ON drug_master(generic_name);
+    CREATE INDEX IF NOT EXISTS idx_drug_master_barcode ON drug_master(barcode);
+    CREATE INDEX IF NOT EXISTS idx_drug_master_schedule ON drug_master(schedule);
+
+    -- Wholesalers (suppliers) — drug license number is required by inspectors.
+    CREATE TABLE IF NOT EXISTS wholesalers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      contact_person TEXT,
+      phone TEXT,
+      email TEXT,
+      address TEXT,
+      drug_license_no TEXT NOT NULL,
+      gstin TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Purchase invoice header (one row per wholesaler bill).
+    CREATE TABLE IF NOT EXISTS purchase_invoices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      invoice_number TEXT NOT NULL,
+      wholesaler_id INTEGER NOT NULL REFERENCES wholesalers(id) ON DELETE RESTRICT,
+      invoice_date TEXT NOT NULL,
+      received_date TEXT NOT NULL DEFAULT (date('now')),
+      subtotal REAL NOT NULL DEFAULT 0,
+      cgst REAL NOT NULL DEFAULT 0,
+      sgst REAL NOT NULL DEFAULT 0,
+      igst REAL NOT NULL DEFAULT 0,
+      discount REAL NOT NULL DEFAULT 0,
+      total REAL NOT NULL DEFAULT 0,
+      payment_mode TEXT,
+      payment_status TEXT NOT NULL DEFAULT 'unpaid' CHECK (payment_status IN ('paid','unpaid','partial')),
+      scan_path TEXT,
+      ocr_job_id INTEGER,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (wholesaler_id, invoice_number)
+    );
+    CREATE INDEX IF NOT EXISTS idx_purchase_inv_date ON purchase_invoices(invoice_date);
+    CREATE INDEX IF NOT EXISTS idx_purchase_inv_wholesaler ON purchase_invoices(wholesaler_id);
+
+    -- Purchase invoice line items — each row spawns one drug_stock_batches row.
+    CREATE TABLE IF NOT EXISTS purchase_invoice_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      invoice_id INTEGER NOT NULL REFERENCES purchase_invoices(id) ON DELETE CASCADE,
+      drug_master_id INTEGER NOT NULL REFERENCES drug_master(id) ON DELETE RESTRICT,
+      batch_no TEXT NOT NULL,
+      expiry TEXT NOT NULL,
+      qty_received INTEGER NOT NULL,
+      pack_qty INTEGER,
+      free_qty INTEGER NOT NULL DEFAULT 0,
+      purchase_price REAL NOT NULL,
+      mrp REAL NOT NULL,
+      gst_rate REAL NOT NULL DEFAULT 12,
+      manufacturer_license_no TEXT,
+      line_total REAL NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_pii_invoice ON purchase_invoice_items(invoice_id);
+    CREATE INDEX IF NOT EXISTS idx_pii_drug ON purchase_invoice_items(drug_master_id);
+
+    -- Live FEFO inventory: one row per (drug, batch). qty_remaining decrements on dispense.
+    CREATE TABLE IF NOT EXISTS drug_stock_batches (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      drug_master_id INTEGER NOT NULL REFERENCES drug_master(id) ON DELETE RESTRICT,
+      purchase_item_id INTEGER REFERENCES purchase_invoice_items(id) ON DELETE SET NULL,
+      batch_no TEXT NOT NULL,
+      expiry TEXT NOT NULL,
+      qty_received INTEGER NOT NULL,
+      qty_remaining INTEGER NOT NULL,
+      purchase_price REAL,
+      mrp REAL NOT NULL DEFAULT 0,
+      manufacturer_license_no TEXT,
+      received_at TEXT NOT NULL DEFAULT (date('now')),
+      is_active INTEGER NOT NULL DEFAULT 1,
+      UNIQUE (drug_master_id, batch_no)
+    );
+    CREATE INDEX IF NOT EXISTS idx_batch_drug_expiry ON drug_stock_batches(drug_master_id, expiry);
+    CREATE INDEX IF NOT EXISTS idx_batch_active ON drug_stock_batches(is_active, qty_remaining);
+
+    -- Schedule H/H1 dispensing register — every dispense slice is a permanent legal record.
+    -- A single sale_item may consume multiple batches under FEFO; one register row per batch hit.
+    -- All FKs are RESTRICT — never silently disappears.
+    CREATE TABLE IF NOT EXISTS dispensing_register (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sale_item_id INTEGER NOT NULL REFERENCES pharmacy_sale_items(id) ON DELETE RESTRICT,
+      sale_id INTEGER NOT NULL REFERENCES pharmacy_sales(id) ON DELETE RESTRICT,
+      patient_id INTEGER REFERENCES patients(id),
+      doctor_id INTEGER REFERENCES doctors(id),
+      drug_master_id INTEGER NOT NULL REFERENCES drug_master(id),
+      batch_id INTEGER NOT NULL REFERENCES drug_stock_batches(id),
+      batch_no TEXT NOT NULL,
+      expiry TEXT NOT NULL,
+      schedule TEXT NOT NULL,
+      qty INTEGER NOT NULL,
+      rate REAL NOT NULL,
+      rx_reference TEXT,
+      dispensed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      dispensed_by TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_disp_date ON dispensing_register(dispensed_at);
+    CREATE INDEX IF NOT EXISTS idx_disp_schedule ON dispensing_register(schedule, dispensed_at);
+    CREATE INDEX IF NOT EXISTS idx_disp_patient ON dispensing_register(patient_id);
   `);
 }

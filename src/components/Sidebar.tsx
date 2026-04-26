@@ -7,30 +7,39 @@ import { useAuth, canAnyRole, type Role } from '../hooks/useAuth';
 import { BackupAndClose } from './BackupAndClose';
 import type { AppMode } from '../types';
 
-type NavItem = { to: string; label: string; icon: any; color: string; minMode: AppMode; roles: Role[]; adminOnly?: boolean };
+/**
+ * Each mode "includes" everything below it. Pharmacy is its own toggleable layer:
+ * - Pharmacy appears in mode 1 (reception_pharmacy) onwards EXCEPT plain reception_doctor.
+ * - Doctor appears in mode 2 (reception_doctor) and mode 3+ (reception_pharmacy_doctor onwards).
+ * Lab needs mode 4+, IPD needs full.
+ *
+ * We can't use a simple integer rank because reception_pharmacy and reception_doctor
+ * are siblings (neither is a strict subset of the other). Each NavItem now declares
+ * a Set of modes it appears in.
+ */
+const PHARMACY_MODES = new Set<AppMode>(['reception_pharmacy', 'reception_pharmacy_doctor', 'reception_pharmacy_doctor_lab', 'full']);
+const DOCTOR_MODES = new Set<AppMode>(['reception_doctor', 'reception_pharmacy_doctor', 'reception_pharmacy_doctor_lab', 'full']);
+const LAB_MODES = new Set<AppMode>(['reception_pharmacy_doctor_lab', 'full']);
+const IPD_MODES = new Set<AppMode>(['full']);
+const ALL_MODES = new Set<AppMode>(['reception', 'reception_pharmacy', 'reception_doctor', 'reception_pharmacy_doctor', 'reception_pharmacy_doctor_lab', 'full']);
 
-const MODE_RANK: Record<AppMode, number> = {
-  reception: 0,
-  reception_doctor: 1,
-  reception_doctor_lab: 2,
-  reception_doctor_lab_ip: 3,
-};
+type NavItem2 = { to: string; label: string; icon: any; color: string; modes: Set<AppMode>; roles: Role[]; adminOnly?: boolean };
 
-const NAV: NavItem[] = [
-  { to: '/reception', label: 'Reception', icon: Users, color: 'text-emerald-500', minMode: 'reception', roles: ['receptionist'] },
-  { to: '/appointments', label: 'Appointments', icon: Calendar, color: 'text-blue-500', minMode: 'reception', roles: ['receptionist', 'doctor'] },
-  { to: '/doctor-select', label: 'Doctors', icon: Stethoscope, color: 'text-purple-500', minMode: 'reception_doctor', roles: ['doctor', 'receptionist'] },
-  { to: '/lab', label: 'Laboratory', icon: FlaskConical, color: 'text-fuchsia-500', minMode: 'reception_doctor_lab', roles: ['lab_tech', 'doctor', 'receptionist'] },
-  { to: '/pharmacy', label: 'Pharmacy', icon: Pill, color: 'text-lime-500', minMode: 'reception_doctor_lab', roles: ['pharmacist', 'doctor', 'receptionist'] },
-  { to: '/ipd', label: 'IPD', icon: BedDouble, color: 'text-red-500', minMode: 'reception_doctor_lab_ip', roles: ['doctor', 'receptionist'] },
-  { to: '/patient-log', label: 'Patient Log', icon: History, color: 'text-cyan-500', minMode: 'reception', roles: ['receptionist', 'doctor'] },
-  { to: '/origin', label: 'Patient Origin', icon: MapPin, color: 'text-rose-500', minMode: 'reception', roles: ['receptionist', 'doctor'] },
-  { to: '/billing', label: 'Billing', icon: Receipt, color: 'text-amber-500', minMode: 'reception', roles: ['receptionist'] },
-  { to: '/accounts', label: 'Accounts', icon: Wallet, color: 'text-teal-500', minMode: 'reception', roles: ['receptionist'] },
-  { to: '/reports', label: 'Reports', icon: BarChart3, color: 'text-orange-500', minMode: 'reception', roles: ['receptionist', 'doctor'] },
-  { to: '/notifications', label: 'Notifications', icon: Bell, color: 'text-pink-500', minMode: 'reception', roles: ['receptionist'] },
-  { to: '/users', label: 'Users & Access', icon: ShieldCheck, color: 'text-indigo-500', minMode: 'reception', roles: ['receptionist', 'doctor'], adminOnly: true },
-  { to: '/settings', label: 'Settings', icon: SettingsIcon, color: 'text-slate-500', minMode: 'reception', roles: ['receptionist', 'doctor'], adminOnly: true },
+const NAV: NavItem2[] = [
+  { to: '/reception', label: 'Reception', icon: Users, color: 'text-emerald-500', modes: ALL_MODES, roles: ['receptionist'] },
+  { to: '/appointments', label: 'Appointments', icon: Calendar, color: 'text-blue-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
+  { to: '/doctor-select', label: 'Doctors', icon: Stethoscope, color: 'text-purple-500', modes: DOCTOR_MODES, roles: ['doctor', 'receptionist'] },
+  { to: '/lab', label: 'Laboratory', icon: FlaskConical, color: 'text-fuchsia-500', modes: LAB_MODES, roles: ['lab_tech', 'doctor', 'receptionist'] },
+  { to: '/pharmacy', label: 'Pharmacy', icon: Pill, color: 'text-lime-500', modes: PHARMACY_MODES, roles: ['pharmacist', 'doctor', 'receptionist'] },
+  { to: '/ipd', label: 'IPD', icon: BedDouble, color: 'text-red-500', modes: IPD_MODES, roles: ['doctor', 'receptionist'] },
+  { to: '/patient-log', label: 'Patient Log', icon: History, color: 'text-cyan-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
+  { to: '/origin', label: 'Patient Origin', icon: MapPin, color: 'text-rose-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
+  { to: '/billing', label: 'Billing', icon: Receipt, color: 'text-amber-500', modes: ALL_MODES, roles: ['receptionist'] },
+  { to: '/accounts', label: 'Accounts', icon: Wallet, color: 'text-teal-500', modes: ALL_MODES, roles: ['receptionist'] },
+  { to: '/reports', label: 'Reports', icon: BarChart3, color: 'text-orange-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
+  { to: '/notifications', label: 'Notifications', icon: Bell, color: 'text-pink-500', modes: ALL_MODES, roles: ['receptionist'] },
+  { to: '/users', label: 'Users & Access', icon: ShieldCheck, color: 'text-indigo-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'], adminOnly: true },
+  { to: '/settings', label: 'Settings', icon: SettingsIcon, color: 'text-slate-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'], adminOnly: true },
 ];
 
 export function Sidebar() {
@@ -39,9 +48,9 @@ export function Sidebar() {
   const { data: clinicName } = useQuery({ queryKey: ['clinic-name'], queryFn: () => window.electronAPI.app.getClinicName() });
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
 
-  const currentMode = settings?.app_mode || 'reception_doctor';
+  const currentMode = (settings?.app_mode || 'reception_pharmacy_doctor') as AppMode;
   const visibleNav = NAV.filter((n) => {
-    if (MODE_RANK[n.minMode] > MODE_RANK[currentMode]) return false;
+    if (!n.modes.has(currentMode)) return false;
     return canAnyRole(user, n.roles, adminUnlocked);
   });
 

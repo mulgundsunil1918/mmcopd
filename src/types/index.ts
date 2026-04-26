@@ -146,7 +146,18 @@ export interface Consultation {
   updated_at?: string;
 }
 
-export type AppMode = 'reception' | 'reception_doctor' | 'reception_doctor_lab' | 'reception_doctor_lab_ip';
+/**
+ * 6-mode app ladder. Pharmacy is its own toggleable layer because under
+ * Drugs & Cosmetics rules, in-house pharmacy needs a separate license —
+ * many clinics operate without one and refer patients to outside chemists.
+ */
+export type AppMode =
+  | 'reception'                       // Reception only
+  | 'reception_pharmacy'              // + Pharmacy (chemist counter without doctor)
+  | 'reception_doctor'                // + Doctor (no pharmacy)
+  | 'reception_pharmacy_doctor'       // + Doctor + Pharmacy (most common — DEFAULT)
+  | 'reception_pharmacy_doctor_lab'   // + Lab (polyclinic)
+  | 'full';                           // + IPD (full hospital)
 
 export interface PrescriptionItem {
   id?: number;

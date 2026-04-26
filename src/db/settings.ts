@@ -16,7 +16,7 @@ export function getAllSettings(db: Database.Database): Settings {
     consultation_fee: parseInt(map.consultation_fee || '250', 10),
     special_price: parseInt(map.special_price || '150', 10),
     queue_flow_enabled: map.queue_flow_enabled === 'true',
-    app_mode: (map.app_mode as any) || 'reception_doctor',
+    app_mode: (map.app_mode as any) || 'reception_pharmacy_doctor',
     default_state: map.default_state || '',
     default_district: map.default_district || '',
     known_villages: map.known_villages || '',
