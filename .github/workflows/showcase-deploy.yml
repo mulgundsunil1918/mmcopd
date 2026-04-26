@@ -1,0 +1,56 @@
+name: Showcase deploy (GitHub Pages)
+
+# Builds the static-web demo (vite.demo.config.ts) and deploys to
+# https://mulgundsunil1918.github.io/mmcopd/ on every push to main.
+#
+# After the first successful run, go to your repo:
+#   Settings → Pages → Source: 'GitHub Actions'
+# Pages will then serve the artifact uploaded by this workflow.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        # --ignore-scripts skips better-sqlite3's native build (we don't need it
+        # for the static demo; it would fail on Linux runners without dev tools).
+        run: npm ci --ignore-scripts
+
+      - name: Build showcase site
+        run: npm run build:demo
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist-demo
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

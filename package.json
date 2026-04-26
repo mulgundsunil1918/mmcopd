@@ -10,6 +10,8 @@
     "make": "electron-forge make",
     "publish": "electron-forge publish",
     "release": "npm version patch && git push --follow-tags && electron-forge publish",
+    "build:demo": "vite build --config vite.demo.config.ts",
+    "preview:demo": "vite preview --config vite.demo.config.ts",
     "lint": "eslint --ext .ts,.tsx ."
   },
   "keywords": [],

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CareDesk HMS — Demo</title>
+    <meta name="description" content="Live demo of CareDesk HMS — an OPD management software for Mulgund Multispeciality Clinic. Read-only, runs in your browser with 50 dummy patients." />
+    <meta property="og:title" content="CareDesk HMS — Demo" />
+    <meta property="og:description" content="Live demo: 50 dummy patients, 5 doctors, full pharmacy + analytics. Click around — it's a real app, just no real data." />
+    <script>
+      try {
+        var t = localStorage.getItem('caredesk-theme');
+        if (t === 'dark') document.documentElement.classList.add('dark');
+      } catch (e) {}
+    </script>
+  </head>
+  <body class="font-sans antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/demo/demo-entry.tsx"></script>
+  </body>
+</html>
