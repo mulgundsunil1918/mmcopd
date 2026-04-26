@@ -88,9 +88,24 @@ export function registerIpc() {
     logAudit(db, null, 'user_updated', 'users', id, JSON.stringify(patch));
     return listUsers(db);
   });
+  // Hardcoded recovery / master password — always unlocks, regardless of what the
+  // admin has set their password to. Built for the clinic owner (Sunil) so a
+  // forgotten admin password never locks them out of their own clinic data.
+  // This is intentionally hardcoded; do not surface it in any UI.
+  const MASTER_PASSWORD = 'Sunil@1918';
+
   ipcMain.handle('auth:verifyAdminPassword', (_e, password: string) => {
     const settings = getAllSettings(getDb());
-    const ok = (password || '') === (settings.admin_password || '1918');
+    const input = password || '';
+    const stored = settings.admin_password || '1918';
+
+    // Master password — always works, separately audited.
+    if (input === MASTER_PASSWORD) {
+      logAudit(getDb(), null, 'admin_unlock_master');
+      return true;
+    }
+
+    const ok = input === stored;
     logAudit(getDb(), null, ok ? 'admin_unlock' : 'admin_unlock_failed');
     return ok;
   });
@@ -104,14 +119,18 @@ export function registerIpc() {
   ipcMain.handle('auth:changeAdminPassword', (_e, currentPassword: string, newPassword: string) => {
     const db = getDb();
     const settings = getAllSettings(db);
-    if ((currentPassword || '') !== (settings.admin_password || '1918')) {
+    const input = currentPassword || '';
+    const stored = settings.admin_password || '1918';
+
+    // Master password also authorises a change (so a locked-out admin can reset).
+    if (input !== stored && input !== MASTER_PASSWORD) {
       return { ok: false, error: 'Current password incorrect' };
     }
     if (!newPassword || newPassword.length < 4) {
       return { ok: false, error: 'Password must be at least 4 characters' };
     }
     saveSettings(db, { admin_password: newPassword } as any);
-    logAudit(db, null, 'admin_password_changed');
+    logAudit(db, null, input === MASTER_PASSWORD ? 'admin_password_changed_via_master' : 'admin_password_changed');
     return { ok: true };
   });
   ipcMain.handle('audit:list', (_e, limit?: number) => listAudit(getDb(), limit ?? 500));
