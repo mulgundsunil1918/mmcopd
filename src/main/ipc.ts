@@ -2627,12 +2627,50 @@ export function registerIpc() {
   ipcMain.handle('analytics:demographics', () => {
     const db = getDb();
     const total = (db.prepare(`SELECT COUNT(*) as c FROM patients`).get() as any).c;
+    // Revenue joins live in the same call so the renderer fetches once.
+    const revenueByGender = db.prepare(`
+      SELECT COALESCE(NULLIF(p.gender,''), '(unknown)') as label,
+             COUNT(DISTINCT b.id) as bills,
+             COALESCE(SUM(b.total), 0) as revenue
+      FROM bills b JOIN patients p ON p.id = b.patient_id
+      GROUP BY label ORDER BY revenue DESC
+    `).all();
+    const revenueByAge = db.prepare(`
+      SELECT
+        CASE
+          WHEN p.dob IS NULL OR p.dob = '' THEN '(unknown)'
+          WHEN (julianday('now') - julianday(p.dob)) / 365.25 < 1 THEN '< 1 yr'
+          WHEN (julianday('now') - julianday(p.dob)) / 365.25 < 5 THEN '1-4 yrs'
+          WHEN (julianday('now') - julianday(p.dob)) / 365.25 < 13 THEN '5-12 yrs'
+          WHEN (julianday('now') - julianday(p.dob)) / 365.25 < 18 THEN '13-17 yrs'
+          WHEN (julianday('now') - julianday(p.dob)) / 365.25 < 30 THEN '18-29 yrs'
+          WHEN (julianday('now') - julianday(p.dob)) / 365.25 < 45 THEN '30-44 yrs'
+          WHEN (julianday('now') - julianday(p.dob)) / 365.25 < 60 THEN '45-59 yrs'
+          WHEN (julianday('now') - julianday(p.dob)) / 365.25 < 75 THEN '60-74 yrs'
+          ELSE '75+ yrs'
+        END as label,
+        COUNT(DISTINCT b.id) as bills,
+        COALESCE(SUM(b.total), 0) as revenue
+      FROM bills b JOIN patients p ON p.id = b.patient_id
+      GROUP BY label
+      ORDER BY revenue DESC
+    `).all();
+    const revenueByProfession = db.prepare(`
+      SELECT COALESCE(NULLIF(p.profession,''), '(unknown)') as label,
+             COUNT(DISTINCT b.id) as bills,
+             COALESCE(SUM(b.total), 0) as revenue
+      FROM bills b JOIN patients p ON p.id = b.patient_id
+      GROUP BY label ORDER BY revenue DESC LIMIT 20
+    `).all();
     return {
       total,
       byGender: db.prepare(`
         SELECT COALESCE(NULLIF(gender,''), '(unknown)') as gender, COUNT(*) as c
         FROM patients GROUP BY gender ORDER BY c DESC
       `).all(),
+      revenueByGender,
+      revenueByAge,
+      revenueByProfession,
       byAgeGroup: db.prepare(`
         SELECT
           CASE

@@ -333,6 +333,9 @@ const api = {
       byBloodGroup: { label: string; c: number }[];
       byProfession: { label: string; c: number }[];
       newPatientsByMonth: { month: string; c: number }[];
+      revenueByGender: { label: string; bills: number; revenue: number }[];
+      revenueByAge: { label: string; bills: number; revenue: number }[];
+      revenueByProfession: { label: string; bills: number; revenue: number }[];
     }>,
     pharmacyOverview: (filter: { from: string; to: string }) =>
       ipcRenderer.invoke('analytics:pharmacyOverview', filter) as Promise<{

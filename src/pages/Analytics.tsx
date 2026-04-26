@@ -1,10 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import {
   BarChart3, Wallet, MapPin, FileText, Users as UsersIcon, Pill,
   TrendingUp, AlertTriangle, Calendar, Activity, RefreshCw,
+  Download, Database, FolderOpen, HardDriveDownload,
 } from 'lucide-react';
-import { cn, fmt12h, fmtDate, formatINR, todayISO } from '../lib/utils';
+import { cn, fmt12h, fmtDate, fmtDateTime, formatINR, todayISO } from '../lib/utils';
+import { useToast } from '../hooks/useToast';
 import { colorForDoctor } from '../lib/doctor-colors';
 import type { Doctor } from '../types';
 
@@ -328,6 +331,29 @@ function DemographicsTab() {
         />
       </div>
 
+      {/* === Revenue by demographics === */}
+      <section className="pt-3 border-t border-gray-200 dark:border-slate-700">
+        <SectionTitle icon={<Wallet className="w-4 h-4 text-emerald-600" />} title="Revenue by demographics" subtitle="Where the money comes from — bills only (Pharmacy revenue is in the Pharmacy tab)" />
+      </section>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <BarListCard
+          title="Revenue by gender"
+          rows={d.revenueByGender.map((r) => ({ label: `${r.label} · ${r.bills} bills`, value: r.revenue }))}
+          formatValue={formatINR}
+        />
+        <BarListCard
+          title="Revenue by age group"
+          rows={d.revenueByAge.map((r) => ({ label: `${r.label} · ${r.bills} bills`, value: r.revenue }))}
+          formatValue={formatINR}
+        />
+        <BarListCard
+          title="Top 20 professions by revenue"
+          rows={d.revenueByProfession.map((r) => ({ label: `${r.label} · ${r.bills} bills`, value: r.revenue }))}
+          formatValue={formatINR}
+          full
+        />
+      </div>
+
       {/* === Retention — repeat-visit rate === */}
       <section className="pt-3 border-t border-gray-200 dark:border-slate-700">
         <SectionTitle icon={<RefreshCw className="w-4 h-4 text-emerald-600" />} title="Retention — Repeat-visit rate" subtitle="What % of new patients came back within 30 / 60 / 90 days of their first visit" />
@@ -644,38 +670,68 @@ function PharmacyTab({ from, to }: { from: string; to: string }) {
 }
 
 /* ============================================================
-   OPERATIONAL REPORTS — reuses reports.run (same as Reports page)
+   OPERATIONAL REPORTS + BACKUPS — fully merges the standalone Reports page.
+   Pre-built reports with CSV export, plus the backup list with manual-backup
+   button. Same data sources, just consolidated under Analytics.
    ============================================================ */
-function OperationsTab({ from, to }: { from: string; to: string }) {
-  const REPORTS = [
-    { kind: 'daily_collection', label: 'Daily Collection' },
-    { kind: 'doctor_performance', label: 'Doctor Performance' },
-    { kind: 'top_diagnoses', label: 'Top Diagnoses' },
-    { kind: 'top_drugs', label: 'Top Drugs Sold' },
-    { kind: 'new_patients', label: 'New Patients' },
-  ];
-  const [kind, setKind] = useState(REPORTS[0].kind);
+const OPS_REPORTS: { kind: string; title: string; desc: string }[] = [
+  { kind: 'daily_collection', title: 'Daily Collection', desc: 'Revenue per day split by Cash/Card/UPI' },
+  { kind: 'doctor_performance', title: 'Doctor Performance', desc: 'Visits, unique patients, revenue per doctor' },
+  { kind: 'top_diagnoses', title: 'Top Diagnoses', desc: 'Most frequent impressions entered by doctors' },
+  { kind: 'top_drugs', title: 'Top Drugs Sold', desc: 'Pharmacy bestsellers by revenue' },
+  { kind: 'new_patients', title: 'New Patients', desc: 'First-time registrations per day' },
+];
 
+function OperationsTab({ from, to }: { from: string; to: string }) {
+  const [kind, setKind] = useState(OPS_REPORTS[0].kind);
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ['ops-report', kind, from, to],
     queryFn: () => window.electronAPI.reports.run({ kind, from, to }),
   });
-
   const headers = useMemo(() => (rows.length > 0 ? Object.keys(rows[0]) : []), [rows]);
 
+  const exportCsv = () => {
+    if (rows.length === 0) return;
+    const head = headers.join(',');
+    const lines = [head, ...rows.map((r: any) => headers.map((c) => `"${String((r as any)[c] ?? '').replaceAll('"', '""')}"`).join(','))];
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${kind}_${from}_to_${to}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap gap-1 bg-gray-100 dark:bg-slate-700 p-1 rounded-lg">
-        {REPORTS.map((r) => (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="text-xs text-gray-500 dark:text-slate-400">
+          Pre-built reports + CSV export (open in Excel / Google Sheets).
+        </div>
+        <button className="btn-primary text-xs" onClick={exportCsv} disabled={rows.length === 0}>
+          <Download className="w-3.5 h-3.5" /> Export CSV
+        </button>
+      </div>
+
+      {/* Card-style report selector — copies the Reports.tsx UX */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+        {OPS_REPORTS.map((r) => (
           <button
             key={r.kind}
             onClick={() => setKind(r.kind)}
             className={cn(
-              'px-3 py-1.5 rounded-md text-xs font-medium',
-              kind === r.kind ? 'bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 shadow-sm' : 'text-gray-600 dark:text-slate-300'
+              'text-left rounded-lg p-3 border-2 transition',
+              kind === r.kind
+                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/40'
+                : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-300'
             )}
           >
-            {r.label}
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-900 dark:text-slate-100">
+              <BarChart3 className={cn('w-3.5 h-3.5', kind === r.kind ? 'text-blue-600' : 'text-gray-500')} />
+              {r.title}
+            </div>
+            <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-1">{r.desc}</div>
           </button>
         ))}
       </div>
@@ -695,14 +751,85 @@ function OperationsTab({ from, to }: { from: string; to: string }) {
             <tbody>
               {rows.map((r: any, i: number) => (
                 <tr key={i} className="border-b border-gray-100 dark:border-slate-800">
-                  {headers.map((h) => <td key={h} className="py-1.5 px-2 text-gray-700 dark:text-slate-200">{String((r as any)[h] ?? '')}</td>)}
+                  {headers.map((h) => (
+                    <td key={h} className="py-1.5 px-2 text-gray-700 dark:text-slate-200">
+                      {renderOpsCell(h, r[h])}
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </div>
+
+      <BackupsBlock />
     </div>
+  );
+}
+
+function renderOpsCell(col: string, val: any) {
+  if (val == null) return '—';
+  if (col === 'day' && typeof val === 'string' && val.length >= 10) return fmtDate(val);
+  if (typeof val === 'number' && (col.includes('revenue') || col.includes('cash') || col === 'card' || col === 'upi')) return formatINR(val);
+  return String(val);
+}
+
+function BackupsBlock() {
+  const toast = useToast();
+  const { data: backups = [] } = useQuery({
+    queryKey: ['backup-list'],
+    queryFn: () => window.electronAPI.backup.list(),
+    refetchInterval: 30_000,
+  });
+  const now = useMutation({
+    mutationFn: () => window.electronAPI.backup.now(),
+    onSuccess: (r: any) => toast(`Backup created — ${r.totalBundles ?? r.totalBackups ?? '?'} total`),
+    onError: (e: any) => toast(e.message || 'Backup failed', 'error'),
+  });
+  return (
+    <section className="card p-5">
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+        <div className="flex items-center gap-2">
+          <Database className="w-4 h-4 text-teal-600" />
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Backups</h2>
+        </div>
+        <div className="flex gap-2">
+          <button className="btn-secondary text-xs" onClick={() => window.electronAPI.backup.open()}>
+            <FolderOpen className="w-4 h-4" /> Open Folder
+          </button>
+          <button className="btn-primary text-xs" onClick={() => now.mutate()} disabled={now.isPending}>
+            <HardDriveDownload className="w-4 h-4" /> {now.isPending ? 'Backing up…' : 'Backup Now'}
+          </button>
+        </div>
+      </div>
+      <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-3">
+        Auto-backup runs on schedule (configurable in Settings → Backup, Restore & Updates). Each backup writes a
+        SQLite snapshot + a single Excel file with all tables as sheets.
+      </p>
+      {backups.length === 0 ? (
+        <div className="text-xs text-gray-500 dark:text-slate-400">No backups yet. Click "Backup Now" to create the first one.</div>
+      ) : (
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
+              <th className="py-2">File</th>
+              <th className="py-2">Created</th>
+              <th className="py-2 text-right">Size</th>
+            </tr>
+          </thead>
+          <tbody>
+            {backups.slice(0, 10).map((b) => (
+              <tr key={b.name} className="border-b border-gray-100 dark:border-slate-800">
+                <td className="py-1.5 font-mono text-xs">{b.name}</td>
+                <td className="py-1.5 text-xs text-gray-500 dark:text-slate-400">{fmtDateTime(b.mtime)}</td>
+                <td className="py-1.5 text-right text-xs">{Math.round(b.size / 1024)} KB</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
   );
 }
 

@@ -2,6 +2,10 @@ import { app, BrowserWindow, ipcMain, Notification, Tray, Menu, nativeImage, she
 import path from 'node:path';
 import fs from 'node:fs';
 import { registerIpc, runFullBackup, isBackupServiceReady } from './main/ipc';
+// Vite's ?raw import bundles the splash HTML as a string at build time so the
+// main process can show it before the main BrowserWindow is ready.
+// @ts-ignore — Vite ?raw import has no built-in TS shim
+import splashHtml from './splash.html?raw';
 import { getDb, closeDb } from './db/db';
 import { getAllSettings } from './db/settings';
 
@@ -192,6 +196,46 @@ function readAutoLaunchStatus(): { supported: boolean; isPackaged: boolean; regi
   }
 }
 
+/**
+ * Frameless splash window — shown only in packaged builds, while the main
+ * BrowserWindow loads. Auto-closes when the main window emits 'ready-to-show'.
+ * Skipped in dev mode (npm start) since Vite serves quickly.
+ */
+let splashRef: BrowserWindow | null = null;
+function showSplash() {
+  if (!app.isPackaged) return; // dev mode loads instantly via Vite, no splash needed
+  if (splashRef && !splashRef.isDestroyed()) return;
+  try {
+    splashRef = new BrowserWindow({
+      width: 480,
+      height: 360,
+      frame: false,
+      transparent: false,
+      backgroundColor: '#0b1220',
+      resizable: false,
+      movable: true,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      show: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+      },
+    });
+    splashRef.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(splashHtml));
+    splashRef.once('ready-to-show', () => splashRef?.show());
+  } catch (e) {
+    console.warn('Splash window failed:', e);
+    splashRef = null;
+  }
+}
+function closeSplash() {
+  if (splashRef && !splashRef.isDestroyed()) {
+    try { splashRef.close(); } catch { /* ignore */ }
+  }
+  splashRef = null;
+}
+
 function createWindow() {
   const settings = getAllSettings(getDb());
   const startedHidden = process.argv.includes('--hidden') && settings.start_minimized;
@@ -222,10 +266,15 @@ function createWindow() {
     callback(false);
   });
 
-  if (!startedHidden) {
-    mainWindow.maximize();
-    mainWindow.show();
-  }
+  // Defer showing the main window until 'ready-to-show' so the splash stays
+  // visible until React + DB queries are warm. Avoids a white flash.
+  mainWindow.once('ready-to-show', () => {
+    closeSplash();
+    if (!startedHidden) {
+      mainWindow.maximize();
+      mainWindow.show();
+    }
+  });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
@@ -440,6 +489,8 @@ function tickReminder() {
 }
 
 app.whenReady().then(async () => {
+  // Splash first — appears immediately while DB + IPC + main window spin up.
+  showSplash();
   getDb();
   registerIpc();
   createWindow();
