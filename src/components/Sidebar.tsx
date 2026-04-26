@@ -51,9 +51,24 @@ export function Sidebar() {
 
   const currentMode = (settings?.app_mode || 'reception_pharmacy_doctor') as AppMode;
   const billingHidden = settings?.show_billing_module === false;
+  const originHidden = settings?.show_patient_origin === false;
+
+  // Human-readable label for the user identity badge — derived from the
+  // configured app mode, NOT the user's static role (which used to show
+  // 'Reception + Doctor' even when the admin had picked 'Reception only').
+  const MODE_LABELS: Record<AppMode, string> = {
+    reception: 'Reception only',
+    reception_pharmacy: 'Reception + Pharmacy',
+    reception_doctor: 'Reception + Doctor',
+    reception_pharmacy_doctor: 'Reception + Pharmacy + Doctor',
+    reception_pharmacy_doctor_lab: 'Reception + Pharmacy + Doctor + Lab',
+    full: 'Full HMS',
+  };
+  const modeLabel = MODE_LABELS[currentMode] || currentMode;
   const visibleNav = NAV.filter((n) => {
     if (!n.modes.has(currentMode)) return false;
     if (n.to === '/billing' && billingHidden) return false;
+    if (n.to === '/origin' && originHidden) return false;
     return canAnyRole(user, n.roles, adminUnlocked);
   });
 
@@ -108,7 +123,7 @@ export function Sidebar() {
             <div className="flex-1 min-w-0">
               <div className="text-xs font-semibold truncate">{user.display_name || user.username}</div>
               <div className="text-[10px] opacity-80 uppercase tracking-wider">
-                {user.role === 'staff' ? 'Reception + Doctor' : user.role.replace('_', ' ')}
+                {modeLabel}
               </div>
             </div>
           </div>

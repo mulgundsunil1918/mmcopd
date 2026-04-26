@@ -344,6 +344,25 @@ const api = {
         lowStock: { name: string; stock: number; low_stock_threshold: number }[];
         expiringSoon: { drug_name: string; batch_no: string; expiry: string; qty_remaining: number; days: number }[];
       }>,
+    retention: () =>
+      ipcRenderer.invoke('analytics:retention') as Promise<{
+        totalPatients: number;
+        window30: { eligible: number; returned: number; rate: number };
+        window60: { eligible: number; returned: number; rate: number };
+        window90: { eligible: number; returned: number; rate: number };
+      }>,
+    cohort: () =>
+      ipcRenderer.invoke('analytics:cohort') as Promise<{
+        cohorts: { cohort_month: string; size: number; retention: number[] }[];
+      }>,
+    weekdayHourHeatmap: () =>
+      ipcRenderer.invoke('analytics:weekdayHourHeatmap') as Promise<
+        { weekday: number; hour: number; visits: number }[]
+      >,
+    pharmacyBasket: () =>
+      ipcRenderer.invoke('analytics:pharmacyBasket') as Promise<
+        { month: string; sales: number; avg_revenue: number; total_revenue: number; avg_units: number }[]
+      >,
   },
   updates: {
     state: () => ipcRenderer.invoke('updates:state') as Promise<{ state: string; appVersion: string; isPackaged: boolean; version?: string; releaseNotes?: string; error?: string }>,

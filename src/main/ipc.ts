@@ -2667,6 +2667,146 @@ export function registerIpc() {
     };
   });
 
+  // Repeat-visit rate (30 / 60 / 90 day windows from each patient's first visit).
+  // Only patients whose first visit was at least N days ago are eligible for the
+  // N-day rate — otherwise we'd unfairly count them as 'never returned'.
+  ipcMain.handle('analytics:retention', () => {
+    const db = getDb();
+    type Row = { patient_id: number; first_date: string; days_since_first: number; visits_30d: number; visits_60d: number; visits_90d: number };
+    const rows = db.prepare(`
+      SELECT
+        fv.patient_id,
+        fv.first_date,
+        CAST(julianday('now') - julianday(fv.first_date) AS INTEGER) as days_since_first,
+        (SELECT COUNT(*) FROM appointments a2
+          WHERE a2.patient_id = fv.patient_id
+            AND date(a2.appointment_date) > fv.first_date
+            AND julianday(a2.appointment_date) - julianday(fv.first_date) <= 30
+            AND a2.status != 'Cancelled') as visits_30d,
+        (SELECT COUNT(*) FROM appointments a2
+          WHERE a2.patient_id = fv.patient_id
+            AND date(a2.appointment_date) > fv.first_date
+            AND julianday(a2.appointment_date) - julianday(fv.first_date) <= 60
+            AND a2.status != 'Cancelled') as visits_60d,
+        (SELECT COUNT(*) FROM appointments a2
+          WHERE a2.patient_id = fv.patient_id
+            AND date(a2.appointment_date) > fv.first_date
+            AND julianday(a2.appointment_date) - julianday(fv.first_date) <= 90
+            AND a2.status != 'Cancelled') as visits_90d
+      FROM (
+        SELECT patient_id, MIN(date(appointment_date)) as first_date
+        FROM appointments WHERE status != 'Cancelled'
+        GROUP BY patient_id
+      ) fv
+    `).all() as Row[];
+
+    const compute = (windowDays: number, key: 'visits_30d' | 'visits_60d' | 'visits_90d') => {
+      const eligible = rows.filter((r) => r.days_since_first >= windowDays);
+      const returned = eligible.filter((r) => r[key] > 0);
+      return {
+        eligible: eligible.length,
+        returned: returned.length,
+        rate: eligible.length === 0 ? 0 : Math.round((returned.length / eligible.length) * 1000) / 10,
+      };
+    };
+
+    return {
+      totalPatients: rows.length,
+      window30: compute(30, 'visits_30d'),
+      window60: compute(60, 'visits_60d'),
+      window90: compute(90, 'visits_90d'),
+    };
+  });
+
+  // Patient retention cohort — group patients by their first-visit month, then
+  // count how many returned in each subsequent calendar month. Returns a list
+  // of cohorts; UI pivots into the cohort × month-offset grid.
+  ipcMain.handle('analytics:cohort', () => {
+    const db = getDb();
+    type R = { cohort_month: string; visit_month: string; active: number };
+    const rows = db.prepare(`
+      SELECT
+        strftime('%Y-%m', fv.first_date) as cohort_month,
+        strftime('%Y-%m', a.appointment_date) as visit_month,
+        COUNT(DISTINCT a.patient_id) as active
+      FROM appointments a
+      JOIN (
+        SELECT patient_id, MIN(date(appointment_date)) as first_date
+        FROM appointments WHERE status != 'Cancelled'
+        GROUP BY patient_id
+      ) fv ON fv.patient_id = a.patient_id
+      WHERE a.status != 'Cancelled'
+        AND fv.first_date >= date('now', '-12 months')
+      GROUP BY cohort_month, visit_month
+      ORDER BY cohort_month, visit_month
+    `).all() as R[];
+
+    // Group into cohorts: { cohort_month, size, retention: [count_at_offset_0, 1, 2, ...] }
+    const byCohort = new Map<string, R[]>();
+    for (const r of rows) {
+      if (!byCohort.has(r.cohort_month)) byCohort.set(r.cohort_month, []);
+      byCohort.get(r.cohort_month)!.push(r);
+    }
+    const monthOffset = (a: string, b: string) => {
+      const [ay, am] = a.split('-').map((x) => parseInt(x, 10));
+      const [by, bm] = b.split('-').map((x) => parseInt(x, 10));
+      return (by - ay) * 12 + (bm - am);
+    };
+    const cohorts = Array.from(byCohort.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([cohort_month, items]) => {
+        const retention: number[] = [];
+        for (const r of items) {
+          const off = monthOffset(cohort_month, r.visit_month);
+          if (off >= 0 && off < 13) {
+            retention[off] = (retention[off] || 0) + r.active;
+          }
+        }
+        const size = retention[0] || 0;
+        return { cohort_month, size, retention };
+      });
+    return { cohorts };
+  });
+
+  // Weekday × hour heatmap (last 90 days). Returns sparse rows; UI pivots to 7×24.
+  ipcMain.handle('analytics:weekdayHourHeatmap', () => {
+    const db = getDb();
+    return db.prepare(`
+      SELECT
+        CAST(strftime('%w', appointment_date) AS INTEGER) as weekday,
+        CAST(substr(appointment_time, 1, 2) AS INTEGER) as hour,
+        COUNT(*) as visits
+      FROM appointments
+      WHERE status != 'Cancelled'
+        AND appointment_time IS NOT NULL AND appointment_time <> ''
+        AND date(appointment_date) >= date('now', '-90 days')
+      GROUP BY weekday, hour
+      ORDER BY weekday, hour
+    `).all();
+  });
+
+  // Pharmacy basket size — sales count, avg ₹ per sale, avg units per sale, by month.
+  ipcMain.handle('analytics:pharmacyBasket', () => {
+    const db = getDb();
+    return db.prepare(`
+      SELECT
+        strftime('%Y-%m', s.created_at) as month,
+        COUNT(*) as sales,
+        COALESCE(AVG(s.total), 0) as avg_revenue,
+        COALESCE(SUM(s.total), 0) as total_revenue,
+        (SELECT COALESCE(AVG(units), 0) FROM (
+          SELECT SUM(qty) as units FROM pharmacy_sale_items psi
+          JOIN pharmacy_sales s2 ON s2.id = psi.sale_id
+          WHERE strftime('%Y-%m', s2.created_at) = strftime('%Y-%m', s.created_at)
+          GROUP BY psi.sale_id
+        )) as avg_units
+      FROM pharmacy_sales s
+      WHERE s.created_at >= date('now', '-12 months')
+      GROUP BY month
+      ORDER BY month
+    `).all();
+  });
+
   ipcMain.handle('analytics:pharmacyOverview', (_e, filter: { from: string; to: string }) => {
     const db = getDb();
     const sc = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { c: number }).c;

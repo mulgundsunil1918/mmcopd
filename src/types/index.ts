@@ -417,6 +417,7 @@ export interface Settings {
   queue_flow_enabled: boolean;
   show_user_badge: boolean;
   show_billing_module: boolean;
+  show_patient_origin: boolean;
   app_mode: AppMode;
   default_state: string;
   default_district: string;

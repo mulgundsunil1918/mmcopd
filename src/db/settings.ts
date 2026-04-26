@@ -23,6 +23,9 @@ export function getAllSettings(db: Database.Database): Settings {
     // For clinics that take payment upfront at registration it's mostly empty.
     // Default true for backward compat; toggle off in Settings to hide.
     show_billing_module: map.show_billing_module !== 'false',
+    // Patient Origin page is also covered by the consolidated Analytics tab.
+    // Single-clinic users may want to hide the standalone entry.
+    show_patient_origin: map.show_patient_origin !== 'false',
     app_mode: (map.app_mode as any) || 'reception_pharmacy_doctor',
     default_state: map.default_state || '',
     default_district: map.default_district || '',

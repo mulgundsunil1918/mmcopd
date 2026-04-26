@@ -9,7 +9,8 @@ import { OpdSlipFor } from '../components/OpdSlipFor';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
-import type { AppointmentWithJoins } from '../types';
+import type { AppointmentWithJoins, Doctor } from '../types';
+import { colorForDoctor } from '../lib/doctor-colors';
 
 type Range = 'day' | 'week' | 'month' | 'custom';
 
@@ -165,21 +166,28 @@ export function PatientLog() {
               <Stethoscope className="w-4 h-4 text-purple-500" /> By Doctor
             </h3>
             <ul className="space-y-2">
-              {intel.byDoctor.map((d) => (
-                <li key={d.doctor} className="flex items-center gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm text-gray-900 dark:text-slate-100 truncate">{d.doctor}</div>
-                    <div className="text-[11px] text-gray-500 dark:text-slate-400">{d.specialty}</div>
-                  </div>
-                  <div className="w-32 bg-gray-100 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-purple-500 to-pink-500"
-                      style={{ width: `${Math.max(4, (d.count / Math.max(1, intel.totalVisits)) * 100)}%` }}
-                    />
-                  </div>
-                  <div className="w-8 text-right text-sm font-semibold text-gray-900 dark:text-slate-100">{d.count}</div>
-                </li>
-              ))}
+              {intel.byDoctor.map((d) => {
+                const doc = (doctors as Doctor[]).find((x) => x.name === d.doctor);
+                const color = colorForDoctor(doc);
+                return (
+                  <li key={d.doctor} className="flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-gray-900 dark:text-slate-100 truncate inline-flex items-center gap-1.5">
+                        <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                        {d.doctor}
+                      </div>
+                      <div className="text-[11px] text-gray-500 dark:text-slate-400">{d.specialty}</div>
+                    </div>
+                    <div className="w-32 bg-gray-100 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
+                      <div
+                        className="h-full"
+                        style={{ width: `${Math.max(4, (d.count / Math.max(1, intel.totalVisits)) * 100)}%`, backgroundColor: color }}
+                      />
+                    </div>
+                    <div className="w-8 text-right text-sm font-semibold text-gray-900 dark:text-slate-100">{d.count}</div>
+                  </li>
+                );
+              })}
             </ul>
           </section>
 

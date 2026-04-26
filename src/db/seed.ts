@@ -13,6 +13,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   queue_flow_enabled: 'false',
   show_user_badge: 'true',
   show_billing_module: 'true',
+  show_patient_origin: 'true',
   app_mode: 'reception_pharmacy_doctor',
   default_state: 'Karnataka',
   default_district: 'Gadag',

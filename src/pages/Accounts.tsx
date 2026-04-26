@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Wallet, CalendarDays, CalendarRange, TrendingUp, CreditCard, Banknote, Smartphone, Stethoscope, Pill, ShoppingCart, Clock, MapPin, Users as UsersIcon, Sun, Download, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { cn, fmtDate, formatINR, todayISO } from '../lib/utils';
 import { EmptyState } from '../components/EmptyState';
+import { colorForDoctor } from '../lib/doctor-colors';
+import type { Doctor } from '../types';
 
 const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -15,6 +17,12 @@ export function Accounts() {
     queryFn: () => window.electronAPI.finance.summary({ from, to }),
     refetchInterval: 30_000,
   });
+  const { data: doctors = [] } = useQuery({
+    queryKey: ['doctors-all'],
+    queryFn: () => window.electronAPI.doctors.list(false),
+  });
+  const doctorColorByName = new Map<string, string>();
+  for (const d of doctors as Doctor[]) doctorColorByName.set(d.name, colorForDoctor(d));
 
   if (isLoading || !data) {
     return <div className="p-6 text-sm text-gray-500 dark:text-slate-400">Loading finance summary…</div>;
@@ -249,18 +257,27 @@ export function Accounts() {
           </h2>
           {data.byDoctor.length === 0 ? <div className="text-xs text-gray-500 dark:text-slate-400">No doctor-linked bills yet.</div> : (
             <ul className="space-y-2">
-              {data.byDoctor.map((d: any) => (
-                <li key={d.doctor} className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 flex items-center justify-center">
-                    <Stethoscope className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm text-gray-900 dark:text-slate-100 truncate">{d.doctor}</div>
-                    <div className="text-[11px] text-gray-500 dark:text-slate-400">{d.specialty} · {d.count} bills</div>
-                  </div>
-                  <div className="text-sm font-bold text-gray-900 dark:text-slate-100">{formatINR(d.total)}</div>
-                </li>
-              ))}
+              {data.byDoctor.map((d: any) => {
+                const color = doctorColorByName.get(d.doctor) || '#a855f7';
+                return (
+                  <li key={d.doctor} className="flex items-center gap-3" style={{ borderLeft: `4px solid ${color}`, paddingLeft: 10 }}>
+                    <div
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-white"
+                      style={{ backgroundColor: color }}
+                    >
+                      <Stethoscope className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-gray-900 dark:text-slate-100 truncate inline-flex items-center gap-1.5">
+                        <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                        {d.doctor}
+                      </div>
+                      <div className="text-[11px] text-gray-500 dark:text-slate-400">{d.specialty} · {d.count} bills</div>
+                    </div>
+                    <div className="text-sm font-bold text-gray-900 dark:text-slate-100">{formatINR(d.total)}</div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>

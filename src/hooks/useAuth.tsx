@@ -43,11 +43,12 @@ export function canAnyRole(user: SessionUser | null, roles: Role[], adminUnlocke
 }
 
 // Default: logged in as staff (receptionist + doctor combined). Admin actions require password unlock.
+// display_name is generic so the sidebar tile can derive the actual mode label from settings.app_mode.
 const DEFAULT_SESSION: SessionUser = {
   id: 0,
   username: 'staff',
   role: 'staff',
-  display_name: 'Reception + Doctor',
+  display_name: 'Clinic Staff',
   doctor_id: null,
 };
 

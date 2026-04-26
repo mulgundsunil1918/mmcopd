@@ -2,9 +2,11 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   BarChart3, Wallet, MapPin, FileText, Users as UsersIcon, Pill,
-  TrendingUp, AlertTriangle, Calendar, Activity, ShieldCheck,
+  TrendingUp, AlertTriangle, Calendar, Activity, RefreshCw,
 } from 'lucide-react';
-import { cn, fmtDate, formatINR, todayISO } from '../lib/utils';
+import { cn, fmt12h, fmtDate, formatINR, todayISO } from '../lib/utils';
+import { colorForDoctor } from '../lib/doctor-colors';
+import type { Doctor } from '../types';
 
 type Tab = 'overview' | 'finance' | 'demographics' | 'origin' | 'pharmacy' | 'operations';
 
@@ -146,15 +148,30 @@ function OverviewTab() {
 }
 
 /* ============================================================
-   FINANCE — reuses finance.summary (same source as Accounts page)
+   FINANCE — finance.summary + weekday×hour heatmap + doctor color bars
    ============================================================ */
 function FinanceTab({ from, to }: { from: string; to: string }) {
   const { data: f, isLoading } = useQuery({
     queryKey: ['finance', from, to],
     queryFn: () => window.electronAPI.finance.summary({ from, to }),
   });
+  const { data: heatmap = [] } = useQuery({
+    queryKey: ['analytics-weekday-hour'],
+    queryFn: () => window.electronAPI.analytics.weekdayHourHeatmap(),
+  });
+  const { data: doctors = [] } = useQuery({
+    queryKey: ['doctors-all-active'],
+    queryFn: () => window.electronAPI.doctors.list(false),
+  });
 
   if (isLoading || !f) return <div className="text-xs text-gray-500 dark:text-slate-400 p-4">Loading…</div>;
+
+  // Build name → color map so we can color-code the byDoctor bars to match
+  // the doctor color tags shown elsewhere in the app.
+  const doctorColorByName = new Map<string, string>();
+  for (const d of doctors as Doctor[]) {
+    doctorColorByName.set(d.name, colorForDoctor(d));
+  }
 
   return (
     <div className="space-y-5">
@@ -168,12 +185,26 @@ function FinanceTab({ from, to }: { from: string; to: string }) {
         </div>
       </section>
 
+      {/* Weekday × Hour heatmap */}
+      <section>
+        <SectionTitle icon={<Calendar className="w-4 h-4 text-indigo-600" />} title="Busiest day × hour" subtitle="Last 90 days of appointments. Cell intensity scales with visit count." />
+        <WeekdayHourHeatmap rows={heatmap} />
+      </section>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <BarListCard title="Revenue by day" rows={(f.byDay || []).map((r: any) => ({ label: r.day, value: r.total }))} formatValue={formatINR} />
         <BarListCard title="Revenue by month" rows={(f.byMonth || []).map((r: any) => ({ label: r.month, value: r.total }))} formatValue={formatINR} />
         <BarListCard title="Busiest weekday (last 90 days)" rows={(f.byWeekday || []).map((r: any) => ({ label: r.weekday, value: r.total }))} formatValue={formatINR} />
         <BarListCard title="Peak hours" rows={(f.byHour || []).map((r: any) => ({ label: `${r.hour}:00`, value: r.total }))} formatValue={formatINR} />
-        <BarListCard title="By doctor (all-time)" rows={(f.byDoctor || []).map((r: any) => ({ label: r.doctor, value: r.total }))} formatValue={formatINR} />
+        <BarListCard
+          title="By doctor (all-time) — colored by tag"
+          rows={(f.byDoctor || []).map((r: any) => ({
+            label: r.doctor,
+            value: r.total,
+            color: doctorColorByName.get(r.doctor),
+          }))}
+          formatValue={formatINR}
+        />
         <BarListCard title="By payment mode" rows={(f.byMode || []).map((r: any) => ({ label: r.mode || '(none)', value: r.total }))} formatValue={formatINR} />
         <BarListCard title="Revenue by place (90 days)" rows={(f.byPlace || []).map((r: any) => ({ label: r.place || '(unknown)', value: r.total }))} formatValue={formatINR} />
         <BarListCard
@@ -186,23 +217,105 @@ function FinanceTab({ from, to }: { from: string; to: string }) {
   );
 }
 
+function WeekdayHourHeatmap({ rows }: { rows: { weekday: number; hour: number; visits: number }[] }) {
+  const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  // Pivot sparse rows into a 7×24 grid.
+  const grid: number[][] = Array.from({ length: 7 }, () => new Array(24).fill(0));
+  let max = 0;
+  for (const r of rows) {
+    if (r.weekday >= 0 && r.weekday < 7 && r.hour >= 0 && r.hour < 24) {
+      grid[r.weekday][r.hour] = r.visits;
+      if (r.visits > max) max = r.visits;
+    }
+  }
+  // Compress to 8 AM–10 PM (the realistic clinic window) to keep the grid wide-readable.
+  const HOURS_FROM = 8;
+  const HOURS_TO = 22;
+  const colWidth = `calc((100% - 40px) / ${HOURS_TO - HOURS_FROM + 1})`;
+
+  if (max === 0) {
+    return <div className="card p-4 text-xs text-gray-500 dark:text-slate-400 italic">No appointment data in the last 90 days.</div>;
+  }
+
+  return (
+    <div className="card p-4 overflow-x-auto">
+      <table className="text-[10px] w-full" style={{ borderCollapse: 'separate', borderSpacing: 2 }}>
+        <thead>
+          <tr>
+            <th className="text-right pr-2 font-semibold text-gray-500 dark:text-slate-400" style={{ width: 40 }}>—</th>
+            {Array.from({ length: HOURS_TO - HOURS_FROM + 1 }).map((_, i) => {
+              const h = HOURS_FROM + i;
+              return (
+                <th key={h} className="text-center font-semibold text-gray-500 dark:text-slate-400" style={{ width: colWidth }}>
+                  {h % 12 === 0 ? 12 : h % 12}{h < 12 ? 'a' : 'p'}
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {/* Mon → Sun ordering (clinic-friendly) */}
+          {[1, 2, 3, 4, 5, 6, 0].map((wd) => (
+            <tr key={wd}>
+              <td className="text-right pr-2 font-semibold text-gray-700 dark:text-slate-200">{DAY_LABELS[wd]}</td>
+              {Array.from({ length: HOURS_TO - HOURS_FROM + 1 }).map((_, i) => {
+                const h = HOURS_FROM + i;
+                const v = grid[wd][h];
+                const intensity = v / max;
+                return (
+                  <td
+                    key={h}
+                    className="text-center font-semibold rounded"
+                    style={{
+                      backgroundColor: v === 0 ? 'rgba(99,102,241,0.05)' : `rgba(99, 102, 241, ${0.15 + intensity * 0.75})`,
+                      color: intensity > 0.55 ? '#ffffff' : v === 0 ? '#9ca3af' : '#1e3a8a',
+                      padding: '6px 0',
+                      minHeight: 22,
+                    }}
+                    title={`${DAY_LABELS[wd]} ${h}:00 → ${v} visit${v === 1 ? '' : 's'}`}
+                  >
+                    {v || '·'}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-2">
+        Numbers = visit count. Darker cells = busier slots. Hover for details. Hours shown: {HOURS_FROM}am–{HOURS_TO - 12}pm.
+      </div>
+    </div>
+  );
+}
+
 /* ============================================================
-   DEMOGRAPHICS — gender, age groups, blood groups, professions, growth
+   PATIENTS — demographics + retention (repeat-visit rate + cohort)
    ============================================================ */
 function DemographicsTab() {
-  const { data: d, isLoading } = useQuery({
+  const { data: d, isLoading: lD } = useQuery({
     queryKey: ['analytics-demographics'],
     queryFn: () => window.electronAPI.analytics.demographics(),
   });
+  const { data: ret, isLoading: lR } = useQuery({
+    queryKey: ['analytics-retention'],
+    queryFn: () => window.electronAPI.analytics.retention(),
+  });
+  const { data: cohort, isLoading: lC } = useQuery({
+    queryKey: ['analytics-cohort'],
+    queryFn: () => window.electronAPI.analytics.cohort(),
+  });
 
-  if (isLoading || !d) return <div className="text-xs text-gray-500 dark:text-slate-400 p-4">Loading…</div>;
+  if (lD || lR || lC || !d || !ret || !cohort) {
+    return <div className="text-xs text-gray-500 dark:text-slate-400 p-4">Loading…</div>;
+  }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
+      {/* === Demographics === */}
       <section>
         <SectionTitle icon={<UsersIcon className="w-4 h-4" />} title="Patient demographics" subtitle={`${d.total.toLocaleString('en-IN')} patients in the database`} />
       </section>
-
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <BarListCard title="By gender" rows={d.byGender.map((r) => ({ label: r.gender, value: r.c }))} />
         <BarListCard title="By age group" rows={d.byAgeGroup.map((r) => ({ label: r.label, value: r.c }))} />
@@ -213,6 +326,163 @@ function DemographicsTab() {
           rows={d.newPatientsByMonth.map((r) => ({ label: r.month, value: r.c }))}
           full
         />
+      </div>
+
+      {/* === Retention — repeat-visit rate === */}
+      <section className="pt-3 border-t border-gray-200 dark:border-slate-700">
+        <SectionTitle icon={<RefreshCw className="w-4 h-4 text-emerald-600" />} title="Retention — Repeat-visit rate" subtitle="What % of new patients came back within 30 / 60 / 90 days of their first visit" />
+      </section>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <RetentionCard label="Within 30 days" data={ret.window30} tone="emerald" />
+        <RetentionCard label="Within 60 days" data={ret.window60} tone="blue" />
+        <RetentionCard label="Within 90 days" data={ret.window90} tone="indigo" />
+      </div>
+      <div className="text-[11px] text-gray-500 dark:text-slate-400 italic">
+        Only patients whose first visit was at least N days ago count toward the N-day rate. New patients
+        who haven't had time to return are excluded from the denominator.
+      </div>
+
+      {/* === Cohort heatmap === */}
+      <section className="pt-3 border-t border-gray-200 dark:border-slate-700">
+        <SectionTitle
+          icon={<Activity className="w-4 h-4 text-violet-600" />}
+          title="Patient retention cohort"
+          subtitle="Each row is a 'class' of patients (their first-visit month). Each cell shows what % of that class came back N months later."
+        />
+      </section>
+      <CohortHeatmap cohorts={cohort.cohorts} />
+    </div>
+  );
+}
+
+function RetentionCard({ label, data, tone }: {
+  label: string;
+  data: { eligible: number; returned: number; rate: number };
+  tone: 'emerald' | 'blue' | 'indigo';
+}) {
+  const tones: Record<string, string> = {
+    emerald: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+    blue: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200',
+    indigo: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200',
+  };
+  const fillTones: Record<string, string> = {
+    emerald: 'bg-emerald-500',
+    blue: 'bg-blue-500',
+    indigo: 'bg-indigo-500',
+  };
+  return (
+    <div className="card p-4">
+      <div className={cn('inline-block px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wider font-semibold', tones[tone])}>
+        {label}
+      </div>
+      <div className="text-3xl font-extrabold text-gray-900 dark:text-slate-100 mt-2">
+        {data.eligible === 0 ? '—' : `${data.rate}%`}
+      </div>
+      <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
+        {data.returned.toLocaleString('en-IN')} returned out of {data.eligible.toLocaleString('en-IN')} eligible
+      </div>
+      {data.eligible > 0 && (
+        <div className="h-1.5 bg-gray-100 dark:bg-slate-800 rounded mt-2 overflow-hidden">
+          <div className={cn('h-full rounded', fillTones[tone])} style={{ width: `${Math.min(100, data.rate)}%` }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BasketSizeTable({ rows }: { rows: { month: string; sales: number; avg_revenue: number; total_revenue: number; avg_units: number }[] }) {
+  if (rows.length === 0) return <div className="card p-6 text-xs text-gray-500 italic text-center">No pharmacy sales in the last 12 months.</div>;
+  const maxAvg = Math.max(1, ...rows.map((r) => r.avg_revenue));
+  const maxUnits = Math.max(1, ...rows.map((r) => r.avg_units));
+  return (
+    <div className="card p-4 overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
+            <th className="py-2 px-2">Month</th>
+            <th className="py-2 px-2 text-right">Sales</th>
+            <th className="py-2 px-2 text-right">Total revenue</th>
+            <th className="py-2 px-2 text-right">Avg ₹ / sale</th>
+            <th className="py-2 px-2 text-right">Avg units / sale</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.month} className="border-b border-gray-100 dark:border-slate-800">
+              <td className="py-1.5 px-2 font-mono text-gray-900 dark:text-slate-100">{r.month}</td>
+              <td className="py-1.5 px-2 text-right">{r.sales.toLocaleString('en-IN')}</td>
+              <td className="py-1.5 px-2 text-right font-semibold">{formatINR(r.total_revenue)}</td>
+              <td className="py-1.5 px-2 text-right">
+                <div className="font-semibold">{formatINR(r.avg_revenue)}</div>
+                <div className="h-1 bg-gray-100 dark:bg-slate-800 rounded mt-0.5 overflow-hidden">
+                  <div className="h-full rounded bg-emerald-500" style={{ width: `${(r.avg_revenue / maxAvg) * 100}%` }} />
+                </div>
+              </td>
+              <td className="py-1.5 px-2 text-right">
+                <div className="font-semibold">{r.avg_units.toFixed(1)}</div>
+                <div className="h-1 bg-gray-100 dark:bg-slate-800 rounded mt-0.5 overflow-hidden">
+                  <div className="h-full rounded bg-indigo-500" style={{ width: `${(r.avg_units / maxUnits) * 100}%` }} />
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CohortHeatmap({ cohorts }: { cohorts: { cohort_month: string; size: number; retention: number[] }[] }) {
+  if (cohorts.length === 0) {
+    return <div className="card p-6 text-xs text-gray-500 dark:text-slate-400 italic text-center">Not enough data yet.</div>;
+  }
+  const maxOffset = Math.max(...cohorts.map((c) => c.retention.length));
+  return (
+    <div className="card p-4 overflow-x-auto">
+      <table className="text-[11px] border-collapse">
+        <thead>
+          <tr>
+            <th className="text-left font-semibold text-gray-500 dark:text-slate-400 px-2 py-1.5 sticky left-0 bg-white dark:bg-slate-900">Cohort (first visit)</th>
+            <th className="text-right font-semibold text-gray-500 dark:text-slate-400 px-2 py-1.5">Size</th>
+            {Array.from({ length: maxOffset }).map((_, i) => (
+              <th key={i} className="text-center font-semibold text-gray-500 dark:text-slate-400 px-2 py-1.5 w-14">
+                M+{i}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {cohorts.map((c) => (
+            <tr key={c.cohort_month}>
+              <td className="px-2 py-1.5 font-mono text-gray-900 dark:text-slate-100 sticky left-0 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-700">
+                {c.cohort_month}
+              </td>
+              <td className="px-2 py-1.5 text-right font-semibold text-gray-700 dark:text-slate-200">{c.size}</td>
+              {Array.from({ length: maxOffset }).map((_, i) => {
+                const v = c.retention[i] || 0;
+                const pct = c.size === 0 ? 0 : Math.round((v / c.size) * 100);
+                const intensity = c.size === 0 ? 0 : v / c.size;
+                return (
+                  <td
+                    key={i}
+                    className="text-center px-1 py-1.5 font-semibold border border-white dark:border-slate-900"
+                    style={{
+                      backgroundColor: intensity === 0 ? 'transparent' : `rgba(99, 102, 241, ${0.1 + intensity * 0.7})`,
+                      color: intensity > 0.55 ? '#ffffff' : undefined,
+                    }}
+                    title={`${v} of ${c.size} returned (${pct}%)`}
+                  >
+                    {v === 0 ? '·' : `${pct}%`}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-2">
+        Cell colors: darker = higher retention. Hover for raw count. M+0 is the cohort month itself (always 100% by definition);
+        M+1 = next calendar month; M+2 = two months later; and so on.
       </div>
     </div>
   );
@@ -268,6 +538,10 @@ function PharmacyTab({ from, to }: { from: string; to: string }) {
     queryKey: ['analytics-pharmacy', from, to],
     queryFn: () => window.electronAPI.analytics.pharmacyOverview({ from, to }),
   });
+  const { data: basket = [] } = useQuery({
+    queryKey: ['analytics-pharmacy-basket'],
+    queryFn: () => window.electronAPI.analytics.pharmacyBasket(),
+  });
 
   if (isLoading || !p) return <div className="text-xs text-gray-500 dark:text-slate-400 p-4">Loading…</div>;
 
@@ -281,6 +555,16 @@ function PharmacyTab({ from, to }: { from: string; to: string }) {
           <Kpi label="Items dispensed" value={p.totalDispensed} tone="indigo" />
           <Kpi label="Schedule H/H1 entries" value={p.scheduleHCount} sub="legal register" tone="violet" />
         </div>
+      </section>
+
+      {/* Average basket size — units & ₹ per sale, monthly trend */}
+      <section>
+        <SectionTitle
+          icon={<TrendingUp className="w-4 h-4 text-emerald-600" />}
+          title="Average basket size"
+          subtitle="Per-sale units and rupees, by month (last 12)"
+        />
+        <BasketSizeTable rows={basket} />
       </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -478,7 +762,7 @@ function AlertTile({ label, value, href, tone }: { label: string; value: number;
  */
 function BarListCard({ title, rows, formatValue, full }: {
   title: string;
-  rows: { label: string; value: number }[];
+  rows: { label: string; value: number; color?: string }[];
   formatValue?: (v: number) => string;
   full?: boolean;
 }) {
@@ -495,13 +779,19 @@ function BarListCard({ title, rows, formatValue, full }: {
             return (
               <li key={i} className="text-xs">
                 <div className="flex items-center justify-between">
-                  <span className="text-gray-700 dark:text-slate-200 truncate pr-2" title={r.label}>{r.label}</span>
+                  <span className="text-gray-700 dark:text-slate-200 truncate pr-2 inline-flex items-center gap-1.5" title={r.label}>
+                    {r.color && <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: r.color }} />}
+                    {r.label}
+                  </span>
                   <span className="text-gray-900 dark:text-slate-100 font-semibold tabular-nums">
                     {formatValue ? formatValue(r.value) : r.value.toLocaleString('en-IN')}
                   </span>
                 </div>
                 <div className="h-1.5 bg-gray-100 dark:bg-slate-800 rounded mt-1 overflow-hidden">
-                  <div className="h-full rounded bg-gradient-to-r from-blue-500 to-indigo-500" style={{ width: `${pct}%` }} />
+                  <div
+                    className={r.color ? 'h-full rounded' : 'h-full rounded bg-gradient-to-r from-blue-500 to-indigo-500'}
+                    style={{ width: `${pct}%`, backgroundColor: r.color }}
+                  />
                 </div>
               </li>
             );

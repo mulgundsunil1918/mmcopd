@@ -1052,7 +1052,7 @@ function ToggleRow({ label, subtitle, checked, onChange, disabled, tone = 'blue'
 
 function FeesAndFlow() {
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
-  const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, ['consultation_fee', 'special_price', 'slot_duration', 'queue_flow_enabled', 'appointments_default_sort', 'show_user_badge', 'show_billing_module']);
+  const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, ['consultation_fee', 'special_price', 'slot_duration', 'queue_flow_enabled', 'appointments_default_sort', 'show_user_badge', 'show_billing_module', 'show_patient_origin']);
 
   if (!settings) return null;
   return (
@@ -1198,6 +1198,34 @@ function FeesAndFlow() {
             className={cn(
               'absolute top-0.5 w-6 h-6 rounded-full shadow-md transition-all',
               draft.show_billing_module ? 'left-[26px]' : 'left-0.5'
+            )}
+            style={{ backgroundColor: '#ffffff' }}
+          />
+        </button>
+      </div>
+
+      {/* Show Patient Origin in sidebar */}
+      <div className="mt-5 flex items-center justify-between border-t border-gray-200 dark:border-slate-700 pt-4">
+        <div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Show Patient Origin module in sidebar</div>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400 max-w-md">
+            The Patient Origin page (geographic stats) is also accessible from <b>Analytics → Patient Origin</b>.
+            Hide the standalone entry to keep the sidebar slim.
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => set('show_patient_origin', !draft.show_patient_origin)}
+          className={cn(
+            'w-12 h-7 rounded-full relative transition flex-shrink-0',
+            draft.show_patient_origin ? 'bg-rose-500' : 'bg-gray-300 dark:bg-slate-600'
+          )}
+          aria-pressed={!!draft.show_patient_origin}
+        >
+          <span
+            className={cn(
+              'absolute top-0.5 w-6 h-6 rounded-full shadow-md transition-all',
+              draft.show_patient_origin ? 'left-[26px]' : 'left-0.5'
             )}
             style={{ backgroundColor: '#ffffff' }}
           />
