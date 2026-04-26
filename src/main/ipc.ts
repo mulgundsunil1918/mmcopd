@@ -4,6 +4,23 @@ import path from 'node:path';
 import * as XLSX from 'xlsx';
 import Database from 'better-sqlite3';
 import { getDb, closeDb } from '../db/db';
+
+/**
+ * Cross-module hook: registerIpc() sets this to its internal `performBackupToRoot`
+ * function so main.ts's auto-backup scheduler can run the FULL backup (sqlite +
+ * xlsx + manifest) instead of just dumping the sqlite file. Null until registerIpc
+ * has run at app startup.
+ */
+let _performBackupToRoot: ((root: string, label?: 'backup' | 'pre-restore') => Promise<{
+  ok: true; bundleDir: string; xlsxFile: string; documentCount: number; totalBackups: number;
+}>) | null = null;
+export function runFullBackup(root: string, label: 'backup' | 'pre-restore' = 'backup') {
+  if (!_performBackupToRoot) throw new Error('Backup service not yet initialized — call after registerIpc()');
+  return _performBackupToRoot(root, label);
+}
+export function isBackupServiceReady() {
+  return _performBackupToRoot !== null;
+}
 import { getAllSettings, saveSettings } from '../db/settings';
 import { NotificationService } from '../services/notifications';
 import { createUser, verifyLogin, ensureDefaultAdmin, changePassword, listUsers, updateUser, logAudit, listAudit, type Role, type SessionUser } from './auth';
@@ -1415,6 +1432,48 @@ export function registerIpc() {
     }
   });
 
+  // ===== Stock register (every batch with days-to-expiry) =====
+  ipcMain.handle('stock:register', (_e, filter: { activeOnly?: boolean; includeExpired?: boolean } = {}) => {
+    const db = getDb();
+    const conds: string[] = ['m.is_active=1'];
+    if (filter.activeOnly !== false) conds.push('b.is_active=1');
+    if (filter.includeExpired === false) conds.push("date(b.expiry) >= date('now')");
+    return db.prepare(`
+      SELECT b.id, b.batch_no, b.expiry, b.qty_received, b.qty_remaining,
+             b.purchase_price, b.mrp, b.manufacturer_license_no, b.received_at,
+             m.id as drug_master_id, m.name as drug_name, m.generic_name,
+             m.manufacturer, m.form, m.strength, m.schedule, m.hsn_code,
+             CAST((julianday(b.expiry) - julianday('now')) AS INTEGER) as days_to_expiry
+      FROM drug_stock_batches b
+      JOIN drug_master m ON m.id=b.drug_master_id
+      WHERE ${conds.join(' AND ')}
+      ORDER BY m.name, date(b.expiry)
+    `).all();
+  });
+
+  // ===== Purchase register (invoices joined with wholesaler + line counts) =====
+  ipcMain.handle('purchase:register', (_e, filter: { from: string; to: string; wholesaler_id?: number }) => {
+    const db = getDb();
+    const conds: string[] = ['date(pi.invoice_date) >= ?', 'date(pi.invoice_date) <= ?'];
+    const params: any[] = [filter.from, filter.to];
+    if (filter.wholesaler_id) {
+      conds.push('pi.wholesaler_id = ?');
+      params.push(filter.wholesaler_id);
+    }
+    return db.prepare(`
+      SELECT pi.id, pi.invoice_number, pi.invoice_date, pi.received_date,
+             pi.subtotal, pi.cgst, pi.sgst, pi.igst, pi.discount, pi.total,
+             pi.payment_mode, pi.payment_status, pi.notes,
+             w.name as wholesaler_name, w.drug_license_no as wholesaler_license_no,
+             w.gstin as wholesaler_gstin,
+             (SELECT COUNT(*) FROM purchase_invoice_items pii WHERE pii.invoice_id=pi.id) as line_count
+      FROM purchase_invoices pi
+      JOIN wholesalers w ON w.id=pi.wholesaler_id
+      WHERE ${conds.join(' AND ')}
+      ORDER BY date(pi.invoice_date) ASC, pi.id ASC
+    `).all(...params);
+  });
+
   // ===== Dispensing register =====
   ipcMain.handle('dispensing:register', (_e, filter: { from: string; to: string; schedule?: string }) => {
     const db = getDb();
@@ -2134,6 +2193,8 @@ export function registerIpc() {
   }
 
   ipcMain.handle('backup:now', async () => performBackup());
+  // Expose performBackupToRoot to main.ts (auto-backup scheduler).
+  _performBackupToRoot = performBackupToRoot;
 
   async function performBackupTo(targetDir: string) {
     if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });

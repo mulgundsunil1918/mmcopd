@@ -12,6 +12,10 @@ import type {
   Drug, DrugMaster, DrugSchedule, DrugStockBatch, PurchaseInvoice, PurchaseInvoiceInput, Wholesaler,
 } from '../types';
 import { DispensingRegisterPrint } from '../components/DispensingRegisterPrint';
+import { StockRegisterPrint } from '../components/StockRegisterPrint';
+import { PurchaseRegisterPrint } from '../components/PurchaseRegisterPrint';
+import { BarcodeScanModal } from '../components/BarcodeScanModal';
+import { Scan } from 'lucide-react';
 
 type Tab = 'dispense' | 'drugs' | 'batches' | 'purchases' | 'sales';
 
@@ -176,6 +180,31 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
   const [rows, setRows] = useState<Row[]>([]);
   const [discount, setDiscount] = useState(0);
   const [paymentMode, setPaymentMode] = useState('Cash');
+  const [scanOpen, setScanOpen] = useState(false);
+
+  // Scan flow inside dispense: add the matched drug as a new row.
+  const handleScan = async (code: string) => {
+    setScanOpen(false);
+    const matches = await window.electronAPI.pharmacy.listDrugs({ q: code, activeOnly: true });
+    const exact = matches.find((d) => (d.barcode || '').trim() === code.trim());
+    if (!exact) {
+      toast(`No drug with barcode ${code} — add it in Drug Master first`, 'error');
+      return;
+    }
+    setRows((prev) => [
+      ...prev,
+      {
+        drug_master_id: exact.id,
+        drug_name: exact.name,
+        qty: 1,
+        rate: exact.mrp ?? exact.default_mrp ?? 0,
+        nextBatch: exact.batch || undefined,
+        nextExpiry: exact.expiry || undefined,
+        stock: exact.stock_qty ?? 0,
+      },
+    ]);
+    toast(`Added ${exact.name}`);
+  };
 
   // When Rx items arrive, auto-fill rows from drug_master_id (preferred)
   // or fall back to fuzzy name match.
@@ -311,9 +340,14 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
         {drugs.map((d) => <option key={d.id} value={d.name} />)}
       </datalist>
 
-      <button className="btn-ghost text-xs mt-2" onClick={() => setRows([...rows, { drug_name: '', qty: 1, rate: 0 }])}>
-        <Plus className="w-3.5 h-3.5" /> Add drug
-      </button>
+      <div className="flex gap-2 mt-2">
+        <button className="btn-ghost text-xs" onClick={() => setRows([...rows, { drug_name: '', qty: 1, rate: 0 }])}>
+          <Plus className="w-3.5 h-3.5" /> Add drug
+        </button>
+        <button className="btn-ghost text-xs" onClick={() => setScanOpen(true)} title="Scan drug barcode (USB scanner or camera)">
+          <Scan className="w-3.5 h-3.5" /> Scan
+        </button>
+      </div>
 
       <div className="mt-4 grid grid-cols-2 gap-4">
         <div>
@@ -343,6 +377,13 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
           {sell.isPending ? 'Dispensing…' : 'Dispense (FEFO) & Charge'}
         </button>
       </div>
+
+      <BarcodeScanModal
+        open={scanOpen}
+        onClose={() => setScanOpen(false)}
+        onScan={handleScan}
+        hint="Scan a drug barcode to add it to this dispense. Drug must already be in Drug Master with a barcode set."
+      />
     </div>
   );
 }
@@ -363,6 +404,7 @@ function DrugMasterTab() {
   const toast = useToast();
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState<Partial<DrugMaster> | null>(null);
+  const [scanOpen, setScanOpen] = useState(false);
 
   const { data: drugs = [] } = useQuery({
     queryKey: ['pharmacy-drugs', q, false],
@@ -378,6 +420,22 @@ function DrugMasterTab() {
     },
   });
 
+  // Scan flow: lookup the barcode in the master.
+  // - If exactly one match → open it for editing.
+  // - If no match → open Add Drug pre-filled with the scanned barcode.
+  const handleScan = async (code: string) => {
+    setScanOpen(false);
+    const matches = await window.electronAPI.pharmacy.listDrugs({ q: code, activeOnly: false });
+    const exact = matches.find((d) => (d.barcode || '').trim() === code.trim());
+    if (exact) {
+      setEditing(exact);
+      toast(`Matched: ${exact.name}`);
+    } else {
+      setEditing({ is_active: 1, low_stock_threshold: 10, default_mrp: 0, schedule: 'OTC', gst_rate: 12, barcode: code });
+      toast(`No match — pre-filling new drug with barcode ${code}`, 'info');
+    }
+  };
+
   return (
     <section className="card p-4">
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -385,6 +443,9 @@ function DrugMasterTab() {
           <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input className="input pl-9" placeholder="Search by name / generic / barcode" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
+        <button className="btn-secondary" onClick={() => setScanOpen(true)} title="Scan barcode (USB scanner or camera)">
+          <Scan className="w-4 h-4" /> Scan
+        </button>
         <button className="btn-primary" onClick={() => setEditing({ is_active: 1, low_stock_threshold: 10, default_mrp: 0, schedule: 'OTC', gst_rate: 12 })}>
           <Plus className="w-4 h-4" /> Add Drug
         </button>
@@ -473,6 +534,13 @@ function DrugMasterTab() {
           </div>
         )}
       </Modal>
+
+      <BarcodeScanModal
+        open={scanOpen}
+        onClose={() => setScanOpen(false)}
+        onScan={handleScan}
+        hint="Scan the outer carton barcode. If it matches an existing drug we open it; otherwise we pre-fill a new drug with this barcode."
+      />
     </section>
   );
 }
@@ -1088,33 +1156,43 @@ function SalesTab() {
    REPORTS MENU — Schedule H register + stock register + purchase register
    =================================================================== */
 function ReportsModal({ onClose }: { onClose: () => void }) {
-  const [view, setView] = useState<'menu' | 'register'>('menu');
+  const [view, setView] = useState<'menu' | 'dispensing' | 'stock' | 'purchase'>('menu');
   const [from, setFrom] = useState(daysAgo(30));
   const [to, setTo] = useState(todayISO());
   const [schedule, setSchedule] = useState<DrugSchedule | 'ALL'>('H');
+  const [includeExpired, setIncludeExpired] = useState(true);
 
-  if (view === 'register') {
+  if (view === 'dispensing') {
     return (
       <DispensingRegisterPrint
         from={from}
         to={to}
         schedule={schedule === 'ALL' ? undefined : schedule}
-        onClose={() => { setView('menu'); }}
+        onClose={() => setView('menu')}
       />
     );
   }
+  if (view === 'stock') {
+    return <StockRegisterPrint includeExpired={includeExpired} onClose={() => setView('menu')} />;
+  }
+  if (view === 'purchase') {
+    return <PurchaseRegisterPrint from={from} to={to} onClose={() => setView('menu')} />;
+  }
 
   return (
-    <Modal open onClose={onClose} title="Pharmacy Reports" size="md">
+    <Modal open onClose={onClose} title="Pharmacy Reports" size="lg">
       <div className="space-y-4">
         <div className="text-xs text-gray-600 dark:text-slate-300">
-          Generate compliance-ready PDFs (browser print → "Save as PDF") and Excel exports.
+          Each register opens an A4 print preview — use your browser's <b>Print</b> dialog to print on paper or
+          <b> "Save as PDF"</b>. Same data is also included in the Excel backup export.
         </div>
 
+        {/* === Schedule H Dispensing Register === */}
         <div className="card p-3 space-y-2">
           <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">📋 Schedule H/H1 Dispensing Register</div>
           <p className="text-[11px] text-gray-500 dark:text-slate-400">
-            Per-batch register — every dispense slice with date, patient, drug, batch, expiry, qty, doctor. Required by Karnataka inspectors.
+            Per-batch register — every dispense slice with date, patient, drug, batch, expiry, qty, doctor.
+            Required by Karnataka inspectors for Schedule H drugs.
           </p>
           <div className="grid grid-cols-3 gap-2">
             <Field label="From"><input type="date" className="input" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
@@ -1128,15 +1206,51 @@ function ReportsModal({ onClose }: { onClose: () => void }) {
             </Field>
           </div>
           <div className="flex justify-end">
-            <button className="btn-primary text-xs" onClick={() => setView('register')}>
-              <FileText className="w-3.5 h-3.5" /> Open Register Preview
+            <button className="btn-primary text-xs" onClick={() => setView('dispensing')}>
+              <FileText className="w-3.5 h-3.5" /> Open Dispensing Register
             </button>
           </div>
         </div>
 
-        <div className="card p-3 text-[11px] text-gray-500 dark:text-slate-400 italic">
-          📦 Stock Register and 🚚 Purchase Register coming next — for now, the same data is included in the
-          <b> Excel backup export</b> (Settings → Backup → Backup Now creates a file with all sheets).
+        {/* === Stock Register === */}
+        <div className="card p-3 space-y-2">
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">📦 Stock Register</div>
+          <p className="text-[11px] text-gray-500 dark:text-slate-400">
+            Every batch currently in stock, sorted by drug then expiry. Highlights expired (red) and
+            expiring within 90 days (amber). Includes manufacturer license number per batch.
+          </p>
+          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-slate-200">
+            <input type="checkbox" checked={includeExpired} onChange={(e) => setIncludeExpired(e.target.checked)} />
+            <span>Include expired batches still in stock (recommended for inspector visit)</span>
+          </label>
+          <div className="flex justify-end">
+            <button className="btn-primary text-xs" onClick={() => setView('stock')}>
+              <FileText className="w-3.5 h-3.5" /> Open Stock Register
+            </button>
+          </div>
+        </div>
+
+        {/* === Purchase Register === */}
+        <div className="card p-3 space-y-2">
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">🚚 Purchase Register</div>
+          <p className="text-[11px] text-gray-500 dark:text-slate-400">
+            All purchase invoices in a date range with wholesaler drug license numbers, GST breakdown,
+            and payment status. The inspector's traceability source for any batch.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="From"><input type="date" className="input" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
+            <Field label="To"><input type="date" className="input" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
+          </div>
+          <div className="flex justify-end">
+            <button className="btn-primary text-xs" onClick={() => setView('purchase')}>
+              <FileText className="w-3.5 h-3.5" /> Open Purchase Register
+            </button>
+          </div>
+        </div>
+
+        <div className="text-[11px] text-gray-500 dark:text-slate-400 italic px-1">
+          💡 For a full data dump (all sheets, every table), use <b>Settings → Backup → Backup Now</b> — the
+          generated <code>.xlsx</code> includes Drug Master, Batches, Wholesalers, Invoices, Sales, and Dispensing Register sheets.
         </div>
 
         <div className="flex justify-end">

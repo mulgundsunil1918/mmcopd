@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, Notification, Tray, Menu, nativeImage, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
-import { registerIpc } from './main/ipc';
+import { registerIpc, runFullBackup, isBackupServiceReady } from './main/ipc';
 import { getDb, closeDb } from './db/db';
 import { getAllSettings } from './db/settings';
 
@@ -187,6 +187,16 @@ function createWindow() {
   });
   mainWindowRef = mainWindow;
 
+  // Auto-grant camera permission for in-app barcode scanning. The app is a
+  // single-tenant local install, so there's no third-party site that could
+  // ever request access — only our own renderer can ask.
+  mainWindow.webContents.session.setPermissionRequestHandler((_wc, permission, callback) => {
+    if (permission === 'media' || permission === 'mediaKeySystem') {
+      return callback(true);
+    }
+    callback(false);
+  });
+
   if (!startedHidden) {
     mainWindow.maximize();
     mainWindow.show();
@@ -310,6 +320,21 @@ async function runScheduledBackup(reason: 'startup' | 'tick') {
 
     if (!(dueByInterval && dueByTime)) return;
 
+    // Prefer the full backup routine (sqlite + xlsx + manifest) so an automated
+    // backup leaves the same recovery payload a manual one would. Fall back to
+    // a bare sqlite copy only if the backup service hasn't initialized yet
+    // (very early startup race — registerIpc() hasn't run).
+    if (isBackupServiceReady()) {
+      try {
+        await runFullBackup(dir, 'backup');
+        mainWindowRef?.webContents.send('app:autoBackupRan', { at: new Date().toISOString(), reason });
+        return;
+      } catch (e) {
+        console.error('Full auto-backup failed, falling back to sqlite-only:', e);
+      }
+    }
+
+    // Bare-bones fallback path
     const pad2 = (n: number) => String(n).padStart(2, '0');
     const now = new Date();
     const day = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
@@ -318,7 +343,6 @@ async function runScheduledBackup(reason: 'startup' | 'tick') {
     fs.mkdirSync(bundleDir, { recursive: true });
     const dest = path.join(bundleDir, 'caredesk.sqlite');
     try { await db.backup(dest); } catch { fs.copyFileSync(path.join(userData, 'caredesk.sqlite'), dest); }
-    // Notify the renderer so the status pill refreshes immediately
     mainWindowRef?.webContents.send('app:autoBackupRan', { at: new Date().toISOString(), reason });
   } catch (e) {
     console.error('Scheduled backup failed:', e);

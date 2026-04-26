@@ -136,7 +136,7 @@ export function Sidebar() {
           </span>
           <span className="sidebar-meta text-[10px]">tap</span>
         </button>
-        <div className="sidebar-meta text-[10px] px-3">v0.1.0 · {currentMode.replace(/_/g, ' + ')}</div>
+        <div className="sidebar-meta text-[10px] px-3">v0.3.0 · {currentMode.replace(/_/g, ' + ')}</div>
       </div>
     </aside>
   );

@@ -256,6 +256,21 @@ const api = {
     register: (filter: { from: string; to: string; schedule?: string }) =>
       ipcRenderer.invoke('dispensing:register', filter) as Promise<DispensingRow[]>,
   },
+  stock: {
+    register: (filter?: { activeOnly?: boolean; includeExpired?: boolean }) =>
+      ipcRenderer.invoke('stock:register', filter || {}) as Promise<Array<DrugStockBatch & {
+        drug_name: string; generic_name: string | null; manufacturer: string | null;
+        form: string | null; strength: string | null; schedule: string;
+        hsn_code: string | null; days_to_expiry: number;
+      }>>,
+  },
+  purchasesReport: {
+    register: (filter: { from: string; to: string; wholesaler_id?: number }) =>
+      ipcRenderer.invoke('purchase:register', filter) as Promise<Array<PurchaseInvoice & {
+        wholesaler_name: string; wholesaler_license_no: string;
+        wholesaler_gstin: string | null; line_count: number;
+      }>>,
+  },
   ip: {
     list: (filter?: { status?: string }) =>
       ipcRenderer.invoke('ip:list', filter || {}) as Promise<(IpAdmission & { patient_name: string; patient_uhid: string; patient_phone: string; doctor_name: string | null })[]>,

@@ -1,7 +1,7 @@
 {
   "name": "caredesk-hms",
   "productName": "CareDesk HMS",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "OPD management software for Mulgund Multispeciality Clinic",
   "main": ".vite/build/main.js",
   "scripts": {
@@ -43,6 +43,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.62.2",
+    "@zxing/browser": "^0.1.5",
     "better-sqlite3": "^11.7.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
