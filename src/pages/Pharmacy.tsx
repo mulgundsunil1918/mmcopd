@@ -17,10 +17,10 @@ import { PurchaseRegisterPrint } from '../components/PurchaseRegisterPrint';
 import { BarcodeScanModal } from '../components/BarcodeScanModal';
 import { Scan } from 'lucide-react';
 
-type Tab = 'dispense' | 'newsale' | 'drugs' | 'batches' | 'purchases' | 'sales';
+type Tab = 'newsale' | 'dispense' | 'drugs' | 'batches' | 'purchases' | 'sales';
 
 export function Pharmacy() {
-  const [tab, setTab] = useState<Tab>('dispense');
+  const [tab, setTab] = useState<Tab>('newsale');
   const [reportsOpen, setReportsOpen] = useState(false);
 
   const { data: alerts } = useQuery({
@@ -40,8 +40,8 @@ export function Pharmacy() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex gap-2 bg-gray-100 dark:bg-slate-700 p-1 rounded-lg flex-wrap">
-            <TabBtn active={tab === 'dispense'} onClick={() => setTab('dispense')} icon={<Clipboard className="w-3.5 h-3.5" />}>Dispense</TabBtn>
             <TabBtn active={tab === 'newsale'} onClick={() => setTab('newsale')} icon={<Plus className="w-3.5 h-3.5" />}>New Sale</TabBtn>
+            <TabBtn active={tab === 'dispense'} onClick={() => setTab('dispense')} icon={<Clipboard className="w-3.5 h-3.5" />}>Dispense</TabBtn>
             <TabBtn active={tab === 'drugs'} onClick={() => setTab('drugs')} icon={<Package className="w-3.5 h-3.5" />}>Drug Master</TabBtn>
             <TabBtn active={tab === 'batches'} onClick={() => setTab('batches')} icon={<Layers className="w-3.5 h-3.5" />}>Stock & Batches</TabBtn>
             <TabBtn active={tab === 'purchases'} onClick={() => setTab('purchases')} icon={<Truck className="w-3.5 h-3.5" />}>Purchases</TabBtn>
