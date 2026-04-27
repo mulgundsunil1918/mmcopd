@@ -74,17 +74,31 @@ export function OpdSlip({
   // the user edited a template and clicked Preview again.
   const { data: templates = [] } = useQuery({
     queryKey: ['slip-templates'],
-    queryFn: () => window.electronAPI.templates.list(),
+    queryFn: () => window.electronAPI.templates.list().catch(() => [] as SlipTemplate[]),
     refetchOnMount: 'always',
   });
-  const template = useMemo<SlipTemplate | null>(() => {
-    if (templates.length === 0) return null;
-    return templates.find((t) => t.id === doctor.template_id) || templates[0];
-  }, [templates, doctor.template_id]);
+  // Fallback template — used when the IPC returns nothing (old binary, missing
+  // setting row, transient error). Guarantees the slip body always renders the
+  // classic 4-section layout instead of going blank.
+  const FALLBACK_TEMPLATE: SlipTemplate = useMemo(() => ({
+    id: 0,
+    name: 'General (fallback)',
+    sections: [
+      { key: 'history', title: 'Chief Complaints / History', type: 'textarea', height_mm: 55, printed: true },
+      { key: 'examination', title: 'Examination', type: 'textarea', height_mm: 60, printed: true },
+      { key: 'impression', title: 'Impression / Diagnosis', type: 'textarea', height_mm: 22, printed: true },
+      { key: 'advice', title: 'Advice / Prescription (Rx)', type: 'textarea', height_mm: 60, printed: true },
+    ],
+  }), []);
+  const template = useMemo<SlipTemplate>(() => {
+    if (templates.length === 0) return FALLBACK_TEMPLATE;
+    return templates.find((t) => t.id === doctor.template_id) || templates[0] || FALLBACK_TEMPLATE;
+  }, [templates, doctor.template_id, FALLBACK_TEMPLATE]);
   const [pageOneSections, pageTwoSections] = useMemo(() => {
-    if (!template) return [[], []] as [SlipTemplateSection[], SlipTemplateSection[]];
-    return splitSections(template.sections.filter((s) => s.printed !== false));
-  }, [template]);
+    const printable = template.sections.filter((s) => s.printed !== false);
+    if (printable.length === 0) return splitSections(FALLBACK_TEMPLATE.sections);
+    return splitSections(printable);
+  }, [template, FALLBACK_TEMPLATE]);
 
   return (
     <div className="fixed inset-0 z-[100] overflow-auto print-overlay" style={{ backgroundColor: '#94a3b8' }}>
