@@ -180,13 +180,31 @@ html.dark .statusbar { background-color: #0b1220; border-top-color: #1e293b; col
   /* Default: single print-area gets pinned to the page */
   .print-area { background: white !important; color: #0f172a !important; }
 
-  /* Walk every ANCESTOR of .print-page back to normal flow. Without this the
-     OPD-slip preview wrapper (position: fixed; overflow: auto) pins the
-     printable region to the first viewport and Chromium emits only page 1.
-     EXCLUDE .no-print so hidden preview banners/buttons stay hidden — otherwise
-     a forced display:block makes them push the real pages out of the print area
-     and the first printed sheet ends up blank. */
-  .print-overlay,
+  /* Lift the print overlay OUT of normal flow with position: absolute pinned to
+     the top-left of the page. Sidebar / TopBar / current page content above
+     the overlay in the DOM still occupy layout space (visibility:hidden keeps
+     boxes intact), so leaving .print-overlay as a static block pushes the
+     actual sheets down and we get blank leading pages. Absolute fixes that. */
+  .print-overlay {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: auto !important;
+    bottom: auto !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: white !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: block !important;
+    transform: none !important;
+  }
+  /* Direct children: flatten flex wrappers, reset overflow/position so each
+     .print-page sits in normal block flow. EXCLUDE .no-print so the preview
+     banner and button bar stay hidden via .no-print { display:none }. */
   .print-overlay > *:not(.no-print) {
     position: static !important;
     overflow: visible !important;
@@ -196,7 +214,6 @@ html.dark .statusbar { background-color: #0b1220; border-top-color: #1e293b; col
     transform: none !important;
     background: white !important;
     box-shadow: none !important;
-    /* Flatten flex/grid wrappers so each .print-page sits in normal block flow. */
     display: block !important;
     gap: 0 !important;
     padding: 0 !important;
