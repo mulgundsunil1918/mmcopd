@@ -84,6 +84,27 @@ export function runMigrations(db: Database.Database) {
   addColumnIfMissing(db, 'consultations', 'extra_fields_json', 'TEXT');
   setSettingIfEmpty(db, 'slip_templates', JSON.stringify(DEFAULT_SLIP_TEMPLATES));
 
+  // Merge any newly-seeded default templates (e.g. ENT, General Medicine) into
+  // existing installs WITHOUT clobbering user customizations. Identity is by
+  // name (case-insensitive). Doesn't touch templates the user has edited or
+  // renamed — only appends ones that aren't there yet.
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key='slip_templates'").get() as { value: string } | undefined;
+    if (row?.value) {
+      const current = JSON.parse(row.value) as Array<{ id: number; name: string }>;
+      const haveNames = new Set(current.map((t) => (t.name || '').toLowerCase()));
+      const additions = DEFAULT_SLIP_TEMPLATES.filter((t) => !haveNames.has(t.name.toLowerCase()));
+      if (additions.length > 0) {
+        const maxId = current.reduce((mx, t) => Math.max(mx, t.id || 0), 0);
+        const merged = [...current];
+        for (let i = 0; i < additions.length; i++) {
+          merged.push({ ...additions[i], id: maxId + i + 1 });
+        }
+        db.prepare("UPDATE settings SET value=? WHERE key='slip_templates'").run(JSON.stringify(merged));
+      }
+    }
+  } catch { /* ignore — corrupt JSON or missing key, fresh install path handles it */ }
+
   // Phase A pharmacy-compliance link columns. drug_master / drug_stock_batches
   // tables are created in createSchema(); these FK columns extend existing tables.
   addColumnIfMissing(db, 'prescription_items', 'drug_master_id', 'INTEGER REFERENCES drug_master(id)');

@@ -82,10 +82,36 @@ const orthoSections: SlipTemplateSection[] = [
   { key: 'advice', title: 'Advice / Prescription (Rx)', type: 'textarea', height_mm: 40, printed: true },
 ];
 
+const entSections: SlipTemplateSection[] = [
+  { key: 'history', title: 'Chief Complaints / History', type: 'textarea', height_mm: 35, placeholder: 'Onset, duration, side, associated symptoms', printed: true },
+  { key: 'otoscopy_right', title: 'Otoscopy — Right Ear', type: 'textarea', height_mm: 18, placeholder: 'EAC · TM appearance · Cone of light · Discharge', printed: true },
+  { key: 'otoscopy_left', title: 'Otoscopy — Left Ear', type: 'textarea', height_mm: 18, placeholder: 'EAC · TM appearance · Cone of light · Discharge', printed: true },
+  { key: 'hearing', title: 'Hearing Assessment', type: 'singleline', height_mm: 8, placeholder: 'e.g. Whisper test passed · Audiometry pending', printed: true },
+  { key: 'tuning_fork', title: 'Tuning Fork Tests', type: 'textarea', height_mm: 14, placeholder: 'Rinne · Weber · ABC', printed: true },
+  { key: 'nasal', title: 'Nasal Examination', type: 'textarea', height_mm: 18, placeholder: 'Septum · Turbinates · Discharge · Polyps', printed: true },
+  { key: 'throat', title: 'Throat / Pharynx Examination', type: 'textarea', height_mm: 18, placeholder: 'Tonsils · Posterior pharyngeal wall · Uvula', printed: true },
+  { key: 'examination', title: 'Other Examination', type: 'textarea', height_mm: 18, printed: true },
+  { key: 'impression', title: 'Impression / Diagnosis', type: 'textarea', height_mm: 22, printed: true },
+  { key: 'advice', title: 'Advice / Prescription (Rx)', type: 'textarea', height_mm: 40, printed: true },
+];
+
+const generalMedicineSections: SlipTemplateSection[] = [
+  { key: 'history', title: 'Chief Complaints', type: 'textarea', height_mm: 35, placeholder: 'Presenting complaints with onset, duration, progression', printed: true },
+  { key: 'past_history', title: 'Past History', type: 'textarea', height_mm: 18, placeholder: 'DM · HTN · TB · IHD · Surgeries · Allergies', printed: true },
+  { key: 'personal_history', title: 'Personal History', type: 'textarea', height_mm: 18, placeholder: 'Diet · Sleep · Bowel · Bladder · Addictions (smoking / alcohol / tobacco)', printed: true },
+  { key: 'family_history', title: 'Family History', type: 'textarea', height_mm: 14, placeholder: 'Heritable / chronic illnesses in immediate family', printed: true },
+  { key: 'general_exam', title: 'General Examination', type: 'textarea', height_mm: 22, placeholder: 'Pallor · Icterus · Cyanosis · Clubbing · Lymphadenopathy · Edema', printed: true },
+  { key: 'examination', title: 'Systemic Examination (CVS · RS · P/A · CNS)', type: 'textarea', height_mm: 35, printed: true },
+  { key: 'impression', title: 'Provisional Diagnosis', type: 'textarea', height_mm: 22, printed: true },
+  { key: 'advice', title: 'Advice / Prescription (Rx)', type: 'textarea', height_mm: 50, printed: true },
+];
+
 export const DEFAULT_SLIP_TEMPLATES: SlipTemplate[] = [
-  { id: 1, name: 'General', specialty_hint: 'General medicine / default', sections: generalSections },
-  { id: 2, name: 'OBG', specialty_hint: 'Obstetrics & Gynaecology', sections: obgSections },
-  { id: 3, name: 'Pediatrics', specialty_hint: 'Children — feeding, milestones, immunization', sections: pediatricsSections },
-  { id: 4, name: 'Cardiology', specialty_hint: 'Heart-focused workflow with NYHA, sounds, ECG', sections: cardiologySections },
-  { id: 5, name: 'Orthopedic', specialty_hint: 'Site, ROM, deformities', sections: orthoSections },
+  { id: 1, name: 'General', specialty_hint: 'Default short layout', sections: generalSections },
+  { id: 2, name: 'General Medicine', specialty_hint: 'Full medicine workup — past / personal / family / systemic exam', sections: generalMedicineSections },
+  { id: 3, name: 'OBG', specialty_hint: 'Obstetrics & Gynaecology', sections: obgSections },
+  { id: 4, name: 'Pediatrics', specialty_hint: 'Children — feeding, milestones, immunization', sections: pediatricsSections },
+  { id: 5, name: 'Cardiology', specialty_hint: 'Heart-focused workflow with NYHA, sounds, ECG', sections: cardiologySections },
+  { id: 6, name: 'Orthopedic', specialty_hint: 'Site, ROM, deformities', sections: orthoSections },
+  { id: 7, name: 'ENT', specialty_hint: 'Ear · Nose · Throat — otoscopy, tuning fork, nasal, throat', sections: entSections },
 ];
