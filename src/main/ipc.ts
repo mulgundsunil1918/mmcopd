@@ -2871,6 +2871,11 @@ export function registerIpc() {
     const monthStart = today.slice(0, 8) + '01';
     const sc = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { c: number }).c;
     const ss = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { t: number }).t || 0;
+    // Defensive variants — return 0 on ANY error (missing column on a pre-migration
+    // DB, SQL parse error, etc.) so one bad query doesn't kill the whole overview
+    // and leave the UI stuck on "Loading…".
+    const scSafe = (sql: string, ...p: any[]) => { try { return sc(sql, ...p); } catch { return 0; } };
+    const ssSafe = (sql: string, ...p: any[]) => { try { return ss(sql, ...p); } catch { return 0; } };
     return {
       asOf: new Date().toISOString(),
       todayVisits: sc(`SELECT COUNT(*) as c FROM appointments WHERE appointment_date=?`, today),
@@ -2903,27 +2908,29 @@ export function registerIpc() {
       `),
       // Free follow-up + registration-fee tracking — surfaced in Analytics so the
       // user can see what waivers cost them and what registration revenue came in.
-      freeFollowupsThisMonth: sc(`
+      // All defensive: a fresh-from-old-binary DB without the migration columns
+      // returns 0 instead of throwing and breaking the whole Overview tab.
+      freeFollowupsThisMonth: scSafe(`
         SELECT COUNT(*) as c FROM bills
         WHERE COALESCE(is_free_followup,0)=1 AND date(created_at) >= ?
       `, monthStart),
-      relaxedFollowupsThisMonth: sc(`
+      relaxedFollowupsThisMonth: scSafe(`
         SELECT COUNT(*) as c FROM bills
         WHERE COALESCE(is_relaxed_followup,0)=1 AND date(created_at) >= ?
       `, monthStart),
-      registrationFeesThisMonth: ss(`
+      registrationFeesThisMonth: ssSafe(`
         SELECT COALESCE(SUM(rate),0) as t
         FROM bills b, json_each(b.items_json) j
         WHERE date(b.created_at) >= ?
           AND lower(json_extract(j.value, '$.description')) LIKE '%registration%'
       `, monthStart),
-      registrationFeeCountThisMonth: sc(`
+      registrationFeeCountThisMonth: scSafe(`
         SELECT COUNT(*) as c FROM patients WHERE registration_fee_paid=1 AND date(registration_fee_paid_at) >= ?
       `, monthStart),
-      servicesCountThisMonth: sc(`
+      servicesCountThisMonth: scSafe(`
         SELECT COUNT(*) as c FROM bills WHERE bill_kind='misc' AND date(created_at) >= ?
       `, monthStart),
-      servicesRevenueThisMonth: ss(`
+      servicesRevenueThisMonth: ssSafe(`
         SELECT COALESCE(SUM(total),0) as t FROM bills WHERE bill_kind='misc' AND date(created_at) >= ?
       `, monthStart),
     };

@@ -90,12 +90,21 @@ function TabBtn({ active, onClick, icon, children }: { active: boolean; onClick:
    OVERVIEW — top-level snapshot, alerts, today + month at a glance
    ============================================================ */
 function OverviewTab() {
-  const { data: ov, isLoading } = useQuery({
+  const { data: ov, isLoading, error } = useQuery({
     queryKey: ['analytics-overview'],
     queryFn: () => window.electronAPI.analytics.overview(),
     refetchInterval: 60_000,
   });
 
+  if (error) {
+    return (
+      <div className="card p-5 border-2 border-red-300 dark:border-red-800 bg-red-50/40 dark:bg-red-900/10">
+        <div className="text-sm font-semibold text-red-800 dark:text-red-300 mb-1">Couldn't load overview</div>
+        <div className="text-[12px] text-red-700 dark:text-red-300/80 font-mono whitespace-pre-wrap">{(error as any)?.message || String(error)}</div>
+        <div className="text-[11px] text-red-700/70 dark:text-red-300/70 mt-2">Try restarting the app to apply pending database migrations.</div>
+      </div>
+    );
+  }
   if (isLoading || !ov) {
     return <div className="text-xs text-gray-500 dark:text-slate-400 p-4">Loading…</div>;
   }
