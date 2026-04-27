@@ -4,7 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import {
   BarChart3, Wallet, MapPin, FileText, Users as UsersIcon, Pill,
   TrendingUp, AlertTriangle, Calendar, Activity, RefreshCw,
-  Download, Database, FolderOpen, HardDriveDownload,
+  Download, Database, FolderOpen, HardDriveDownload, Syringe,
 } from 'lucide-react';
 import { cn, fmt12h, fmtDate, fmtDateTime, formatINR, todayISO } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
@@ -133,8 +133,17 @@ function OverviewTab() {
             sub={`${ov.registrationFeeCountThisMonth ?? 0} new patients paid`}
             tone="amber"
           />
+          <Kpi
+            label="Services revenue"
+            value={formatINR(ov.servicesRevenueThisMonth ?? 0)}
+            sub={`${ov.servicesCountThisMonth ?? 0} services rendered`}
+            tone="rose"
+          />
         </div>
       </section>
+
+      {/* Services breakdown — top services + per-doctor */}
+      <ServicesBreakdown />
 
       {/* Alerts */}
       <section>
@@ -860,7 +869,7 @@ function SectionTitle({ icon, title, subtitle }: { icon: React.ReactNode; title:
   );
 }
 
-function Kpi({ label, value, sub, tone = 'blue' }: { label: string; value: string | number; sub?: string; tone?: 'blue' | 'emerald' | 'amber' | 'red' | 'violet' | 'indigo' | 'gray' }) {
+function Kpi({ label, value, sub, tone = 'blue' }: { label: string; value: string | number; sub?: string; tone?: 'blue' | 'emerald' | 'amber' | 'red' | 'violet' | 'indigo' | 'gray' | 'rose' }) {
   const tones: Record<string, string> = {
     blue: 'text-blue-700 bg-blue-100 dark:text-blue-300 dark:bg-blue-900/40',
     emerald: 'text-emerald-700 bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-900/40',
@@ -869,6 +878,7 @@ function Kpi({ label, value, sub, tone = 'blue' }: { label: string; value: strin
     violet: 'text-violet-700 bg-violet-100 dark:text-violet-300 dark:bg-violet-900/40',
     indigo: 'text-indigo-700 bg-indigo-100 dark:text-indigo-300 dark:bg-indigo-900/40',
     gray: 'text-gray-600 bg-gray-100 dark:text-slate-300 dark:bg-slate-800',
+    rose: 'text-rose-700 bg-rose-100 dark:text-rose-300 dark:bg-rose-900/40',
   };
   return (
     <div className="card p-3">
@@ -947,4 +957,84 @@ function daysAgo(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() - n);
   return d.toISOString().slice(0, 10);
+}
+
+/** Services breakdown — top services + per-doctor revenue. Uses the misc:summary IPC. */
+function ServicesBreakdown() {
+  const today = new Date().toISOString().slice(0, 10);
+  const monthStart = today.slice(0, 8) + '01';
+  const { data: summary } = useQuery({
+    queryKey: ['analytics-services-summary', monthStart, today],
+    queryFn: () => window.electronAPI.misc.summary({ from: monthStart, to: today }),
+    refetchOnMount: 'always',
+  });
+
+  if (!summary) return null;
+  if (summary.count === 0) return null;
+
+  const topMax = Math.max(1, ...summary.topServices.map((s: any) => s.revenue));
+  const docMax = Math.max(1, ...summary.byDoctor.map((d: any) => d.revenue));
+
+  return (
+    <section>
+      <SectionTitle icon={<Syringe className="w-4 h-4 text-pink-600" />} title="Services" subtitle={`${summary.count} services · ${formatINR(summary.revenue)} revenue · ${monthStart} to ${today}`} />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {/* Top services */}
+        <div className="card p-4">
+          <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-3">Top services by revenue</div>
+          <ul className="space-y-2">
+            {summary.topServices.map((s: any) => (
+              <li key={s.service}>
+                <div className="flex items-center justify-between text-[13px]">
+                  <span className="font-medium text-gray-900 dark:text-slate-100 truncate">{s.service || '—'}</span>
+                  <span className="text-gray-600 dark:text-slate-300 ml-2 whitespace-nowrap">
+                    <span className="font-semibold">{formatINR(s.revenue)}</span>
+                    <span className="text-[11px] text-gray-500 ml-2">× {s.count}</span>
+                  </span>
+                </div>
+                <div className="h-1.5 bg-gray-100 dark:bg-slate-800 rounded-full mt-1 overflow-hidden">
+                  <div
+                    className="h-full bg-pink-500"
+                    style={{ width: `${Math.max(2, (s.revenue / topMax) * 100)}%` }}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Per-doctor */}
+        <div className="card p-4">
+          <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-3">Services revenue by doctor</div>
+          <ul className="space-y-2">
+            {summary.byDoctor.map((d: any, i: number) => (
+              <li key={i}>
+                <div className="flex items-center justify-between text-[13px]">
+                  <span className="font-medium text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5 truncate">
+                    {d.doctor_color && (
+                      <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: d.doctor_color }} />
+                    )}
+                    {d.doctor_name || <em className="text-gray-400 not-italic">No doctor</em>}
+                  </span>
+                  <span className="text-gray-600 dark:text-slate-300 ml-2 whitespace-nowrap">
+                    <span className="font-semibold">{formatINR(d.revenue)}</span>
+                    <span className="text-[11px] text-gray-500 ml-2">× {d.count}</span>
+                  </span>
+                </div>
+                <div className="h-1.5 bg-gray-100 dark:bg-slate-800 rounded-full mt-1 overflow-hidden">
+                  <div
+                    className="h-full"
+                    style={{
+                      width: `${Math.max(2, (d.revenue / docMax) * 100)}%`,
+                      backgroundColor: d.doctor_color || '#94a3b8',
+                    }}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </section>
+  );
 }

@@ -56,7 +56,7 @@ export function SettingsPage() {
           <RegistrationFeePolicy />
         </SettingsGroup>
 
-        <SettingsGroup title="Miscellaneous Services" subtitle="The quick-pick chips shown on the Miscellaneous Charges page (procedures, vaccinations, etc.).">
+        <SettingsGroup title="Services" subtitle="Quick-pick chips shown on the Services page (procedures, vaccinations, etc.). Add, remove, or reorder.">
           <MiscServicesEditor />
         </SettingsGroup>
 
@@ -1353,7 +1353,9 @@ function MiscServicesEditor() {
       const final = list.filter((s) => s.trim().length > 0);
       if (!final.includes('Other')) final.push('Other');
       await window.electronAPI.settings.save({ misc_services: final.join(',') });
-      await qc.refetchQueries({ queryKey: ['settings'] });
+      // Mark settings stale so any active observer (and subsequent mounts)
+      // re-fetches; refetchOnMount: 'always' on the consumer pages guarantees fresh data.
+      await qc.invalidateQueries({ queryKey: ['settings'] });
       toast('Service list saved');
     } catch (e: any) {
       toast(e?.message || 'Save failed', 'error');

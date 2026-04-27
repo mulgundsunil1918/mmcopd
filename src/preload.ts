@@ -357,6 +357,8 @@ const api = {
       relaxedFollowupsThisMonth: number;
       registrationFeesThisMonth: number;
       registrationFeeCountThisMonth: number;
+      servicesCountThisMonth: number;
+      servicesRevenueThisMonth: number;
     }>,
     followups: (filter: { from?: string; to?: string } = {}) =>
       ipcRenderer.invoke('analytics:followups', filter) as Promise<{

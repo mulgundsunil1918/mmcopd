@@ -2902,6 +2902,12 @@ export function registerIpc() {
       registrationFeeCountThisMonth: sc(`
         SELECT COUNT(*) as c FROM patients WHERE registration_fee_paid=1 AND date(registration_fee_paid_at) >= ?
       `, monthStart),
+      servicesCountThisMonth: sc(`
+        SELECT COUNT(*) as c FROM bills WHERE bill_kind='misc' AND date(created_at) >= ?
+      `, monthStart),
+      servicesRevenueThisMonth: ss(`
+        SELECT COALESCE(SUM(total),0) as t FROM bills WHERE bill_kind='misc' AND date(created_at) >= ?
+      `, monthStart),
     };
   });
 

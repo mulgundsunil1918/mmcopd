@@ -391,6 +391,7 @@ export function createMockElectronAPI(): any {
         pendingRx: 3, lowStockDrugs: 2, expiringSoonBatches: 4, expiredBatches: 0,
         freeFollowupsThisMonth: 14, relaxedFollowupsThisMonth: 3,
         registrationFeesThisMonth: 1200, registrationFeeCountThisMonth: 12,
+        servicesCountThisMonth: 18, servicesRevenueThisMonth: 4250,
       }),
       followups: () => r({
         from: '2026-04-01', to: '2026-04-27',

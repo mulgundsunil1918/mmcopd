@@ -35,7 +35,7 @@ const NAV: NavItem2[] = [
   { to: '/patient-log', label: 'Patient Log', icon: History, color: 'text-cyan-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
   { to: '/origin', label: 'Patient Origin', icon: MapPin, color: 'text-rose-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
   { to: '/billing', label: 'Billing', icon: Receipt, color: 'text-amber-500', modes: ALL_MODES, roles: ['receptionist'] },
-  { to: '/miscellaneous', label: 'Miscellaneous', icon: Syringe, color: 'text-pink-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
+  { to: '/miscellaneous', label: 'Services', icon: Syringe, color: 'text-pink-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
   { to: '/accounts', label: 'Accounts', icon: Wallet, color: 'text-teal-500', modes: ALL_MODES, roles: ['receptionist'] },
   { to: '/analytics', label: 'Analytics', icon: Activity, color: 'text-indigo-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
   // Reports merged into Analytics → Operational Reports tab. Page kept reachable

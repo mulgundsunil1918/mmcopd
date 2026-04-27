@@ -32,7 +32,14 @@ export function Miscellaneous() {
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('Cash');
   const [notes, setNotes] = useState<string>('');
 
-  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  // Always refetch settings on mount so newly-added services from the Settings
+  // page show up immediately when the user navigates back, regardless of the
+  // 5-second default staleTime.
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => window.electronAPI.settings.get(),
+    refetchOnMount: 'always',
+  });
   const services = parseServices(settings?.misc_services);
 
   const { data: doctors = [] } = useQuery<Doctor[]>({
@@ -99,7 +106,7 @@ export function Miscellaneous() {
       <header>
         <div className="flex items-center gap-2">
           <Syringe className="w-5 h-5 text-pink-600" />
-          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Miscellaneous Charges</h1>
+          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Services</h1>
         </div>
         <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
           Procedures, vaccinations, nebulizations, dressings, injections — anything not handled by an appointment bill. Reflects in patient log, doctor revenue, and analytics.
@@ -112,7 +119,7 @@ export function Miscellaneous() {
           <div className="card p-4">
             <div className="text-[11px] uppercase tracking-wider text-gray-500">This month</div>
             <div className="text-2xl font-extrabold text-gray-900 dark:text-slate-100 mt-1">{summary.count}</div>
-            <div className="text-[11px] text-gray-500">misc charges</div>
+            <div className="text-[11px] text-gray-500">services rendered</div>
           </div>
           <div className="card p-4">
             <div className="text-[11px] uppercase tracking-wider text-gray-500">Revenue</div>
@@ -297,7 +304,7 @@ export function Miscellaneous() {
       {/* Recent list */}
       <section>
         <div className="flex items-center justify-between mb-2">
-          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Recent miscellaneous charges</div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Recent services</div>
           <div className="text-[11px] text-gray-500">{list.length} this month</div>
         </div>
         <div className="card overflow-hidden">
@@ -315,7 +322,7 @@ export function Miscellaneous() {
             </thead>
             <tbody>
               {list.length === 0 ? (
-                <tr><td colSpan={7} className="py-8 text-center text-xs text-gray-500">No miscellaneous charges this month.</td></tr>
+                <tr><td colSpan={7} className="py-8 text-center text-xs text-gray-500">No services rendered this month.</td></tr>
               ) : list.map((b: any) => {
                 const items = (() => { try { return JSON.parse(b.items_json || '[]'); } catch { return []; } })();
                 const desc = items[0]?.description || '—';
