@@ -75,9 +75,17 @@ export function Reception() {
     enabled: selectedId != null,
   });
 
+  // Local Ctrl+N handler kept as a safety net; the canonical handler now lives
+  // in App.tsx so the shortcut works from any page (it navigates here first,
+  // then fires a 'caredesk:newPatient' window event we listen for below).
   useKeyboardShortcut({ ctrl: true, key: 'n' }, () => {
     setSelectedId(null);
     setMode('new');
+  }, []);
+  useEffect(() => {
+    const open = () => { setSelectedId(null); setMode('new'); };
+    window.addEventListener('caredesk:newPatient', open);
+    return () => window.removeEventListener('caredesk:newPatient', open);
   }, []);
 
   const onSelect = (p: Patient) => {
@@ -284,6 +292,16 @@ function PatientForm({
     mutationFn: (data: PatientInput) => window.electronAPI.patients.update(initial!.id, data),
   });
 
+  // Registration fee toggle: defaults from clinic settings ('at_registration' = pre-checked).
+  // Only visible for new patients who have not yet paid the registration fee.
+  const regFeeEnabled = !initial && (settings?.registration_fee_enabled ?? false);
+  const [collectRegFeeNow, setCollectRegFeeNow] = useState<boolean>(false);
+  const [regFeePaymentMode, setRegFeePaymentMode] = useState<'Cash' | 'Card' | 'UPI'>('Cash');
+  useEffect(() => {
+    if (!regFeeEnabled || !settings) return;
+    setCollectRegFeeNow(settings.registration_fee_default_timing === 'at_registration');
+  }, [regFeeEnabled, settings?.registration_fee_default_timing]);
+
   const onSubmit = handleSubmit(async (raw) => {
     // Age is mandatory (via DOB — either directly provided or derived from Y/M/D)
     if (!raw.dob && totalDays <= 0) {
@@ -307,6 +325,31 @@ function PatientForm({
       const saved = initial
         ? await update.mutateAsync(payload)
         : await create.mutateAsync(payload);
+
+      // If receptionist opted to collect the registration fee NOW (no appointment yet),
+      // create a standalone bill with one line item. This flips the patient's
+      // registration_fee_paid flag so booking won't ask again.
+      if (!initial && regFeeEnabled && collectRegFeeNow && settings) {
+        try {
+          await window.electronAPI.bills.create({
+            appointment_id: null,
+            patient_id: saved.id,
+            items: [{
+              description: 'Patient Registration Fee',
+              qty: 1,
+              rate: settings.registration_fee_amount,
+              amount: settings.registration_fee_amount,
+            }],
+            discount: 0,
+            discount_type: 'flat',
+            payment_mode: regFeePaymentMode,
+            marks_registration_fee_paid: 1,
+          });
+        } catch (e: any) {
+          // Don't block patient creation — just warn so receptionist can collect later.
+          toast(`Patient saved, but registration-fee bill failed: ${e.message || e}`, 'error');
+        }
+      }
       onSaved(saved);
     } catch (e: any) {
       toast(e.message || 'Save failed', 'error');
@@ -454,6 +497,52 @@ function PatientForm({
             </Field>
           </div>
         </div>
+
+        {regFeeEnabled && settings && (
+          <div className="mt-6 rounded-lg border-2 border-amber-200 dark:border-amber-900 bg-amber-50/60 dark:bg-amber-900/15 p-4">
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                id="reg-fee-now"
+                checked={collectRegFeeNow}
+                onChange={(e) => setCollectRegFeeNow(e.target.checked)}
+                className="mt-1 w-4 h-4 accent-amber-600"
+              />
+              <label htmlFor="reg-fee-now" className="flex-1 cursor-pointer">
+                <div className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                  Collect ₹{settings.registration_fee_amount} registration fee now
+                </div>
+                <div className="text-[11px] text-amber-700 dark:text-amber-300 mt-0.5">
+                  {collectRegFeeNow
+                    ? 'A standalone bill will be created and the patient is marked as paid.'
+                    : 'Skip — receptionist can include it on the first appointment instead.'}
+                </div>
+              </label>
+              <div className="text-xl font-bold text-amber-700 dark:text-amber-300 whitespace-nowrap">
+                ₹{settings.registration_fee_amount}
+              </div>
+            </div>
+            {collectRegFeeNow && (
+              <div className="mt-3 flex items-center gap-2">
+                <span className="text-[11px] font-semibold text-amber-900 dark:text-amber-200">Payment Mode:</span>
+                {(['Cash', 'Card', 'UPI'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setRegFeePaymentMode(m)}
+                    className={`px-3 py-1 text-xs rounded-md border ${
+                      regFeePaymentMode === m
+                        ? 'bg-amber-600 text-white border-amber-600'
+                        : 'bg-white dark:bg-slate-800 border-amber-200 dark:border-amber-900 text-amber-900 dark:text-amber-200'
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="flex justify-end gap-2 mt-6">
           <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>

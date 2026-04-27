@@ -120,6 +120,20 @@ function OverviewTab() {
           <Kpi label="New patients" value={ov.patientsThisMonth} tone="blue" />
           <Kpi label="Total patients" value={ov.totalPatients.toLocaleString('en-IN')} sub="all-time" tone="indigo" />
         </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+          <Kpi
+            label="Free follow-ups granted"
+            value={ov.freeFollowupsThisMonth ?? 0}
+            sub={`+${ov.relaxedFollowupsThisMonth ?? 0} courtesy grants`}
+            tone="emerald"
+          />
+          <Kpi
+            label="Registration fees collected"
+            value={formatINR(ov.registrationFeesThisMonth ?? 0)}
+            sub={`${ov.registrationFeeCountThisMonth ?? 0} new patients paid`}
+            tone="amber"
+          />
+        </div>
       </section>
 
       {/* Alerts */}

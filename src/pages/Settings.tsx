@@ -48,6 +48,14 @@ export function SettingsPage() {
           <FeesAndFlow />
         </SettingsGroup>
 
+        <SettingsGroup title="Free Follow-up Policy" subtitle="Reward repeat visits with same-doctor follow-ups inside a configurable window.">
+          <FollowupPolicy />
+        </SettingsGroup>
+
+        <SettingsGroup title="Patient Registration Fee" subtitle="One-time fee charged on registration. Choose whether to collect at registration, at first appointment, or ask each time.">
+          <RegistrationFeePolicy />
+        </SettingsGroup>
+
         {/* === GROUP 3: System === */}
         <SettingsGroup title="Startup & Background" subtitle="Auto-launch with Windows, minimize to tray, start hidden.">
           <StartupBehavior />
@@ -1092,12 +1100,21 @@ function FeesAndFlow() {
           />
         </div>
         <div>
-          <label className="label">Slot Duration</label>
-          <select className="input" value={draft.slot_duration ?? 30} onChange={(e) => set('slot_duration', Number(e.target.value))}>
-            <option value={15}>15 min</option>
-            <option value={20}>20 min</option>
-            <option value={30}>30 min</option>
-          </select>
+          <label className="label">Slot Duration (minutes)</label>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={240}
+            step={1}
+            className="input"
+            value={draft.slot_duration ?? 30}
+            onChange={(e) => {
+              const n = parseInt(e.target.value, 10);
+              set('slot_duration', Number.isFinite(n) ? Math.max(1, Math.min(240, n)) : 0);
+            }}
+          />
+          <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">Any value 1–240 min. Common: 5, 10, 15, 20, 30, 45, 60.</p>
         </div>
       </div>
 
@@ -1231,6 +1248,125 @@ function FeesAndFlow() {
           />
         </button>
       </div>
+    </section>
+  );
+}
+
+function FollowupPolicy() {
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, ['followup_enabled', 'followup_window_days', 'followup_free_visits', 'followup_grace_days']);
+  if (!settings) return null;
+  return (
+    <section className="card p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Free Follow-up Policy</div>
+        <div className="flex items-center gap-2">
+          {dirty && <button className="btn-ghost text-xs" onClick={reset}>Reset</button>}
+          <button className="btn-primary text-xs" disabled={!dirty || saving} onClick={save}>{saving ? 'Saving…' : dirty ? 'Save changes' : 'All changes saved'}</button>
+        </div>
+      </div>
+
+      <div className="flex items-start gap-3 border-t border-gray-200 dark:border-slate-700 pt-4">
+        <input
+          type="checkbox"
+          id="followup-enabled"
+          checked={!!draft.followup_enabled}
+          onChange={(e) => set('followup_enabled', e.target.checked)}
+          className="mt-1 w-4 h-4 accent-emerald-600"
+        />
+        <label htmlFor="followup-enabled" className="flex-1 cursor-pointer">
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Enable free follow-up policy</div>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400">
+            Every paid visit grants the patient N free follow-ups within X days, with the same doctor. Auto-applied at booking; printed on the OPD slip in English + Kannada.
+          </div>
+        </label>
+      </div>
+
+      {draft.followup_enabled && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-gray-200 dark:border-slate-700 pt-4">
+          <div>
+            <label className="label">Free follow-up window (days)</label>
+            <input type="number" min={1} max={90} className="input"
+              value={draft.followup_window_days ?? 7}
+              onChange={(e) => set('followup_window_days', Math.max(1, Math.min(90, parseInt(e.target.value, 10) || 1)))}
+            />
+            <div className="text-[10px] text-gray-500 mt-1">Patients qualify for free visit(s) within this window of their last paid visit.</div>
+          </div>
+          <div>
+            <label className="label">Number of free visits</label>
+            <input type="number" min={1} max={10} className="input"
+              value={draft.followup_free_visits ?? 2}
+              onChange={(e) => set('followup_free_visits', Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 1)))}
+            />
+            <div className="text-[10px] text-gray-500 mt-1">How many free follow-ups they get before the next paid visit resets the cycle.</div>
+          </div>
+          <div>
+            <label className="label">Grace / "relaxed" days</label>
+            <input type="number" min={0} max={30} className="input"
+              value={draft.followup_grace_days ?? 2}
+              onChange={(e) => set('followup_grace_days', Math.max(0, Math.min(30, parseInt(e.target.value, 10) || 0)))}
+            />
+            <div className="text-[10px] text-gray-500 mt-1">Extra days beyond the strict window where the receptionist can MANUALLY grant a courtesy free visit.</div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function RegistrationFeePolicy() {
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, ['registration_fee_enabled', 'registration_fee_amount', 'registration_fee_default_timing']);
+  if (!settings) return null;
+  return (
+    <section className="card p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Patient Registration Fee</div>
+        <div className="flex items-center gap-2">
+          {dirty && <button className="btn-ghost text-xs" onClick={reset}>Reset</button>}
+          <button className="btn-primary text-xs" disabled={!dirty || saving} onClick={save}>{saving ? 'Saving…' : dirty ? 'Save changes' : 'All changes saved'}</button>
+        </div>
+      </div>
+
+      <div className="flex items-start gap-3 border-t border-gray-200 dark:border-slate-700 pt-4">
+        <input
+          type="checkbox"
+          id="regfee-enabled"
+          checked={!!draft.registration_fee_enabled}
+          onChange={(e) => set('registration_fee_enabled', e.target.checked)}
+          className="mt-1 w-4 h-4 accent-amber-600"
+        />
+        <label htmlFor="regfee-enabled" className="flex-1 cursor-pointer">
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Enable patient registration fee</div>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400">
+            One-time charge per patient. Tracked separately on bills and analytics. Once paid, never asked again.
+          </div>
+        </label>
+      </div>
+
+      {draft.registration_fee_enabled && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-gray-200 dark:border-slate-700 pt-4">
+          <div>
+            <label className="label">Registration fee (₹)</label>
+            <input type="number" min={0} max={10000} className="input"
+              value={draft.registration_fee_amount ?? 100}
+              onChange={(e) => set('registration_fee_amount', Math.max(0, Math.min(10000, parseInt(e.target.value, 10) || 0)))}
+            />
+          </div>
+          <div>
+            <label className="label">Default collection timing</label>
+            <select className="input"
+              value={draft.registration_fee_default_timing ?? 'ask'}
+              onChange={(e) => set('registration_fee_default_timing', e.target.value as any)}
+            >
+              <option value="ask">Ask each time (toggle defaults ON in booking)</option>
+              <option value="at_registration">Always collect at patient registration</option>
+              <option value="at_first_appointment">Always collect at first appointment</option>
+            </select>
+            <div className="text-[10px] text-gray-500 mt-1">Receptionist can override per case. This is just the default checkbox state.</div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -1550,19 +1686,10 @@ function DoctorsManagement() {
             <DoctorSection icon={<IndianRupee className="w-4 h-4" />} title="Fees" subtitle="Default consultation fee charged at booking" tone="amber">
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Default Consultation Fee (₹)">
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-slate-400">₹</span>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      className="input pl-7"
-                      value={editing.default_fee == null ? '' : String(editing.default_fee)}
-                      onChange={(e) => {
-                        const v = e.target.value.replace(/[^0-9]/g, '');
-                        setEditing({ ...editing, default_fee: v === '' ? 0 : Number(v) });
-                      }}
-                    />
-                  </div>
+                  <DoctorFeeInput
+                    value={editing.default_fee}
+                    onChange={(n) => setEditing({ ...editing, default_fee: n })}
+                  />
                   <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-1">
                     Receptionist can override per booking using "Special" or "Custom" fee options.
                   </div>
@@ -1730,6 +1857,36 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div>
       <label className="label">{label}</label>
       {children}
+    </div>
+  );
+}
+
+// Local-string-backed numeric input. Lets the user clear the field and type
+// freely without parent-side `0` coercion clobbering each keystroke. Commits
+// the parsed number upward on every change; commits 0 when blanked.
+function DoctorFeeInput({ value, onChange }: { value: number | undefined; onChange: (n: number) => void }) {
+  const [text, setText] = useState<string>(value == null ? '' : String(value));
+  // Re-sync from parent ONLY when the parent value changes from outside (e.g. opening a different doctor).
+  useEffect(() => {
+    const parsed = text === '' ? 0 : Number(text);
+    if (parsed !== (value ?? 0)) setText(value == null ? '' : String(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  return (
+    <div className="relative">
+      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-slate-400 pointer-events-none">₹</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        className="input pl-7"
+        value={text}
+        onChange={(e) => {
+          const cleaned = e.target.value.replace(/[^0-9]/g, '');
+          setText(cleaned);
+          onChange(cleaned === '' ? 0 : Number(cleaned));
+        }}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
+      />
     </div>
   );
 }

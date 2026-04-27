@@ -156,6 +156,22 @@ html.dark .statusbar { background-color: #0b1220; border-top-color: #1e293b; col
   /* Default: single print-area gets pinned to the page */
   .print-area { background: white !important; color: #0f172a !important; }
 
+  /* Critical: any ancestor with position:fixed + overflow:auto pins the printable
+     region to the first viewport and clips everything below. Force the OPD slip
+     wrapper (and any other full-screen preview overlay) back to normal flow so
+     ALL .print-page sheets render in sequence. */
+  .print-overlay {
+    position: static !important;
+    overflow: visible !important;
+    height: auto !important;
+    inset: auto !important;
+    background: white !important;
+  }
+  .print-overlay > * {
+    position: static !important;
+    overflow: visible !important;
+  }
+
   /* Multi-page: each .print-page is a full A4 sheet, break after */
   .print-page {
     width: 210mm !important;

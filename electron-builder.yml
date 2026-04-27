@@ -1,0 +1,29 @@
+appId: com.mulgundclinic.caredesk
+productName: CareDesk HMS
+copyright: Copyright (c) 2026 Mulgund Multispeciality Clinic
+
+# Forge already produces the packaged app dir at out/CareDesk HMS-win32-x64/.
+# electron-builder runs in --prepackaged mode and just wraps it in NSIS.
+directories:
+  output: dist-installer
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false                       # show the full wizard
+  perMachine: true                      # install for all users → defaults to C:\Program Files
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: CareDesk HMS
+  menuCategory: CareDesk
+  installerSidebar: null                # use NSIS default sidebar (no custom asset needed)
+  uninstallDisplayName: CareDesk HMS ${version}
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false       # keep clinic database safe on uninstall
+  artifactName: CareDesk-HMS-Setup-${version}.${ext}

@@ -61,6 +61,13 @@ export function getAllSettings(db: Database.Database): Settings {
         'Please arrive 10 minutes early. For any change, simply reply to this message or call us.\n\nThank you,\n*{{clinic_name}}*',
     whatsapp_country_code: map.whatsapp_country_code || '91',
     appointments_default_sort: (map.appointments_default_sort as any) || 'oldest_first',
+    followup_enabled: map.followup_enabled !== 'false',
+    followup_window_days: parseInt(map.followup_window_days || '7', 10),
+    followup_free_visits: parseInt(map.followup_free_visits || '2', 10),
+    followup_grace_days: parseInt(map.followup_grace_days || '2', 10),
+    registration_fee_enabled: map.registration_fee_enabled !== 'false',
+    registration_fee_amount: parseInt(map.registration_fee_amount || '100', 10),
+    registration_fee_default_timing: (map.registration_fee_default_timing as any) || 'ask',
   };
 }
 

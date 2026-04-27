@@ -42,7 +42,7 @@ export function DispensingRegisterPrint({
   const totalPages = pages.length;
 
   return (
-    <div className="fixed inset-0 z-[100] overflow-auto" style={{ backgroundColor: '#94a3b8' }}>
+    <div className="fixed inset-0 z-[100] overflow-auto print-overlay" style={{ backgroundColor: '#94a3b8' }}>
       <div className="no-print sticky top-3 z-10 flex justify-center pointer-events-none">
         <div className="px-4 py-1.5 rounded-full text-xs font-semibold text-white shadow-lg" style={{ backgroundColor: '#1e293b' }}>
           {schedule ? `Schedule ${schedule}` : 'All schedules'} · {rows.length} entries · {totalPages} page{totalPages === 1 ? '' : 's'}

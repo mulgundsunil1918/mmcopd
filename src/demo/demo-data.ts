@@ -82,6 +82,13 @@ export const DEMO_SETTINGS: Settings = {
     '📍 {{clinic_address}}\n☎️ {{clinic_phone}}\n\nThank you,\n*{{clinic_name}}*',
   whatsapp_country_code: '91',
   appointments_default_sort: 'oldest_first',
+  followup_enabled: true,
+  followup_window_days: 7,
+  followup_free_visits: 2,
+  followup_grace_days: 2,
+  registration_fee_enabled: true,
+  registration_fee_amount: 100,
+  registration_fee_default_timing: 'ask',
 };
 
 // ---------- Doctors ----------

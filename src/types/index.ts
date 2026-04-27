@@ -23,6 +23,8 @@ export interface Patient {
   district: string | null;
   state: string | null;
   profession: string | null;
+  registration_fee_paid?: number;
+  registration_fee_paid_at?: string | null;
   created_at: string;
 }
 
@@ -104,6 +106,17 @@ export interface Bill {
   total: number;
   payment_mode: PaymentMode;
   paid_at: string | null;
+  /** 1 = consultation fee was waived because this is an automatic free follow-up. */
+  is_free_followup?: number;
+  /** 1 = receptionist manually granted a courtesy follow-up outside the strict window. */
+  is_relaxed_followup?: number;
+  /** Appointment id of the paid "anchor" visit that granted this free/relaxed follow-up. */
+  followup_parent_appt_id?: number | null;
+  /** Direct doctor attribution for bills NOT tied to an appointment (e.g. misc charges). */
+  doctor_id?: number | null;
+  notes?: string | null;
+  /** 'opd' = consultation bill (default). 'misc' = procedure/vaccination/etc. */
+  bill_kind?: 'opd' | 'misc';
   created_at: string;
 }
 
@@ -447,4 +460,45 @@ export interface Settings {
   whatsapp_template: string;
   whatsapp_country_code: string;
   appointments_default_sort: 'oldest_first' | 'newest_first';
+  // Free follow-up policy
+  followup_enabled: boolean;
+  followup_window_days: number;
+  followup_free_visits: number;
+  followup_grace_days: number;
+  // Registration fee policy
+  registration_fee_enabled: boolean;
+  registration_fee_amount: number;
+  registration_fee_default_timing: 'at_registration' | 'at_first_appointment' | 'ask';
+}
+
+/** Live state of a patient's free-follow-up entitlement with a given doctor, used at booking time. */
+export interface FollowupEligibility {
+  enabled: boolean;
+  /** True = next consultation should automatically be free (within window, free remaining). */
+  eligible: boolean;
+  /** True = window/quota expired but still inside the grace period; receptionist may grant manually. */
+  relaxed_eligible: boolean;
+  /** Free visits still remaining under the current paid-anchor cycle. */
+  free_remaining: number;
+  /** Configured free visits per paid anchor (echoed back so UI doesn't need to fetch settings separately). */
+  total_free: number;
+  /** Date by which a free follow-up must be used. ISO yyyy-mm-dd. */
+  valid_till: string | null;
+  /** Last paid anchor visit (if any). */
+  parent_appt_id: number | null;
+  parent_appt_date: string | null;
+  /** Why we said "no" — useful for the booking-side hint text. */
+  reason?: 'no_paid_visit' | 'window_expired' | 'all_consumed' | 'wrong_doctor' | 'disabled';
+}
+
+/** What the OPD slip Page 2 prints in the FOLLOW-UP / ಮರು ಭೇಟಿ box. */
+export interface FollowupSummary {
+  enabled: boolean;
+  /** 'today_paid' = this paid visit just earned N free follow-ups; 'today_free' = today consumed a free one. */
+  mode: 'today_paid' | 'today_free' | 'today_relaxed' | 'hidden';
+  doctor_name: string;
+  /** Free visits remaining for the patient's CURRENT cycle (before today's print). */
+  free_remaining: number;
+  /** Date by which they must be used (cycle anchor + window_days). */
+  valid_till: string;
 }

@@ -3,6 +3,7 @@ out/
 .vite/
 dist/
 dist-demo/
+dist-installer/
 *.log
 .env
 .env.local

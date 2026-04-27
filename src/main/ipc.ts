@@ -175,18 +175,27 @@ export function registerIpc() {
   });
 
   // Helper — manually cascades non-FK-cascade dependents so DELETE FROM patients can succeed.
+  // Ordering matters: child tables with RESTRICT FKs must be cleared before their parents.
   const purgePatient = (db: any, id: number) => {
+    // Dispensing register has RESTRICT FKs on pharmacy_sale_items / pharmacy_sales — must go first.
+    // Danger Zone semantics: bulk-purging a patient erases their dispensing record alongside everything else.
+    db.prepare('DELETE FROM dispensing_register WHERE patient_id = ?').run(id);
+    // Also kill any dispensing rows tied to this patient's pharmacy sales (defensive — covers walk-in sales whose patient_id is null but sale references patient via other paths).
+    db.prepare('DELETE FROM dispensing_register WHERE sale_id IN (SELECT id FROM pharmacy_sales WHERE patient_id = ?)').run(id);
     // Bills (NOT NULL FK, no cascade) — drop them; audit log captures the patient who was billed.
     db.prepare('DELETE FROM bills WHERE patient_id = ?').run(id);
     // Lab orders + their items
     db.prepare('DELETE FROM lab_order_items WHERE lab_order_id IN (SELECT id FROM lab_orders WHERE patient_id = ?)').run(id);
     db.prepare('DELETE FROM lab_orders WHERE patient_id = ?').run(id);
-    // Pharmacy sales + items
+    // Pharmacy sales + items (now safe because dispensing_register no longer references them).
     db.prepare('DELETE FROM pharmacy_sale_items WHERE sale_id IN (SELECT id FROM pharmacy_sales WHERE patient_id = ?)').run(id);
     db.prepare('DELETE FROM pharmacy_sales WHERE patient_id = ?').run(id);
     // IP admissions
     db.prepare('DELETE FROM ip_admissions WHERE patient_id = ?').run(id);
-    // Now delete patient — appointments / consultations / Rx / EMR cascade automatically
+    // Consultations directly reference patients with no CASCADE — usually deleted via appointment cascade,
+    // but orphans (consultations whose appointment was somehow removed) would block. Belt-and-braces:
+    db.prepare('DELETE FROM consultations WHERE patient_id = ?').run(id);
+    // Now delete patient — appointments + their cascades (consultations/Rx/EMR) handle the rest.
     db.prepare('DELETE FROM patients WHERE id = ?').run(id);
   };
 
@@ -211,12 +220,14 @@ export function registerIpc() {
       .get(appointmentId) as any;
     if (!a) return { ok: false, error: 'Appointment not found' };
     const tx = db.transaction(() => {
+      // Dispensing register has RESTRICT FKs on pharmacy_sales/_items — must clear first.
+      db.prepare('DELETE FROM dispensing_register WHERE sale_id IN (SELECT id FROM pharmacy_sales WHERE appointment_id = ?)').run(appointmentId);
       // Delete bills tied to this specific appointment (NOT NULL patient_id is fine — the bill goes away entirely)
       db.prepare('DELETE FROM bills WHERE appointment_id = ?').run(appointmentId);
       // Lab orders + items linked to this appointment
       db.prepare('DELETE FROM lab_order_items WHERE lab_order_id IN (SELECT id FROM lab_orders WHERE appointment_id = ?)').run(appointmentId);
       db.prepare('DELETE FROM lab_orders WHERE appointment_id = ?').run(appointmentId);
-      // Pharmacy sales linked to this appointment
+      // Pharmacy sales linked to this appointment (now safe — dispensing_register cleared above).
       db.prepare('DELETE FROM pharmacy_sale_items WHERE sale_id IN (SELECT id FROM pharmacy_sales WHERE appointment_id = ?)').run(appointmentId);
       db.prepare('DELETE FROM pharmacy_sales WHERE appointment_id = ?').run(appointmentId);
       // Now delete the appointment — consultation + Rx cascade
@@ -380,16 +391,24 @@ export function registerIpc() {
     return db.prepare('SELECT * FROM doctors WHERE id=?').get(info.lastInsertRowid);
   });
 
-  ipcMain.handle('doctors:dependents', (_e, id: number) => {
-    const db = getDb();
+  // Every table that references doctors(id) — must all be counted, otherwise hard delete
+  // succeeds the count check but FK-fails at the DELETE itself.
+  const countDoctorRefs = (db: any, id: number) => {
     const c = (sql: string) => (db.prepare(sql).get(id) as { c: number }).c;
-    const counts = {
+    return {
       appointments: c('SELECT COUNT(*) as c FROM appointments WHERE doctor_id=?'),
       consultations: c('SELECT COUNT(*) as c FROM consultations WHERE doctor_id=?'),
       lab_orders: c('SELECT COUNT(*) as c FROM lab_orders WHERE doctor_id=?'),
       ip_admissions: c('SELECT COUNT(*) as c FROM ip_admissions WHERE admission_doctor_id=?'),
+      dispensed: c('SELECT COUNT(*) as c FROM dispensing_register WHERE doctor_id=?'),
+      user_accounts: c('SELECT COUNT(*) as c FROM users WHERE doctor_id=?'),
     };
-    const total = counts.appointments + counts.consultations + counts.lab_orders + counts.ip_admissions;
+  };
+
+  ipcMain.handle('doctors:dependents', (_e, id: number) => {
+    const db = getDb();
+    const counts = countDoctorRefs(db, id);
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
     return { counts, total };
   });
 
@@ -398,14 +417,8 @@ export function registerIpc() {
     const doc = db.prepare('SELECT name FROM doctors WHERE id=?').get(id) as { name: string } | undefined;
     if (!doc) return { ok: false, error: 'Doctor not found' };
 
-    const c = (sql: string) => (db.prepare(sql).get(id) as { c: number }).c;
-    const counts = {
-      appointments: c('SELECT COUNT(*) as c FROM appointments WHERE doctor_id=?'),
-      consultations: c('SELECT COUNT(*) as c FROM consultations WHERE doctor_id=?'),
-      lab_orders: c('SELECT COUNT(*) as c FROM lab_orders WHERE doctor_id=?'),
-      ip_admissions: c('SELECT COUNT(*) as c FROM ip_admissions WHERE admission_doctor_id=?'),
-    };
-    const total = counts.appointments + counts.consultations + counts.lab_orders + counts.ip_admissions;
+    const counts = countDoctorRefs(db, id);
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
 
     if (total === 0) {
       try {
@@ -619,6 +632,13 @@ export function registerIpc() {
         discount: number;
         discount_type: 'flat' | 'percent';
         payment_mode: PaymentMode;
+        // Follow-up flags — set by the booking modal when the consultation is waived
+        // because the patient is inside their free-follow-up window or got a courtesy grant.
+        is_free_followup?: number;
+        is_relaxed_followup?: number;
+        followup_parent_appt_id?: number | null;
+        // 1 = the bill INCLUDES a registration-fee line item; flips the patient flag.
+        marks_registration_fee_paid?: number;
       }
     ) => {
       const db = getDb();
@@ -631,8 +651,8 @@ export function registerIpc() {
       const billNumber = generateBillNumber();
       const info = db
         .prepare(
-          `INSERT INTO bills (bill_number, appointment_id, patient_id, items_json, subtotal, discount, discount_type, total, payment_mode, paid_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO bills (bill_number, appointment_id, patient_id, items_json, subtotal, discount, discount_type, total, payment_mode, paid_at, is_free_followup, is_relaxed_followup, followup_parent_appt_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           billNumber,
@@ -644,8 +664,16 @@ export function registerIpc() {
           payload.discount_type,
           total,
           payload.payment_mode,
-          new Date().toISOString()
+          new Date().toISOString(),
+          payload.is_free_followup ? 1 : 0,
+          payload.is_relaxed_followup ? 1 : 0,
+          payload.followup_parent_appt_id ?? null
         );
+
+      if (payload.marks_registration_fee_paid) {
+        db.prepare("UPDATE patients SET registration_fee_paid=1, registration_fee_paid_at=date('now') WHERE id=?")
+          .run(payload.patient_id);
+      }
 
       if (payload.appointment_id) {
         db.prepare("UPDATE appointments SET status='Done' WHERE id=?").run(payload.appointment_id);
@@ -690,11 +718,12 @@ export function registerIpc() {
         `SELECT b.*,
            (p.first_name || ' ' || p.last_name) as patient_name,
            p.uhid as patient_uhid,
-           d.name as doctor_name
+           COALESCE(da.name, db2.name) as doctor_name
          FROM bills b
          JOIN patients p ON p.id=b.patient_id
          LEFT JOIN appointments a ON a.id=b.appointment_id
-         LEFT JOIN doctors d ON d.id=a.doctor_id
+         LEFT JOIN doctors da ON da.id=a.doctor_id
+         LEFT JOIN doctors db2 ON db2.id=b.doctor_id
          ${where}
          ORDER BY b.created_at DESC LIMIT 200`
       )
@@ -707,14 +736,247 @@ export function registerIpc() {
         `SELECT b.*,
            (p.first_name || ' ' || p.last_name) as patient_name,
            p.uhid as patient_uhid,
-           d.name as doctor_name
+           COALESCE(da.name, db2.name) as doctor_name
          FROM bills b
          JOIN patients p ON p.id=b.patient_id
          LEFT JOIN appointments a ON a.id=b.appointment_id
-         LEFT JOIN doctors d ON d.id=a.doctor_id
+         LEFT JOIN doctors da ON da.id=a.doctor_id
+         LEFT JOIN doctors db2 ON db2.id=b.doctor_id
          WHERE b.id=?`
       )
       .get(id);
+  });
+
+  // ===== Miscellaneous charges (procedures, vaccinations, etc.) =====
+  // Standalone bill not tied to any appointment. The receptionist picks a
+  // patient + (optional) attributing doctor + a service line item + amount.
+  ipcMain.handle('misc:create', (_e, payload: {
+    patient_id: number;
+    doctor_id: number | null;
+    description: string;
+    amount: number;
+    payment_mode: PaymentMode;
+    notes?: string | null;
+  }) => {
+    const db = getDb();
+    if (!payload.patient_id) throw new Error('Patient is required');
+    if (!payload.description?.trim()) throw new Error('Service description is required');
+    if (!(payload.amount >= 0)) throw new Error('Amount must be ≥ 0');
+    const billNumber = generateBillNumber();
+    const items = [{ description: payload.description.trim(), qty: 1, rate: payload.amount, amount: payload.amount }];
+    const info = db
+      .prepare(
+        `INSERT INTO bills
+          (bill_number, appointment_id, patient_id, doctor_id, items_json, subtotal, discount, discount_type, total, payment_mode, paid_at, bill_kind, notes)
+         VALUES (?, NULL, ?, ?, ?, ?, 0, 'flat', ?, ?, ?, 'misc', ?)`
+      )
+      .run(
+        billNumber,
+        payload.patient_id,
+        payload.doctor_id ?? null,
+        JSON.stringify(items),
+        payload.amount,
+        payload.amount,
+        payload.payment_mode,
+        new Date().toISOString(),
+        payload.notes?.trim() || null
+      );
+    return db
+      .prepare(
+        `SELECT b.*,
+           (p.first_name || ' ' || p.last_name) as patient_name,
+           p.uhid as patient_uhid,
+           d.name as doctor_name
+         FROM bills b
+         JOIN patients p ON p.id=b.patient_id
+         LEFT JOIN doctors d ON d.id=b.doctor_id
+         WHERE b.id=?`
+      )
+      .get(info.lastInsertRowid);
+  });
+
+  ipcMain.handle('misc:list', (_e, filter: { from?: string; to?: string; q?: string; doctor_id?: number } = {}) => {
+    const db = getDb();
+    const conds = ["b.bill_kind='misc'"];
+    const params: any[] = [];
+    if (filter.from) { conds.push('date(b.created_at) >= ?'); params.push(filter.from); }
+    if (filter.to)   { conds.push('date(b.created_at) <= ?'); params.push(filter.to); }
+    if (filter.doctor_id) { conds.push('b.doctor_id = ?'); params.push(filter.doctor_id); }
+    if (filter.q) {
+      conds.push("((p.first_name || ' ' || p.last_name) LIKE ? OR p.uhid LIKE ? OR b.notes LIKE ?)");
+      const like = `%${filter.q}%`;
+      params.push(like, like, like);
+    }
+    return db
+      .prepare(
+        `SELECT b.*,
+           (p.first_name || ' ' || p.last_name) as patient_name,
+           p.uhid as patient_uhid,
+           d.name as doctor_name
+         FROM bills b
+         JOIN patients p ON p.id=b.patient_id
+         LEFT JOIN doctors d ON d.id=b.doctor_id
+         WHERE ${conds.join(' AND ')}
+         ORDER BY b.created_at DESC LIMIT 200`
+      )
+      .all(...params);
+  });
+
+  ipcMain.handle('misc:summary', (_e, filter: { from?: string; to?: string } = {}) => {
+    const db = getDb();
+    const today = new Date().toISOString().slice(0, 10);
+    const from = filter.from || today.slice(0, 8) + '01';
+    const to = filter.to || today;
+    const sc = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { c: number }).c;
+    const ss = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { t: number }).t || 0;
+    const count = sc(`SELECT COUNT(*) as c FROM bills WHERE bill_kind='misc' AND date(created_at) BETWEEN ? AND ?`, from, to);
+    const revenue = ss(`SELECT COALESCE(SUM(total),0) as t FROM bills WHERE bill_kind='misc' AND date(created_at) BETWEEN ? AND ?`, from, to);
+    const topServices = db.prepare(`
+      SELECT json_extract(j.value, '$.description') as service,
+             COUNT(*) as count,
+             COALESCE(SUM(json_extract(j.value, '$.amount')), 0) as revenue
+      FROM bills b, json_each(b.items_json) j
+      WHERE b.bill_kind='misc' AND date(b.created_at) BETWEEN ? AND ?
+      GROUP BY service
+      ORDER BY revenue DESC
+      LIMIT 10
+    `).all(from, to);
+    const byDoctor = db.prepare(`
+      SELECT d.name as doctor_name, d.color as doctor_color,
+             COUNT(*) as count,
+             COALESCE(SUM(b.total),0) as revenue
+      FROM bills b
+      LEFT JOIN doctors d ON d.id = b.doctor_id
+      WHERE b.bill_kind='misc' AND date(b.created_at) BETWEEN ? AND ?
+      GROUP BY d.id
+      ORDER BY revenue DESC
+    `).all(from, to);
+    return { from, to, count, revenue, topServices, byDoctor };
+  });
+
+  // ===== Free follow-up policy =====
+  // Pure function: given an ISO date string + N days, return ISO date string N days later.
+  const addDays = (iso: string, days: number) => {
+    const d = new Date(iso + 'T00:00:00');
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0, 10);
+  };
+
+  // Booking-time check: can this patient get the next consultation free with this doctor?
+  // The check date defaults to today, but pre-bookings can pass a future appointment
+  // date so the window comparison reflects when the visit will ACTUALLY happen, not
+  // when it was booked. (A patient booking today for next month is NOT inside the
+  // follow-up window even if today still is.)
+  ipcMain.handle('followup:checkEligibility', (_e, patientId: number, doctorId: number, checkDate?: string) => {
+    const db = getDb();
+    const s = getAllSettings(db);
+    if (!s.followup_enabled) {
+      return { enabled: false, eligible: false, relaxed_eligible: false, free_remaining: 0, total_free: 0, valid_till: null, parent_appt_id: null, parent_appt_date: null, reason: 'disabled' };
+    }
+    const today = (checkDate && /^\d{4}-\d{2}-\d{2}$/.test(checkDate))
+      ? checkDate
+      : new Date().toISOString().slice(0, 10);
+    // Most recent PAID anchor visit for this patient + same doctor.
+    const paid = db.prepare(`
+      SELECT a.id as appt_id, a.appointment_date
+      FROM bills b
+      JOIN appointments a ON a.id = b.appointment_id
+      WHERE b.patient_id = ?
+        AND a.doctor_id = ?
+        AND COALESCE(b.is_free_followup, 0) = 0
+        AND COALESCE(b.is_relaxed_followup, 0) = 0
+      ORDER BY a.appointment_date DESC, a.id DESC
+      LIMIT 1
+    `).get(patientId, doctorId) as { appt_id: number; appointment_date: string } | undefined;
+
+    const base = {
+      enabled: true,
+      total_free: s.followup_free_visits,
+      free_remaining: 0,
+      valid_till: null as string | null,
+      parent_appt_id: null as number | null,
+      parent_appt_date: null as string | null,
+    };
+
+    if (!paid) {
+      return { ...base, eligible: false, relaxed_eligible: false, reason: 'no_paid_visit' };
+    }
+    const validTill = addDays(paid.appointment_date, s.followup_window_days);
+    const graceTill = addDays(paid.appointment_date, s.followup_window_days + s.followup_grace_days);
+    const used = (db.prepare(`
+      SELECT COUNT(*) as c FROM bills
+      WHERE followup_parent_appt_id = ?
+        AND (COALESCE(is_free_followup, 0) = 1 OR COALESCE(is_relaxed_followup, 0) = 1)
+    `).get(paid.appt_id) as { c: number }).c;
+    const remaining = Math.max(0, s.followup_free_visits - used);
+    const out = {
+      ...base,
+      free_remaining: remaining,
+      valid_till: validTill,
+      parent_appt_id: paid.appt_id,
+      parent_appt_date: paid.appointment_date,
+    };
+    if (today <= validTill && remaining > 0) {
+      return { ...out, eligible: true, relaxed_eligible: false };
+    }
+    // Past the strict window OR all consumed — but inside grace period AND quota not yet
+    // exhausted? Receptionist may grant a courtesy free visit.
+    if (today <= graceTill && remaining > 0) {
+      return { ...out, eligible: false, relaxed_eligible: true, reason: 'window_expired' };
+    }
+    if (remaining <= 0) {
+      return { ...out, eligible: false, relaxed_eligible: false, reason: 'all_consumed' };
+    }
+    return { ...out, eligible: false, relaxed_eligible: false, reason: 'window_expired' };
+  });
+
+  // OPD-slip-time summary: AFTER an appointment has a bill, what should the
+  // FOLLOW-UP / ಮರು ಭೇಟಿ box on Page 2 say?
+  ipcMain.handle('followup:summaryForAppointment', (_e, appointmentId: number) => {
+    const db = getDb();
+    const s = getAllSettings(db);
+    if (!s.followup_enabled) return { enabled: false, mode: 'hidden' };
+
+    const appt = db.prepare(`
+      SELECT a.id, a.patient_id, a.doctor_id, a.appointment_date, d.name as doctor_name
+      FROM appointments a JOIN doctors d ON d.id=a.doctor_id
+      WHERE a.id=?
+    `).get(appointmentId) as { id: number; patient_id: number; doctor_id: number; appointment_date: string; doctor_name: string } | undefined;
+    if (!appt) return { enabled: true, mode: 'hidden' };
+
+    const bill = db.prepare(`SELECT * FROM bills WHERE appointment_id=? ORDER BY id DESC LIMIT 1`).get(appointmentId) as any;
+
+    // Today is FREE / RELAXED → anchor is the parent visit, not today.
+    if (bill && (bill.is_free_followup || bill.is_relaxed_followup)) {
+      const parent = bill.followup_parent_appt_id
+        ? db.prepare(`SELECT appointment_date FROM appointments WHERE id=?`).get(bill.followup_parent_appt_id) as { appointment_date: string } | undefined
+        : null;
+      const anchorDate = parent?.appointment_date || appt.appointment_date;
+      const validTill = addDays(anchorDate, s.followup_window_days);
+      const used = (db.prepare(`
+        SELECT COUNT(*) as c FROM bills
+        WHERE followup_parent_appt_id = ?
+          AND (COALESCE(is_free_followup, 0) = 1 OR COALESCE(is_relaxed_followup, 0) = 1)
+      `).get(bill.followup_parent_appt_id ?? -1) as { c: number }).c;
+      const remainingAfter = Math.max(0, s.followup_free_visits - used);
+      return {
+        enabled: true,
+        mode: bill.is_relaxed_followup ? 'today_relaxed' : 'today_free',
+        doctor_name: appt.doctor_name,
+        free_remaining: remainingAfter,
+        valid_till: validTill,
+      };
+    }
+
+    // Today is the new PAID anchor → patient gets fresh quota of N free visits.
+    const validTill = addDays(appt.appointment_date, s.followup_window_days);
+    return {
+      enabled: true,
+      mode: 'today_paid',
+      doctor_name: appt.doctor_name,
+      free_remaining: s.followup_free_visits,
+      valid_till: validTill,
+    };
   });
 
   // ===== EMR =====
@@ -2621,6 +2883,68 @@ export function registerIpc() {
         SELECT COUNT(*) as c FROM drug_stock_batches
         WHERE is_active=1 AND qty_remaining > 0 AND date(expiry) < date('now')
       `),
+      // Free follow-up + registration-fee tracking — surfaced in Analytics so the
+      // user can see what waivers cost them and what registration revenue came in.
+      freeFollowupsThisMonth: sc(`
+        SELECT COUNT(*) as c FROM bills
+        WHERE COALESCE(is_free_followup,0)=1 AND date(created_at) >= ?
+      `, monthStart),
+      relaxedFollowupsThisMonth: sc(`
+        SELECT COUNT(*) as c FROM bills
+        WHERE COALESCE(is_relaxed_followup,0)=1 AND date(created_at) >= ?
+      `, monthStart),
+      registrationFeesThisMonth: ss(`
+        SELECT COALESCE(SUM(rate),0) as t
+        FROM bills b, json_each(b.items_json) j
+        WHERE date(b.created_at) >= ?
+          AND lower(json_extract(j.value, '$.description')) LIKE '%registration%'
+      `, monthStart),
+      registrationFeeCountThisMonth: sc(`
+        SELECT COUNT(*) as c FROM patients WHERE registration_fee_paid=1 AND date(registration_fee_paid_at) >= ?
+      `, monthStart),
+    };
+  });
+
+  // Standalone monthly summary endpoint for the Analytics → Patients sub-tab —
+  // counts and revenue forgone (using each doctor's default_fee at time of waiver).
+  ipcMain.handle('analytics:followups', (_e, opts: { from?: string; to?: string } = {}) => {
+    const db = getDb();
+    const today = new Date().toISOString().slice(0, 10);
+    const from = opts.from || today.slice(0, 8) + '01';
+    const to = opts.to || today;
+    const sc = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { c: number }).c;
+    const ss = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { t: number }).t || 0;
+    const freeCount = sc(`
+      SELECT COUNT(*) as c FROM bills
+      WHERE COALESCE(is_free_followup,0)=1 AND date(created_at) BETWEEN ? AND ?
+    `, from, to);
+    const relaxedCount = sc(`
+      SELECT COUNT(*) as c FROM bills
+      WHERE COALESCE(is_relaxed_followup,0)=1 AND date(created_at) BETWEEN ? AND ?
+    `, from, to);
+    // Revenue forgone = the doctor's default fee at the time the waiver was issued.
+    const forgoneFree = ss(`
+      SELECT COALESCE(SUM(d.default_fee),0) as t
+      FROM bills b
+      JOIN appointments a ON a.id=b.appointment_id
+      JOIN doctors d ON d.id=a.doctor_id
+      WHERE COALESCE(b.is_free_followup,0)=1 AND date(b.created_at) BETWEEN ? AND ?
+    `, from, to);
+    const forgoneRelaxed = ss(`
+      SELECT COALESCE(SUM(d.default_fee),0) as t
+      FROM bills b
+      JOIN appointments a ON a.id=b.appointment_id
+      JOIN doctors d ON d.id=a.doctor_id
+      WHERE COALESCE(b.is_relaxed_followup,0)=1 AND date(b.created_at) BETWEEN ? AND ?
+    `, from, to);
+    return {
+      from, to,
+      free_count: freeCount,
+      relaxed_count: relaxedCount,
+      total_waivers: freeCount + relaxedCount,
+      revenue_forgone_free: forgoneFree,
+      revenue_forgone_relaxed: forgoneRelaxed,
+      revenue_forgone_total: forgoneFree + forgoneRelaxed,
     };
   });
 

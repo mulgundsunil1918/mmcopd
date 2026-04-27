@@ -137,10 +137,38 @@ const api = {
       discount: number;
       discount_type: 'flat' | 'percent';
       payment_mode: PaymentMode;
+      is_free_followup?: number;
+      is_relaxed_followup?: number;
+      followup_parent_appt_id?: number | null;
+      marks_registration_fee_paid?: number;
     }) => ipcRenderer.invoke('bills:create', payload) as Promise<BillWithJoins>,
     list: (filter: { q?: string; from?: string; to?: string }) =>
       ipcRenderer.invoke('bills:list', filter) as Promise<BillWithJoins[]>,
     get: (id: number) => ipcRenderer.invoke('bills:get', id) as Promise<BillWithJoins | undefined>,
+  },
+  followup: {
+    checkEligibility: (patientId: number, doctorId: number, checkDate?: string) =>
+      ipcRenderer.invoke('followup:checkEligibility', patientId, doctorId, checkDate) as Promise<import('./types').FollowupEligibility>,
+    summaryForAppointment: (appointmentId: number) =>
+      ipcRenderer.invoke('followup:summaryForAppointment', appointmentId) as Promise<import('./types').FollowupSummary>,
+  },
+  misc: {
+    create: (payload: {
+      patient_id: number;
+      doctor_id: number | null;
+      description: string;
+      amount: number;
+      payment_mode: PaymentMode;
+      notes?: string | null;
+    }) => ipcRenderer.invoke('misc:create', payload) as Promise<BillWithJoins>,
+    list: (filter: { from?: string; to?: string; q?: string; doctor_id?: number } = {}) =>
+      ipcRenderer.invoke('misc:list', filter) as Promise<BillWithJoins[]>,
+    summary: (filter: { from?: string; to?: string } = {}) =>
+      ipcRenderer.invoke('misc:summary', filter) as Promise<{
+        from: string; to: string; count: number; revenue: number;
+        topServices: { service: string; count: number; revenue: number }[];
+        byDoctor: { doctor_name: string | null; doctor_color: string | null; count: number; revenue: number }[];
+      }>,
   },
   emr: {
     allergies: (patientId: number) => ipcRenderer.invoke('emr:allergies', patientId) as Promise<any[]>,
@@ -325,7 +353,17 @@ const api = {
       totalPatients: number; patientsThisMonth: number; activeDoctors: number;
       pendingRx: number;
       lowStockDrugs: number; expiringSoonBatches: number; expiredBatches: number;
+      freeFollowupsThisMonth: number;
+      relaxedFollowupsThisMonth: number;
+      registrationFeesThisMonth: number;
+      registrationFeeCountThisMonth: number;
     }>,
+    followups: (filter: { from?: string; to?: string } = {}) =>
+      ipcRenderer.invoke('analytics:followups', filter) as Promise<{
+        from: string; to: string;
+        free_count: number; relaxed_count: number; total_waivers: number;
+        revenue_forgone_free: number; revenue_forgone_relaxed: number; revenue_forgone_total: number;
+      }>,
     demographics: () => ipcRenderer.invoke('analytics:demographics') as Promise<{
       total: number;
       byGender: { gender: string; c: number }[];

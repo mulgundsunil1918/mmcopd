@@ -181,6 +181,55 @@ export function createMockElectronAPI(): any {
       list: () => r(bills),
       pendingForBilling: () => r([]),
     },
+    followup: {
+      checkEligibility: () => r({
+        enabled: true, eligible: false, relaxed_eligible: false,
+        free_remaining: 0, total_free: 2, valid_till: null,
+        parent_appt_id: null, parent_appt_date: null,
+        reason: 'no_paid_visit',
+      }),
+      summaryForAppointment: () => r({
+        enabled: true, mode: 'today_paid' as const,
+        doctor_name: 'Dr. Sunil', free_remaining: 2,
+        valid_till: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+      }),
+    },
+    misc: {
+      create: (input: any) => {
+        const id = nextId(bills);
+        const created: any = {
+          id, bill_number: `BL-${String(id).padStart(4, '0')}`,
+          patient_id: input.patient_id, doctor_id: input.doctor_id,
+          patient_name: 'Demo Patient', patient_uhid: 'PT-DEMO-0001',
+          doctor_name: input.doctor_id ? 'Dr. Sunil' : null,
+          items_json: JSON.stringify([{ description: input.description, qty: 1, rate: input.amount, amount: input.amount }]),
+          subtotal: input.amount, total: input.amount, payment_mode: input.payment_mode,
+          notes: input.notes, bill_kind: 'misc',
+          created_at: new Date().toISOString(),
+        };
+        bills = [...bills, created];
+        return r(created);
+      },
+      list: () => r([
+        { id: 9001, bill_number: 'BL-9001', patient_name: 'Geeta Hosamani', patient_uhid: 'PT-20260427-0042', doctor_name: 'Dr. Priya Patil', payment_mode: 'Cash', total: 250, notes: 'Booster dose 2/3', items_json: JSON.stringify([{ description: 'Vaccination — TT booster', qty: 1, rate: 250, amount: 250 }]), created_at: new Date(Date.now() - 3 * 3600000).toISOString() },
+        { id: 9002, bill_number: 'BL-9002', patient_name: 'Ramesh Mali', patient_uhid: 'PT-20260427-0041', doctor_name: 'Dr. Sunil Mulgund', payment_mode: 'UPI', total: 300, notes: '', items_json: JSON.stringify([{ description: 'Wound dressing', qty: 1, rate: 300, amount: 300 }]), created_at: new Date(Date.now() - 86400000).toISOString() },
+        { id: 9003, bill_number: 'BL-9003', patient_name: 'Anitha Kulkarni', patient_uhid: 'PT-20260427-0040', doctor_name: null, payment_mode: 'Cash', total: 150, notes: 'Acute asthma', items_json: JSON.stringify([{ description: 'Nebulization', qty: 1, rate: 150, amount: 150 }]), created_at: new Date(Date.now() - 2 * 86400000).toISOString() },
+      ]),
+      summary: () => r({
+        from: '2026-04-01', to: '2026-04-27',
+        count: 18, revenue: 4250,
+        topServices: [
+          { service: 'Vaccination', count: 6, revenue: 1500 },
+          { service: 'Wound Dressing', count: 5, revenue: 1500 },
+          { service: 'Nebulization', count: 4, revenue: 600 },
+        ],
+        byDoctor: [
+          { doctor_name: 'Dr. Priya Patil', doctor_color: '#0ea5e9', count: 8, revenue: 2000 },
+          { doctor_name: 'Dr. Sunil Mulgund', doctor_color: '#10b981', count: 6, revenue: 1750 },
+          { doctor_name: null, doctor_color: null, count: 4, revenue: 500 },
+        ],
+      }),
+    },
     consultations: {
       getByAppointment: (apptId: number) => r(consultations.find((c) => c.appointment_id === apptId) || null),
       save: () => r({ ok: true }),
@@ -340,6 +389,13 @@ export function createMockElectronAPI(): any {
         monthRevenue: 78000, pharmacyMonthRevenue: 32000,
         totalPatients: patients.length, patientsThisMonth: 12, activeDoctors: doctors.length,
         pendingRx: 3, lowStockDrugs: 2, expiringSoonBatches: 4, expiredBatches: 0,
+        freeFollowupsThisMonth: 14, relaxedFollowupsThisMonth: 3,
+        registrationFeesThisMonth: 1200, registrationFeeCountThisMonth: 12,
+      }),
+      followups: () => r({
+        from: '2026-04-01', to: '2026-04-27',
+        free_count: 14, relaxed_count: 3, total_waivers: 17,
+        revenue_forgone_free: 7000, revenue_forgone_relaxed: 1500, revenue_forgone_total: 8500,
       }),
       demographics: () => r({
         total: patients.length,

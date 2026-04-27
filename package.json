@@ -12,6 +12,7 @@
     "release": "npm version patch && git push --follow-tags && electron-forge publish",
     "build:demo": "vite build --config vite.demo.config.ts",
     "preview:demo": "vite preview --config vite.demo.config.ts",
+    "make:installer": "electron-forge package && electron-builder --win nsis --x64 --prepackaged \"out/CareDesk HMS-win32-x64\"",
     "lint": "eslint --ext .ts,.tsx ."
   },
   "keywords": [],
@@ -38,6 +39,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "electron": "^33.2.1",
+    "electron-builder": "^26.8.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.6.3",

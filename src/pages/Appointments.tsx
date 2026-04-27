@@ -46,7 +46,14 @@ export function Appointments() {
     }
   }, [autoOpen, navigate]);
 
+  // Local Ctrl+B kept as a safety net; the canonical global handler in App.tsx
+  // navigates here first, then fires 'caredesk:bookAppointment' which we catch.
   useKeyboardShortcut({ ctrl: true, key: 'b' }, () => setBookOpen(true), []);
+  useEffect(() => {
+    const open = () => setBookOpen(true);
+    window.addEventListener('caredesk:bookAppointment', open);
+    return () => window.removeEventListener('caredesk:bookAppointment', open);
+  }, []);
 
   const { data: doctors = [] } = useQuery({
     queryKey: ['doctors'],
@@ -408,9 +415,10 @@ function BookAppointmentModal({
   const [apptDate, setApptDate] = useState(defaultDate);
   const [slot, setSlot] = useState<string>('');
   const [notes, setNotes] = useState('');
-  const [feeMode, setFeeMode] = useState<'regular' | 'special' | 'custom'>('regular');
+  const [feeMode, setFeeMode] = useState<'regular' | 'special' | 'custom' | 'free_followup' | 'relaxed_followup'>('regular');
   const [customFee, setCustomFee] = useState<string>('');
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('Cash');
+  const [includeRegFee, setIncludeRegFee] = useState<boolean>(false);
   const toast = useToast();
 
   useEffect(() => { setApptDate(defaultDate); }, [defaultDate]);
@@ -423,6 +431,7 @@ function BookAppointmentModal({
     setFeeMode('regular');
     setCustomFee('');
     setPaymentMode('Cash');
+    setIncludeRegFee(false);
     if (preselectedPatientId) {
       window.electronAPI.patients.get(preselectedPatientId).then((p) => { if (p) setPatient(p); });
     } else {
@@ -438,10 +447,39 @@ function BookAppointmentModal({
   const regularFee = selectedDoctor?.default_fee ?? settings?.consultation_fee ?? 250;
   const specialFee = settings?.special_price ?? 150;
 
-  const fee =
-    feeMode === 'special' ? specialFee
+  // Free follow-up eligibility for the selected (patient, doctor, appointment date) tuple.
+  // Date is part of the key so changing the booking date re-checks the window.
+  const { data: followup } = useQuery({
+    queryKey: ['followup-eligibility', patient?.id, doctorId, apptDate],
+    queryFn: () => window.electronAPI.followup.checkEligibility(patient!.id, doctorId!, apptDate),
+    enabled: !!(patient && doctorId && settings?.followup_enabled),
+  });
+
+  // Auto-select the FREE FOLLOWUP fee mode when eligible. Receptionist can still
+  // override by clicking another fee tile. We only auto-snap once per eligibility flip.
+  useEffect(() => {
+    if (followup?.eligible) setFeeMode('free_followup');
+    else if (feeMode === 'free_followup') setFeeMode('regular');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [followup?.eligible]);
+
+  // Auto-include registration fee for unpaid patients per clinic default.
+  useEffect(() => {
+    if (!patient || !settings?.registration_fee_enabled) { setIncludeRegFee(false); return; }
+    if (patient.registration_fee_paid) { setIncludeRegFee(false); return; }
+    setIncludeRegFee(settings.registration_fee_default_timing !== 'at_registration');
+    // 'at_registration' means we expected it at registration → don't double-charge if missed; receptionist can opt in
+    // 'at_first_appointment' or 'ask' → default ON
+  }, [patient?.id, settings?.registration_fee_enabled, settings?.registration_fee_default_timing]);
+
+  const consultationFee =
+    feeMode === 'free_followup' ? 0
+    : feeMode === 'relaxed_followup' ? 0
+    : feeMode === 'special' ? specialFee
     : feeMode === 'custom' ? Math.max(0, parseFloat(customFee || '0') || 0)
     : regularFee;
+  const regFeeAmount = includeRegFee ? (settings?.registration_fee_amount ?? 0) : 0;
+  const fee = consultationFee + regFeeAmount;
 
   const { data: searchResults = [] } = useQuery({
     queryKey: ['patient-search-modal', patientQuery],
@@ -478,16 +516,29 @@ function BookAppointmentModal({
       });
 
       const feeLabel =
-        feeMode === 'special' ? 'OPD Consultation (Special Price)'
+        feeMode === 'free_followup' ? 'OPD Consultation (Free Follow-up)'
+        : feeMode === 'relaxed_followup' ? 'OPD Consultation (Courtesy Follow-up)'
+        : feeMode === 'special' ? 'OPD Consultation (Special Price)'
         : feeMode === 'custom' ? 'OPD Consultation (Custom)'
         : 'OPD Consultation';
+
+      const items = [
+        { description: feeLabel, qty: 1, rate: consultationFee, amount: consultationFee },
+      ];
+      if (includeRegFee && regFeeAmount > 0) {
+        items.push({ description: 'Patient Registration Fee', qty: 1, rate: regFeeAmount, amount: regFeeAmount });
+      }
       await window.electronAPI.bills.create({
         appointment_id: appt.id,
         patient_id: patient.id,
-        items: [{ description: feeLabel, qty: 1, rate: fee, amount: fee }],
+        items,
         discount: 0,
         discount_type: 'flat',
         payment_mode: paymentMode,
+        is_free_followup: feeMode === 'free_followup' ? 1 : 0,
+        is_relaxed_followup: feeMode === 'relaxed_followup' ? 1 : 0,
+        followup_parent_appt_id: (feeMode === 'free_followup' || feeMode === 'relaxed_followup') ? (followup?.parent_appt_id ?? null) : null,
+        marks_registration_fee_paid: includeRegFee ? 1 : 0,
       });
 
       onCreated(appt);
@@ -656,12 +707,78 @@ function BookAppointmentModal({
           </div>
         </div>
 
+        {/* Follow-up eligibility banner — shown above fee tiles when applicable */}
+        {patient && doctorId && followup?.eligible && (
+          <div className="rounded-lg border-2 border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 p-3 flex items-center justify-between">
+            <div className="text-sm">
+              <div className="font-semibold text-emerald-900 dark:text-emerald-200">
+                ✓ Free follow-up — fee waived automatically
+              </div>
+              <div className="text-[12px] text-emerald-700 dark:text-emerald-300 mt-0.5">
+                Last paid visit on {followup.parent_appt_date} · {followup.free_remaining} of {followup.total_free} free visit(s) remaining · valid till {followup.valid_till}
+              </div>
+            </div>
+          </div>
+        )}
+        {patient && doctorId && !followup?.eligible && followup?.relaxed_eligible && (
+          <div className="rounded-lg border-2 border-orange-300 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 p-3 flex items-center justify-between gap-3">
+            <div className="text-sm flex-1">
+              <div className="font-semibold text-orange-900 dark:text-orange-200">
+                ⚠️ Outside free-follow-up window — fee normally required
+              </div>
+              <div className="text-[12px] text-orange-700 dark:text-orange-300 mt-0.5">
+                Booking date <b>{apptDate}</b> is past the strict cutoff <b>{followup.valid_till}</b> (last paid visit {followup.parent_appt_date}).
+                Inside grace period — you may waive the fee as a courtesy.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setFeeMode(feeMode === 'relaxed_followup' ? 'regular' : 'relaxed_followup')}
+              className={cn(
+                'px-3 py-1.5 text-xs rounded-md border-2 font-semibold whitespace-nowrap',
+                feeMode === 'relaxed_followup'
+                  ? 'bg-orange-600 text-white border-orange-700'
+                  : 'bg-white dark:bg-slate-800 border-orange-400 text-orange-800 dark:text-orange-200 hover:bg-orange-100 dark:hover:bg-orange-900/30'
+              )}
+            >
+              {feeMode === 'relaxed_followup' ? '✓ Courtesy granted (₹0)' : '🤝 Grant courtesy free visit'}
+            </button>
+          </div>
+        )}
+
+        {/* Registration fee toggle — only when patient hasn't paid yet AND policy enabled */}
+        {patient && settings?.registration_fee_enabled && !patient.registration_fee_paid && (
+          <div className="rounded-lg border-2 border-amber-200 dark:border-amber-900 bg-amber-50/60 dark:bg-amber-900/15 p-3 flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="appt-include-regfee"
+              checked={includeRegFee}
+              onChange={(e) => setIncludeRegFee(e.target.checked)}
+              className="w-4 h-4 accent-amber-600"
+            />
+            <label htmlFor="appt-include-regfee" className="flex-1 cursor-pointer">
+              <div className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                Include ₹{settings.registration_fee_amount} registration fee in this bill
+              </div>
+              <div className="text-[11px] text-amber-700 dark:text-amber-300 mt-0.5">
+                Patient hasn't paid registration fee yet. {includeRegFee ? 'Will be added as a separate line item.' : 'Skip — collect later.'}
+              </div>
+            </label>
+            <div className="text-base font-bold text-amber-700 dark:text-amber-300 whitespace-nowrap">
+              {includeRegFee ? `+ ₹${settings.registration_fee_amount}` : '—'}
+            </div>
+          </div>
+        )}
+
         {/* Upfront payment */}
         <div className="card p-4 border-2 border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-900/10">
           <div className="flex items-center justify-between mb-3">
             <div>
               <div className="text-sm font-semibold text-amber-900 dark:text-amber-200">Payment at Registration</div>
-              <div className="text-[11px] text-amber-700 dark:text-amber-300">Collected upfront by receptionist</div>
+              <div className="text-[11px] text-amber-700 dark:text-amber-300">
+                Consultation {formatINR(consultationFee)}
+                {includeRegFee && ` + Registration ${formatINR(regFeeAmount)}`}
+              </div>
             </div>
             <div className="text-2xl font-bold text-amber-700 dark:text-amber-300">{formatINR(fee)}</div>
           </div>

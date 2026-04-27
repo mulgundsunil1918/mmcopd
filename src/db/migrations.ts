@@ -32,6 +32,44 @@ export function runMigrations(db: Database.Database) {
   addColumnIfMissing(db, 'appointments', 'consultation_token', 'TEXT');
   addColumnIfMissing(db, 'patients', 'profession', 'TEXT');
 
+  // users.doctor_id was added to the schema after some installs already created the users
+  // table — add it to existing DBs so doctor-linked logins (and FK ref counts) work.
+  addColumnIfMissing(db, 'users', 'doctor_id', 'INTEGER REFERENCES doctors(id)');
+
+  // Free follow-up policy: every paid visit grants N free follow-up visits within X days
+  // with the same doctor. We tag the bill with a flag + the paid "anchor" appointment so
+  // analytics can compute remaining entitlement and revenue forgone.
+  addColumnIfMissing(db, 'bills', 'is_free_followup', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'bills', 'followup_parent_appt_id', 'INTEGER REFERENCES appointments(id)');
+  // Default rules: enabled, 7-day window, 2 free visits per paid anchor. All overridable in Settings.
+  // Grace days = extra window beyond the strict cutoff where the receptionist can
+  // MANUALLY grant a courtesy free visit (e.g. patient arrived 1 day late). These
+  // get logged separately as "relaxed" follow-ups for honest analytics.
+  setSettingIfEmpty(db, 'followup_enabled', 'true');
+  setSettingIfEmpty(db, 'followup_window_days', '7');
+  setSettingIfEmpty(db, 'followup_free_visits', '2');
+  setSettingIfEmpty(db, 'followup_grace_days', '2');
+  addColumnIfMissing(db, 'bills', 'is_relaxed_followup', 'INTEGER NOT NULL DEFAULT 0');
+
+  // Registration fee: a one-time charge per patient. Receptionist can collect it
+  // at the moment of patient creation OR defer to the first appointment booking.
+  // The two flag columns let us bill it as a separate line item AND know whether
+  // the patient still owes it.
+  addColumnIfMissing(db, 'patients', 'registration_fee_paid', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'patients', 'registration_fee_paid_at', 'TEXT');
+  setSettingIfEmpty(db, 'registration_fee_enabled', 'true');
+  setSettingIfEmpty(db, 'registration_fee_amount', '100');
+  // Default timing: ask each time. Other values: 'at_registration', 'at_first_appointment'.
+  setSettingIfEmpty(db, 'registration_fee_default_timing', 'ask');
+
+  // Miscellaneous charges (procedures, vaccinations, nebulizations, etc.) — bills
+  // not tied to an appointment. doctor_id lets analytics attribute revenue to the
+  // performing doctor; notes captures the receptionist's free-text comment;
+  // bill_kind = 'misc' marks rows so analytics + patient log can group them.
+  addColumnIfMissing(db, 'bills', 'doctor_id', 'INTEGER REFERENCES doctors(id)');
+  addColumnIfMissing(db, 'bills', 'notes', 'TEXT');
+  addColumnIfMissing(db, 'bills', 'bill_kind', "TEXT NOT NULL DEFAULT 'opd'");
+
   // Phase A pharmacy-compliance link columns. drug_master / drug_stock_batches
   // tables are created in createSchema(); these FK columns extend existing tables.
   addColumnIfMissing(db, 'prescription_items', 'drug_master_id', 'INTEGER REFERENCES drug_master(id)');

@@ -1,7 +1,8 @@
 import { format, parseISO } from 'date-fns';
 import { Printer, X, MapPin, Phone, Mail, HeartPulse } from 'lucide-react';
-import { ageStringFull, fmt12h, fmtDate, fmtDateTime } from '../lib/utils';
-import type { AppointmentWithJoins, Consultation, Doctor, LabOrder, PrescriptionItem, Settings, Vitals } from '../types';
+import { useEffect, useState } from 'react';
+import { ageStringFull, fmt12h, fmtDateTime } from '../lib/utils';
+import type { AppointmentWithJoins, Consultation, Doctor, FollowupSummary, LabOrder, PrescriptionItem, Settings, Vitals } from '../types';
 
 export function OpdSlip({
   appointment,
@@ -22,8 +23,20 @@ export function OpdSlip({
 }) {
   const v = consultation?.vitals ?? {};
 
+  // Pull the follow-up summary so the FOLLOW-UP / ಮರು ಭೇಟಿ box on Page 2 can show
+  // exactly how many free visits remain and till what date.
+  const [followup, setFollowup] = useState<FollowupSummary | null>(null);
+  useEffect(() => {
+    if (!settings.followup_enabled) return;
+    let cancelled = false;
+    window.electronAPI.followup.summaryForAppointment(appointment.id).then((s) => {
+      if (!cancelled) setFollowup(s);
+    });
+    return () => { cancelled = true; };
+  }, [appointment.id, settings.followup_enabled]);
+
   return (
-    <div className="fixed inset-0 z-[100] overflow-auto" style={{ backgroundColor: '#94a3b8' }}>
+    <div className="fixed inset-0 z-[100] overflow-auto print-overlay" style={{ backgroundColor: '#94a3b8' }}>
       <div className="no-print sticky top-3 z-10 flex justify-center pointer-events-none">
         <div className="px-4 py-1.5 rounded-full text-xs font-semibold text-white shadow-lg" style={{ backgroundColor: '#1e293b' }}>
           OPD Slip preview · Token #{appointment.token_number} · 2 pages
@@ -36,7 +49,7 @@ export function OpdSlip({
           <PageFooter pageNum={1} totalPages={2} clinicName={settings.clinic_name} />
         </Page>
         <Page>
-          <PageTwo appointment={appointment} consultation={consultation} doctor={doctor} settings={settings} rxItems={rxItems} labOrders={labOrders} />
+          <PageTwo appointment={appointment} consultation={consultation} doctor={doctor} settings={settings} rxItems={rxItems} labOrders={labOrders} followup={followup} />
           <PageFooter pageNum={2} totalPages={2} clinicName={settings.clinic_name} />
         </Page>
       </div>
@@ -370,7 +383,7 @@ function PageOne({
 }
 
 function PageTwo({
-  appointment, consultation, doctor, settings, rxItems, labOrders,
+  appointment, consultation, doctor, settings, rxItems, labOrders, followup,
 }: {
   appointment: AppointmentWithJoins;
   consultation: Consultation | null;
@@ -378,6 +391,7 @@ function PageTwo({
   settings: Settings;
   rxItems: PrescriptionItem[];
   labOrders: LabOrder[];
+  followup: FollowupSummary | null;
 }) {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', fontSize: '13px', lineHeight: 1.35 }}>
@@ -430,9 +444,6 @@ function PageTwo({
         <BlankArea value={consultation?.advice} grow />
       </Section>
 
-      {/* Next Visit box — pre-printed, blank, filled by receptionist at checkout */}
-      <NextVisitBox suggestedDate={consultation?.follow_up_date || null} />
-
       {/* Footer with signature */}
       <div className="grid grid-cols-2 gap-4 mt-3 pt-3" style={{ borderTop: '1px solid #cbd5e1' }}>
         <div>
@@ -457,60 +468,54 @@ function PageTwo({
           </div>
         </div>
       </div>
+
+      {/* FOLLOW-UP / ಮರು ಭೇಟಿ box — Page 2 only, hidden when nothing to offer */}
+      <FollowUpBox followup={followup} />
     </div>
   );
 }
 
-/** Pre-printed Next Visit box — receptionist fills date/time/reason at checkout. */
-function NextVisitBox({ suggestedDate }: { suggestedDate: string | null }) {
+/** Bilingual follow-up offer box. Hidden when the patient has no entitlement. */
+function FollowUpBox({ followup }: { followup: FollowupSummary | null }) {
+  if (!followup || !followup.enabled || followup.mode === 'hidden' || followup.free_remaining < 0) return null;
+
+  const visitWord = followup.free_remaining === 1 ? 'visit' : 'visits';
+  const dateLabel = (() => { try { return format(parseISO(followup.valid_till), 'dd MMM yyyy'); } catch { return followup.valid_till; } })();
+
+  let englishLine: React.ReactNode;
+  let kannadaLine: React.ReactNode;
+
+  if (followup.mode === 'today_paid') {
+    englishLine = <>You have <b>{followup.free_remaining} free follow-up {visitWord}</b> with <b>{followup.doctor_name}</b> — valid till <b>{dateLabel}</b>.</>;
+    kannadaLine = <>{followup.doctor_name} ರ ಬಳಿ <b>{dateLabel}</b> ರವರೆಗೆ <b>{followup.free_remaining} ಉಚಿತ ಮರು ಭೇಟಿ{followup.free_remaining === 1 ? '' : 'ಗಳು'}</b> ಲಭ್ಯ.</>;
+  } else if (followup.mode === 'today_free') {
+    englishLine = <>✓ <b>Today's visit is a free follow-up.</b> {followup.free_remaining > 0 ? <>{followup.free_remaining} free {visitWord} still remaining till <b>{dateLabel}</b>.</> : <>Window expires <b>{dateLabel}</b>; next visit will be charged.</>}</>;
+    kannadaLine = <>✓ <b>ಇಂದಿನ ಭೇಟಿಯು ಉಚಿತ ಮರು ಭೇಟಿ.</b> {followup.free_remaining > 0 ? <><b>{dateLabel}</b> ರವರೆಗೆ <b>{followup.free_remaining} ಉಚಿತ ಭೇಟಿ</b> ಇನ್ನೂ ಲಭ್ಯ.</> : <>ಮುಂದಿನ ಭೇಟಿಗೆ ಶುಲ್ಕ ಅನ್ವಯಿಸುತ್ತದೆ.</>}</>;
+  } else if (followup.mode === 'today_relaxed') {
+    englishLine = <>✓ <b>Today's visit was a courtesy follow-up.</b> {followup.free_remaining > 0 ? <>{followup.free_remaining} free {visitWord} still available till <b>{dateLabel}</b>.</> : <>Cycle complete — next visit will be charged.</>}</>;
+    kannadaLine = <>✓ <b>ಇಂದಿನ ಭೇಟಿ ಸೌಜನ್ಯ ಮರು ಭೇಟಿ ಆಗಿತ್ತು.</b> {followup.free_remaining > 0 ? <><b>{dateLabel}</b> ರವರೆಗೆ <b>{followup.free_remaining} ಉಚಿತ ಭೇಟಿ</b> ಇನ್ನೂ ಲಭ್ಯ.</> : <>ಮುಂದಿನ ಭೇಟಿಗೆ ಶುಲ್ಕ ಅನ್ವಯಿಸುತ್ತದೆ.</>}</>;
+  } else {
+    return null;
+  }
+
   return (
     <div
       className="mt-3 rounded"
       style={{
-        border: '1.5px solid #1d4ed8',
-        background: '#eff6ff',
-        padding: '6px 10px',
+        border: '1.5px solid #047857',
+        background: '#ecfdf5',
+        padding: '8px 12px',
       }}
     >
-      <div className="flex items-center justify-between mb-1.5">
-        <div className="text-[12px] uppercase tracking-wider font-bold" style={{ color: '#1e3a8a' }}>
-          📅 Next Visit
-        </div>
-        {suggestedDate && (
-          <div className="text-[13px]" style={{ color: '#475569' }}>
-            Doctor suggested: <b>{fmtDate(suggestedDate)}</b>
-          </div>
-        )}
+      <div
+        className="text-[12px] uppercase tracking-wider font-bold pb-1 mb-2 text-center"
+        style={{ color: '#064e3b', borderBottom: '1px solid #a7f3d0' }}
+      >
+        FOLLOW-UP · ಮರು ಭೇಟಿ
       </div>
-      <div className="grid grid-cols-12 gap-2 items-center text-[12px]" style={{ color: '#0f172a' }}>
-        <span className="col-span-1 font-semibold">Date:</span>
-        <span className="col-span-5 inline-flex items-end gap-1">
-          <DateBlank w="10mm" />/<DateBlank w="10mm" />/<DateBlank w="14mm" />
-        </span>
-        <span className="col-span-1 font-semibold text-right">Time:</span>
-        <span className="col-span-5 inline-flex items-end gap-1">
-          <DateBlank w="10mm" />:<DateBlank w="10mm" />
-          <span className="ml-1 text-[13px]" style={{ color: '#475569' }}>AM / PM</span>
-        </span>
-        <span className="col-span-1 font-semibold">Reason:</span>
-        <span className="col-span-11">
-          <span style={{ display: 'inline-block', borderBottom: '1px solid #94a3b8', width: '100%', height: '12px' }} />
-        </span>
-      </div>
+      <div className="text-[12px] leading-snug text-center" style={{ color: '#064e3b' }}>{englishLine}</div>
+      <div className="text-[12px] leading-snug mt-1.5 text-center" style={{ color: '#064e3b' }}>{kannadaLine}</div>
     </div>
-  );
-}
-
-function DateBlank({ w }: { w: string }) {
-  return (
-    <span
-      style={{
-        display: 'inline-block',
-        borderBottom: '1px solid #94a3b8',
-        width: w,
-        height: '12px',
-      }}
-    />
   );
 }
 
