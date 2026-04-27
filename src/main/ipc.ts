@@ -822,6 +822,24 @@ export function registerIpc() {
       .all(...params);
   });
 
+  // Daily trend for the Services analytics tab — one row per calendar day in
+  // the requested range with count + revenue. Used to draw the column chart.
+  ipcMain.handle('misc:trend', (_e, filter: { from?: string; to?: string } = {}) => {
+    const db = getDb();
+    const today = new Date().toISOString().slice(0, 10);
+    const from = filter.from || today.slice(0, 8) + '01';
+    const to = filter.to || today;
+    return db.prepare(`
+      SELECT date(b.created_at) as day,
+             COUNT(*) as count,
+             COALESCE(SUM(b.total),0) as revenue
+      FROM bills b
+      WHERE b.bill_kind='misc' AND date(b.created_at) BETWEEN ? AND ?
+      GROUP BY day
+      ORDER BY day ASC
+    `).all(from, to);
+  });
+
   ipcMain.handle('misc:summary', (_e, filter: { from?: string; to?: string } = {}) => {
     const db = getDb();
     const today = new Date().toISOString().slice(0, 10);

@@ -11,7 +11,7 @@ import { useToast } from '../hooks/useToast';
 import { colorForDoctor } from '../lib/doctor-colors';
 import type { Doctor } from '../types';
 
-type Tab = 'overview' | 'finance' | 'demographics' | 'origin' | 'pharmacy' | 'operations';
+type Tab = 'overview' | 'finance' | 'demographics' | 'origin' | 'pharmacy' | 'services' | 'operations';
 
 /**
  * Unified Analytics page — consolidates the metrics that previously lived in
@@ -57,6 +57,7 @@ export function Analytics() {
         <TabBtn active={tab === 'demographics'} onClick={() => setTab('demographics')} icon={<UsersIcon className="w-3.5 h-3.5" />}>Demographics</TabBtn>
         <TabBtn active={tab === 'origin'} onClick={() => setTab('origin')} icon={<MapPin className="w-3.5 h-3.5" />}>Patient Origin</TabBtn>
         <TabBtn active={tab === 'pharmacy'} onClick={() => setTab('pharmacy')} icon={<Pill className="w-3.5 h-3.5" />}>Pharmacy</TabBtn>
+        <TabBtn active={tab === 'services'} onClick={() => setTab('services')} icon={<Syringe className="w-3.5 h-3.5" />}>Services</TabBtn>
         <TabBtn active={tab === 'operations'} onClick={() => setTab('operations')} icon={<FileText className="w-3.5 h-3.5" />}>Operational Reports</TabBtn>
       </div>
 
@@ -65,6 +66,7 @@ export function Analytics() {
       {tab === 'demographics' && <DemographicsTab />}
       {tab === 'origin' && <OriginTab from={from} to={to} />}
       {tab === 'pharmacy' && <PharmacyTab from={from} to={to} />}
+      {tab === 'services' && <ServicesTab from={from} to={to} />}
       {tab === 'operations' && <OperationsTab from={from} to={to} />}
     </div>
   );
@@ -136,14 +138,11 @@ function OverviewTab() {
           <Kpi
             label="Services revenue"
             value={formatINR(ov.servicesRevenueThisMonth ?? 0)}
-            sub={`${ov.servicesCountThisMonth ?? 0} services rendered`}
+            sub={`${ov.servicesCountThisMonth ?? 0} services rendered · see Services tab`}
             tone="rose"
           />
         </div>
       </section>
-
-      {/* Services breakdown — top services + per-doctor */}
-      <ServicesBreakdown />
 
       {/* Alerts */}
       <section>
@@ -959,82 +958,140 @@ function daysAgo(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Services breakdown — top services + per-doctor revenue. Uses the misc:summary IPC. */
-function ServicesBreakdown() {
-  const today = new Date().toISOString().slice(0, 10);
-  const monthStart = today.slice(0, 8) + '01';
+/** Full Services analytics tab — date-range aware; KPIs + daily trend chart +
+ *  top services + per-doctor revenue. Driven by misc:summary + misc:trend. */
+function ServicesTab({ from, to }: { from: string; to: string }) {
   const { data: summary } = useQuery({
-    queryKey: ['analytics-services-summary', monthStart, today],
-    queryFn: () => window.electronAPI.misc.summary({ from: monthStart, to: today }),
+    queryKey: ['analytics-services-summary', from, to],
+    queryFn: () => window.electronAPI.misc.summary({ from, to }),
+    refetchOnMount: 'always',
+  });
+  const { data: trend = [] } = useQuery({
+    queryKey: ['analytics-services-trend', from, to],
+    queryFn: () => window.electronAPI.misc.trend({ from, to }),
     refetchOnMount: 'always',
   });
 
-  if (!summary) return null;
-  if (summary.count === 0) return null;
+  if (!summary) return <div className="text-xs text-gray-500">Loading…</div>;
 
+  // Empty state.
+  if (summary.count === 0) {
+    return (
+      <div className="card p-10 text-center">
+        <Syringe className="w-8 h-8 text-pink-300 mx-auto mb-3" />
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">No services rendered in this date range</div>
+        <div className="text-[12px] text-gray-500 dark:text-slate-400 mt-1">
+          Visit the <b>Services</b> tab in the sidebar to record procedures, vaccinations, dressings, etc.
+        </div>
+      </div>
+    );
+  }
+
+  const avgPerService = summary.count > 0 ? summary.revenue / summary.count : 0;
+  const uniqueServices = summary.topServices.length;
+  const trendMax = Math.max(1, ...trend.map((t: any) => t.revenue));
   const topMax = Math.max(1, ...summary.topServices.map((s: any) => s.revenue));
   const docMax = Math.max(1, ...summary.byDoctor.map((d: any) => d.revenue));
 
   return (
-    <section>
-      <SectionTitle icon={<Syringe className="w-4 h-4 text-pink-600" />} title="Services" subtitle={`${summary.count} services · ${formatINR(summary.revenue)} revenue · ${monthStart} to ${today}`} />
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {/* Top services */}
-        <div className="card p-4">
-          <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-3">Top services by revenue</div>
-          <ul className="space-y-2">
-            {summary.topServices.map((s: any) => (
-              <li key={s.service}>
-                <div className="flex items-center justify-between text-[13px]">
-                  <span className="font-medium text-gray-900 dark:text-slate-100 truncate">{s.service || '—'}</span>
-                  <span className="text-gray-600 dark:text-slate-300 ml-2 whitespace-nowrap">
-                    <span className="font-semibold">{formatINR(s.revenue)}</span>
-                    <span className="text-[11px] text-gray-500 ml-2">× {s.count}</span>
-                  </span>
-                </div>
-                <div className="h-1.5 bg-gray-100 dark:bg-slate-800 rounded-full mt-1 overflow-hidden">
-                  <div
-                    className="h-full bg-pink-500"
-                    style={{ width: `${Math.max(2, (s.revenue / topMax) * 100)}%` }}
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
+    <div className="space-y-6">
+      {/* KPI row */}
+      <section>
+        <SectionTitle icon={<Syringe className="w-4 h-4 text-pink-600" />} title="Services Overview" subtitle={`${from} to ${to}`} />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Kpi label="Total revenue" value={formatINR(summary.revenue)} tone="rose" />
+          <Kpi label="Services rendered" value={summary.count} tone="rose" />
+          <Kpi label="Avg per service" value={formatINR(Math.round(avgPerService))} tone="indigo" />
+          <Kpi label="Unique service types" value={uniqueServices} sub="distinct line items" tone="violet" />
         </div>
+      </section>
 
-        {/* Per-doctor */}
-        <div className="card p-4">
-          <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-3">Services revenue by doctor</div>
-          <ul className="space-y-2">
-            {summary.byDoctor.map((d: any, i: number) => (
-              <li key={i}>
-                <div className="flex items-center justify-between text-[13px]">
-                  <span className="font-medium text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5 truncate">
-                    {d.doctor_color && (
-                      <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: d.doctor_color }} />
-                    )}
-                    {d.doctor_name || <em className="text-gray-400 not-italic">No doctor</em>}
-                  </span>
-                  <span className="text-gray-600 dark:text-slate-300 ml-2 whitespace-nowrap">
-                    <span className="font-semibold">{formatINR(d.revenue)}</span>
-                    <span className="text-[11px] text-gray-500 ml-2">× {d.count}</span>
-                  </span>
-                </div>
-                <div className="h-1.5 bg-gray-100 dark:bg-slate-800 rounded-full mt-1 overflow-hidden">
-                  <div
-                    className="h-full"
-                    style={{
-                      width: `${Math.max(2, (d.revenue / docMax) * 100)}%`,
-                      backgroundColor: d.doctor_color || '#94a3b8',
-                    }}
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
+      {/* Daily trend column chart */}
+      {trend.length > 0 && (
+        <section>
+          <SectionTitle icon={<TrendingUp className="w-4 h-4 text-pink-600" />} title="Daily revenue trend" subtitle="Each bar is one day where services were rendered" />
+          <div className="card p-4">
+            <div className="flex items-end gap-1 h-44 overflow-x-auto">
+              {trend.map((t: any) => {
+                const h = Math.max(4, (t.revenue / trendMax) * 100);
+                return (
+                  <div key={t.day} className="flex flex-col items-center gap-1 flex-shrink-0" style={{ minWidth: 28 }}>
+                    <div
+                      className="w-full bg-pink-500 dark:bg-pink-400 rounded-t hover:bg-pink-600 transition"
+                      style={{ height: `${h}%` }}
+                      title={`${t.day} · ${formatINR(t.revenue)} · ${t.count} services`}
+                    />
+                    <div className="text-[9px] text-gray-500 dark:text-slate-400 -rotate-45 origin-top-left whitespace-nowrap mt-1">
+                      {t.day.slice(5)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      )}
+
+      <section>
+        <SectionTitle icon={<BarChart3 className="w-4 h-4 text-pink-600" />} title="Breakdown" subtitle="Top services & per-doctor performance" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* Top services */}
+          <div className="card p-4">
+            <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-3">Top services by revenue</div>
+            <ul className="space-y-2">
+              {summary.topServices.map((s: any) => (
+                <li key={s.service}>
+                  <div className="flex items-center justify-between text-[13px]">
+                    <span className="font-medium text-gray-900 dark:text-slate-100 truncate">{s.service || '—'}</span>
+                    <span className="text-gray-600 dark:text-slate-300 ml-2 whitespace-nowrap">
+                      <span className="font-semibold">{formatINR(s.revenue)}</span>
+                      <span className="text-[11px] text-gray-500 ml-2">× {s.count}</span>
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-gray-100 dark:bg-slate-800 rounded-full mt-1 overflow-hidden">
+                    <div
+                      className="h-full bg-pink-500"
+                      style={{ width: `${Math.max(2, (s.revenue / topMax) * 100)}%` }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Per-doctor */}
+          <div className="card p-4">
+            <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-3">Services revenue by doctor</div>
+            <ul className="space-y-2">
+              {summary.byDoctor.map((d: any, i: number) => (
+                <li key={i}>
+                  <div className="flex items-center justify-between text-[13px]">
+                    <span className="font-medium text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5 truncate">
+                      {d.doctor_color && (
+                        <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: d.doctor_color }} />
+                      )}
+                      {d.doctor_name || <em className="text-gray-400 not-italic">No doctor</em>}
+                    </span>
+                    <span className="text-gray-600 dark:text-slate-300 ml-2 whitespace-nowrap">
+                      <span className="font-semibold">{formatINR(d.revenue)}</span>
+                      <span className="text-[11px] text-gray-500 ml-2">× {d.count}</span>
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-gray-100 dark:bg-slate-800 rounded-full mt-1 overflow-hidden">
+                    <div
+                      className="h-full"
+                      style={{
+                        width: `${Math.max(2, (d.revenue / docMax) * 100)}%`,
+                        backgroundColor: d.doctor_color || '#94a3b8',
+                      }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </div>
   );
 }

@@ -169,6 +169,8 @@ const api = {
         topServices: { service: string; count: number; revenue: number }[];
         byDoctor: { doctor_name: string | null; doctor_color: string | null; count: number; revenue: number }[];
       }>,
+    trend: (filter: { from?: string; to?: string } = {}) =>
+      ipcRenderer.invoke('misc:trend', filter) as Promise<{ day: string; count: number; revenue: number }[]>,
   },
   emr: {
     allergies: (patientId: number) => ipcRenderer.invoke('emr:allergies', patientId) as Promise<any[]>,

@@ -229,6 +229,13 @@ export function createMockElectronAPI(): any {
           { doctor_name: null, doctor_color: null, count: 4, revenue: 500 },
         ],
       }),
+      trend: () => r(
+        Array.from({ length: 27 }, (_, i) => {
+          const d = new Date(Date.now() - (26 - i) * 86400000).toISOString().slice(0, 10);
+          const count = Math.floor(Math.random() * 4);
+          return { day: d, count, revenue: count * (200 + Math.floor(Math.random() * 300)) };
+        }).filter((x) => x.count > 0)
+      ),
     },
     consultations: {
       getByAppointment: (apptId: number) => r(consultations.find((c) => c.appointment_id === apptId) || null),
