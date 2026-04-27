@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle, Trash2, User as UserIcon, IndianRupee, PenTool, Power, AlertCircle, ArrowUp, ArrowDown } from 'lucide-react';
+import { Building2, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle, Trash2, User as UserIcon, IndianRupee, PenTool, Power, AlertCircle, ArrowUp, ArrowDown, MessageCircle, Eye, FileText, MapPin, Syringe, RefreshCw, Sparkles, HardDrive, Sun } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { cn } from '../lib/utils';
 import { Check } from 'lucide-react';
@@ -15,74 +15,133 @@ import { KARNATAKA_PLACES, ALL_NEARBY_PLACES } from '../lib/places';
 import { DOCTOR_COLOR_OPTIONS, colorForDoctor } from '../lib/doctor-colors';
 import type { AppMode, Doctor, Settings } from '../types';
 
+type SettingsTab = 'clinic' | 'doctors' | 'workflow' | 'patients' | 'system' | 'comms';
+
+const SETTINGS_TAB_KEY = 'caredesk:settings-tab';
+
 export function SettingsPage() {
+  const [tab, setTab] = useState<SettingsTab>(() => {
+    try { return (localStorage.getItem(SETTINGS_TAB_KEY) as SettingsTab) || 'clinic'; } catch { return 'clinic'; }
+  });
+  useEffect(() => { try { localStorage.setItem(SETTINGS_TAB_KEY, tab); } catch { /* ignore */ } }, [tab]);
+
   return (
     <AdminGate title="Settings — Administrator area">
-      <div className="p-6 space-y-6 max-w-5xl">
-        <div>
+      <div className="p-6 max-w-5xl">
+        <div className="mb-4">
           <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Settings</h1>
           <p className="text-xs text-gray-500 dark:text-slate-400">
-            Organized by area. Use the section headings below to find what you need.
+            Pick a tab below to find what you need.
           </p>
         </div>
 
-        {/* === GROUP 1: Identity & Modules === */}
-        <SettingsGroup title="Clinic Identity" subtitle="Name, logo, address, contact details printed on every OPD slip.">
-          <ClinicInfo />
-        </SettingsGroup>
+        {/* Tab bar */}
+        <div className="flex flex-wrap gap-1 mb-6 p-1 rounded-lg bg-gray-100 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700 sticky top-0 z-10 backdrop-blur">
+          <SettingsTabBtn active={tab === 'clinic'} onClick={() => setTab('clinic')} icon={<Building2 className="w-3.5 h-3.5" />}>Clinic</SettingsTabBtn>
+          <SettingsTabBtn active={tab === 'doctors'} onClick={() => setTab('doctors')} icon={<Stethoscope className="w-3.5 h-3.5" />}>Doctors & Templates</SettingsTabBtn>
+          <SettingsTabBtn active={tab === 'workflow'} onClick={() => setTab('workflow')} icon={<Wallet className="w-3.5 h-3.5" />}>Fees & Workflow</SettingsTabBtn>
+          <SettingsTabBtn active={tab === 'patients'} onClick={() => setTab('patients')} icon={<UserIcon className="w-3.5 h-3.5" />}>Patients</SettingsTabBtn>
+          <SettingsTabBtn active={tab === 'system'} onClick={() => setTab('system')} icon={<HardDrive className="w-3.5 h-3.5" />}>System</SettingsTabBtn>
+          <SettingsTabBtn active={tab === 'comms'} onClick={() => setTab('comms')} icon={<MessageCircle className="w-3.5 h-3.5" />}>Communication</SettingsTabBtn>
+        </div>
 
-        <SettingsGroup title="App Mode" subtitle="Pick which modules are visible in the sidebar (Reception, Pharmacy, Doctor, Lab, IPD).">
-          <AppModeSelector />
-        </SettingsGroup>
+        <div className="space-y-6">
+          {tab === 'clinic' && (
+            <>
+              <SettingsGroup title="Clinic Identity" subtitle="Name, logo, address, contact details printed on every OPD slip.">
+                <ClinicInfo />
+              </SettingsGroup>
+              <SettingsGroup title="App Mode" subtitle="Pick which modules are visible in the sidebar (Reception, Pharmacy, Doctor, Lab, IPD).">
+                <AppModeSelector />
+              </SettingsGroup>
+            </>
+          )}
 
-        {/* === GROUP 2: Doctors & Workflow === */}
-        <SettingsGroup title="Doctors" subtitle="Add doctors, set their fees, signature, and color tag.">
-          <DoctorsManagement />
-        </SettingsGroup>
+          {tab === 'doctors' && (
+            <>
+              <SettingsGroup title="Doctors" subtitle="Add doctors, set their fees, signature, color tag, and slip template.">
+                <DoctorsManagement />
+              </SettingsGroup>
+              <SettingsGroup title="OPD Slip Body Templates" subtitle="Per-specialty body sections for the consultation panel and printed slip. Header / vitals / signature / follow-up box stay the same.">
+                <SlipTemplatesEditor />
+              </SettingsGroup>
+              <SettingsGroup title="OPD Slip Preview" subtitle="See exactly how the printed slip looks with sample data.">
+                <SlipPreviewLauncher />
+              </SettingsGroup>
+            </>
+          )}
 
-        <SettingsGroup title="Patients & Locations" subtitle="Default state, district, and bundled village list.">
-          <DefaultLocation />
-        </SettingsGroup>
+          {tab === 'workflow' && (
+            <>
+              <SettingsGroup title="Fees, Queue Flow & Display" subtitle="Consultation fees, queue toggle, and sidebar visibility for the user badge / Billing module.">
+                <FeesAndFlow />
+              </SettingsGroup>
+              <SettingsGroup title="Patient Registration Fee" subtitle="One-time fee charged on registration. Collect at registration, at first appointment, or ask each time.">
+                <RegistrationFeePolicy />
+              </SettingsGroup>
+              <SettingsGroup title="Free Follow-up Policy" subtitle="Reward repeat visits with same-doctor follow-ups inside a configurable window.">
+                <FollowupPolicy />
+              </SettingsGroup>
+              <SettingsGroup title="Services" subtitle="Quick-pick chips shown on the Services page (procedures, vaccinations, etc.). Add, remove, or reorder.">
+                <MiscServicesEditor />
+              </SettingsGroup>
+            </>
+          )}
 
-        <SettingsGroup title="Fees, Queue Flow & Display" subtitle="Consultation fees, queue toggle, and sidebar visibility for the user badge / Billing module.">
-          <FeesAndFlow />
-        </SettingsGroup>
+          {tab === 'patients' && (
+            <>
+              <SettingsGroup title="Patients & Locations" subtitle="Default state, district, and bundled village list shown as autocomplete.">
+                <DefaultLocation />
+              </SettingsGroup>
+            </>
+          )}
 
-        <SettingsGroup title="Free Follow-up Policy" subtitle="Reward repeat visits with same-doctor follow-ups inside a configurable window.">
-          <FollowupPolicy />
-        </SettingsGroup>
+          {tab === 'system' && (
+            <>
+              <SettingsGroup title="Startup & Background" subtitle="Auto-launch with Windows, minimize to tray, start hidden.">
+                <StartupBehavior />
+              </SettingsGroup>
+              <SettingsGroup title="Backup, Restore & Updates" subtitle="Where backups go, daily auto-backup, weekly USB reminder, restore, and app updates.">
+                <BackupSettings />
+              </SettingsGroup>
+            </>
+          )}
 
-        <SettingsGroup title="Patient Registration Fee" subtitle="One-time fee charged on registration. Choose whether to collect at registration, at first appointment, or ask each time.">
-          <RegistrationFeePolicy />
-        </SettingsGroup>
-
-        <SettingsGroup title="Services" subtitle="Quick-pick chips shown on the Services page (procedures, vaccinations, etc.). Add, remove, or reorder.">
-          <MiscServicesEditor />
-        </SettingsGroup>
-
-        <SettingsGroup title="OPD Slip Body Templates" subtitle="Per-specialty body sections for the consultation panel and printed slip. Header / vitals / signature / follow-up box stay the same.">
-          <SlipTemplatesEditor />
-        </SettingsGroup>
-
-        {/* === GROUP 3: System === */}
-        <SettingsGroup title="Startup & Background" subtitle="Auto-launch with Windows, minimize to tray, start hidden.">
-          <StartupBehavior />
-        </SettingsGroup>
-
-        <SettingsGroup title="Backup, Restore & Updates" subtitle="Where backups go, daily auto-backup, weekly USB reminder, restore, and app updates.">
-          <BackupSettings />
-        </SettingsGroup>
-
-        {/* === GROUP 4: Communication & Output === */}
-        <SettingsGroup title="WhatsApp Messaging" subtitle="Click-to-WhatsApp template editor + live preview.">
-          <WhatsAppMessaging />
-        </SettingsGroup>
-
-        <SettingsGroup title="OPD Slip Preview" subtitle="See exactly how the printed slip looks with sample data.">
-          <SlipPreviewLauncher />
-        </SettingsGroup>
+          {tab === 'comms' && (
+            <>
+              <SettingsGroup title="WhatsApp Messaging" subtitle="Click-to-WhatsApp template editor + live preview.">
+                <WhatsAppMessaging />
+              </SettingsGroup>
+            </>
+          )}
+        </div>
       </div>
     </AdminGate>
+  );
+}
+
+function SettingsTabBtn({
+  active, onClick, icon, children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md font-semibold transition',
+        active
+          ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-300 shadow-sm border border-gray-200 dark:border-slate-700'
+          : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-700/40 border border-transparent'
+      )}
+    >
+      {icon}
+      <span>{children}</span>
+    </button>
   );
 }
 
