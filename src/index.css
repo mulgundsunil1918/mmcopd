@@ -183,9 +183,11 @@ html.dark .statusbar { background-color: #0b1220; border-top-color: #1e293b; col
   /* Walk every ANCESTOR of .print-page back to normal flow. Without this the
      OPD-slip preview wrapper (position: fixed; overflow: auto) pins the
      printable region to the first viewport and Chromium emits only page 1.
-     We deliberately exclude .print-page itself (it has its own padding/sizing). */
+     EXCLUDE .no-print so hidden preview banners/buttons stay hidden — otherwise
+     a forced display:block makes them push the real pages out of the print area
+     and the first printed sheet ends up blank. */
   .print-overlay,
-  .print-overlay > *:not(.print-page) {
+  .print-overlay > *:not(.no-print) {
     position: static !important;
     overflow: visible !important;
     height: auto !important;
@@ -201,7 +203,10 @@ html.dark .statusbar { background-color: #0b1220; border-top-color: #1e293b; col
     margin: 0 !important;
   }
 
-  /* Multi-page: each .print-page is a full A4 sheet, break after */
+  /* Multi-page: each .print-page is a full A4 sheet, break after.
+     IMPORTANT: do NOT override display here — the <Page> component's inline
+     display:flex / flex-direction:column drives PageOne/PageTwo's flex:1
+     grow behavior. Forcing block kills the layout and the page renders blank. */
   .print-page {
     width: 210mm !important;
     height: 297mm !important;
@@ -209,12 +214,10 @@ html.dark .statusbar { background-color: #0b1220; border-top-color: #1e293b; col
     padding: 14mm 14mm 12mm !important;
     box-shadow: none !important;
     background: white !important;
-    display: block !important;
     page-break-inside: avoid !important;
     page-break-after: always !important;
     break-after: page !important;
     overflow: hidden !important;
-    /* Each page renders independently from any sibling — no inherited z-index, etc. */
     position: relative !important;
     z-index: auto !important;
   }
