@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { createSchema, SCHEMA_VERSION } from './schema';
+import { DEFAULT_SLIP_TEMPLATES } from './slip-templates';
 
 function addColumnIfMissing(db: Database.Database, table: string, column: string, decl: string) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
@@ -73,6 +74,15 @@ export function runMigrations(db: Database.Database) {
   // comma-separated string so it can flow through the existing key-value
   // settings table without schema work.
   setSettingIfEmpty(db, 'misc_services', 'Procedure,Vaccination,Nebulization,Wound Dressing,Injection,Suture / Stitches,IV Fluids,Other');
+
+  // Per-specialty OPD-slip body templates. Each doctor picks one (doctors.template_id).
+  // The templates themselves live as JSON in the settings table so the user can edit
+  // / add / remove without a schema migration. Custom field values are stored on each
+  // consultation in extra_fields_json. The "header / vitals / signature / follow-up"
+  // wrappers on the printed slip are unchanged — only the body sections are template-driven.
+  addColumnIfMissing(db, 'doctors', 'template_id', 'INTEGER');
+  addColumnIfMissing(db, 'consultations', 'extra_fields_json', 'TEXT');
+  setSettingIfEmpty(db, 'slip_templates', JSON.stringify(DEFAULT_SLIP_TEMPLATES));
 
   // Phase A pharmacy-compliance link columns. drug_master / drug_stock_batches
   // tables are created in createSchema(); these FK columns extend existing tables.

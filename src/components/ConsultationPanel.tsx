@@ -62,6 +62,19 @@ export function ConsultationPanel({
   const [followUp, setFollowUp] = useState('');
   const [vitals, setVitals] = useState<Vitals>({});
   const [rxRows, setRxRows] = useState<RxRow[]>([{ ...EMPTY_RX }]);
+  const [extraFields, setExtraFields] = useState<Record<string, string>>({});
+
+  // Doctor's body template — drives which sections render in this panel and
+  // which extra fields persist into consultations.extra_fields_json.
+  const { data: templates = [] } = useQuery({
+    queryKey: ['slip-templates'],
+    queryFn: () => window.electronAPI.templates.list(),
+  });
+  const template = useMemo(() => {
+    if (templates.length === 0) return null;
+    const byId = templates.find((t: any) => t.id === doctor.template_id);
+    return byId || templates[0]; // Fall back to the first template (typically "General").
+  }, [templates, doctor.template_id]);
 
   useEffect(() => {
     setHistory(existing?.history || '');
@@ -70,6 +83,7 @@ export function ConsultationPanel({
     setAdvice(existing?.advice || '');
     setFollowUp(existing?.follow_up_date || '');
     setVitals(existing?.vitals || {});
+    setExtraFields(existing?.extra_fields || {});
   }, [existing?.id, appointment.id]);
 
   useEffect(() => {
@@ -107,6 +121,7 @@ export function ConsultationPanel({
         advice,
         vitals,
         follow_up_date: followUp || null,
+        extra_fields: extraFields,
       });
       await window.electronAPI.rx.saveAll(
         appointment.id,
@@ -206,11 +221,56 @@ export function ConsultationPanel({
         </div>
       </div>
 
+      {/* Body sections — driven by the doctor's assigned slip template. Reserved
+          keys (history/examination/impression/advice) read from / write to the
+          dedicated state; everything else lives in extraFields. */}
       <div className="grid grid-cols-1 gap-3 mt-4">
-        <TextBlock label="Chief Complaints / History" value={history} onChange={setHistory} rows={3} />
-        <TextBlock label="Examination" value={examination} onChange={setExamination} rows={3} />
-        <TextBlock label="Impression / Diagnosis" value={impression} onChange={setImpression} rows={2} />
-        <TextBlock label="Advice / Notes" value={advice} onChange={setAdvice} rows={3} />
+        {(template?.sections || [
+          { key: 'history', title: 'Chief Complaints / History', type: 'textarea' },
+          { key: 'examination', title: 'Examination', type: 'textarea' },
+          { key: 'impression', title: 'Impression / Diagnosis', type: 'textarea' },
+          { key: 'advice', title: 'Advice / Notes', type: 'textarea' },
+        ]).map((s: any) => {
+          const isWellKnown = ['history', 'examination', 'impression', 'advice'].includes(s.key);
+          const reader = (
+            s.key === 'history' ? history :
+            s.key === 'examination' ? examination :
+            s.key === 'impression' ? impression :
+            s.key === 'advice' ? advice :
+            (extraFields[s.key] || '')
+          );
+          const setter = (v: string) => {
+            if (s.key === 'history') setHistory(v);
+            else if (s.key === 'examination') setExamination(v);
+            else if (s.key === 'impression') setImpression(v);
+            else if (s.key === 'advice') setAdvice(v);
+            else setExtraFields((prev) => ({ ...prev, [s.key]: v }));
+          };
+          const rows = Math.max(1, Math.round(((s.height_mm ?? 18) - 4) / 6));
+          if (s.type === 'textarea') {
+            return <TextBlock key={s.key} label={s.title} value={reader} onChange={setter} rows={rows} />;
+          }
+          return (
+            <div key={s.key}>
+              <label className="text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1 block">{s.title}{!isWellKnown && <span className="text-[10px] font-normal text-gray-400 ml-1">(custom)</span>}</label>
+              {s.type === 'date' && (
+                <input type="date" className="input" value={reader} onChange={(e) => setter(e.target.value)} />
+              )}
+              {s.type === 'number' && (
+                <input type="number" className="input" placeholder={s.placeholder} value={reader} onChange={(e) => setter(e.target.value)} />
+              )}
+              {s.type === 'singleline' && (
+                <input className="input" placeholder={s.placeholder} value={reader} onChange={(e) => setter(e.target.value)} />
+              )}
+              {s.type === 'dropdown' && (
+                <select className="input" value={reader} onChange={(e) => setter(e.target.value)}>
+                  <option value="">—</option>
+                  {(s.options || []).map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Rx / Prescription */}

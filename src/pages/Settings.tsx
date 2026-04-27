@@ -60,6 +60,10 @@ export function SettingsPage() {
           <MiscServicesEditor />
         </SettingsGroup>
 
+        <SettingsGroup title="OPD Slip Body Templates" subtitle="Per-specialty body sections for the consultation panel and printed slip. Header / vitals / signature / follow-up box stay the same.">
+          <SlipTemplatesEditor />
+        </SettingsGroup>
+
         {/* === GROUP 3: System === */}
         <SettingsGroup title="Startup & Background" subtitle="Auto-launch with Windows, minimize to tray, start hidden.">
           <StartupBehavior />
@@ -1461,6 +1465,235 @@ function MiscServicesEditor() {
   );
 }
 
+function SlipTemplatesEditor() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data: templates = [] } = useQuery({
+    queryKey: ['slip-templates'],
+    queryFn: () => window.electronAPI.templates.list(),
+    refetchOnMount: 'always',
+  });
+  const [draft, setDraft] = useState<any[]>([]);
+  const [activeId, setActiveId] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!templates) return;
+    setDraft(JSON.parse(JSON.stringify(templates)));
+    if (activeId == null && templates.length > 0) setActiveId(templates[0].id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(templates)]);
+
+  const dirty = JSON.stringify(draft) !== JSON.stringify(templates);
+  const active = draft.find((t) => t.id === activeId);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await window.electronAPI.templates.saveAll(draft);
+      await qc.invalidateQueries({ queryKey: ['slip-templates'] });
+      toast('Templates saved');
+    } catch (e: any) { toast(e?.message || 'Save failed', 'error'); }
+    finally { setSaving(false); }
+  };
+
+  const addTemplate = () => {
+    const id = Math.max(0, ...draft.map((t) => t.id)) + 1;
+    const next = [...draft, {
+      id,
+      name: `Template ${id}`,
+      specialty_hint: '',
+      sections: [
+        { key: 'history', title: 'Chief Complaints / History', type: 'textarea', height_mm: 50, printed: true },
+        { key: 'examination', title: 'Examination', type: 'textarea', height_mm: 50, printed: true },
+        { key: 'impression', title: 'Impression / Diagnosis', type: 'textarea', height_mm: 22, printed: true },
+        { key: 'advice', title: 'Advice / Prescription (Rx)', type: 'textarea', height_mm: 50, printed: true },
+      ],
+    }];
+    setDraft(next);
+    setActiveId(id);
+  };
+
+  const deleteTemplate = (id: number) => {
+    if (draft.length <= 1) { toast('At least one template is required', 'error'); return; }
+    const next = draft.filter((t) => t.id !== id);
+    setDraft(next);
+    if (activeId === id) setActiveId(next[0]?.id ?? null);
+  };
+
+  const renameTemplate = (id: number, patch: { name?: string; specialty_hint?: string }) => {
+    setDraft(draft.map((t) => t.id === id ? { ...t, ...patch } : t));
+  };
+
+  const updateSections = (id: number, sections: any[]) => {
+    setDraft(draft.map((t) => t.id === id ? { ...t, sections } : t));
+  };
+
+  const addSection = () => {
+    if (!active) return;
+    const newKey = `field_${Date.now()}`;
+    updateSections(active.id, [...active.sections, {
+      key: newKey, title: 'New Field', type: 'singleline', height_mm: 8, printed: true,
+    }]);
+  };
+
+  const removeSection = (idx: number) => {
+    if (!active) return;
+    updateSections(active.id, active.sections.filter((_: any, i: number) => i !== idx));
+  };
+
+  const moveSection = (idx: number, dir: -1 | 1) => {
+    if (!active) return;
+    const next = [...active.sections];
+    const j = idx + dir;
+    if (j < 0 || j >= next.length) return;
+    [next[idx], next[j]] = [next[j], next[idx]];
+    updateSections(active.id, next);
+  };
+
+  const updateSection = (idx: number, patch: any) => {
+    if (!active) return;
+    updateSections(active.id, active.sections.map((s: any, i: number) => i === idx ? { ...s, ...patch } : s));
+  };
+
+  return (
+    <section className="card p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Slip Body Templates</div>
+        <div className="flex items-center gap-2">
+          <button className="btn-secondary text-xs" onClick={addTemplate}>
+            <Plus className="w-3.5 h-3.5" /> New template
+          </button>
+          <button className="btn-primary text-xs" disabled={!dirty || saving} onClick={save}>
+            {saving ? 'Saving…' : dirty ? 'Save all changes' : 'All saved'}
+          </button>
+        </div>
+      </div>
+
+      <div className="text-[11px] text-gray-500 dark:text-slate-400">
+        Each template defines the BODY sections of the consultation panel + printed slip
+        (between the header/patient block and the signature). The reserved keys
+        <code className="font-mono mx-1 px-1 rounded bg-gray-100 dark:bg-slate-800">history</code>
+        <code className="font-mono mx-1 px-1 rounded bg-gray-100 dark:bg-slate-800">examination</code>
+        <code className="font-mono mx-1 px-1 rounded bg-gray-100 dark:bg-slate-800">impression</code>
+        <code className="font-mono mx-1 px-1 rounded bg-gray-100 dark:bg-slate-800">advice</code>
+        map to the existing consultation columns; any other key is stored as a custom field.
+        Assign templates to doctors in the <b>Doctors</b> section above.
+      </div>
+
+      {/* Template picker */}
+      <div className="flex flex-wrap gap-2 border-t border-gray-200 dark:border-slate-700 pt-4">
+        {draft.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setActiveId(t.id)}
+            className={cn(
+              'px-3 py-1.5 text-xs rounded-md border-2 font-semibold',
+              activeId === t.id
+                ? 'bg-blue-600 text-white border-blue-700'
+                : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-200 hover:border-blue-400'
+            )}
+          >
+            {t.name}
+          </button>
+        ))}
+      </div>
+
+      {active && (
+        <div className="space-y-4 border-t border-gray-200 dark:border-slate-700 pt-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="label">Template name</label>
+              <input className="input" value={active.name} onChange={(e) => renameTemplate(active.id, { name: e.target.value })} />
+            </div>
+            <div>
+              <label className="label">Specialty hint (shown in pickers)</label>
+              <input className="input" value={active.specialty_hint || ''} onChange={(e) => renameTemplate(active.id, { specialty_hint: e.target.value })} />
+            </div>
+          </div>
+
+          {/* Section list */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-semibold text-gray-900 dark:text-slate-100">Sections (in print order)</div>
+              <button className="btn-secondary text-xs" onClick={addSection}><Plus className="w-3.5 h-3.5" /> Add section</button>
+            </div>
+            <ul className="space-y-2">
+              {active.sections.map((s: any, idx: number) => (
+                <li key={idx} className="rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/40 p-3">
+                  <div className="flex items-start gap-2">
+                    <div className="flex flex-col gap-0.5">
+                      <button onClick={() => moveSection(idx, -1)} disabled={idx === 0}
+                        className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-30" title="Move up">
+                        <ArrowUp className="w-3 h-3" />
+                      </button>
+                      <button onClick={() => moveSection(idx, 1)} disabled={idx === active.sections.length - 1}
+                        className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-30" title="Move down">
+                        <ArrowDown className="w-3 h-3" />
+                      </button>
+                    </div>
+                    <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-2">
+                      <div className="md:col-span-2">
+                        <label className="label !mb-0.5 !text-[10px]">Title</label>
+                        <input className="input !py-1 !text-xs" value={s.title} onChange={(e) => updateSection(idx, { title: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="label !mb-0.5 !text-[10px]">Key</label>
+                        <input className="input !py-1 !text-xs font-mono" value={s.key} onChange={(e) => updateSection(idx, { key: e.target.value.replace(/[^a-z0-9_]/gi, '_').toLowerCase() })} />
+                      </div>
+                      <div>
+                        <label className="label !mb-0.5 !text-[10px]">Type</label>
+                        <select className="input !py-1 !text-xs" value={s.type} onChange={(e) => updateSection(idx, { type: e.target.value })}>
+                          <option value="textarea">Textarea (multi-line)</option>
+                          <option value="singleline">Single line</option>
+                          <option value="date">Date</option>
+                          <option value="number">Number</option>
+                          <option value="dropdown">Dropdown</option>
+                        </select>
+                      </div>
+                      {(s.type === 'textarea' || s.type === 'singleline') && (
+                        <div>
+                          <label className="label !mb-0.5 !text-[10px]">Print height (mm)</label>
+                          <input type="number" min={5} max={120} className="input !py-1 !text-xs" value={s.height_mm ?? 20} onChange={(e) => updateSection(idx, { height_mm: parseInt(e.target.value, 10) || 20 })} />
+                        </div>
+                      )}
+                      {s.type === 'dropdown' && (
+                        <div className="md:col-span-2">
+                          <label className="label !mb-0.5 !text-[10px]">Options (comma-separated)</label>
+                          <input className="input !py-1 !text-xs" value={(s.options || []).join(', ')} onChange={(e) => updateSection(idx, { options: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })} />
+                        </div>
+                      )}
+                      <div className="md:col-span-2">
+                        <label className="label !mb-0.5 !text-[10px]">Placeholder</label>
+                        <input className="input !py-1 !text-xs" value={s.placeholder || ''} onChange={(e) => updateSection(idx, { placeholder: e.target.value })} />
+                      </div>
+                      <label className="inline-flex items-center gap-1.5 text-[11px] mt-4 cursor-pointer">
+                        <input type="checkbox" checked={s.printed !== false} onChange={(e) => updateSection(idx, { printed: e.target.checked })} className="w-3.5 h-3.5 accent-blue-600" />
+                        <span>Print on slip</span>
+                      </label>
+                      <button onClick={() => removeSection(idx)} className="self-start mt-3 text-[11px] text-red-600 hover:text-red-700 inline-flex items-center gap-1">
+                        <Trash2 className="w-3 h-3" /> Remove
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {draft.length > 1 && (
+            <div className="border-t border-gray-200 dark:border-slate-700 pt-3">
+              <button onClick={() => deleteTemplate(active.id)} className="text-xs text-red-600 hover:text-red-700 inline-flex items-center gap-1">
+                <Trash2 className="w-3.5 h-3.5" /> Delete template "{active.name}"
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function RegistrationFeePolicy() {
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, ['registration_fee_enabled', 'registration_fee_amount', 'registration_fee_default_timing']);
@@ -1757,6 +1990,12 @@ function DoctorsManagement() {
                 </div>
               )}
 
+              {/* OPD Slip body template picker */}
+              <DoctorTemplatePicker
+                value={editing.template_id ?? null}
+                onChange={(id) => setEditing({ ...editing, template_id: id })}
+              />
+
               {/* Color picker */}
               <div className="mt-4">
                 <label className="label flex items-center justify-between">
@@ -1996,6 +2235,34 @@ function DepRow({ label, count }: { label: string; count: number }) {
       <td className="px-3 py-1.5 text-gray-900 dark:text-slate-100">{label}</td>
       <td className="px-3 py-1.5 text-right font-mono font-semibold">{count.toLocaleString('en-IN')}</td>
     </tr>
+  );
+}
+
+/** Inline picker so the doctor edit form can assign an OPD-slip body template. */
+function DoctorTemplatePicker({ value, onChange }: { value: number | null; onChange: (id: number | null) => void }) {
+  const { data: templates = [] } = useQuery({
+    queryKey: ['slip-templates'],
+    queryFn: () => window.electronAPI.templates.list(),
+  });
+  return (
+    <div className="mt-4">
+      <label className="label">OPD Slip Body Template</label>
+      <select
+        className="input"
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
+      >
+        <option value="">— Use General (default) —</option>
+        {templates.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.name}{t.specialty_hint ? ` · ${t.specialty_hint}` : ''}
+          </option>
+        ))}
+      </select>
+      <div className="text-[10px] text-gray-500 mt-1">
+        Drives the body sections shown on the doctor's consultation panel and printed slip. Edit templates in the <b>OPD Slip Body Templates</b> section above.
+      </div>
+    </div>
   );
 }
 

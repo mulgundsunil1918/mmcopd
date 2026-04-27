@@ -212,7 +212,13 @@ const api = {
       impression?: string;
       advice?: string;
       follow_up_date?: string | null;
+      extra_fields?: Record<string, string>;
     }) => ipcRenderer.invoke('consultations:save', payload) as Promise<Consultation>,
+  },
+  templates: {
+    list: () => ipcRenderer.invoke('templates:list') as Promise<import('./types').SlipTemplate[]>,
+    saveAll: (templates: import('./types').SlipTemplate[]) =>
+      ipcRenderer.invoke('templates:saveAll', templates) as Promise<{ ok: true }>,
   },
   rx: {
     getByAppointment: (appointmentId: number) =>

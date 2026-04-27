@@ -59,6 +59,25 @@ export interface Doctor {
   /** Optional daily availability window. HH:MM 24h. Empty = always available. */
   available_from?: string | null;
   available_to?: string | null;
+  /** Which OPD-slip body template this doctor uses on consultation + slip. */
+  template_id?: number | null;
+}
+
+export type SlipSectionType = 'textarea' | 'singleline' | 'date' | 'number' | 'dropdown';
+export interface SlipTemplateSection {
+  key: string;
+  title: string;
+  type: SlipSectionType;
+  height_mm?: number;
+  placeholder?: string;
+  options?: string[];
+  printed?: boolean;
+}
+export interface SlipTemplate {
+  id: number;
+  name: string;
+  specialty_hint?: string;
+  sections: SlipTemplateSection[];
 }
 
 export interface Appointment {
@@ -158,6 +177,8 @@ export interface Consultation {
   impression?: string | null;
   advice?: string | null;
   follow_up_date?: string | null;
+  /** Custom-template fields (LMP, EDD, parity, milestones, etc.) keyed by section.key. */
+  extra_fields?: Record<string, string>;
   created_at?: string;
   updated_at?: string;
 }

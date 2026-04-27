@@ -380,13 +380,14 @@ export function registerIpc() {
     const db = getDb();
     const info = db
       .prepare(
-        'INSERT INTO doctors (name, specialty, phone, email, room_number, is_active, default_fee, signature, qualifications, registration_no, color, available_from, available_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO doctors (name, specialty, phone, email, room_number, is_active, default_fee, signature, qualifications, registration_no, color, available_from, available_to, template_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       )
       .run(
         d.name ?? '', d.specialty ?? '', d.phone ?? null, d.email ?? null, d.room_number ?? null,
         d.is_active ?? 1, d.default_fee ?? 500, d.signature ?? null,
         d.qualifications ?? null, d.registration_no ?? null, d.color ?? null,
-        d.available_from || null, d.available_to || null
+        d.available_from || null, d.available_to || null,
+        d.template_id ?? null
       );
     return db.prepare('SELECT * FROM doctors WHERE id=?').get(info.lastInsertRowid);
   });
@@ -453,12 +454,13 @@ export function registerIpc() {
   ipcMain.handle('doctors:update', (_e, id: number, d: Partial<Doctor>) => {
     const db = getDb();
     db.prepare(
-      'UPDATE doctors SET name=?, specialty=?, phone=?, email=?, room_number=?, is_active=?, default_fee=?, signature=?, qualifications=?, registration_no=?, color=?, available_from=?, available_to=? WHERE id=?'
+      'UPDATE doctors SET name=?, specialty=?, phone=?, email=?, room_number=?, is_active=?, default_fee=?, signature=?, qualifications=?, registration_no=?, color=?, available_from=?, available_to=?, template_id=? WHERE id=?'
     ).run(
       d.name ?? '', d.specialty ?? '', d.phone ?? null, d.email ?? null, d.room_number ?? null,
       d.is_active ?? 1, d.default_fee ?? 500, d.signature ?? null,
       d.qualifications ?? null, d.registration_no ?? null, d.color ?? null,
-      d.available_from || null, d.available_to || null, id
+      d.available_from || null, d.available_to || null,
+      d.template_id ?? null, id
     );
     return db.prepare('SELECT * FROM doctors WHERE id=?').get(id);
   });
@@ -1077,16 +1079,19 @@ export function registerIpc() {
   });
 
   // ===== Consultations =====
+  // Helper: hydrate the row (parse vitals + extra_fields JSON columns).
+  const hydrateConsultation = (row: any) => row ? ({
+    ...row,
+    vitals: row.vitals_json ? JSON.parse(row.vitals_json) : null,
+    extra_fields: row.extra_fields_json ? (() => { try { return JSON.parse(row.extra_fields_json); } catch { return {}; } })() : {},
+  }) : null;
+
   ipcMain.handle('consultations:getByAppointment', (_e, appointmentId: number) => {
     const db = getDb();
     const row = db
       .prepare('SELECT * FROM consultations WHERE appointment_id=?')
-      .get(appointmentId) as any;
-    if (!row) return null;
-    return {
-      ...row,
-      vitals: row.vitals_json ? JSON.parse(row.vitals_json) : null,
-    };
+      .get(appointmentId);
+    return hydrateConsultation(row);
   });
 
   ipcMain.handle(
@@ -1103,16 +1108,18 @@ export function registerIpc() {
         impression?: string;
         advice?: string;
         follow_up_date?: string | null;
+        extra_fields?: Record<string, string>;
       }
     ) => {
       const db = getDb();
       const vitalsJson = payload.vitals ? JSON.stringify(payload.vitals) : null;
+      const extraJson = payload.extra_fields ? JSON.stringify(payload.extra_fields) : null;
       const existing = db
         .prepare('SELECT id FROM consultations WHERE appointment_id=?')
         .get(payload.appointment_id) as { id: number } | undefined;
       if (existing) {
         db.prepare(
-          `UPDATE consultations SET history=?, vitals_json=?, examination=?, impression=?, advice=?, follow_up_date=?, updated_at=datetime('now') WHERE id=?`
+          `UPDATE consultations SET history=?, vitals_json=?, examination=?, impression=?, advice=?, follow_up_date=?, extra_fields_json=?, updated_at=datetime('now') WHERE id=?`
         ).run(
           payload.history ?? null,
           vitalsJson,
@@ -1120,12 +1127,13 @@ export function registerIpc() {
           payload.impression ?? null,
           payload.advice ?? null,
           payload.follow_up_date ?? null,
+          extraJson,
           existing.id
         );
       } else {
         db.prepare(
-          `INSERT INTO consultations (appointment_id, patient_id, doctor_id, history, vitals_json, examination, impression, advice, follow_up_date)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO consultations (appointment_id, patient_id, doctor_id, history, vitals_json, examination, impression, advice, follow_up_date, extra_fields_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           payload.appointment_id,
           payload.patient_id,
@@ -1135,18 +1143,32 @@ export function registerIpc() {
           payload.examination ?? null,
           payload.impression ?? null,
           payload.advice ?? null,
-          payload.follow_up_date ?? null
+          payload.follow_up_date ?? null,
+          extraJson
         );
       }
       const row = db
         .prepare('SELECT * FROM consultations WHERE appointment_id=?')
-        .get(payload.appointment_id) as any;
-      return {
-        ...row,
-        vitals: row.vitals_json ? JSON.parse(row.vitals_json) : null,
-      };
+        .get(payload.appointment_id);
+      return hydrateConsultation(row);
     }
   );
+
+  // ===== Slip body templates =====
+  // Stored as JSON in the settings table (key: 'slip_templates'). The whole array
+  // is read/written together — the editor sends a complete list back on save.
+  ipcMain.handle('templates:list', () => {
+    const db = getDb();
+    const row = db.prepare("SELECT value FROM settings WHERE key='slip_templates'").get() as { value: string } | undefined;
+    if (!row?.value) return [];
+    try { return JSON.parse(row.value); } catch { return []; }
+  });
+  ipcMain.handle('templates:saveAll', (_e, templates: any[]) => {
+    const db = getDb();
+    const json = JSON.stringify(Array.isArray(templates) ? templates : []);
+    db.prepare("INSERT INTO settings (key, value) VALUES ('slip_templates', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(json);
+    return { ok: true };
+  });
 
   // ===== Prescriptions =====
   ipcMain.handle('rx:getByAppointment', (_e, appointmentId: number) => {

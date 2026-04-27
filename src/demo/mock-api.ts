@@ -194,6 +194,17 @@ export function createMockElectronAPI(): any {
         valid_till: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
       }),
     },
+    templates: {
+      list: () => r([
+        { id: 1, name: 'General', specialty_hint: 'General medicine / default', sections: [
+          { key: 'history', title: 'Chief Complaints / History', type: 'textarea', height_mm: 55, printed: true },
+          { key: 'examination', title: 'Examination', type: 'textarea', height_mm: 60, printed: true },
+          { key: 'impression', title: 'Impression / Diagnosis', type: 'textarea', height_mm: 22, printed: true },
+          { key: 'advice', title: 'Advice / Prescription (Rx)', type: 'textarea', height_mm: 60, printed: true },
+        ]},
+      ]),
+      saveAll: () => r({ ok: true }),
+    },
     misc: {
       create: (input: any) => {
         const id = nextId(bills);

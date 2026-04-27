@@ -1,8 +1,40 @@
 import { format, parseISO } from 'date-fns';
 import { Printer, X, MapPin, Phone, Mail, HeartPulse } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ageStringFull, fmt12h, fmtDateTime } from '../lib/utils';
-import type { AppointmentWithJoins, Consultation, Doctor, FollowupSummary, LabOrder, PrescriptionItem, Settings, Vitals } from '../types';
+import type { AppointmentWithJoins, Consultation, Doctor, FollowupSummary, LabOrder, PrescriptionItem, Settings, SlipTemplate, SlipTemplateSection, Vitals } from '../types';
+
+const RESERVED_KEYS = new Set(['history', 'examination', 'impression', 'advice']);
+
+/** Read a section's value from the consultation — well-known fields from columns,
+ *  everything else from extra_fields. Undefined / empty returns ''. */
+function readSection(consultation: Consultation | null, key: string): string {
+  if (!consultation) return '';
+  if (key === 'history') return consultation.history || '';
+  if (key === 'examination') return consultation.examination || '';
+  if (key === 'impression') return consultation.impression || '';
+  if (key === 'advice') return consultation.advice || '';
+  return (consultation.extra_fields || {})[key] || '';
+}
+
+/** Format a single-line / date / number / dropdown value for the print sheet. */
+function formatValue(s: SlipTemplateSection, raw: string): string {
+  if (!raw) return '';
+  if (s.type === 'date') {
+    try { return format(parseISO(raw), 'do MMMM yyyy'); } catch { return raw; }
+  }
+  return raw;
+}
+
+/** Split a template's sections at the 'impression' boundary so Page 1 holds the
+ *  intake/exam fields and Page 2 holds the diagnostic + advice / Rx fields.
+ *  Falls back to a midpoint split for templates that omit impression entirely. */
+function splitSections(sections: SlipTemplateSection[]): [SlipTemplateSection[], SlipTemplateSection[]] {
+  let idx = sections.findIndex((s) => s.key === 'impression');
+  if (idx === -1) idx = sections.findIndex((s) => s.key === 'advice');
+  if (idx === -1) idx = Math.max(1, Math.floor(sections.length / 2));
+  return [sections.slice(0, idx), sections.slice(idx)];
+}
 
 export function OpdSlip({
   appointment,
@@ -35,6 +67,22 @@ export function OpdSlip({
     return () => { cancelled = true; };
   }, [appointment.id, settings.followup_enabled]);
 
+  // Pull the doctor's body template (drives Page 1 + Page 2 dynamic sections).
+  const [templates, setTemplates] = useState<SlipTemplate[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    window.electronAPI.templates.list().then((t) => { if (!cancelled) setTemplates(t || []); });
+    return () => { cancelled = true; };
+  }, []);
+  const template = useMemo<SlipTemplate | null>(() => {
+    if (templates.length === 0) return null;
+    return templates.find((t) => t.id === doctor.template_id) || templates[0];
+  }, [templates, doctor.template_id]);
+  const [pageOneSections, pageTwoSections] = useMemo(() => {
+    if (!template) return [[], []] as [SlipTemplateSection[], SlipTemplateSection[]];
+    return splitSections(template.sections.filter((s) => s.printed !== false));
+  }, [template]);
+
   return (
     <div className="fixed inset-0 z-[100] overflow-auto print-overlay" style={{ backgroundColor: '#94a3b8' }}>
       <div className="no-print sticky top-3 z-10 flex justify-center pointer-events-none">
@@ -45,11 +93,11 @@ export function OpdSlip({
 
       <div className="p-6 pb-28 flex flex-col items-center gap-4">
         <Page>
-          <PageOne appointment={appointment} consultation={consultation} doctor={doctor} settings={settings} vitals={v} />
+          <PageOne appointment={appointment} consultation={consultation} doctor={doctor} settings={settings} vitals={v} sections={pageOneSections} />
           <PageFooter pageNum={1} totalPages={2} clinicName={settings.clinic_name} />
         </Page>
         <Page>
-          <PageTwo appointment={appointment} consultation={consultation} doctor={doctor} settings={settings} rxItems={rxItems} labOrders={labOrders} followup={followup} />
+          <PageTwo appointment={appointment} consultation={consultation} doctor={doctor} settings={settings} rxItems={rxItems} labOrders={labOrders} followup={followup} sections={pageTwoSections} />
           <PageFooter pageNum={2} totalPages={2} clinicName={settings.clinic_name} />
         </Page>
       </div>
@@ -315,13 +363,14 @@ function Letterhead({
 }
 
 function PageOne({
-  appointment, consultation, doctor, settings, vitals,
+  appointment, consultation, doctor, settings, vitals, sections,
 }: {
   appointment: AppointmentWithJoins;
   consultation: Consultation | null;
   doctor: Doctor;
   settings: Settings;
   vitals: Vitals;
+  sections: SlipTemplateSection[];
 }) {
   const regDate = appointment.patient_created_at
     ? (() => { try { return fmtDateTime(appointment.patient_created_at); } catch { return appointment.patient_created_at; } })()
@@ -369,21 +418,56 @@ function PageOne({
         </div>
       </Section>
 
-      {/* Chief Complaints / History — generous blank space, no dotted lines */}
-      <Section title="Chief Complaints / History">
-        <BlankArea value={consultation?.history} minHeight="55mm" />
-      </Section>
-
-      {/* Examination — generous blank space, no dotted lines, takes the rest of page 1 */}
-      <Section title="Examination" grow>
-        <BlankArea value={consultation?.examination} grow />
-      </Section>
+      {/* Template-driven body sections — Page 1 holds intake / examination fields. */}
+      <DynamicSections sections={sections} consultation={consultation} growLast />
     </div>
   );
 }
 
+/** Render template sections sequentially. Textarea sections become BlankAreas
+ *  with the configured min-height; everything else prints inline next to the title. */
+function DynamicSections({
+  sections, consultation, growLast = false,
+}: {
+  sections: SlipTemplateSection[];
+  consultation: Consultation | null;
+  /** When true, the LAST textarea section absorbs remaining vertical space. */
+  growLast?: boolean;
+}) {
+  if (sections.length === 0) return null;
+  // Find the last textarea so we can let it grow (fills the rest of the sheet).
+  let lastTextareaIdx = -1;
+  if (growLast) {
+    for (let i = sections.length - 1; i >= 0; i--) {
+      if (sections[i].type === 'textarea') { lastTextareaIdx = i; break; }
+    }
+  }
+  return (
+    <>
+      {sections.map((s, i) => {
+        const raw = readSection(consultation, s.key);
+        const isGrow = i === lastTextareaIdx;
+        if (s.type === 'textarea') {
+          return (
+            <Section key={s.key} title={s.title} grow={isGrow}>
+              <BlankArea value={raw} minHeight={`${s.height_mm ?? 22}mm`} grow={isGrow} />
+            </Section>
+          );
+        }
+        // Inline single-line / date / number / dropdown — small label + value strip.
+        return (
+          <div key={s.key} className="mt-3 flex items-baseline gap-2 pb-1" style={{ borderBottom: '1px solid #e2e8f0' }}>
+            <span className="text-[12px] uppercase tracking-wider font-bold whitespace-nowrap" style={{ color: '#1e40af' }}>{s.title}:</span>
+            <span className="text-[13px] flex-1" style={{ color: '#0f172a' }}>{formatValue(s, raw) || ' '}</span>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 function PageTwo({
-  appointment, consultation, doctor, settings, rxItems, labOrders, followup,
+  appointment, consultation, doctor, settings, rxItems, labOrders, followup, sections,
 }: {
   appointment: AppointmentWithJoins;
   consultation: Consultation | null;
@@ -392,15 +476,22 @@ function PageTwo({
   rxItems: PrescriptionItem[];
   labOrders: LabOrder[];
   followup: FollowupSummary | null;
+  sections: SlipTemplateSection[];
 }) {
+  // Pull "advice" out of the dynamic flow so we can interleave the Rx table
+  // before/inside it. Everything else (impression, custom fields like ECG findings,
+  // heart sounds, etc.) renders sequentially via DynamicSections.
+  const adviceIdx = sections.findIndex((s) => s.key === 'advice');
+  const beforeAdvice = adviceIdx === -1 ? sections : sections.slice(0, adviceIdx);
+  const adviceSection = adviceIdx === -1 ? null : sections[adviceIdx];
+  const afterAdvice = adviceIdx === -1 ? [] : sections.slice(adviceIdx + 1);
+
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', fontSize: '13px', lineHeight: 1.35 }}>
       <Letterhead appointment={appointment} doctor={doctor} settings={settings} compact />
 
-      {/* Impression / Diagnosis — 3 to 4 lines */}
-      <Section title="Impression / Diagnosis">
-        <BlankArea value={consultation?.impression} minHeight="22mm" />
-      </Section>
+      {/* Pre-advice template sections (impression + any custom fields). */}
+      <DynamicSections sections={beforeAdvice} consultation={consultation} />
 
       {/* Investigations (if any) */}
       {labOrders.length > 0 && (
@@ -415,8 +506,8 @@ function PageTwo({
         </Section>
       )}
 
-      {/* Advice / Prescription — rest of the page */}
-      <Section title="Advice / Prescription (Rx)" grow>
+      {/* Advice / Prescription — Rx table comes first, then template advice text. */}
+      <Section title={adviceSection?.title || 'Advice / Prescription (Rx)'} grow>
         {rxItems.length > 0 && (
           <table className="w-full text-[12px] mb-2" style={{ borderCollapse: 'collapse' }}>
             <thead>
@@ -441,8 +532,13 @@ function PageTwo({
             </tbody>
           </table>
         )}
-        <BlankArea value={consultation?.advice} grow />
+        <BlankArea value={readSection(consultation, 'advice')} grow={afterAdvice.length === 0} />
       </Section>
+
+      {/* Any sections that come AFTER advice in the template (rare but supported). */}
+      {afterAdvice.length > 0 && (
+        <DynamicSections sections={afterAdvice} consultation={consultation} growLast />
+      )}
 
       {/* Footer with signature */}
       <div className="grid grid-cols-2 gap-4 mt-3 pt-3" style={{ borderTop: '1px solid #cbd5e1' }}>
