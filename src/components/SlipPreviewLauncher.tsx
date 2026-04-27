@@ -27,12 +27,14 @@ export function SlipPreviewLauncher() {
   });
 
   // Force-fresh fetch right before opening so the preview reflects whatever the
-  // user just edited in Clinic Info / Doctors above on this same Settings page.
+  // user just edited in Clinic Info / Doctors / Templates above on this same
+  // Settings page. We invalidate every query the OpdSlip component depends on.
   const openPreview = async () => {
     await Promise.all([
       qc.invalidateQueries({ queryKey: ['settings'] }),
       qc.invalidateQueries({ queryKey: ['doctors'] }),
       qc.invalidateQueries({ queryKey: ['doctors-all'] }),
+      qc.invalidateQueries({ queryKey: ['slip-templates'] }),
     ]);
     setPreviewNonce((n) => n + 1);
     setOpen(true);

@@ -1,6 +1,7 @@
 import { format, parseISO } from 'date-fns';
 import { Printer, X, MapPin, Phone, Mail, HeartPulse } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { ageStringFull, fmt12h, fmtDateTime } from '../lib/utils';
 import type { AppointmentWithJoins, Consultation, Doctor, FollowupSummary, LabOrder, PrescriptionItem, Settings, SlipTemplate, SlipTemplateSection, Vitals } from '../types';
 
@@ -68,12 +69,14 @@ export function OpdSlip({
   }, [appointment.id, settings.followup_enabled]);
 
   // Pull the doctor's body template (drives Page 1 + Page 2 dynamic sections).
-  const [templates, setTemplates] = useState<SlipTemplate[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    window.electronAPI.templates.list().then((t) => { if (!cancelled) setTemplates(t || []); });
-    return () => { cancelled = true; };
-  }, []);
+  // Use react-query so it's invalidatable from the preview launcher's "Preview"
+  // button — direct calls cached at component-level were going stale right after
+  // the user edited a template and clicked Preview again.
+  const { data: templates = [] } = useQuery({
+    queryKey: ['slip-templates'],
+    queryFn: () => window.electronAPI.templates.list(),
+    refetchOnMount: 'always',
+  });
   const template = useMemo<SlipTemplate | null>(() => {
     if (templates.length === 0) return null;
     return templates.find((t) => t.id === doctor.template_id) || templates[0];
