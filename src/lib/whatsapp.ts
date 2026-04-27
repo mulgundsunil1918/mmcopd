@@ -97,7 +97,7 @@ export function renderTemplate(template: string, ctx: Partial<WhatsAppContext>):
 export function buildContext(appointment: AppointmentWithJoins, settings: Settings): WhatsAppContext {
   const dateStr = (() => {
     try {
-      return format(parseISO(appointment.appointment_date), 'dd MMM yyyy');
+      return format(parseISO(appointment.appointment_date), 'do MMMM yyyy');
     } catch {
       return appointment.appointment_date;
     }

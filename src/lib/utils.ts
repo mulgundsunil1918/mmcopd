@@ -69,14 +69,20 @@ export function dobFromAge(years: number, months: number, days: number): string 
   return format(d, 'yyyy-MM-dd');
 }
 
-export function fmtDate(d: string | Date, pattern = 'dd MMM yyyy') {
+/**
+ * Universal date format across the app: ordinal day + full month + year,
+ * e.g. "27th April 2026". Override with the second arg only for special
+ * cases — every plain user-facing date should go through fmtDate() with no
+ * pattern so the whole app stays consistent.
+ */
+export function fmtDate(d: string | Date, pattern = 'do MMMM yyyy') {
   const date = typeof d === 'string' ? parseISO(d) : d;
   return format(date, pattern);
 }
 
 export function fmtDateTime(d: string | Date) {
   const date = typeof d === 'string' ? parseISO(d) : d;
-  return format(date, 'dd MMM yyyy, hh:mm a');
+  return format(date, "do MMMM yyyy '·' hh:mm a");
 }
 
 export function todayISO(): string {

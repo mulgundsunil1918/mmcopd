@@ -281,7 +281,7 @@ const RESTORE_ROWS: { key: string; label: string }[] = [
 function formatBackupTimestamp(iso: string): string {
   try {
     const d = parseISO(iso);
-    return format(d, "dd MMM yyyy '·' hh:mm a");
+    return format(d, "do MMMM yyyy '·' hh:mm a");
   } catch {
     return iso;
   }

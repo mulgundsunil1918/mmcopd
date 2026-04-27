@@ -83,7 +83,7 @@ export function DispensingRegisterPrint({
                 </div>
                 <div className="text-right text-[11px]" style={{ color: '#475569' }}>
                   Page {pIdx + 1} of {totalPages}
-                  <div className="font-mono">Generated {format(new Date(), 'dd MMM yyyy HH:mm')}</div>
+                  <div className="font-mono">Generated {format(new Date(), 'do MMMM yyyy HH:mm')}</div>
                 </div>
               </div>
             </div>

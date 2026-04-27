@@ -18,7 +18,7 @@ export function StatusBar() {
     <div className="statusbar px-6 py-2 flex items-center justify-between text-xs no-print">
       <div className="flex items-center gap-2">
         <Calendar className="w-3.5 h-3.5" />
-        <span>{format(new Date(), 'EEEE, dd MMMM yyyy')}</span>
+        <span>{format(new Date(), 'EEEE, do MMMM yyyy')}</span>
       </div>
       <div className="flex items-center gap-5">
         <span className="flex items-center gap-1.5">

@@ -31,7 +31,7 @@ export function TopBar() {
     if (sameDay) return `Backed up ${format(last, 'hh:mm a')}`;
     const days = Math.floor((today.getTime() - last.getTime()) / 86400000);
     if (days <= 0) return `Backed up ${format(last, 'hh:mm a')}`;
-    return `Last backup ${days}d ago — ${format(last, 'dd MMM')}`;
+    return `Last backup ${days}d ago — ${format(last, 'do MMM yyyy')}`;
   })();
 
   return (
@@ -71,7 +71,7 @@ export function TopBar() {
       {/* Backup status pill */}
       <div
         className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border whitespace-nowrap"
-        title={backupStatus?.lastBackupAt ? `Last backup ${format(new Date(backupStatus.lastBackupAt), 'dd MMM yyyy hh:mm a')}` : 'Never backed up'}
+        title={backupStatus?.lastBackupAt ? `Last backup ${format(new Date(backupStatus.lastBackupAt), 'do MMMM yyyy hh:mm a')}` : 'Never backed up'}
         style={
           backedUpToday
             ? { borderColor: '#86efac', backgroundColor: 'rgba(16,185,129,0.12)', color: '#047857' }
@@ -90,7 +90,7 @@ export function TopBar() {
             {format(now, 'hh:mm:ss a')}
           </div>
           <div className="text-[10px] text-gray-500 dark:text-slate-400">
-            {format(now, 'EEE, dd MMM yyyy')}
+            {format(now, 'EEE, do MMMM yyyy')}
           </div>
         </div>
       </div>

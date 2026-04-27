@@ -111,7 +111,7 @@ function Letterhead({
   const slipDate = (() => {
     try {
       const d = parseISO(`${appointment.appointment_date}T${appointment.appointment_time}:00`);
-      return format(d, "dd MMM yyyy '·' hh:mm a");
+      return format(d, "do MMMM yyyy '·' hh:mm a");
     } catch {
       return `${appointment.appointment_date} · ${fmt12h(appointment.appointment_time)}`;
     }
@@ -148,7 +148,7 @@ function Letterhead({
   const [apptDateLine, apptTimeLine] = (() => {
     try {
       const d = parseISO(`${appointment.appointment_date}T${appointment.appointment_time}:00`);
-      return [format(d, 'dd MMM yyyy'), format(d, 'hh:mm a')];
+      return [format(d, 'do MMMM yyyy'), format(d, 'hh:mm a')];
     } catch {
       return [appointment.appointment_date, fmt12h(appointment.appointment_time)];
     }
@@ -480,7 +480,7 @@ function FollowUpBox({ followup }: { followup: FollowupSummary | null }) {
   if (!followup || !followup.enabled || followup.mode === 'hidden' || followup.free_remaining < 0) return null;
 
   const visitWord = followup.free_remaining === 1 ? 'visit' : 'visits';
-  const dateLabel = (() => { try { return format(parseISO(followup.valid_till), 'dd MMM yyyy'); } catch { return followup.valid_till; } })();
+  const dateLabel = (() => { try { return format(parseISO(followup.valid_till), 'do MMMM yyyy'); } catch { return followup.valid_till; } })();
 
   let englishLine: React.ReactNode;
   let kannadaLine: React.ReactNode;
