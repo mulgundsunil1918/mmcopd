@@ -68,6 +68,7 @@ export function getAllSettings(db: Database.Database): Settings {
     registration_fee_enabled: map.registration_fee_enabled !== 'false',
     registration_fee_amount: parseInt(map.registration_fee_amount || '100', 10),
     registration_fee_default_timing: (map.registration_fee_default_timing as any) || 'ask',
+    misc_services: map.misc_services || 'Procedure,Vaccination,Nebulization,Wound Dressing,Injection,Suture / Stitches,IV Fluids,Other',
   };
 }
 

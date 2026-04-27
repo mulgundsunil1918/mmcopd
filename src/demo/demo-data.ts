@@ -89,6 +89,7 @@ export const DEMO_SETTINGS: Settings = {
   registration_fee_enabled: true,
   registration_fee_amount: 100,
   registration_fee_default_timing: 'ask',
+  misc_services: 'Procedure,Vaccination,Nebulization,Wound Dressing,Injection,Suture / Stitches,IV Fluids,Other',
 };
 
 // ---------- Doctors ----------

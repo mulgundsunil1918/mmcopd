@@ -1,26 +1,27 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, Syringe, Receipt, Stethoscope, IndianRupee, Plus } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, Syringe, Receipt, Stethoscope, IndianRupee, Plus, Settings as SettingsIcon } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
 import { cn, formatINR, fmtDateTime } from '../lib/utils';
 import type { Doctor, Patient, PaymentMode } from '../types';
 
-const QUICK_SERVICES = [
-  'Procedure',
-  'Vaccination',
-  'Nebulization',
-  'Wound Dressing',
-  'Injection',
-  'Suture / Stitches',
-  'IV Fluids',
-  'Other',
-];
-
 const PAYMENT_MODES: PaymentMode[] = ['Cash', 'Card', 'UPI'];
+
+/** Always include "Other" so the receptionist can fall back to a free-typed description. */
+function parseServices(csv: string | undefined): string[] {
+  const list = (csv || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!list.includes('Other')) list.push('Other');
+  return list;
+}
 
 export function Miscellaneous() {
   const qc = useQueryClient();
   const toast = useToast();
+  const navigate = useNavigate();
 
   const [patient, setPatient] = useState<Patient | null>(null);
   const [patientQuery, setPatientQuery] = useState('');
@@ -30,6 +31,9 @@ export function Miscellaneous() {
   const [amount, setAmount] = useState<string>('');
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('Cash');
   const [notes, setNotes] = useState<string>('');
+
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const services = parseServices(settings?.misc_services);
 
   const { data: doctors = [] } = useQuery<Doctor[]>({
     queryKey: ['doctors-active'],
@@ -84,7 +88,7 @@ export function Miscellaneous() {
 
   // Default the description to the picked category, but leave free-typed values alone.
   useEffect(() => {
-    if (!description.trim() || QUICK_SERVICES.includes(description.trim())) {
+    if (!description.trim() || services.includes(description.trim())) {
       setDescription(serviceCategory === 'Other' ? '' : serviceCategory);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -189,9 +193,19 @@ export function Miscellaneous() {
 
         {/* Service category chips */}
         <div>
-          <label className="label">Service Category</label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="label !mb-0">Service Category</label>
+            <button
+              type="button"
+              onClick={() => navigate('/settings#misc-services')}
+              className="text-[11px] inline-flex items-center gap-1 text-pink-600 hover:text-pink-700 dark:text-pink-400 dark:hover:text-pink-300 font-medium"
+              title="Customize the service list in Settings"
+            >
+              <SettingsIcon className="w-3 h-3" /> Add / Edit Services
+            </button>
+          </div>
           <div className="flex flex-wrap gap-2">
-            {QUICK_SERVICES.map((s) => (
+            {services.map((s) => (
               <button
                 key={s}
                 type="button"
@@ -206,6 +220,14 @@ export function Miscellaneous() {
                 {s}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => navigate('/settings#misc-services')}
+              className="px-3 py-1.5 text-xs rounded-md border-2 border-dashed border-gray-400 dark:border-slate-600 text-gray-600 dark:text-slate-300 hover:border-pink-400 hover:text-pink-600 inline-flex items-center gap-1"
+              title="Add a new service in Settings"
+            >
+              <Plus className="w-3 h-3" /> Add service
+            </button>
           </div>
         </div>
 

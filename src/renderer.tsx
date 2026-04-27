@@ -14,6 +14,17 @@ const queryClient = new QueryClient({
   },
 });
 
+// Globally disable mouse-wheel value changes on focused <input type="number">.
+// Default browser behavior turns scroll-while-focused into ±1 stepper which has
+// silently corrupted values (consultation fee, slot duration, drug stock) for
+// receptionists. CSS already hides the spinner arrows; this kills the wheel too.
+document.addEventListener('wheel', (e) => {
+  const t = e.target as HTMLElement | null;
+  if (t && (t as HTMLInputElement).type === 'number' && document.activeElement === t) {
+    (t as HTMLInputElement).blur();
+  }
+}, { passive: true });
+
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>

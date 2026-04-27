@@ -10,6 +10,19 @@
   /* Light: soft off-white body so the white cards pop and it's easier on the eyes for long shifts. */
   html:not(.dark) body { background-color: #f1f5f9; color: #0f172a; }
   html.dark body { background-color: #0f172a; color: #f1f5f9; }
+
+  /* Kill the up/down spinner buttons on every number input — receptionists kept
+     accidentally scroll-changing values on focused fields. The matching JS
+     handler in renderer.tsx prevents mouse-wheel from changing the value too. */
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
 }
 
 @layer components {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle, Trash2, User as UserIcon, IndianRupee, PenTool, Power, AlertCircle } from 'lucide-react';
+import { Building2, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle, Trash2, User as UserIcon, IndianRupee, PenTool, Power, AlertCircle, ArrowUp, ArrowDown } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { cn } from '../lib/utils';
 import { Check } from 'lucide-react';
@@ -54,6 +54,10 @@ export function SettingsPage() {
 
         <SettingsGroup title="Patient Registration Fee" subtitle="One-time fee charged on registration. Choose whether to collect at registration, at first appointment, or ask each time.">
           <RegistrationFeePolicy />
+        </SettingsGroup>
+
+        <SettingsGroup title="Miscellaneous Services" subtitle="The quick-pick chips shown on the Miscellaneous Charges page (procedures, vaccinations, etc.).">
+          <MiscServicesEditor />
         </SettingsGroup>
 
         {/* === GROUP 3: System === */}
@@ -1310,6 +1314,147 @@ function FollowupPolicy() {
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+function MiscServicesEditor() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const [list, setList] = useState<string[]>([]);
+  const [newSvc, setNewSvc] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // Sync from server only when settings.misc_services CHANGES — not on every render —
+  // so the user's in-progress edits don't get clobbered by background refetches.
+  useEffect(() => {
+    if (!settings) return;
+    const csv = settings.misc_services || '';
+    const arr = csv.split(',').map((s) => s.trim()).filter(Boolean);
+    if (arr.length === 0) arr.push('Other');
+    setList(arr);
+  }, [settings?.misc_services]);
+
+  // Scroll into view when arriving via the #misc-services anchor on /settings.
+  useEffect(() => {
+    if (window.location.hash === '#misc-services') {
+      const el = document.getElementById('misc-services');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, []);
+
+  const dirty = settings ? list.join(',') !== (settings.misc_services || '') : false;
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      // Always keep "Other" as a fallback.
+      const final = list.filter((s) => s.trim().length > 0);
+      if (!final.includes('Other')) final.push('Other');
+      await window.electronAPI.settings.save({ misc_services: final.join(',') });
+      await qc.refetchQueries({ queryKey: ['settings'] });
+      toast('Service list saved');
+    } catch (e: any) {
+      toast(e?.message || 'Save failed', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addService = () => {
+    const v = newSvc.trim();
+    if (!v) return;
+    if (list.some((s) => s.toLowerCase() === v.toLowerCase())) {
+      toast('That service is already in the list', 'error');
+      return;
+    }
+    setList([...list, v]);
+    setNewSvc('');
+  };
+
+  const removeAt = (i: number) => setList(list.filter((_, idx) => idx !== i));
+  const moveUp = (i: number) => {
+    if (i === 0) return;
+    const next = [...list];
+    [next[i - 1], next[i]] = [next[i], next[i - 1]];
+    setList(next);
+  };
+  const moveDown = (i: number) => {
+    if (i === list.length - 1) return;
+    const next = [...list];
+    [next[i + 1], next[i]] = [next[i], next[i + 1]];
+    setList(next);
+  };
+
+  if (!settings) return null;
+
+  return (
+    <section id="misc-services" className="card p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Quick-pick services</div>
+        <button className="btn-primary text-xs" disabled={!dirty || saving} onClick={save}>
+          {saving ? 'Saving…' : dirty ? 'Save changes' : 'All changes saved'}
+        </button>
+      </div>
+
+      <div className="text-[11px] text-gray-500 dark:text-slate-400">
+        These chips appear on the Miscellaneous Charges page. The receptionist taps one to quickly tag the service.
+        Drag-free reordering with the arrow buttons. <b>"Other"</b> is always kept as a fallback for free-typed descriptions.
+      </div>
+
+      {/* Existing services */}
+      <ul className="border border-gray-200 dark:border-slate-700 rounded-lg divide-y divide-gray-100 dark:divide-slate-700 overflow-hidden">
+        {list.length === 0 && (
+          <li className="px-4 py-6 text-center text-xs text-gray-500">No services configured.</li>
+        )}
+        {list.map((s, i) => (
+          <li key={s + i} className="flex items-center gap-2 px-3 py-2">
+            <span className="flex-1 text-sm text-gray-900 dark:text-slate-100 font-medium">{s}</span>
+            <button
+              type="button"
+              onClick={() => moveUp(i)}
+              disabled={i === 0}
+              className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Move up"
+            >
+              <ArrowUp className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => moveDown(i)}
+              disabled={i === list.length - 1}
+              className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Move down"
+            >
+              <ArrowDown className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => removeAt(i)}
+              disabled={s === 'Other'}
+              className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed"
+              title={s === 'Other' ? '"Other" is always kept' : 'Remove'}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      {/* Add new */}
+      <div className="flex items-center gap-2 border-t border-gray-200 dark:border-slate-700 pt-4">
+        <input
+          className="input flex-1"
+          placeholder='New service name (e.g. "ECG", "Minor Surgery", "Cataract Drops")'
+          value={newSvc}
+          onChange={(e) => setNewSvc(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addService(); } }}
+        />
+        <button type="button" className="btn-primary" onClick={addService} disabled={!newSvc.trim()}>
+          <Plus className="w-4 h-4" /> Add
+        </button>
+      </div>
     </section>
   );
 }

@@ -469,6 +469,8 @@ export interface Settings {
   registration_fee_enabled: boolean;
   registration_fee_amount: number;
   registration_fee_default_timing: 'at_registration' | 'at_first_appointment' | 'ask';
+  /** Comma-separated list of misc-charge service categories shown as quick chips. */
+  misc_services: string;
 }
 
 /** Live state of a patient's free-follow-up entitlement with a given doctor, used at booking time. */

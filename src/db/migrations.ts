@@ -69,6 +69,10 @@ export function runMigrations(db: Database.Database) {
   addColumnIfMissing(db, 'bills', 'doctor_id', 'INTEGER REFERENCES doctors(id)');
   addColumnIfMissing(db, 'bills', 'notes', 'TEXT');
   addColumnIfMissing(db, 'bills', 'bill_kind', "TEXT NOT NULL DEFAULT 'opd'");
+  // Customizable list of misc-charge service categories. Stored as a single
+  // comma-separated string so it can flow through the existing key-value
+  // settings table without schema work.
+  setSettingIfEmpty(db, 'misc_services', 'Procedure,Vaccination,Nebulization,Wound Dressing,Injection,Suture / Stitches,IV Fluids,Other');
 
   // Phase A pharmacy-compliance link columns. drug_master / drug_stock_batches
   // tables are created in createSchema(); these FK columns extend existing tables.

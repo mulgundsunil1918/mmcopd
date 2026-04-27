@@ -49,6 +49,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   registration_fee_enabled: 'true',
   registration_fee_amount: '100',
   registration_fee_default_timing: 'ask',
+  misc_services: 'Procedure,Vaccination,Nebulization,Wound Dressing,Injection,Suture / Stitches,IV Fluids,Other',
   // Default click-to-WhatsApp template. Placeholders are case-insensitive.
   whatsapp_template:
     'Namaste {{patient_name}} 🙏\n\n' +

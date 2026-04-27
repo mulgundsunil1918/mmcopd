@@ -32,6 +32,15 @@ const queryClient = new QueryClient({
   },
 });
 
+// Match the Electron renderer: blur number inputs on wheel so scrolling never
+// corrupts a focused fee/quantity field.
+document.addEventListener('wheel', (e) => {
+  const t = e.target as HTMLElement | null;
+  if (t && (t as HTMLInputElement).type === 'number' && document.activeElement === t) {
+    (t as HTMLInputElement).blur();
+  }
+}, { passive: true });
+
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
