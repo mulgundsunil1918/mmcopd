@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Search, Syringe, Receipt, Stethoscope, IndianRupee, Plus, Settings as SettingsIcon } from 'lucide-react';
+import { Search, Syringe, Receipt, Stethoscope, IndianRupee, Plus, Settings as SettingsIcon, Users as UsersIcon } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
 import { cn, formatINR, fmtDateTime } from '../lib/utils';
 import type { Doctor, Patient, PaymentMode } from '../types';
@@ -138,79 +138,90 @@ export function Miscellaneous() {
         </div>
       )}
 
-      {/* Form */}
-      <section className="card p-5 space-y-4">
-        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-2">
+      {/* Form — color-coded sections so each step is visually distinct */}
+      <section className="card p-5 space-y-5">
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-2 pb-2 border-b border-gray-200 dark:border-slate-700">
           <Plus className="w-4 h-4 text-pink-600" /> Record a new charge
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Patient */}
-          <div>
-            <label className="label">Patient *</label>
-            {patient ? (
-              <div className="flex items-center justify-between card p-3">
+        {/* SECTION 1 — Who: blue tone */}
+        <FormSection
+          step={1}
+          tone="blue"
+          icon={<UsersIcon className="w-4 h-4" />}
+          title="Who"
+          subtitle="Pick the patient and (optionally) the attending doctor"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="label">Patient *</label>
+              {patient ? (
+                <div className="flex items-center justify-between rounded-lg p-3 border-2 border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900">
+                  <div>
+                    <div className="text-sm font-medium text-gray-900 dark:text-slate-100">{patient.first_name} {patient.last_name}</div>
+                    <div className="text-xs text-gray-500 dark:text-slate-400">{patient.uhid} · {patient.phone}</div>
+                  </div>
+                  <button className="btn-ghost text-xs" onClick={() => setPatient(null)}>Change</button>
+                </div>
+              ) : (
                 <div>
-                  <div className="text-sm font-medium text-gray-900 dark:text-slate-100">{patient.first_name} {patient.last_name}</div>
-                  <div className="text-xs text-gray-500 dark:text-slate-400">{patient.uhid} · {patient.phone}</div>
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      className="input pl-9"
+                      placeholder="Name, phone, or UHID"
+                      value={patientQuery}
+                      onChange={(e) => setPatientQuery(e.target.value)}
+                    />
+                  </div>
+                  {searchResults.length > 0 && (
+                    <ul className="max-h-40 overflow-auto mt-2 border border-gray-200 dark:border-slate-700 rounded-lg divide-y divide-gray-100 dark:divide-slate-700 bg-white dark:bg-slate-900">
+                      {searchResults.slice(0, 8).map((p) => (
+                        <li key={p.id} onClick={() => setPatient(p)} className="px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/20">
+                          <div className="font-medium text-gray-900 dark:text-slate-100">{p.first_name} {p.last_name}</div>
+                          <div className="text-[11px] text-gray-500">{p.uhid} · {p.phone}</div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
-                <button className="btn-ghost text-xs" onClick={() => setPatient(null)}>Change</button>
-              </div>
-            ) : (
-              <div>
-                <div className="relative">
-                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    className="input pl-9"
-                    placeholder="Name, phone, or UHID"
-                    value={patientQuery}
-                    onChange={(e) => setPatientQuery(e.target.value)}
-                  />
-                </div>
-                {searchResults.length > 0 && (
-                  <ul className="max-h-40 overflow-auto mt-2 border border-gray-200 dark:border-slate-700 rounded-lg divide-y divide-gray-100 dark:divide-slate-700">
-                    {searchResults.slice(0, 8).map((p) => (
-                      <li key={p.id} onClick={() => setPatient(p)} className="px-3 py-2 text-sm cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700">
-                        <div className="font-medium text-gray-900 dark:text-slate-100">{p.first_name} {p.last_name}</div>
-                        <div className="text-[11px] text-gray-500">{p.uhid} · {p.phone}</div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
+              )}
+            </div>
+            <div>
+              <label className="label flex items-center gap-1.5"><Stethoscope className="w-3.5 h-3.5" /> Performed by (optional)</label>
+              <select
+                className="input"
+                value={doctorId ?? ''}
+                onChange={(e) => setDoctorId(e.target.value ? Number(e.target.value) : null)}
+              >
+                <option value="">— No specific doctor —</option>
+                {doctors.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name} ({d.specialty})</option>
+                ))}
+              </select>
+              <div className="text-[10px] text-gray-500 mt-1">Used for doctor-wise revenue reports.</div>
+            </div>
           </div>
+        </FormSection>
 
-          {/* Doctor */}
-          <div>
-            <label className="label flex items-center gap-1.5"><Stethoscope className="w-3.5 h-3.5" /> Performed by (optional)</label>
-            <select
-              className="input"
-              value={doctorId ?? ''}
-              onChange={(e) => setDoctorId(e.target.value ? Number(e.target.value) : null)}
-            >
-              <option value="">— No specific doctor —</option>
-              {doctors.map((d) => (
-                <option key={d.id} value={d.id}>{d.name} ({d.specialty})</option>
-              ))}
-            </select>
-            <div className="text-[10px] text-gray-500 mt-1">Used for doctor-wise revenue reports.</div>
-          </div>
-        </div>
-
-        {/* Service category chips */}
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="label !mb-0">Service Category</label>
+        {/* SECTION 2 — Service: pink tone (matches the page accent) */}
+        <FormSection
+          step={2}
+          tone="pink"
+          icon={<Syringe className="w-4 h-4" />}
+          title="Service"
+          subtitle="Pick a category and tweak the description if needed"
+          rightAction={
             <button
               type="button"
               onClick={() => navigate('/settings#misc-services')}
-              className="text-[11px] inline-flex items-center gap-1 text-pink-600 hover:text-pink-700 dark:text-pink-400 dark:hover:text-pink-300 font-medium"
+              className="text-[11px] inline-flex items-center gap-1 text-pink-700 hover:text-pink-800 dark:text-pink-300 dark:hover:text-pink-200 font-semibold"
               title="Customize the service list in Settings"
             >
               <SettingsIcon className="w-3 h-3" /> Add / Edit Services
             </button>
-          </div>
+          }
+        >
           <div className="flex flex-wrap gap-2">
             {services.map((s) => (
               <button
@@ -218,10 +229,10 @@ export function Miscellaneous() {
                 type="button"
                 onClick={() => setServiceCategory(s)}
                 className={cn(
-                  'px-3 py-1.5 text-xs rounded-md border-2 font-medium',
+                  'px-3 py-1.5 text-xs rounded-md border-2 font-medium transition',
                   serviceCategory === s
-                    ? 'bg-pink-600 text-white border-pink-700'
-                    : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-200 hover:border-pink-400'
+                    ? 'bg-pink-600 text-white border-pink-700 shadow-sm'
+                    : 'bg-white dark:bg-slate-900 border-pink-200 dark:border-pink-900 text-pink-800 dark:text-pink-300 hover:border-pink-500 hover:bg-pink-50 dark:hover:bg-pink-900/30'
                 )}
               >
                 {s}
@@ -230,16 +241,13 @@ export function Miscellaneous() {
             <button
               type="button"
               onClick={() => navigate('/settings#misc-services')}
-              className="px-3 py-1.5 text-xs rounded-md border-2 border-dashed border-gray-400 dark:border-slate-600 text-gray-600 dark:text-slate-300 hover:border-pink-400 hover:text-pink-600 inline-flex items-center gap-1"
+              className="px-3 py-1.5 text-xs rounded-md border-2 border-dashed border-pink-400 dark:border-pink-700 text-pink-700 dark:text-pink-300 hover:bg-pink-50 dark:hover:bg-pink-900/20 inline-flex items-center gap-1"
               title="Add a new service in Settings"
             >
               <Plus className="w-3 h-3" /> Add service
             </button>
           </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
+          <div className="mt-3">
             <label className="label">Description (printed on bill)</label>
             <input
               className="input"
@@ -249,42 +257,59 @@ export function Miscellaneous() {
             />
             <div className="text-[10px] text-gray-500 mt-1">Defaults to the category — override for specifics.</div>
           </div>
-          <div>
-            <label className="label flex items-center gap-1.5"><IndianRupee className="w-3.5 h-3.5" /> Amount (₹)</label>
-            <input
-              type="number"
-              min={0}
-              className="input"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0"
-            />
-          </div>
-        </div>
+        </FormSection>
 
-        <div>
-          <label className="label">Payment Mode</label>
-          <div className="flex gap-2">
-            {PAYMENT_MODES.map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setPaymentMode(m)}
-                className={cn(
-                  'px-3 py-1.5 text-xs rounded-md border-2 font-medium',
-                  paymentMode === m
-                    ? 'bg-emerald-600 text-white border-emerald-700'
-                    : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-200'
-                )}
-              >
-                {m}
-              </button>
-            ))}
+        {/* SECTION 3 — Payment: amber tone (₹) */}
+        <FormSection
+          step={3}
+          tone="amber"
+          icon={<IndianRupee className="w-4 h-4" />}
+          title="Payment"
+          subtitle="Amount + how the patient is paying"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="label flex items-center gap-1.5"><IndianRupee className="w-3.5 h-3.5" /> Amount (₹)</label>
+              <input
+                type="number"
+                min={0}
+                className="input text-lg font-bold"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0"
+              />
+            </div>
+            <div>
+              <label className="label">Payment Mode</label>
+              <div className="flex gap-2">
+                {PAYMENT_MODES.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setPaymentMode(m)}
+                    className={cn(
+                      'flex-1 px-3 py-2 text-sm rounded-md border-2 font-semibold transition',
+                      paymentMode === m
+                        ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
+                        : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-emerald-900 text-emerald-800 dark:text-emerald-300 hover:border-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/30'
+                    )}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-        </div>
+        </FormSection>
 
-        <div>
-          <label className="label">Comment / Notes (optional)</label>
+        {/* SECTION 4 — Notes: violet tone */}
+        <FormSection
+          step={4}
+          tone="violet"
+          icon={<Receipt className="w-4 h-4" />}
+          title="Notes"
+          subtitle="Optional comment that's saved with the bill"
+        >
           <textarea
             className="input"
             rows={2}
@@ -292,7 +317,7 @@ export function Miscellaneous() {
             onChange={(e) => setNotes(e.target.value)}
             placeholder='e.g. "Booster dose 2/3, given on right deltoid"'
           />
-        </div>
+        </FormSection>
 
         <div className="flex justify-end gap-2 pt-2 border-t border-gray-200 dark:border-slate-700">
           <button className="btn-primary" onClick={submit} disabled={create.isPending}>
@@ -345,6 +370,68 @@ export function Miscellaneous() {
           </table>
         </div>
       </section>
+    </div>
+  );
+}
+
+/** Color-coded numbered section panel — gives the form clear visual structure. */
+function FormSection({
+  step, tone, icon, title, subtitle, rightAction, children,
+}: {
+  step: number;
+  tone: 'blue' | 'pink' | 'amber' | 'violet' | 'emerald';
+  icon: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  rightAction?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const tones: Record<string, { panel: string; badge: string; title: string }> = {
+    blue: {
+      panel: 'border-blue-300 dark:border-blue-800 bg-blue-50/40 dark:bg-blue-900/10',
+      badge: 'bg-blue-600 text-white',
+      title: 'text-blue-900 dark:text-blue-200',
+    },
+    pink: {
+      panel: 'border-pink-300 dark:border-pink-800 bg-pink-50/40 dark:bg-pink-900/10',
+      badge: 'bg-pink-600 text-white',
+      title: 'text-pink-900 dark:text-pink-200',
+    },
+    amber: {
+      panel: 'border-amber-300 dark:border-amber-800 bg-amber-50/40 dark:bg-amber-900/10',
+      badge: 'bg-amber-600 text-white',
+      title: 'text-amber-900 dark:text-amber-200',
+    },
+    violet: {
+      panel: 'border-violet-300 dark:border-violet-800 bg-violet-50/40 dark:bg-violet-900/10',
+      badge: 'bg-violet-600 text-white',
+      title: 'text-violet-900 dark:text-violet-200',
+    },
+    emerald: {
+      panel: 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-900/10',
+      badge: 'bg-emerald-600 text-white',
+      title: 'text-emerald-900 dark:text-emerald-200',
+    },
+  };
+  const t = tones[tone];
+  return (
+    <div className={cn('rounded-lg border-2 p-4', t.panel)}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2.5">
+          <span className={cn('inline-flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-bold flex-shrink-0', t.badge)}>
+            {step}
+          </span>
+          <span className={cn('inline-flex items-center justify-center w-6 h-6 rounded', t.title)}>
+            {icon}
+          </span>
+          <div>
+            <div className={cn('text-sm font-bold', t.title)}>{title}</div>
+            {subtitle && <div className="text-[11px] text-gray-600 dark:text-slate-400">{subtitle}</div>}
+          </div>
+        </div>
+        {rightAction}
+      </div>
+      {children}
     </div>
   );
 }
