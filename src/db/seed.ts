@@ -1,11 +1,13 @@
 import type Database from 'better-sqlite3';
 
 const DEFAULT_SETTINGS: Record<string, string> = {
-  clinic_name: 'Mulgund Multispeciality Clinic',
-  clinic_address: '1st Floor, Arihant Plaza, Rotary Circle, Gadag - 582 101',
-  clinic_phone: '9019263206',
+  // Empty by design — every install asks the admin to fill these in via
+  // Settings → Clinic. Showcase / demo build seeds its own values separately.
+  clinic_name: '',
+  clinic_address: '',
+  clinic_phone: '',
   clinic_email: '',
-  clinic_tagline: 'Compassionate Care, Every Day',
+  clinic_tagline: '',
   clinic_registration_no: '',
   slot_duration: '30',
   consultation_fee: '250',
@@ -15,8 +17,8 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   show_billing_module: 'true',
   show_patient_origin: 'true',
   app_mode: 'reception_pharmacy_doctor',
-  default_state: 'Karnataka',
-  default_district: 'Gadag',
+  default_state: '',
+  default_district: '',
   known_villages: '',
   backup_folder: '',
   backup_reminder_time: '21:00',
@@ -67,22 +69,17 @@ const DEFAULT_SETTINGS: Record<string, string> = {
 };
 
 export function seedIfEmpty(db: Database.Database) {
-  const doctorCount = db.prepare('SELECT COUNT(*) as c FROM doctors').get() as { c: number };
-  if (doctorCount.c === 0) {
-    const insert = db.prepare(
-      'INSERT INTO doctors (name, specialty, phone, email, room_number, is_active, default_fee) VALUES (?, ?, ?, ?, ?, 1, ?)'
-    );
-    insert.run('Dr. Sunil Mulgund', 'General Physician', '9900000001', 'sunil@mmc.clinic', '101', 500);
-    insert.run('Dr. Priya Patil', 'Pediatrician', '9900000002', 'priya@mmc.clinic', '102', 600);
-    insert.run('Dr. Rahul Desai', 'Orthopedic', '9900000003', 'rahul@mmc.clinic', '103', 700);
-  }
+  // No demo doctors / no demo drugs / no demo patients are ever seeded into a
+  // production install. Settings get safe defaults (empty clinic info, sensible
+  // workflow flags) but nothing identifies a specific clinic.
 
   const upsert = db.prepare(
     'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING'
   );
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) upsert.run(k, v);
 
-  // Seed common drugs
+  // Seed common drugs (kept — these are generic OTC + commonly stocked items
+  // any clinic in India can edit / remove from Pharmacy → Drug Master).
   const drugCount = db.prepare('SELECT COUNT(*) as c FROM drug_inventory').get() as { c: number };
   if (drugCount.c === 0) {
     const ins = db.prepare(

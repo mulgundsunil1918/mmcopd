@@ -119,10 +119,7 @@ export function runMigrations(db: Database.Database) {
       db.prepare("UPDATE settings SET value='' WHERE key='known_villages'").run();
     }
   } catch { /* ignore */ }
-  // Pre-fill clinic contact details so WhatsApp template placeholders are not blank
-  // out of the box. Skipped automatically if the user has already entered values.
-  setSettingIfEmpty(db, 'clinic_phone', '9019263206');
-  setSettingIfEmpty(db, 'clinic_address', '1st Floor, Arihant Plaza, Rotary Circle, Gadag - 582 101');
+  // (no clinic-specific prefills — admin enters via Settings → Clinic on first run)
 
   // Indexes that depend on the migrated columns — create AFTER column migrations.
   db.exec('CREATE INDEX IF NOT EXISTS idx_patients_place ON patients(place, district);');
