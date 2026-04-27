@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill, ShieldCheck, UserCircle2, Lock, Unlock, Activity, Syringe } from 'lucide-react';
+import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill, ShieldCheck, UserCircle2, Lock, Unlock, Activity, Syringe, ChevronLeft } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '../lib/utils';
 import { useTheme } from '../hooks/useTheme';
@@ -45,7 +45,7 @@ const NAV: NavItem2[] = [
   { to: '/settings', label: 'Settings', icon: SettingsIcon, color: 'text-slate-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'], adminOnly: true },
 ];
 
-export function Sidebar() {
+export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const { theme, toggle } = useTheme();
   const { user, logout, adminUnlocked, lockAdmin } = useAuth();
   const { data: clinicName } = useQuery({ queryKey: ['clinic-name'], queryFn: () => window.electronAPI.app.getClinicName() });
@@ -85,10 +85,20 @@ export function Sidebar() {
               <HeartPulse className="w-5 h-5 text-white" />
             </div>
           )}
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="sidebar-title text-sm leading-tight truncate">{settings?.clinic_name || 'CareDesk HMS'}</div>
             <div className="sidebar-subtitle text-[10px] leading-tight truncate">{settings?.clinic_tagline || clinicName || 'Mulgund Multispeciality'}</div>
           </div>
+          {onCollapse && (
+            <button
+              type="button"
+              onClick={onCollapse}
+              title="Hide sidebar (Ctrl+\)"
+              className="flex-shrink-0 w-6 h-6 rounded hover:bg-white/10 inline-flex items-center justify-center text-gray-400 hover:text-white transition"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 

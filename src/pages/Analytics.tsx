@@ -675,7 +675,7 @@ function PharmacyTab({ from, to }: { from: string; to: string }) {
                   <tr key={i} className="border-b border-gray-100 dark:border-slate-800">
                     <td className="py-1.5 text-gray-900 dark:text-slate-100">{b.drug_name}</td>
                     <td className="py-1.5 font-mono text-[11px]">{b.batch_no}</td>
-                    <td className="py-1.5">{b.expiry}</td>
+                    <td className="py-1.5">{(() => { try { return fmtDate(b.expiry); } catch { return b.expiry; } })()}</td>
                     <td className="py-1.5 text-right font-semibold">{b.qty_remaining}</td>
                     <td className={cn('py-1.5 text-right font-semibold', b.days <= 30 ? 'text-red-700 dark:text-red-400' : 'text-amber-700 dark:text-amber-300')}>
                       {b.days}
@@ -1019,10 +1019,10 @@ function ServicesTab({ from, to }: { from: string; to: string }) {
                     <div
                       className="w-full bg-pink-500 dark:bg-pink-400 rounded-t hover:bg-pink-600 transition"
                       style={{ height: `${h}%` }}
-                      title={`${t.day} · ${formatINR(t.revenue)} · ${t.count} services`}
+                      title={`${(() => { try { return fmtDate(t.day); } catch { return t.day; } })()} · ${formatINR(t.revenue)} · ${t.count} services`}
                     />
                     <div className="text-[9px] text-gray-500 dark:text-slate-400 -rotate-45 origin-top-left whitespace-nowrap mt-1">
-                      {t.day.slice(5)}
+                      {(() => { try { return fmtDate(t.day, 'd MMM'); } catch { return t.day.slice(5); } })()}
                     </div>
                   </div>
                 );

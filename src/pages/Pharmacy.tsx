@@ -77,7 +77,7 @@ export function Pharmacy() {
               <ul className="text-[11px] text-red-800 dark:text-red-200 mt-2 space-y-0.5 max-h-24 overflow-auto">
                 {alerts.expiringSoon.slice(0, 10).map((b) => (
                   <li key={b.id}>
-                    {b.drug_name || `Drug #${b.drug_master_id}`} · Batch {b.batch_no} — expires {b.expiry}
+                    {b.drug_name || `Drug #${b.drug_master_id}`} · Batch {b.batch_no} — expires {(() => { try { return fmtDate(b.expiry); } catch { return b.expiry; } })()}
                     {b.qty_remaining ? ` · ${b.qty_remaining} left` : ''}
                   </li>
                 ))}
@@ -1113,7 +1113,7 @@ function BatchList({ drugMasterId, drugName: _drugName, drugDefaultMrp: _drugDef
               <tr key={b.id} className="border-b border-gray-100 dark:border-slate-800">
                 <td className="py-1.5 font-mono">{b.batch_no}</td>
                 <td className={cn('py-1.5', expired ? 'text-red-600 font-bold' : expiringSoon ? 'text-amber-700' : '')}>
-                  {b.expiry} {expired ? '(EXPIRED)' : expiringSoon ? `(in ${days}d)` : ''}
+                  {(() => { try { return fmtDate(b.expiry); } catch { return b.expiry; } })()} {expired ? '(EXPIRED)' : expiringSoon ? `(in ${days}d)` : ''}
                 </td>
                 <td className="py-1.5 text-right">{b.qty_received}</td>
                 <td className="py-1.5 text-right font-semibold">{b.qty_remaining}</td>

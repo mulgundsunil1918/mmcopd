@@ -11,6 +11,13 @@ import { colorForDoctor } from '../lib/doctor-colors';
 import { useToast } from '../hooks/useToast';
 import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut';
 import { cn, fmt12h, fmtDate, formatINR, generateTimeSlots, todayISO } from '../lib/utils';
+
+/** Defensive wrapper around fmtDate — IPC payloads occasionally arrive with null
+ *  or a partial string before refetch completes; we fall back to the raw value. */
+const tryFmtDate = (d: string | null | undefined): string => {
+  if (!d) return '—';
+  try { return fmtDate(d); } catch { return d; }
+};
 import type { AppointmentStatus, AppointmentWithJoins, Doctor, Patient, PaymentMode } from '../types';
 
 const STATUS_FLOW: Record<AppointmentStatus, AppointmentStatus> = {
@@ -753,7 +760,7 @@ function BookAppointmentModal({
                 ✓ Free follow-up — fee waived automatically
               </div>
               <div className="text-[12px] text-emerald-700 dark:text-emerald-300 mt-0.5">
-                Last paid visit on {followup.parent_appt_date} · {followup.free_remaining} of {followup.total_free} free visit(s) remaining · valid till {followup.valid_till}
+                Last paid visit on {tryFmtDate(followup.parent_appt_date)} · {followup.free_remaining} of {followup.total_free} free visit(s) remaining · valid till {tryFmtDate(followup.valid_till)}
               </div>
             </div>
           </div>
@@ -765,7 +772,7 @@ function BookAppointmentModal({
                 ⚠️ Outside free-follow-up window — fee normally required
               </div>
               <div className="text-[12px] text-orange-700 dark:text-orange-300 mt-0.5">
-                Booking date <b>{apptDate}</b> is past the strict cutoff <b>{followup.valid_till}</b> (last paid visit {followup.parent_appt_date}).
+                Booking date <b>{tryFmtDate(apptDate)}</b> is past the strict cutoff <b>{tryFmtDate(followup.valid_till)}</b> (last paid visit {tryFmtDate(followup.parent_appt_date)}).
                 Inside grace period — you may waive the fee as a courtesy.
               </div>
             </div>
