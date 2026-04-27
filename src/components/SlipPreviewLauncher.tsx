@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Eye, FileText, Printer } from 'lucide-react';
 import { OpdSlip } from './OpdSlip';
 import type { AppointmentWithJoins, Consultation, Doctor } from '../types';
@@ -10,14 +10,33 @@ import type { AppointmentWithJoins, Consultation, Doctor } from '../types';
  */
 export function SlipPreviewLauncher() {
   const [open, setOpen] = useState(false);
+  // Bumping this on every preview-open forces React to mount a fresh OpdSlip
+  // so any newly-saved settings / doctor data is visible immediately, even
+  // within the 5-second staleTime of the global query cache.
+  const [previewNonce, setPreviewNonce] = useState(0);
+  const qc = useQueryClient();
   const { data: settings } = useQuery({
     queryKey: ['settings'],
     queryFn: () => window.electronAPI.settings.get(),
+    refetchOnMount: 'always',
   });
   const { data: doctors = [] } = useQuery({
     queryKey: ['doctors'],
     queryFn: () => window.electronAPI.doctors.list(true),
+    refetchOnMount: 'always',
   });
+
+  // Force-fresh fetch right before opening so the preview reflects whatever the
+  // user just edited in Clinic Info / Doctors above on this same Settings page.
+  const openPreview = async () => {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ['settings'] }),
+      qc.invalidateQueries({ queryKey: ['doctors'] }),
+      qc.invalidateQueries({ queryKey: ['doctors-all'] }),
+    ]);
+    setPreviewNonce((n) => n + 1);
+    setOpen(true);
+  };
 
   if (!settings) return null;
 
@@ -89,7 +108,7 @@ export function SlipPreviewLauncher() {
           <FileText className="w-4 h-4 text-blue-600" />
           <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">OPD Slip Preview</h2>
         </div>
-        <button className="btn-primary text-xs" onClick={() => setOpen(true)}>
+        <button className="btn-primary text-xs" onClick={openPreview}>
           <Eye className="w-3.5 h-3.5" /> Preview Slip
         </button>
       </div>
@@ -107,6 +126,7 @@ export function SlipPreviewLauncher() {
 
       {open && (
         <OpdSlip
+          key={previewNonce}
           appointment={sampleAppointment}
           consultation={sampleConsultation}
           doctor={sampleDoctor}

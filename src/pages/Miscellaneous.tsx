@@ -127,7 +127,7 @@ export function Miscellaneous() {
             <div className="text-[11px] text-gray-500">{monthStart} to {today}</div>
           </div>
           <div className="card p-4">
-            <div className="text-[11px] uppercase tracking-wider text-gray-500">Top service</div>
+            <div className="text-[11px] uppercase tracking-wider text-gray-500">Top category</div>
             <div className="text-base font-bold text-gray-900 dark:text-slate-100 mt-1 truncate">
               {summary.topServices[0]?.service || '—'}
             </div>
@@ -338,7 +338,7 @@ export function Miscellaneous() {
               <tr className="text-left text-[11px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
                 <th className="py-2 px-3">When</th>
                 <th className="py-2 px-3">Patient</th>
-                <th className="py-2 px-3">Service</th>
+                <th className="py-2 px-3">Category</th>
                 <th className="py-2 px-3">Doctor</th>
                 <th className="py-2 px-3">Mode</th>
                 <th className="py-2 px-3 text-right">Amount</th>

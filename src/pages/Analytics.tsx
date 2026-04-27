@@ -1002,7 +1002,7 @@ function ServicesTab({ from, to }: { from: string; to: string }) {
           <Kpi label="Total revenue" value={formatINR(summary.revenue)} tone="rose" />
           <Kpi label="Services rendered" value={summary.count} tone="rose" />
           <Kpi label="Avg per service" value={formatINR(Math.round(avgPerService))} tone="indigo" />
-          <Kpi label="Unique service types" value={uniqueServices} sub="distinct line items" tone="violet" />
+          <Kpi label="Unique categories" value={uniqueServices} sub="distinct service types" tone="violet" />
         </div>
       </section>
 
@@ -1033,11 +1033,11 @@ function ServicesTab({ from, to }: { from: string; to: string }) {
       )}
 
       <section>
-        <SectionTitle icon={<BarChart3 className="w-4 h-4 text-pink-600" />} title="Breakdown" subtitle="Top services & per-doctor performance" />
+        <SectionTitle icon={<BarChart3 className="w-4 h-4 text-pink-600" />} title="Breakdown" subtitle="Top categories & per-doctor performance" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {/* Top services */}
+          {/* Top categories */}
           <div className="card p-4">
-            <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-3">Top services by revenue</div>
+            <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-3">Top categories by revenue</div>
             <ul className="space-y-2">
               {summary.topServices.map((s: any) => (
                 <li key={s.service}>
@@ -1061,7 +1061,7 @@ function ServicesTab({ from, to }: { from: string; to: string }) {
 
           {/* Per-doctor */}
           <div className="card p-4">
-            <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-3">Services revenue by doctor</div>
+            <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-3">Revenue by doctor</div>
             <ul className="space-y-2">
               {summary.byDoctor.map((d: any, i: number) => (
                 <li key={i}>
