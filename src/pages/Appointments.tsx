@@ -10,7 +10,7 @@ import { SendWhatsAppButton } from '../components/SendWhatsAppButton';
 import { colorForDoctor } from '../lib/doctor-colors';
 import { useToast } from '../hooks/useToast';
 import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut';
-import { cn, fmt12h, formatINR, generateTimeSlots, todayISO } from '../lib/utils';
+import { cn, fmt12h, fmtDate, formatINR, generateTimeSlots, todayISO } from '../lib/utils';
 import type { AppointmentStatus, AppointmentWithJoins, Doctor, Patient, PaymentMode } from '../types';
 
 const STATUS_FLOW: Record<AppointmentStatus, AppointmentStatus> = {
@@ -455,6 +455,15 @@ function BookAppointmentModal({
     enabled: !!(patient && doctorId && settings?.followup_enabled),
   });
 
+  // Last visit info (which doctor, when) — shown inside the patient card so the
+  // receptionist can quickly recall who the patient last saw and re-pick them.
+  const { data: recentVisits = [] } = useQuery({
+    queryKey: ['patient-recent-appts', patient?.id],
+    queryFn: () => window.electronAPI.patients.recentAppointments(patient!.id, 1),
+    enabled: !!patient,
+  });
+  const lastVisit = recentVisits[0];
+
   // Auto-select the FREE FOLLOWUP fee mode when eligible. Receptionist can still
   // override by clicking another fee tile. We only auto-snap once per eligibility flip.
   useEffect(() => {
@@ -554,12 +563,41 @@ function BookAppointmentModal({
         <div>
           <label className="label">Patient *</label>
           {patient ? (
-            <div className="flex items-center justify-between card p-3">
-              <div>
-                <div className="text-sm font-medium text-gray-900 dark:text-slate-100">{patient.first_name} {patient.last_name}</div>
-                <div className="text-xs text-gray-500 dark:text-slate-400">{patient.uhid} · {patient.phone}</div>
+            <div className="card p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium text-gray-900 dark:text-slate-100">{patient.first_name} {patient.last_name}</div>
+                  <div className="text-xs text-gray-500 dark:text-slate-400">{patient.uhid} · {patient.phone}</div>
+                </div>
+                <button className="btn-ghost text-xs" onClick={() => setPatient(null)}>Change</button>
               </div>
-              <button className="btn-ghost text-xs" onClick={() => setPatient(null)}>Change</button>
+              {lastVisit ? (
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-gray-200 dark:border-slate-700">
+                  <div className="text-[12px] text-gray-600 dark:text-slate-300 inline-flex items-center gap-1.5 flex-1 min-w-0">
+                    <span className="text-[10px] uppercase tracking-wider font-semibold text-gray-500 dark:text-slate-400">Last seen</span>
+                    <span className="font-medium text-gray-900 dark:text-slate-100 truncate">
+                      {lastVisit.doctor_name}
+                    </span>
+                    <span className="text-gray-500 dark:text-slate-400 whitespace-nowrap">
+                      · {(() => { try { return fmtDate(lastVisit.appointment_date); } catch { return lastVisit.appointment_date; } })()}
+                    </span>
+                  </div>
+                  {doctorId !== lastVisit.doctor_id && (
+                    <button
+                      type="button"
+                      onClick={() => setDoctorId(lastVisit.doctor_id)}
+                      className="text-[11px] px-2 py-1 rounded border border-blue-300 dark:border-blue-800 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 whitespace-nowrap"
+                      title="Pick the doctor the patient last saw"
+                    >
+                      ↺ Use last doctor
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="pt-2 border-t border-gray-200 dark:border-slate-700 text-[11px] text-gray-500 dark:text-slate-400 italic">
+                  First visit — no prior appointment on record
+                </div>
+              )}
             </div>
           ) : (
             <div>
