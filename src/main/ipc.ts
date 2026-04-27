@@ -1667,6 +1667,71 @@ export function registerIpc() {
       .all(...params);
   });
 
+  // Free-form "Record a New Sale" — same idea as misc:create on the Services
+  // page. Skips FEFO / inventory deduction / dispensing register entirely so the
+  // receptionist can quickly capture a walk-in pharmacy sale even when the drug
+  // names + quantities are unknown or missing. Blank rows are allowed and
+  // filtered out before persisting.
+  ipcMain.handle('pharmacy:recordCustomSale', (_e, payload: {
+    patient_id?: number | null;
+    doctor_id?: number | null;
+    items: { drug_name?: string; qty?: number; rate?: number; amount?: number }[];
+    total_amount: number;
+    payment_mode?: string;
+    notes?: string | null;
+  }) => {
+    const db = getDb();
+    const cleaned = (payload.items || [])
+      .map((it) => ({
+        drug_name: (it.drug_name || '').trim(),
+        qty: Number(it.qty || 0),
+        rate: Number(it.rate || 0),
+        amount: Number(it.amount ?? (Number(it.qty || 0) * Number(it.rate || 0))),
+      }))
+      .filter((it) => it.drug_name || it.qty > 0 || it.rate > 0 || it.amount > 0);
+    const total = Math.max(0, Number(payload.total_amount || 0));
+    const subtotal = total;
+    const dnow = new Date();
+    const ymd = `${dnow.getFullYear()}${pad(dnow.getMonth() + 1, 2)}${pad(dnow.getDate(), 2)}`;
+    const seqRow = db.prepare("SELECT COUNT(*) as c FROM pharmacy_sales WHERE sale_number LIKE ?").get(`PHX-${ymd}-%`) as { c: number };
+    const saleNumber = `PHX-${ymd}-${pad(seqRow.c + 1, 4)}`;
+    const tx = db.transaction(() => {
+      const info = db.prepare(`
+        INSERT INTO pharmacy_sales
+          (sale_number, patient_id, appointment_id, subtotal, discount, total, payment_mode, sold_by, created_at)
+        VALUES (?, ?, NULL, ?, 0, ?, ?, ?, datetime('now'))
+      `).run(
+        saleNumber,
+        payload.patient_id ?? null,
+        subtotal,
+        total,
+        payload.payment_mode || 'Cash',
+        payload.notes || null
+      );
+      const saleId = Number(info.lastInsertRowid);
+      const insItem = db.prepare(`
+        INSERT INTO pharmacy_sale_items
+          (sale_id, drug_id, drug_name, qty, rate, amount)
+        VALUES (?, NULL, ?, ?, ?, ?)
+      `);
+      if (cleaned.length === 0) {
+        // Persist a single placeholder so the bill still shows a line.
+        insItem.run(saleId, '(unspecified items)', 0, 0, total);
+      } else {
+        for (const it of cleaned) {
+          insItem.run(saleId, it.drug_name || '(unnamed item)', it.qty, it.rate, it.amount);
+        }
+      }
+      return saleId;
+    });
+    const id = tx();
+    return db.prepare(`
+      SELECT s.*, (p.first_name || ' ' || p.last_name) as patient_name, p.uhid as patient_uhid
+      FROM pharmacy_sales s LEFT JOIN patients p ON p.id=s.patient_id
+      WHERE s.id=?
+    `).get(id);
+  });
+
   // ===== Wholesalers =====
   ipcMain.handle('wholesalers:list', (_e, filter: { activeOnly?: boolean } = {}) => {
     const db = getDb();

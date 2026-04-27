@@ -276,6 +276,16 @@ const api = {
     }) => ipcRenderer.invoke('pharmacy:sell', payload) as Promise<PharmacySale>,
     listSales: (filter?: { from?: string; to?: string }) =>
       ipcRenderer.invoke('pharmacy:listSales', filter || {}) as Promise<(PharmacySale & { patient_name: string | null; patient_uhid: string | null })[]>,
+    /** Free-form pharmacy sale (no FEFO, no inventory deduct, no register). Mirrors
+     *  Services / misc:create — patient required, doctor + items + comment optional. */
+    recordCustomSale: (payload: {
+      patient_id?: number | null;
+      doctor_id?: number | null;
+      items: { drug_name?: string; qty?: number; rate?: number; amount?: number }[];
+      total_amount: number;
+      payment_mode?: string;
+      notes?: string | null;
+    }) => ipcRenderer.invoke('pharmacy:recordCustomSale', payload) as Promise<PharmacySale & { patient_name: string | null; patient_uhid: string | null }>,
   },
   wholesalers: {
     list: (filter?: { activeOnly?: boolean }) =>

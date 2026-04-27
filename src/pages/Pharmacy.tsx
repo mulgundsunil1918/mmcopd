@@ -17,7 +17,7 @@ import { PurchaseRegisterPrint } from '../components/PurchaseRegisterPrint';
 import { BarcodeScanModal } from '../components/BarcodeScanModal';
 import { Scan } from 'lucide-react';
 
-type Tab = 'dispense' | 'drugs' | 'batches' | 'purchases' | 'sales';
+type Tab = 'dispense' | 'newsale' | 'drugs' | 'batches' | 'purchases' | 'sales';
 
 export function Pharmacy() {
   const [tab, setTab] = useState<Tab>('dispense');
@@ -41,6 +41,7 @@ export function Pharmacy() {
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex gap-2 bg-gray-100 dark:bg-slate-700 p-1 rounded-lg flex-wrap">
             <TabBtn active={tab === 'dispense'} onClick={() => setTab('dispense')} icon={<Clipboard className="w-3.5 h-3.5" />}>Dispense</TabBtn>
+            <TabBtn active={tab === 'newsale'} onClick={() => setTab('newsale')} icon={<Plus className="w-3.5 h-3.5" />}>New Sale</TabBtn>
             <TabBtn active={tab === 'drugs'} onClick={() => setTab('drugs')} icon={<Package className="w-3.5 h-3.5" />}>Drug Master</TabBtn>
             <TabBtn active={tab === 'batches'} onClick={() => setTab('batches')} icon={<Layers className="w-3.5 h-3.5" />}>Stock & Batches</TabBtn>
             <TabBtn active={tab === 'purchases'} onClick={() => setTab('purchases')} icon={<Truck className="w-3.5 h-3.5" />}>Purchases</TabBtn>
@@ -88,6 +89,7 @@ export function Pharmacy() {
       )}
 
       {tab === 'dispense' && <DispenseQueue />}
+      {tab === 'newsale' && <NewSaleTab />}
       {tab === 'drugs' && <DrugMasterTab />}
       {tab === 'batches' && <StockBatchesTab />}
       {tab === 'purchases' && <PurchasesTab />}
@@ -1712,4 +1714,326 @@ function daysAgo(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() - n);
   return d.toISOString().slice(0, 10);
+}
+
+/* ============================================================
+   NEW SALE — free-form pharmacy sale recording. Mirrors the
+   colored 4-section layout of the Services page. Drug name +
+   quantity are fully optional; total is editable directly.
+   Skips FEFO inventory deduction by design.
+   ============================================================ */
+function NewSaleTab() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  type Row = { drug_name: string; qty: string; rate: string };
+  const EMPTY_ROW: Row = { drug_name: '', qty: '', rate: '' };
+
+  const [patient, setPatient] = useState<any | null>(null);
+  const [patientQuery, setPatientQuery] = useState('');
+  const [doctorId, setDoctorId] = useState<number | null>(null);
+  const [rows, setRows] = useState<Row[]>([{ ...EMPTY_ROW }]);
+  const [paymentMode, setPaymentMode] = useState<'Cash' | 'Card' | 'UPI'>('Cash');
+  const [notes, setNotes] = useState('');
+  const [overrideTotal, setOverrideTotal] = useState<string>('');
+
+  const { data: doctors = [] } = useQuery({
+    queryKey: ['doctors-active'],
+    queryFn: () => window.electronAPI.doctors.list(true),
+  });
+  const { data: drugCatalog = [] } = useQuery({
+    queryKey: ['pharmacy-drugs-active'],
+    queryFn: () => window.electronAPI.pharmacy.listDrugs({ activeOnly: true }),
+  });
+  const { data: searchResults = [] } = useQuery({
+    queryKey: ['newsale-patient-search', patientQuery],
+    queryFn: () => window.electronAPI.patients.search(patientQuery),
+    enabled: !patient,
+  });
+
+  // Today's free-form sales (this tab) — recent strip below the form.
+  const today = new Date().toISOString().slice(0, 10);
+  const monthStart = today.slice(0, 8) + '01';
+  const { data: recentSales = [] } = useQuery({
+    queryKey: ['pharmacy-sales-month'],
+    queryFn: () => window.electronAPI.pharmacy.listSales({ from: monthStart, to: today }),
+    refetchOnMount: 'always',
+  });
+
+  const computedSubtotal = rows.reduce((s, r) => {
+    const q = parseFloat(r.qty || '0') || 0;
+    const x = parseFloat(r.rate || '0') || 0;
+    return s + q * x;
+  }, 0);
+  const total = overrideTotal.trim() !== '' ? Math.max(0, parseFloat(overrideTotal) || 0) : computedSubtotal;
+
+  const setRow = (i: number, patch: Partial<Row>) =>
+    setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const addRow = () => setRows((rs) => [...rs, { ...EMPTY_ROW }]);
+  const removeRow = (i: number) => setRows((rs) => rs.length === 1 ? [{ ...EMPTY_ROW }] : rs.filter((_, idx) => idx !== i));
+
+  const create = useMutation({
+    mutationFn: () => window.electronAPI.pharmacy.recordCustomSale({
+      patient_id: patient?.id ?? null,
+      doctor_id: doctorId,
+      items: rows.map((r) => ({
+        drug_name: r.drug_name,
+        qty: parseFloat(r.qty || '0') || 0,
+        rate: parseFloat(r.rate || '0') || 0,
+        amount: (parseFloat(r.qty || '0') || 0) * (parseFloat(r.rate || '0') || 0),
+      })),
+      total_amount: total,
+      payment_mode: paymentMode,
+      notes: notes.trim() || null,
+    }),
+    onSuccess: (sale: any) => {
+      toast(`Sale recorded — ${formatINR(sale.total)}`);
+      qc.invalidateQueries({ queryKey: ['pharmacy-sales-month'] });
+      qc.invalidateQueries({ queryKey: ['analytics-overview'] });
+      // Keep doctor + payment mode for fast next entry; clear the rest.
+      setPatient(null); setPatientQuery(''); setRows([{ ...EMPTY_ROW }]); setNotes(''); setOverrideTotal('');
+    },
+    onError: (e: any) => toast(e?.message || 'Failed to record sale', 'error'),
+  });
+
+  const submit = () => {
+    if (!patient) return toast('Select a patient', 'error');
+    if (total <= 0) return toast('Enter a total amount > 0', 'error');
+    create.mutate();
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <div className="flex items-center gap-2">
+          <ShoppingCart className="w-5 h-5 text-lime-600" />
+          <h2 className="text-lg font-bold text-gray-900 dark:text-slate-100">Record a New Sale</h2>
+        </div>
+        <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+          Free-form pharmacy sale — drug name and quantity are optional. Total is editable directly. Skips inventory + FEFO; use the regular <b>Dispense</b> tab for stock-tracked dispensing.
+        </p>
+      </div>
+
+      <section className="card p-5 space-y-5">
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-2 pb-2 border-b border-gray-200 dark:border-slate-700">
+          <Plus className="w-4 h-4 text-lime-600" /> New sale
+        </div>
+
+        {/* SECTION 1 — Who (blue) */}
+        <NewSaleSection step={1} tone="blue" title="Who" subtitle="Patient and (optionally) the prescribing doctor">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="label">Patient *</label>
+              {patient ? (
+                <div className="flex items-center justify-between rounded-lg p-3 border-2 border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900">
+                  <div>
+                    <div className="text-sm font-medium text-gray-900 dark:text-slate-100">{patient.first_name} {patient.last_name}</div>
+                    <div className="text-xs text-gray-500 dark:text-slate-400">{patient.uhid} · {patient.phone}</div>
+                  </div>
+                  <button className="btn-ghost text-xs" onClick={() => setPatient(null)}>Change</button>
+                </div>
+              ) : (
+                <div>
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input className="input pl-9" placeholder="Name, phone, or UHID" value={patientQuery} onChange={(e) => setPatientQuery(e.target.value)} />
+                  </div>
+                  {searchResults.length > 0 && (
+                    <ul className="max-h-40 overflow-auto mt-2 border border-gray-200 dark:border-slate-700 rounded-lg divide-y divide-gray-100 dark:divide-slate-700 bg-white dark:bg-slate-900">
+                      {searchResults.slice(0, 8).map((p: any) => (
+                        <li key={p.id} onClick={() => setPatient(p)} className="px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/20">
+                          <div className="font-medium text-gray-900 dark:text-slate-100">{p.first_name} {p.last_name}</div>
+                          <div className="text-[11px] text-gray-500">{p.uhid} · {p.phone}</div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="label">Prescribing doctor (optional)</label>
+              <select className="input" value={doctorId ?? ''} onChange={(e) => setDoctorId(e.target.value ? Number(e.target.value) : null)}>
+                <option value="">— No specific doctor —</option>
+                {doctors.map((d: any) => (
+                  <option key={d.id} value={d.id}>{d.name} ({d.specialty})</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </NewSaleSection>
+
+        {/* SECTION 2 — Items (lime) */}
+        <NewSaleSection step={2} tone="lime" title="Items" subtitle="All fields optional — leave blank for a generic sale entry">
+          <ul className="space-y-2">
+            {rows.map((r, i) => (
+              <li key={i} className="grid grid-cols-12 gap-2 items-center">
+                <input
+                  className="input col-span-6 !py-1.5 !text-xs"
+                  placeholder="Drug / item name (optional)"
+                  list={`drug-list-${i}`}
+                  value={r.drug_name}
+                  onChange={(e) => setRow(i, { drug_name: e.target.value })}
+                />
+                <datalist id={`drug-list-${i}`}>
+                  {drugCatalog.slice(0, 100).map((d: any) => (
+                    <option key={d.id} value={d.name} />
+                  ))}
+                </datalist>
+                <input
+                  type="number"
+                  min={0}
+                  className="input col-span-2 !py-1.5 !text-xs"
+                  placeholder="Qty"
+                  value={r.qty}
+                  onChange={(e) => setRow(i, { qty: e.target.value })}
+                />
+                <input
+                  type="number"
+                  min={0}
+                  className="input col-span-2 !py-1.5 !text-xs"
+                  placeholder="Rate ₹"
+                  value={r.rate}
+                  onChange={(e) => setRow(i, { rate: e.target.value })}
+                />
+                <div className="col-span-1 text-xs text-right font-mono text-gray-700 dark:text-slate-300">
+                  {formatINR((parseFloat(r.qty || '0') || 0) * (parseFloat(r.rate || '0') || 0))}
+                </div>
+                <button onClick={() => removeRow(i)} className="col-span-1 p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 inline-flex items-center justify-center" title="Remove row">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button type="button" onClick={addRow} className="mt-2 text-xs text-lime-700 dark:text-lime-300 inline-flex items-center gap-1 font-semibold">
+            <Plus className="w-3 h-3" /> Add another item
+          </button>
+        </NewSaleSection>
+
+        {/* SECTION 3 — Payment (amber) */}
+        <NewSaleSection step={3} tone="amber" title="Payment" subtitle="Total is auto-summed from items but can be overridden">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="label">Total Amount (₹)</label>
+              <input
+                type="number"
+                min={0}
+                className="input text-lg font-bold"
+                placeholder={String(computedSubtotal.toFixed(2))}
+                value={overrideTotal}
+                onChange={(e) => setOverrideTotal(e.target.value)}
+              />
+              <div className="text-[10px] text-gray-500 mt-1">
+                Computed from items: <b>{formatINR(computedSubtotal)}</b>{overrideTotal.trim() !== '' && ` · overridden to ${formatINR(total)}`}
+              </div>
+            </div>
+            <div>
+              <label className="label">Payment Mode</label>
+              <div className="flex gap-2">
+                {(['Cash', 'Card', 'UPI'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setPaymentMode(m)}
+                    className={cn(
+                      'flex-1 px-3 py-2 text-sm rounded-md border-2 font-semibold transition',
+                      paymentMode === m
+                        ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
+                        : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-emerald-900 text-emerald-800 dark:text-emerald-300 hover:border-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/30'
+                    )}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </NewSaleSection>
+
+        {/* SECTION 4 — Notes (violet) */}
+        <NewSaleSection step={4} tone="violet" title="Notes" subtitle="Optional comment saved with the sale">
+          <textarea
+            className="input"
+            rows={2}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder='e.g. "Strip + syrup combo · senior citizen discount"'
+          />
+        </NewSaleSection>
+
+        <div className="flex justify-end gap-2 pt-2 border-t border-gray-200 dark:border-slate-700">
+          <button className="btn-primary" onClick={submit} disabled={create.isPending}>
+            <ShoppingCart className="w-4 h-4" /> {create.isPending ? 'Recording…' : `Record Sale · ${formatINR(total)}`}
+          </button>
+        </div>
+      </section>
+
+      {/* Recent sales (this month) */}
+      <section>
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Recent pharmacy sales · this month</div>
+          <div className="text-[11px] text-gray-500">{recentSales.length} entries</div>
+        </div>
+        <div className="card overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
+                <th className="py-2 px-3">When</th>
+                <th className="py-2 px-3">Sale #</th>
+                <th className="py-2 px-3">Patient</th>
+                <th className="py-2 px-3">Mode</th>
+                <th className="py-2 px-3 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentSales.length === 0 ? (
+                <tr><td colSpan={5} className="py-8 text-center text-xs text-gray-500">No sales recorded this month yet.</td></tr>
+              ) : recentSales.slice(0, 50).map((s: any) => (
+                <tr key={s.id} className="border-t border-gray-100 dark:border-slate-800">
+                  <td className="py-2 px-3 text-[12px] text-gray-600 dark:text-slate-300 whitespace-nowrap">{fmtDateTime(s.created_at)}</td>
+                  <td className="py-2 px-3 text-[11px] font-mono">{s.sale_number}</td>
+                  <td className="py-2 px-3 text-[12px]">
+                    {s.patient_name ? (
+                      <>
+                        <div className="font-medium text-gray-900 dark:text-slate-100">{s.patient_name}</div>
+                        <div className="text-[10px] text-gray-500">{s.patient_uhid}</div>
+                      </>
+                    ) : (
+                      <span className="italic text-gray-400">walk-in</span>
+                    )}
+                  </td>
+                  <td className="py-2 px-3 text-[12px]">{s.payment_mode || '—'}</td>
+                  <td className="py-2 px-3 text-[12px] text-right font-semibold">{formatINR(s.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/** Numbered colored panel — same idea as the Services page sections. */
+function NewSaleSection({ step, tone, title, subtitle, children }: {
+  step: number; tone: 'blue' | 'lime' | 'amber' | 'violet'; title: string; subtitle?: string; children: React.ReactNode;
+}) {
+  const tones: Record<string, { panel: string; badge: string; title: string }> = {
+    blue:   { panel: 'border-blue-300 dark:border-blue-800 bg-blue-50/40 dark:bg-blue-900/10',           badge: 'bg-blue-600 text-white',    title: 'text-blue-900 dark:text-blue-200' },
+    lime:   { panel: 'border-lime-300 dark:border-lime-800 bg-lime-50/40 dark:bg-lime-900/10',           badge: 'bg-lime-600 text-white',    title: 'text-lime-900 dark:text-lime-200' },
+    amber:  { panel: 'border-amber-300 dark:border-amber-800 bg-amber-50/40 dark:bg-amber-900/10',       badge: 'bg-amber-600 text-white',   title: 'text-amber-900 dark:text-amber-200' },
+    violet: { panel: 'border-violet-300 dark:border-violet-800 bg-violet-50/40 dark:bg-violet-900/10',   badge: 'bg-violet-600 text-white',  title: 'text-violet-900 dark:text-violet-200' },
+  };
+  const t = tones[tone];
+  return (
+    <div className={cn('rounded-lg border-2 p-4', t.panel)}>
+      <div className="flex items-center gap-2.5 mb-3">
+        <span className={cn('inline-flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-bold flex-shrink-0', t.badge)}>{step}</span>
+        <div>
+          <div className={cn('text-sm font-bold', t.title)}>{title}</div>
+          {subtitle && <div className="text-[11px] text-gray-600 dark:text-slate-400">{subtitle}</div>}
+        </div>
+      </div>
+      {children}
+    </div>
+  );
 }

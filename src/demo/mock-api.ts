@@ -308,6 +308,21 @@ export function createMockElectronAPI(): any {
         return r(created);
       },
       listSales: () => r(pharmSales.map((s) => ({ ...s, patient_name: patients.find((p) => p.id === s.patient_id)?.first_name || null, patient_uhid: patients.find((p) => p.id === s.patient_id)?.uhid || null }))),
+      recordCustomSale: (payload: any) => {
+        const id = nextId(pharmSales);
+        const total = Math.max(0, Number(payload.total_amount || 0));
+        const sn = `PHX-CUST-${String(id).padStart(4, '0')}`;
+        const created: any = {
+          id, sale_number: sn, patient_id: payload.patient_id ?? null,
+          appointment_id: null, subtotal: total, discount: 0, total,
+          payment_mode: payload.payment_mode || 'Cash', sold_by: payload.notes || null,
+          created_at: new Date().toISOString(),
+          patient_name: patients.find((p) => p.id === payload.patient_id)?.first_name || null,
+          patient_uhid: patients.find((p) => p.id === payload.patient_id)?.uhid || null,
+        };
+        pharmSales = [...pharmSales, created];
+        return r(created);
+      },
     },
     wholesalers: {
       list: () => r(wholesalers),
