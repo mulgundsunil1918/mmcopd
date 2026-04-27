@@ -162,27 +162,43 @@ html.dark .statusbar { background-color: #0b1220; border-top-color: #1e293b; col
    Supports both single-page slips and multi-page slips (.print-page wrappers).
    ======================= */
 @media print {
+  /* Root reset — anything that was pinned to a viewport in screen mode must
+     become inert in print mode, otherwise Chromium clips after page 1. */
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: white !important;
+  }
+
   body * { visibility: hidden; }
   .print-area, .print-area * { visibility: visible; }
-  .no-print { display: none !important; }
+  .no-print, .no-print * { display: none !important; }
 
   /* Default: single print-area gets pinned to the page */
   .print-area { background: white !important; color: #0f172a !important; }
 
-  /* Critical: any ancestor with position:fixed + overflow:auto pins the printable
-     region to the first viewport and clips everything below. Force the OPD slip
-     wrapper (and any other full-screen preview overlay) back to normal flow so
-     ALL .print-page sheets render in sequence. */
-  .print-overlay {
+  /* Walk every ANCESTOR of .print-page back to normal flow. Without this the
+     OPD-slip preview wrapper (position: fixed; overflow: auto) pins the
+     printable region to the first viewport and Chromium emits only page 1.
+     We deliberately exclude .print-page itself (it has its own padding/sizing). */
+  .print-overlay,
+  .print-overlay > *:not(.print-page) {
     position: static !important;
     overflow: visible !important;
     height: auto !important;
+    max-height: none !important;
     inset: auto !important;
+    transform: none !important;
     background: white !important;
-  }
-  .print-overlay > * {
-    position: static !important;
-    overflow: visible !important;
+    box-shadow: none !important;
+    /* Flatten flex/grid wrappers so each .print-page sits in normal block flow. */
+    display: block !important;
+    gap: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
   }
 
   /* Multi-page: each .print-page is a full A4 sheet, break after */
@@ -190,12 +206,22 @@ html.dark .statusbar { background-color: #0b1220; border-top-color: #1e293b; col
     width: 210mm !important;
     height: 297mm !important;
     margin: 0 !important;
+    padding: 14mm 14mm 12mm !important;
     box-shadow: none !important;
-    page-break-after: always;
-    break-after: page;
-    overflow: hidden;
+    background: white !important;
+    display: block !important;
+    page-break-inside: avoid !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    overflow: hidden !important;
+    /* Each page renders independently from any sibling — no inherited z-index, etc. */
+    position: relative !important;
+    z-index: auto !important;
   }
-  .print-page:last-child { page-break-after: auto; break-after: auto; }
+  .print-page:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
 
   /* Use @page with zero margin since each .print-page already has internal padding */
   @page { size: A4; margin: 0; }
