@@ -32,7 +32,7 @@ export class NotificationService {
     patient: Pick<Patient, 'id' | 'first_name' | 'last_name' | 'phone'>,
     appointment: Pick<AppointmentWithJoins, 'appointment_date' | 'appointment_time' | 'token_number'>,
     doctor: Pick<Doctor, 'name'>,
-    clinicName = 'Mulgund Multispeciality Clinic'
+    clinicName = 'CureDesk HMS'
   ) {
     const name = `${patient.first_name} ${patient.last_name}`.trim();
     const message = `Dear ${name}, your appointment with ${doctor.name} at ${clinicName} is confirmed for ${appointment.appointment_date} at ${appointment.appointment_time}. Token: #${appointment.token_number}`;

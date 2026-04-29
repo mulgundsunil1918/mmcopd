@@ -1,13 +1,13 @@
-# CareDesk HMS — Install & Update Guide
+# CureDesk HMS — Install & Update Guide
 
 ## What never gets touched
 
 Your clinic data lives at:
 
 ```
-%APPDATA%\CareDesk HMS\caredesk.sqlite
-%APPDATA%\CareDesk HMS\backups\
-%APPDATA%\CareDesk HMS\documents\
+%APPDATA%\CureDesk HMS\caredesk.sqlite
+%APPDATA%\CureDesk HMS\backups\
+%APPDATA%\CureDesk HMS\documents\
 ```
 
 Updates only replace app code in `Program Files`. **Patient records, bills, EMR, settings, logo, signatures, backups — none of it is ever overwritten by an update.**
@@ -70,7 +70,7 @@ Done from your side.
 
 - The installed app checks GitHub every 1 hour (and on startup).
 - When it sees a newer release, it downloads silently in the background.
-- Once downloaded, a Windows notification appears: **"A new version of CareDesk HMS has been downloaded. Restart the app to apply the updates."**
+- Once downloaded, a Windows notification appears: **"A new version of CureDesk HMS has been downloaded. Restart the app to apply the updates."**
 - User clicks **Restart** → 5 seconds later, new version is running.
 - All patient data is exactly as before.
 
@@ -99,12 +99,12 @@ If a release breaks things:
 ## Folder structure after install
 
 ```
-C:\Program Files\CareDesk HMS\         ← app code (replaced by updates)
-%APPDATA%\CareDesk HMS\
+C:\Program Files\CureDesk HMS\         ← app code (replaced by updates)
+%APPDATA%\CureDesk HMS\
    caredesk.sqlite                     ← all clinic data (PRESERVED)
    caredesk.sqlite-wal                 ← write-ahead log
    backups\                            ← daily auto-backups
    documents\<patient_id>\             ← uploaded EMR files
 ```
 
-You can copy `%APPDATA%\CareDesk HMS\` to a USB stick anytime — that's a complete backup.
+You can copy `%APPDATA%\CureDesk HMS\` to a USB stick anytime — that's a complete backup.

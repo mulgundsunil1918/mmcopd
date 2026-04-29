@@ -50,7 +50,7 @@ export function TopBar() {
       )}
       <div className="min-w-0 flex-1">
         <div className="text-base font-extrabold text-gray-900 dark:text-slate-100 leading-tight truncate">
-          {settings?.clinic_name || 'Mulgund Multispeciality Clinic'}
+          {settings?.clinic_name || 'CureDesk HMS'}
         </div>
         {settings?.clinic_tagline && (
           <div className="text-[11px] italic text-gray-500 dark:text-slate-400 leading-tight truncate">

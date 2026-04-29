@@ -302,7 +302,7 @@ function Invoice({ bill, onNew }: { bill: BillWithJoins; onNew: () => void }) {
               <div className="w-14 h-14 rounded-lg bg-blue-600 text-white flex items-center justify-center text-2xl font-bold">M</div>
             )}
             <div>
-              <div className="text-lg font-bold text-gray-900">{settings?.clinic_name || 'Mulgund Multispeciality Clinic'}</div>
+              <div className="text-lg font-bold text-gray-900">{settings?.clinic_name || 'CureDesk HMS'}</div>
               <div className="text-[11px] text-gray-500">{settings?.clinic_address}</div>
               {settings?.clinic_phone && <div className="text-[11px] text-gray-500">Ph: {settings.clinic_phone}</div>}
             </div>

@@ -27,11 +27,11 @@ export function Login() {
     <div className="min-h-full flex items-center justify-center p-6" style={{ background: 'linear-gradient(135deg, #1e3a8a 0%, #4f46e5 100%)' }}>
       <form onSubmit={submit} className="card p-8 w-full max-w-sm" style={{ backgroundColor: '#ffffff' }}>
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white" style={{ background: 'linear-gradient(135deg, #2563eb, #6366f1)' }}>
-            <HeartPulse className="w-7 h-7" />
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white" style={{ background: 'linear-gradient(135deg, #2563eb, #4f46e5)' }}>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round"><path d="M12 5v14M5 12h14"/><circle cx="18.5" cy="18.5" r="2" fill="currentColor" stroke="none"/></svg>
           </div>
           <div>
-            <div className="text-lg font-extrabold" style={{ color: '#0f172a' }}>CareDesk HMS</div>
+            <div className="text-lg font-extrabold" style={{ color: '#0f172a' }}>CureDesk HMS</div>
             <div className="text-xs" style={{ color: '#64748b' }}>Sign in to continue</div>
           </div>
         </div>

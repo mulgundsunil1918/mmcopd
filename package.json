@@ -1,6 +1,6 @@
 {
-  "name": "caredesk-hms",
-  "productName": "CareDesk HMS",
+  "name": "curedesk-hms",
+  "productName": "CureDesk HMS",
   "version": "0.3.0",
   "description": "OPD management software for Mulgund Multispeciality Clinic",
   "main": ".vite/build/main.js",
@@ -12,7 +12,7 @@
     "release": "npm version patch && git push --follow-tags && electron-forge publish",
     "build:demo": "vite build --config vite.demo.config.ts",
     "preview:demo": "vite preview --config vite.demo.config.ts",
-    "make:installer": "electron-forge package && electron-builder --win nsis --x64 --prepackaged \"out/CareDesk HMS-win32-x64\"",
+    "make:installer": "electron-forge package && electron-builder --win nsis --x64 --prepackaged \"out/CureDesk HMS-win32-x64\"",
     "lint": "eslint --ext .ts,.tsx ."
   },
   "keywords": [],

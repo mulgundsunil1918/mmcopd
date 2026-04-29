@@ -481,7 +481,7 @@ function BackupSettings() {
             ⚠ Must be a LOCAL folder on this PC (like <code>G:\My Drive\CareDesk Backups</code>). Google Drive web links (<code>drive.google.com/...</code>) don't work.
           </div>
           <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-0.5">
-            Leave blank to use the app's default folder (<code>%APPDATA%\CareDesk HMS\backups</code>).
+            Leave blank to use the app's default folder (<code>%APPDATA%\CureDesk HMS\backups</code>).
           </div>
         </div>
         <div>

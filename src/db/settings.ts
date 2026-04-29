@@ -5,7 +5,7 @@ export function getAllSettings(db: Database.Database): Settings {
   const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[];
   const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   return {
-    clinic_name: map.clinic_name || 'Mulgund Multispeciality Clinic',
+    clinic_name: map.clinic_name || 'CureDesk HMS',
     clinic_address: map.clinic_address || '',
     clinic_phone: map.clinic_phone || '',
     clinic_email: map.clinic_email || '',

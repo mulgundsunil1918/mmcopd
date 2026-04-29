@@ -22,13 +22,13 @@ const config: ForgeConfig = {
       // doesn't always match through electron-packager → asar's minimatch).
       unpack: '**/*.node',
     },
-    name: 'CareDesk HMS',
+    name: 'CureDesk HMS',
   },
   rebuildConfig: {},
   makers: [
     new MakerSquirrel({
-      name: 'caredesk_hms',
-      setupExe: 'CareDesk-HMS-Setup.exe',
+      name: 'curedesk_hms',
+      setupExe: 'CureDesk-HMS-Setup.exe',
     }),
     // ZIP fallback for Windows + macOS — extract the zip and run the .exe
     // directly. Always works even when Squirrel's installer toolchain is

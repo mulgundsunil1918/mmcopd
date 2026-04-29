@@ -1,8 +1,8 @@
-appId: com.mulgundclinic.caredesk
-productName: CareDesk HMS
-copyright: Copyright (c) 2026 Mulgund Multispeciality Clinic
+appId: com.curedesk.hms
+productName: CureDesk HMS
+copyright: Copyright (c) 2026 CureDesk HMS
 
-# Forge already produces the packaged app dir at out/CareDesk HMS-win32-x64/.
+# Forge already produces the packaged app dir at out/CureDesk HMS-win32-x64/.
 # electron-builder runs in --prepackaged mode and just wraps it in NSIS.
 directories:
   output: dist-installer
@@ -20,10 +20,10 @@ nsis:
   allowElevation: true
   createDesktopShortcut: always
   createStartMenuShortcut: true
-  shortcutName: CareDesk HMS
-  menuCategory: CareDesk
+  shortcutName: CureDesk HMS
+  menuCategory: CureDesk
   installerSidebar: null                # use NSIS default sidebar (no custom asset needed)
-  uninstallDisplayName: CareDesk HMS ${version}
+  uninstallDisplayName: CureDesk HMS ${version}
   runAfterFinish: true
   deleteAppDataOnUninstall: false       # keep clinic database safe on uninstall
-  artifactName: CareDesk-HMS-Setup-${version}.${ext}
+  artifactName: CureDesk-HMS-Setup-${version}.${ext}

@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CureDesk HMS — Modern OPD management for Indian clinics</title>
+<meta name="description" content="Offline-first hospital management software for OPD clinics. Reception, doctor, pharmacy, lab, billing, analytics — all in one Windows app." />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Crect width='256' height='256' rx='56' fill='%232563eb'/%3E%3Crect x='104' y='52' width='48' height='152' rx='10' fill='white'/%3E%3Crect x='52' y='104' width='152' height='48' rx='10' fill='white'/%3E%3Ccircle cx='196' cy='196' r='16' fill='white'/%3E%3Ccircle cx='196' cy='196' r='8' fill='%232563eb'/%3E%3Ccircle cx='196' cy='196' r='4' fill='white'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    color: #0f172a;
+    background: #ffffff;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: none; }
+  img, svg { display: block; max-width: 100%; }
+  .container { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+
+  /* ===== Top nav ===== */
+  .nav {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(255,255,255,0.85);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(15,23,42,0.06);
+  }
+  .nav-inner {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 0;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-weight: 800; font-size: 18px; letter-spacing: -0.02em;
+  }
+  .brand-mark {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: linear-gradient(135deg, #2563eb, #4f46e5);
+    display: grid; place-items: center; color: #fff;
+    box-shadow: 0 6px 16px -6px rgba(79,70,229,0.5);
+  }
+  .nav-links { display: flex; align-items: center; gap: 6px; }
+  .nav-links a {
+    font-size: 14px; font-weight: 500; color: #475569;
+    padding: 8px 14px; border-radius: 8px; transition: 0.15s;
+  }
+  .nav-links a:hover { color: #0f172a; background: #f1f5f9; }
+  .btn-primary {
+    background: linear-gradient(135deg, #2563eb, #4f46e5);
+    color: #fff !important; padding: 10px 18px !important;
+    border-radius: 10px; font-weight: 600 !important;
+    box-shadow: 0 6px 20px -8px rgba(79,70,229,0.6);
+    transition: 0.2s;
+  }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 24px -8px rgba(79,70,229,0.7); background: linear-gradient(135deg, #1d4ed8, #4338ca) !important; }
+  .btn-secondary {
+    background: #fff; color: #0f172a !important;
+    padding: 10px 18px !important; border-radius: 10px;
+    font-weight: 600 !important; border: 1px solid #cbd5e1;
+    transition: 0.15s;
+  }
+  .btn-secondary:hover { border-color: #94a3b8; background: #f8fafc; }
+
+  /* ===== Hero ===== */
+  .hero {
+    padding: 80px 0 60px;
+    background:
+      radial-gradient(circle at 20% 0%, rgba(99,102,241,0.10), transparent 50%),
+      radial-gradient(circle at 80% 30%, rgba(14,165,233,0.08), transparent 50%),
+      linear-gradient(180deg, #fafbff 0%, #ffffff 100%);
+  }
+  .hero-grid {
+    display: grid; grid-template-columns: 1.1fr 1fr; gap: 60px; align-items: center;
+  }
+  @media (max-width: 900px) { .hero-grid { grid-template-columns: 1fr; gap: 40px; } }
+  .hero-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 14px; border-radius: 99px;
+    background: rgba(79,70,229,0.08); color: #4338ca;
+    font-size: 12px; font-weight: 600;
+    margin-bottom: 24px;
+  }
+  .hero-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: #4f46e5; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+  .hero h1 {
+    font-size: 56px; font-weight: 800; line-height: 1.05;
+    letter-spacing: -0.03em; color: #0f172a;
+    margin-bottom: 20px;
+  }
+  @media (max-width: 700px) { .hero h1 { font-size: 38px; } }
+  .hero h1 .accent {
+    background: linear-gradient(120deg, #2563eb, #4f46e5, #7c3aed);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .hero p.lead {
+    font-size: 18px; color: #475569; max-width: 540px;
+    margin-bottom: 32px;
+  }
+  .hero-ctas { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 28px; }
+  .hero-ctas a { font-size: 15px; }
+  .hero-ctas .btn-primary { padding: 14px 24px !important; font-size: 15px !important; }
+  .hero-ctas .btn-secondary { padding: 14px 24px !important; font-size: 15px !important; }
+  .hero-trust {
+    display: flex; align-items: center; gap: 18px;
+    font-size: 13px; color: #64748b;
+  }
+  .check-row { display: flex; align-items: center; gap: 6px; }
+  .check-row svg { width: 16px; height: 16px; color: #10b981; }
+
+  /* ===== Hero illustration (mock UI) ===== */
+  .hero-mock {
+    border-radius: 16px;
+    border: 1px solid rgba(15,23,42,0.08);
+    box-shadow:
+      0 30px 60px -15px rgba(15,23,42,0.20),
+      0 12px 24px -6px rgba(15,23,42,0.10);
+    overflow: hidden;
+    background: #ffffff;
+    transform: perspective(1200px) rotateY(-3deg) rotateX(2deg);
+  }
+  .hero-mock-bar {
+    display: flex; gap: 6px; padding: 10px 14px;
+    background: #f1f5f9; border-bottom: 1px solid rgba(15,23,42,0.06);
+  }
+  .hero-mock-bar span { width: 10px; height: 10px; border-radius: 50%; background: #cbd5e1; }
+  .hero-mock-bar span:first-child { background: #ef4444; }
+  .hero-mock-bar span:nth-child(2) { background: #f59e0b; }
+  .hero-mock-bar span:nth-child(3) { background: #10b981; }
+  .hero-mock-body { display: flex; min-height: 360px; }
+  .hero-mock-side {
+    width: 130px; background: #0f172a; padding: 14px 10px; color: #cbd5e1;
+    display: flex; flex-direction: column; gap: 4px; font-size: 11px;
+  }
+  .hero-mock-side .item { padding: 7px 10px; border-radius: 6px; display: flex; align-items: center; gap: 6px; }
+  .hero-mock-side .item.active { background: #2563eb; color: #fff; }
+  .hero-mock-side .item .icon { width: 12px; height: 12px; opacity: 0.7; }
+  .hero-mock-main { flex: 1; padding: 16px; background: #f8fafc; }
+  .mock-card {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+    padding: 12px; margin-bottom: 10px; font-size: 11px;
+  }
+  .mock-card .row { display: flex; align-items: center; justify-content: space-between; }
+  .mock-card .name { font-weight: 600; color: #0f172a; }
+  .mock-card .meta { font-size: 9px; color: #64748b; margin-top: 2px; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 9px; font-weight: 600; }
+  .pill-blue { background: #dbeafe; color: #1d4ed8; }
+  .pill-green { background: #d1fae5; color: #047857; }
+  .pill-amber { background: #fef3c7; color: #b45309; }
+
+  /* ===== Section title ===== */
+  .section { padding: 80px 0; }
+  .section-head { text-align: center; margin-bottom: 56px; }
+  .section-eyebrow {
+    display: inline-block; font-size: 13px; font-weight: 600;
+    color: #4f46e5; text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 12px;
+  }
+  .section-head h2 {
+    font-size: 38px; font-weight: 800; letter-spacing: -0.02em;
+    color: #0f172a; margin-bottom: 12px;
+  }
+  @media (max-width: 700px) { .section-head h2 { font-size: 28px; } }
+  .section-head p { font-size: 17px; color: #64748b; max-width: 620px; margin: 0 auto; }
+
+  /* ===== Feature grid ===== */
+  .features-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px;
+  }
+  @media (max-width: 900px) { .features-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) { .features-grid { grid-template-columns: 1fr; } }
+  .feat-card {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 14px;
+    padding: 26px;
+    transition: 0.2s;
+  }
+  .feat-card:hover { transform: translateY(-3px); box-shadow: 0 12px 32px -10px rgba(15,23,42,0.12); border-color: #cbd5e1; }
+  .feat-icon {
+    width: 44px; height: 44px; border-radius: 10px;
+    display: grid; place-items: center; color: #fff;
+    margin-bottom: 16px;
+  }
+  .feat-icon.blue { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+  .feat-icon.violet { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
+  .feat-icon.emerald { background: linear-gradient(135deg, #10b981, #059669); }
+  .feat-icon.amber { background: linear-gradient(135deg, #f59e0b, #d97706); }
+  .feat-icon.rose { background: linear-gradient(135deg, #f43f5e, #be123c); }
+  .feat-icon.cyan { background: linear-gradient(135deg, #06b6d4, #0e7490); }
+  .feat-card h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; color: #0f172a; }
+  .feat-card p { font-size: 14px; color: #64748b; line-height: 1.55; }
+
+  /* ===== Modules section (alternating) ===== */
+  .module-section { padding: 70px 0; }
+  .module-section.alt { background: #f8fafc; }
+  .module-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: center;
+  }
+  @media (max-width: 900px) { .module-grid { grid-template-columns: 1fr; gap: 32px; } }
+  .module-grid.reverse > div:first-child { order: 2; }
+  @media (max-width: 900px) { .module-grid.reverse > div:first-child { order: initial; } }
+  .module-eyebrow {
+    display: inline-block; font-size: 12px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    padding: 4px 10px; border-radius: 6px; margin-bottom: 14px;
+  }
+  .module-eyebrow.blue { background: #dbeafe; color: #1d4ed8; }
+  .module-eyebrow.emerald { background: #d1fae5; color: #047857; }
+  .module-eyebrow.violet { background: #ede9fe; color: #6d28d9; }
+  .module-eyebrow.amber { background: #fef3c7; color: #b45309; }
+  .module-section h3 {
+    font-size: 30px; font-weight: 800; letter-spacing: -0.02em;
+    color: #0f172a; margin-bottom: 14px; line-height: 1.15;
+  }
+  .module-section p.module-lead { font-size: 16px; color: #475569; margin-bottom: 18px; }
+  .module-points { list-style: none; padding: 0; }
+  .module-points li {
+    padding: 8px 0; font-size: 14px; color: #334155;
+    display: flex; align-items: flex-start; gap: 10px;
+  }
+  .module-points li svg { flex-shrink: 0; margin-top: 4px; width: 16px; height: 16px; color: #10b981; }
+  .module-screenshot {
+    aspect-ratio: 4/3;
+    background: linear-gradient(135deg, #eff6ff 0%, #f5f3ff 100%);
+    border-radius: 16px;
+    border: 1px solid #e2e8f0;
+    padding: 18px;
+    box-shadow: 0 18px 40px -12px rgba(15,23,42,0.15);
+    position: relative; overflow: hidden;
+  }
+  .module-screenshot.green-tint { background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%); }
+  .module-screenshot.amber-tint { background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); }
+  .module-screenshot.violet-tint { background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%); }
+  .ms-content { background: #fff; border-radius: 8px; padding: 14px; height: 100%; box-shadow: 0 4px 16px -4px rgba(15,23,42,0.08); font-size: 11px; }
+  .ms-row { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; border-bottom: 1px dashed #e2e8f0; }
+  .ms-row:last-child { border-bottom: none; }
+  .ms-label { font-weight: 600; color: #1e293b; }
+  .ms-value { color: #64748b; font-family: monospace; }
+  .ms-bar {
+    height: 6px; background: #e2e8f0; border-radius: 99px; overflow: hidden;
+    margin: 4px 0;
+  }
+  .ms-bar > div { height: 100%; background: linear-gradient(90deg, #2563eb, #4f46e5); border-radius: 99px; }
+
+  /* ===== Stats / metrics row ===== */
+  .stats-section {
+    padding: 56px 0; background: #0f172a; color: #f1f5f9;
+  }
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 30px; text-align: center; }
+  @media (max-width: 700px) { .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 24px; } }
+  .stat-num { font-size: 36px; font-weight: 800; letter-spacing: -0.02em; color: #fff; }
+  .stat-label { font-size: 13px; color: #94a3b8; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+  /* ===== Demo CTA banner ===== */
+  .demo-banner {
+    margin: 40px auto 80px;
+    background:
+      radial-gradient(circle at 90% 50%, rgba(255,255,255,0.1), transparent 50%),
+      linear-gradient(135deg, #1e3a8a 0%, #4338ca 70%, #5b21b6 100%);
+    border-radius: 22px;
+    padding: 56px 48px;
+    color: #fff;
+    text-align: center;
+    box-shadow: 0 30px 60px -20px rgba(67,56,202,0.45);
+  }
+  @media (max-width: 700px) { .demo-banner { padding: 40px 28px; margin: 32px auto 56px; } }
+  .demo-banner h2 { font-size: 32px; font-weight: 800; margin-bottom: 12px; letter-spacing: -0.02em; }
+  .demo-banner p { font-size: 16px; color: #c7d2fe; margin-bottom: 24px; max-width: 600px; margin-left: auto; margin-right: auto; }
+  .demo-banner .btn-light {
+    background: #fff; color: #1e293b !important;
+    padding: 14px 28px !important; border-radius: 10px;
+    font-weight: 700 !important; font-size: 15px;
+    display: inline-flex; align-items: center; gap: 8px;
+    transition: 0.2s;
+  }
+  .demo-banner .btn-light:hover { transform: translateY(-2px); box-shadow: 0 18px 36px -10px rgba(255,255,255,0.3); }
+
+  /* ===== Footer ===== */
+  footer {
+    background: #0a0f1c; color: #94a3b8;
+    padding: 50px 0 30px; font-size: 13px;
+  }
+  .footer-grid {
+    display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 40px;
+    margin-bottom: 40px;
+  }
+  @media (max-width: 800px) { .footer-grid { grid-template-columns: 1fr 1fr; gap: 30px; } }
+  .footer-grid h4 { font-size: 12px; font-weight: 700; color: #fff; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; }
+  .footer-grid a { display: block; padding: 4px 0; color: #94a3b8; transition: color 0.15s; }
+  .footer-grid a:hover { color: #fff; }
+  .footer-bottom {
+    border-top: 1px solid rgba(255,255,255,0.06); padding-top: 20px;
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+    font-size: 12px;
+  }
+
+  /* ===== Modal for "Download" CTA ===== */
+  .modal-overlay {
+    display: none;
+    position: fixed; inset: 0; background: rgba(15,23,42,0.7);
+    z-index: 100; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: #fff; border-radius: 16px; padding: 36px 32px;
+    max-width: 440px; width: 100%; text-align: center;
+    box-shadow: 0 30px 60px -10px rgba(0,0,0,0.4);
+    animation: pop 0.25s ease;
+  }
+  @keyframes pop { from { transform: scale(0.92); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .modal-icon {
+    width: 64px; height: 64px; border-radius: 50%;
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    display: grid; place-items: center; color: #fff;
+    margin: 0 auto 18px;
+  }
+  .modal h3 { font-size: 22px; font-weight: 800; margin-bottom: 10px; color: #0f172a; }
+  .modal p { color: #475569; font-size: 14px; margin-bottom: 24px; }
+  .modal-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+</style>
+</head>
+
+<body>
+
+<!-- ============== TOP NAV ============== -->
+<header class="nav">
+  <div class="container nav-inner">
+    <a href="#" class="brand">
+      <span class="brand-mark">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/><circle cx="18.5" cy="18.5" r="2" fill="currentColor" stroke="none"/></svg>
+      </span>
+      CureDesk HMS
+    </a>
+    <nav class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#modules">Modules</a>
+      <a href="#demo">Demo</a>
+      <a href="demo.html" class="btn-secondary">Try Live Demo →</a>
+      <a href="#download" class="btn-primary" onclick="event.preventDefault(); openDownload();">Download</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ============== HERO ============== -->
+<section class="hero">
+  <div class="container hero-grid">
+    <div>
+      <span class="hero-pill"><span class="dot"></span> Built for Indian OPD clinics</span>
+      <h1>The complete clinic software<br><span class="accent">that works offline.</span></h1>
+      <p class="lead">
+        Patient registration, appointments, doctor consultation, pharmacy, lab, billing, and analytics —
+        all in one Windows app. Your data never leaves your computer.
+      </p>
+      <div class="hero-ctas">
+        <a href="demo.html" class="btn-primary">▶ Try Live Demo</a>
+        <a href="#download" class="btn-secondary" onclick="event.preventDefault(); openDownload();">Download for Windows</a>
+      </div>
+      <div class="hero-trust">
+        <span class="check-row"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> No internet required</span>
+        <span class="check-row"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> One-time payment</span>
+        <span class="check-row"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Schedule H ready</span>
+      </div>
+    </div>
+
+    <!-- Mock UI illustration -->
+    <div class="hero-mock">
+      <div class="hero-mock-bar"><span></span><span></span><span></span></div>
+      <div class="hero-mock-body">
+        <aside class="hero-mock-side">
+          <div class="item active">👥 Reception</div>
+          <div class="item">📅 Appointments</div>
+          <div class="item">🩺 Doctors</div>
+          <div class="item">💊 Pharmacy</div>
+          <div class="item">🧪 Laboratory</div>
+          <div class="item">📊 Analytics</div>
+          <div class="item">💵 Billing</div>
+        </aside>
+        <div class="hero-mock-main">
+          <div class="mock-card">
+            <div class="row"><span class="name">Patient — Aishwarya Hegde</span><span class="pill pill-blue">Token #12</span></div>
+            <div class="meta">UHID PT-20260428-0042 · 32y · Female</div>
+          </div>
+          <div class="mock-card">
+            <div class="row"><span class="name">Patient — Ramesh Kulkarni</span><span class="pill pill-green">Done</span></div>
+            <div class="meta">UHID PT-20260428-0041 · 58y · Male</div>
+          </div>
+          <div class="mock-card">
+            <div class="row"><span class="name">Patient — Sumitra Mali</span><span class="pill pill-amber">Waiting</span></div>
+            <div class="meta">UHID PT-20260428-0040 · 6y · Female</div>
+          </div>
+          <div class="mock-card">
+            <div class="row"><span class="name">Today's revenue</span><span style="color:#059669;font-weight:700;">₹ 14,250</span></div>
+            <div class="ms-bar" style="margin-top:8px;"><div style="width:72%;"></div></div>
+            <div class="meta">7 visits · 5 done · 2 waiting</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== STATS BAR ============== -->
+<section class="stats-section">
+  <div class="container stats-grid">
+    <div><div class="stat-num">7</div><div class="stat-label">Sidebar modules</div></div>
+    <div><div class="stat-num">100%</div><div class="stat-label">Offline-first</div></div>
+    <div><div class="stat-num">2</div><div class="stat-label">Languages on slip</div></div>
+    <div><div class="stat-num">∞</div><div class="stat-label">Patients · no limit</div></div>
+  </div>
+</section>
+
+<!-- ============== FEATURES ============== -->
+<section class="section" id="features">
+  <div class="container">
+    <div class="section-head">
+      <span class="section-eyebrow">What you get</span>
+      <h2>Everything a busy OPD clinic needs.</h2>
+      <p>From the moment a patient walks in to the printed slip — every workflow is built in. No third-party plugins, no monthly fees, no surprises.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feat-card">
+        <div class="feat-icon blue">
+          <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <h3>Reception & Appointments</h3>
+        <p>Search by name / phone / UHID, register in 30 seconds, book slots with double-booking prevention, and send WhatsApp confirmations.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon violet">
+          <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+        </div>
+        <h3>Doctor Consultation</h3>
+        <p>Vitals strip, prescription with drug auto-complete, custom OPD slip templates per specialty (OBG, Pediatrics, ENT, Cardiology, Ortho).</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon emerald">
+          <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/></svg>
+        </div>
+        <h3>Pharmacy with FEFO</h3>
+        <p>Batch-tracked inventory, First-Expired-First-Out dispensing, Schedule H register, purchase invoices, low-stock + expiry alerts.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon amber">
+          <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+        </div>
+        <h3>Analytics Dashboard</h3>
+        <p>Revenue trends, demographics, geography, retention cohorts, doctor-wise performance, and operational reports — all built in.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon rose">
+          <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <h3>Bilingual OPD Slip</h3>
+        <p>Beautiful A4 print with clinic letterhead, vitals, Rx table, and a follow-up offer in <b>English + Kannada</b>. Customizable per specialty.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon cyan">
+          <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+        </div>
+        <h3>Local SQLite + Backups</h3>
+        <p>Zero-cloud architecture. Daily auto-backup with USB reminder, on-demand restore. Your patient data stays on your computer.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== MODULES (alternating spotlight) ============== -->
+<div id="modules">
+  <section class="module-section">
+    <div class="container">
+      <div class="module-grid">
+        <div>
+          <span class="module-eyebrow blue">Reception</span>
+          <h3>Register a new patient in under 30 seconds.</h3>
+          <p class="module-lead">Smart age input (years / months / days), phone-optional flag, autocomplete for villages and districts, optional one-time registration fee, instant WhatsApp confirmation.</p>
+          <ul class="module-points">
+            <li><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Auto-generated UHID with date prefix</li>
+            <li><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Search across name, phone, and UHID</li>
+            <li><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Configurable registration fee with 3 collection modes</li>
+            <li><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Free follow-up policy that auto-applies on booking</li>
+          </ul>
+        </div>
+        <div class="module-screenshot">
+          <div class="ms-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <strong style="font-size: 13px;">Register New Patient</strong>
+              <span class="pill pill-blue">PT-20260429</span>
+            </div>
+            <div class="ms-row"><span class="ms-label">Name</span><span class="ms-value">Aarti Bhandari</span></div>
+            <div class="ms-row"><span class="ms-label">Age</span><span class="ms-value">28y 4m</span></div>
+            <div class="ms-row"><span class="ms-label">Phone</span><span class="ms-value">98••••2210</span></div>
+            <div class="ms-row"><span class="ms-label">Place</span><span class="ms-value">Hubli</span></div>
+            <div style="margin-top: 12px; padding: 10px; background: #fffbeb; border-radius: 6px; border: 1px solid #fde68a;">
+              <div style="font-size: 10px; font-weight: 600; color: #92400e;">☑ Collect ₹100 registration fee now</div>
+              <div style="font-size: 9px; color: #b45309; margin-top: 2px;">Payment: Cash · UPI · Card</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="module-section alt">
+    <div class="container">
+      <div class="module-grid reverse">
+        <div>
+          <span class="module-eyebrow violet">Doctor Consultation</span>
+          <h3>Specialty-aware OPD slips. One workflow, every doctor.</h3>
+          <p class="module-lead">Each doctor picks an OPD slip template — General, OBG, Pediatrics, Cardiology, Orthopedic, ENT, or General Medicine — with completely customizable sections.</p>
+          <ul class="module-points">
+            <li><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> 7 prebuilt templates · unlimited custom ones</li>
+            <li><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> LMP, EDD, milestones, NYHA — fields per specialty</li>
+            <li><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Bilingual follow-up box (EN + Kannada)</li>
+            <li><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Prescription with drug auto-complete from inventory</li>
+          </ul>
+        </div>
+        <div class="module-screenshot violet-tint">
+          <div class="ms-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #e2e8f0;">
+              <strong style="font-size: 12px;">Dr. Patil · OBG Template</strong>
+              <span class="pill" style="background:#ede9fe;color:#6d28d9;">OBG</span>
+            </div>
+            <div class="ms-row"><span class="ms-label">LMP</span><span class="ms-value">14th April 2026</span></div>
+            <div class="ms-row"><span class="ms-label">EDD</span><span class="ms-value">21st January 2027</span></div>
+            <div class="ms-row"><span class="ms-label">G/P/A/L</span><span class="ms-value">G2 P1 A0 L1</span></div>
+            <div class="ms-row"><span class="ms-label">Gestational age</span><span class="ms-value">8 wks 2 days</span></div>
+            <div style="margin-top: 10px; padding: 8px; background: #ecfdf5; border-radius: 6px; border-left: 3px solid #10b981;">
+              <div style="font-size: 10px; font-weight: 700; color: #064e3b;">FOLLOW-UP · ಮರು ಭೇಟಿ</div>
+              <div style="font-size: 9px; color: #064e3b; margin-top: 2px;">2 free visits till 6th May 2026 · ಲಭ್ಯ</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="module-section">
+    <div class="container">
+      <div class="module-grid">
+        <div>
+          <span class="module-eyebrow emerald">Pharmacy</span>
+          <h3>Inventory that follows the rules. Schedule H ready.</h3>
+          <p class="module-lead">Real batch tracking, FEFO (First-Expired-First-Out) auto-allocation on every dispense, automatic dispensing register for inspector visits, full purchase-invoice trail.</p>
+          <ul class="module-points">
+            <li><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Drug master + batch + stock — three-level data model</li>
+            <li><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Schedule H / H1 dispensing register PDF on demand</li>
+            <li><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Low stock + 90-day expiry alerts</li>
+            <li><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Walk-in counter sale + Rx-driven dispensing</li>
+          </ul>
+        </div>
+        <div class="module-screenshot green-tint">
+          <div class="ms-content">
+            <strong style="font-size: 12px; display: block; margin-bottom: 8px;">Stock & Batches</strong>
+            <div class="ms-row"><span class="ms-label">Paracetamol 500mg</span><span class="ms-value" style="color:#059669;">142 left</span></div>
+            <div class="ms-row"><span class="ms-label">Amoxicillin 500mg</span><span class="ms-value" style="color:#059669;">98 left</span></div>
+            <div class="ms-row"><span class="ms-label">Azithromycin 500mg</span><span class="ms-value" style="color:#d97706;">8 · low</span></div>
+            <div class="ms-row"><span class="ms-label">Pantoprazole 40mg</span><span class="ms-value" style="color:#dc2626;">expires 5d</span></div>
+            <div style="margin-top: 10px; padding: 8px; background: #ecfdf5; border-radius: 6px;">
+              <div style="font-size: 10px; font-weight: 600; color: #065f46;">✓ Schedule H register · 47 entries this month</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="module-section alt">
+    <div class="container">
+      <div class="module-grid reverse">
+        <div>
+          <span class="module-eyebrow amber">Analytics</span>
+          <h3>Know your clinic. Daily, weekly, monthly.</h3>
+          <p class="module-lead">No spreadsheets, no exports to your accountant. Live dashboards across finance, demographics, patient origin, pharmacy, services, and operational reports.</p>
+          <ul class="module-points">
+            <li><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Revenue today / week / month with delta vs prior</li>
+            <li><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Patient retention cohort heatmap</li>
+            <li><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Weekday × hour visit heatmap (find your peaks)</li>
+            <li><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Color-coded doctor revenue + service category breakdown</li>
+          </ul>
+        </div>
+        <div class="module-screenshot amber-tint">
+          <div class="ms-content">
+            <strong style="font-size: 12px; display: block; margin-bottom: 8px;">This Month</strong>
+            <div class="ms-row"><span class="ms-label">OPD revenue</span><span class="ms-value" style="color:#059669;font-weight:700;">₹ 1,28,400</span></div>
+            <div class="ms-bar"><div style="width:78%;"></div></div>
+            <div class="ms-row" style="margin-top:8px;"><span class="ms-label">Pharmacy revenue</span><span class="ms-value" style="color:#059669;font-weight:700;">₹ 84,750</span></div>
+            <div class="ms-bar"><div style="width:55%;background:linear-gradient(90deg,#10b981,#059669);"></div></div>
+            <div class="ms-row" style="margin-top:8px;"><span class="ms-label">New patients</span><span class="ms-value" style="font-weight:700;">62</span></div>
+            <div class="ms-row"><span class="ms-label">Free follow-ups granted</span><span class="ms-value" style="font-weight:700;">14</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ============== DEMO BANNER ============== -->
+<div class="container" id="demo">
+  <div class="demo-banner">
+    <h2>See it in action — no install, no signup.</h2>
+    <p>The live demo is loaded with 50 sample patients, 5 doctors, full pharmacy data, and analytics. Click around — every screen works.</p>
+    <a href="demo.html" class="btn-light">▶ Launch Live Demo →</a>
+  </div>
+</div>
+
+<!-- ============== FOOTER ============== -->
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+          <span class="brand-mark">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/><circle cx="18.5" cy="18.5" r="2" fill="currentColor" stroke="none"/></svg>
+          </span>
+          <strong style="color: #fff; font-size: 16px;">CureDesk HMS</strong>
+        </div>
+        <p style="max-width: 320px; line-height: 1.6;">A modern, offline-first hospital management system for OPD clinics across India. One Windows app, every workflow.</p>
+      </div>
+      <div>
+        <h4>Product</h4>
+        <a href="#features">Features</a>
+        <a href="#modules">Modules</a>
+        <a href="demo.html">Live Demo</a>
+        <a href="#download" onclick="event.preventDefault(); openDownload();">Download</a>
+      </div>
+      <div>
+        <h4>Resources</h4>
+        <a href="https://github.com/mulgundsunil1918/mmcopd" target="_blank">GitHub Repo</a>
+        <a href="demo.html">Walkthrough</a>
+        <a href="#download" onclick="event.preventDefault(); openDownload();">System Requirements</a>
+      </div>
+      <div>
+        <h4>Get in touch</h4>
+        <a href="#download" onclick="event.preventDefault(); openDownload();">Request a Quote</a>
+        <a href="#download" onclick="event.preventDefault(); openDownload();">Schedule Demo Call</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 CureDesk HMS · All rights reserved.</span>
+      <span>Built with React, Electron, and SQLite · Made in India 🇮🇳</span>
+    </div>
+  </div>
+</footer>
+
+<!-- ============== DOWNLOAD MODAL ============== -->
+<div class="modal-overlay" id="dlModal" onclick="if (event.target===this) closeDownload();">
+  <div class="modal">
+    <div class="modal-icon">
+      <svg width="30" height="30" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M12 2v8"/><path d="m4.93 10.93 1.41 1.41"/><path d="M2 18h2"/><path d="M20 18h2"/><path d="m19.07 10.93-1.41 1.41"/><path d="M22 22H2"/><path d="m8 22 4-10 4 10"/></svg>
+    </div>
+    <h3>Coming Soon</h3>
+    <p>The downloadable Windows installer launches publicly soon. Drop us a note for early access — we'll send the Setup.exe directly when it's ready.</p>
+    <div class="modal-actions">
+      <a href="demo.html" class="btn-primary" style="font-size:14px;">Try Live Demo Instead</a>
+      <button class="btn-secondary" onclick="closeDownload();" style="border:1px solid #cbd5e1;background:#fff;cursor:pointer;font-size:14px;font-weight:600;padding:10px 18px;border-radius:10px;">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  function openDownload() { document.getElementById('dlModal').classList.add('open'); }
+  function closeDownload() { document.getElementById('dlModal').classList.remove('open'); }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDownload(); });
+</script>
+</body>
+</html>

@@ -4,31 +4,35 @@ import path from 'node:path';
 import fs from 'node:fs';
 
 /**
- * Static-web build of CareDesk HMS for the GitHub Pages showcase.
+ * Static-web build of CureDesk HMS for the GitHub Pages showcase + landing page.
  *
- * - Entry: demo.html → src/demo/demo-entry.tsx (mocks window.electronAPI
- *   before loading the rest of the app).
- * - base: '/mmcopd/' so the bundled JS/CSS resolve correctly when hosted
- *   under https://mulgundsunil1918.github.io/mmcopd/.
- * - Output: dist-demo/ (separate from Electron's .vite/build).
- * - After build, demo.html is renamed to index.html so GitHub Pages serves
- *   it at the root URL (Pages requires index.html — not demo.html).
+ * Two HTML inputs:
+ *  - landing.html → renamed to index.html (the marketing homepage at
+ *    https://mulgundsunil1918.github.io/mmcopd/).
+ *  - demo.html → src/demo/demo-entry.tsx, the live React showcase that
+ *    mocks window.electronAPI. Stays at /mmcopd/demo.html.
+ *
+ * base: '/mmcopd/' so the bundled JS/CSS resolve under the GH-Pages
+ * subpath. Output: dist-demo/ (separate from Electron's .vite/build).
  *
  * Used by `npm run build:demo`. Not touched by Electron Forge.
  */
 
-function renameToIndexPlugin() {
+function postBuildPlugin() {
   return {
-    name: 'caredesk:rename-demo-to-index',
+    name: 'curedesk:rename-and-fallback',
     apply: 'build' as const,
     closeBundle() {
       const dist = path.resolve(__dirname, 'dist-demo');
-      const src = path.join(dist, 'demo.html');
-      const dst = path.join(dist, 'index.html');
-      if (fs.existsSync(src)) {
-        fs.renameSync(src, dst);
-        // Also drop a 404.html that boots the SPA so deep links don't 404.
-        fs.copyFileSync(dst, path.join(dist, '404.html'));
+      // landing.html → index.html (the new homepage)
+      const landingSrc = path.join(dist, 'landing.html');
+      const indexDst = path.join(dist, 'index.html');
+      if (fs.existsSync(landingSrc)) fs.renameSync(landingSrc, indexDst);
+      // 404 fallback → load the demo so SPA deep-links into the React
+      // app (#/reception etc.) work even on direct hit.
+      const demoPath = path.join(dist, 'demo.html');
+      if (fs.existsSync(demoPath)) {
+        fs.copyFileSync(demoPath, path.join(dist, '404.html'));
       }
     },
   };
@@ -36,13 +40,14 @@ function renameToIndexPlugin() {
 
 export default defineConfig({
   base: '/mmcopd/',
-  plugins: [react(), renameToIndexPlugin()],
+  plugins: [react(), postBuildPlugin()],
   build: {
     outDir: 'dist-demo',
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        main: path.resolve(__dirname, 'demo.html'),
+        landing: path.resolve(__dirname, 'landing.html'),
+        demo: path.resolve(__dirname, 'demo.html'),
       },
     },
   },

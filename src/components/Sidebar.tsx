@@ -82,12 +82,15 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
             <img src={settings.clinic_logo} alt="Logo" className="w-9 h-9 rounded-lg object-contain shadow" style={{ background: '#ffffff' }} />
           ) : (
             <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow">
-              <HeartPulse className="w-5 h-5 text-white" />
+              <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.6" strokeLinecap="round" className="w-5 h-5">
+                <path d="M12 5v14M5 12h14"/>
+                <circle cx="18.5" cy="18.5" r="2" fill="white" stroke="none"/>
+              </svg>
             </div>
           )}
           <div className="min-w-0 flex-1">
-            <div className="sidebar-title text-sm leading-tight truncate">{settings?.clinic_name || 'CareDesk HMS'}</div>
-            <div className="sidebar-subtitle text-[10px] leading-tight truncate">{settings?.clinic_tagline || clinicName || 'Mulgund Multispeciality'}</div>
+            <div className="sidebar-title text-sm leading-tight truncate">{settings?.clinic_name || 'CureDesk HMS'}</div>
+            <div className="sidebar-subtitle text-[10px] leading-tight truncate">{settings?.clinic_tagline || clinicName || 'Modern OPD management'}</div>
           </div>
           {onCollapse && (
             <button

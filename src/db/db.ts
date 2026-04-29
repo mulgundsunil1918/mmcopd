@@ -56,7 +56,7 @@ function preMigrationSnapshotIfNeeded(userData: string, dbPath: string) {
   try {
     fs.writeFileSync(
       path.join(dir, 'README.txt'),
-      `CareDesk HMS — pre-migration snapshot.\n` +
+      `CureDesk HMS — pre-migration snapshot.\n` +
       `\n` +
       `Taken automatically just before upgrading the database schema from\n` +
       `v${storedVersion} to v${SCHEMA_VERSION} on ${stamp}.\n` +
@@ -64,7 +64,7 @@ function preMigrationSnapshotIfNeeded(userData: string, dbPath: string) {
       `If something is wrong with the upgraded database, you can roll back by\n` +
       `closing the app and copying caredesk.sqlite from this folder back into\n` +
       `the app's userData folder (the .sqlite file lives next to this folder's\n` +
-      `parent — usually %APPDATA%\\CareDesk HMS\\).\n`
+      `parent — usually %APPDATA%\\CureDesk HMS\\).\n`
     );
   } catch { /* ignore */ }
 }

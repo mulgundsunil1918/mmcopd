@@ -34,7 +34,7 @@ if (app.isPackaged) {
       try {
         if (Notification.isSupported()) {
           const n = new Notification({
-            title: 'CareDesk HMS — Update ready',
+            title: 'CureDesk HMS — Update ready',
             body: `Version ${releaseName} downloaded. Click to install.`,
             urgency: 'normal',
           });
@@ -119,7 +119,7 @@ function refreshTrayMenu() {
   if (!trayRef) return;
   const s = getAllSettings(getDb());
   const menu = Menu.buildFromTemplate([
-    { label: `CareDesk HMS — ${s.clinic_name || 'Clinic'}`, enabled: false },
+    { label: `CureDesk HMS — ${s.clinic_name || 'Clinic'}`, enabled: false },
     { type: 'separator' },
     { label: 'Open dashboard', click: () => showWindow() },
     {
@@ -142,7 +142,7 @@ function refreshTrayMenu() {
     },
   ]);
   trayRef.setContextMenu(menu);
-  trayRef.setToolTip(`${s.clinic_name || 'CareDesk HMS'} — running in background`);
+  trayRef.setToolTip(`${s.clinic_name || 'CureDesk HMS'} — running in background`);
 }
 
 function ensureTray() {
@@ -244,7 +244,7 @@ function createWindow() {
     height: 900,
     minWidth: 1100,
     minHeight: 700,
-    title: settings.clinic_name || 'CareDesk HMS',
+    title: settings.clinic_name || 'CureDesk HMS',
     backgroundColor: '#ffffff',
     show: false,
     webPreferences: {
@@ -290,7 +290,7 @@ function createWindow() {
       mainWindow.hide();
       try {
         trayRef?.displayBalloon({
-          title: 'CareDesk HMS',
+          title: 'CureDesk HMS',
           content: 'Still running in the background. Click the tray icon to reopen.',
         });
       } catch { /* ignore */ }
@@ -459,7 +459,7 @@ function tickReminder() {
     const dailyKey = dateKey + '@' + reminder;
     if (hhmm === reminder && lastNotifiedDailyKey !== dailyKey) {
       lastNotifiedDailyKey = dailyKey;
-      fireOsNotification('CareDesk HMS — Time to backup & close', `It's ${reminder}. Click to open backup screen.`, 'daily');
+      fireOsNotification('CureDesk HMS — Time to backup & close', `It's ${reminder}. Click to open backup screen.`, 'daily');
     }
 
     const usbWeekday = Number.isFinite(s.usb_reminder_weekday) ? s.usb_reminder_weekday : 1;
@@ -468,7 +468,7 @@ function tickReminder() {
     if (now.getDay() === usbWeekday && hhmm === usbTime && lastNotifiedUsbKey !== usbKey) {
       lastNotifiedUsbKey = usbKey;
       fireOsNotification(
-        'CareDesk HMS — Weekly USB backup',
+        'CureDesk HMS — Weekly USB backup',
         'Plug in your USB drive and take this week\'s physical backup. Click to open.',
         'usb'
       );

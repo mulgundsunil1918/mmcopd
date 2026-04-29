@@ -196,7 +196,7 @@ function Letterhead({
             </div>
           )}
           <div>
-            <div className="text-base font-extrabold tracking-tight" style={{ color: '#1e3a8a' }}>{settings.clinic_name || 'Mulgund Multispeciality Clinic'}</div>
+            <div className="text-base font-extrabold tracking-tight" style={{ color: '#1e3a8a' }}>{settings.clinic_name || 'CureDesk HMS'}</div>
             <div className="text-[13px]" style={{ color: '#64748b' }}>Continued — Page 2 of 2</div>
           </div>
         </div>
@@ -270,7 +270,7 @@ function Letterhead({
               className="font-extrabold tracking-tight uppercase"
               style={{ color: '#1e3a8a', fontSize: '24px', lineHeight: 1.1, letterSpacing: '0.5px' }}
             >
-              {settings.clinic_name || 'Mulgund Multispeciality Clinic'}
+              {settings.clinic_name || 'CureDesk HMS'}
             </div>
             {settings.clinic_tagline && (
               <div

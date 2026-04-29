@@ -32,7 +32,7 @@ export default function App() {
   });
 
   useEffect(() => {
-    if (clinicName) document.title = `${clinicName} · CareDesk HMS`;
+    if (clinicName) document.title = `${clinicName} · CureDesk HMS`;
   }, [clinicName]);
 
   // Global shortcuts that work from ANY page. They navigate first, then fire a

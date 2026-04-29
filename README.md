@@ -1,4 +1,4 @@
-# CareDesk HMS — Mulgund Multispeciality Clinic
+# CureDesk HMS — Modern OPD management for Indian clinics
 
 OPD management desktop app built with Electron + Vite + React + TypeScript + SQLite.
 
@@ -9,7 +9,7 @@ npm install
 npm start
 ```
 
-The Vite renderer dev server runs at http://127.0.0.1:1918 and is loaded inside the Electron window. The SQLite database lives at Electron's `userData` path (Windows: `%APPDATA%/CareDesk HMS/caredesk.sqlite`).
+The Vite renderer dev server runs at http://127.0.0.1:1918 and is loaded inside the Electron window. The SQLite database lives at Electron's `userData` path (Windows: `%APPDATA%/CureDesk HMS/caredesk.sqlite`).
 
 ## Package (Windows)
 

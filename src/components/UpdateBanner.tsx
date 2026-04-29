@@ -53,7 +53,7 @@ export function UpdateBanner() {
               Update ready{info.version ? ` — v${info.version}` : ''}
             </div>
             <div className="text-[11px] text-gray-600 dark:text-slate-300 mt-0.5">
-              A new version of CareDesk HMS is downloaded and ready to install. Restart now to apply. Your data is safe.
+              A new version of CureDesk HMS is downloaded and ready to install. Restart now to apply. Your data is safe.
             </div>
             {info.releaseNotes && (
               <details className="mt-2">

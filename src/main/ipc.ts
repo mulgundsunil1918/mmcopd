@@ -2599,7 +2599,7 @@ export function registerIpc() {
 
     // Manifest
     const manifest = {
-      app: 'CareDesk HMS',
+      app: 'CureDesk HMS',
       version: app.getVersion(),
       created_at: new Date().toISOString(),
       kind: label,
