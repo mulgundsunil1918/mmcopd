@@ -9,72 +9,82 @@ import splashHtml from './splash.html?raw';
 import { getDb, closeDb } from './db/db';
 import { getAllSettings } from './db/settings';
 
-// Use Electron's autoUpdater directly so we have full control over WHEN to check.
-let updaterAvailable = false;
-let updateState: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error' = 'idle';
-let updateInfo: { version?: string; releaseNotes?: string; error?: string } = {};
+// Update mechanism: poll GitHub Releases API on demand and on a daily timer.
+// We ship via NSIS (electron-builder) so Electron's built-in Squirrel autoUpdater
+// doesn't apply. The "install" path opens the new Setup.exe download page in
+// the user's browser; they double-click to install over the existing version.
+const GITHUB_REPO = 'mulgundsunil1918/mmcopd';
 
-if (app.isPackaged) {
-  try {
-    const { autoUpdater } = require('electron');
-    const feedURL = `https://update.electronjs.org/mulgundsunil1918/mmcopd/${process.platform}-${process.arch}/${app.getVersion()}`;
-    autoUpdater.setFeedURL({ url: feedURL });
+type UpdateState = 'idle' | 'checking' | 'uptodate' | 'available' | 'error';
+let updateState: UpdateState = 'idle';
+let updateInfo: {
+  currentVersion?: string;
+  latestVersion?: string;
+  releaseNotes?: string;
+  releaseUrl?: string;
+  downloadUrl?: string;
+  checkedAt?: string;
+  error?: string;
+} = {};
 
-    autoUpdater.on('checking-for-update', () => { updateState = 'checking'; mainWindowRef?.webContents.send('updates:state', { state: updateState }); });
-    autoUpdater.on('update-not-available', () => { updateState = 'idle'; mainWindowRef?.webContents.send('updates:state', { state: updateState }); });
-    autoUpdater.on('update-available', () => {
-      updateState = 'downloading';
-      mainWindowRef?.webContents.send('updates:state', { state: updateState });
-    });
-    autoUpdater.on('update-downloaded', (_e: any, releaseNotes: string, releaseName: string) => {
-      updateState = 'downloaded';
-      updateInfo = { version: releaseName, releaseNotes };
-      mainWindowRef?.webContents.send('updates:state', { state: updateState, ...updateInfo });
-      // Also a Windows OS notification
-      try {
-        if (Notification.isSupported()) {
-          const n = new Notification({
-            title: 'CureDesk HMS — Update ready',
-            body: `Version ${releaseName} downloaded. Click to install.`,
-            urgency: 'normal',
-          });
-          n.on('click', () => {
-            mainWindowRef?.show();
-            mainWindowRef?.webContents.send('updates:promptInstall', updateInfo);
-          });
-          n.show();
-        }
-      } catch { /* ignore */ }
-    });
-    autoUpdater.on('error', (err: Error) => {
-      updateState = 'error';
-      updateInfo = { error: String(err?.message || err) };
-      mainWindowRef?.webContents.send('updates:state', { state: updateState, ...updateInfo });
-    });
-    updaterAvailable = true;
-  } catch (e) {
-    console.warn('Auto-updater init failed:', e);
+/** "1.10.2" > "1.9.9" by component-wise integer comparison. Returns true when `a` is newer than `b`. */
+function isNewer(a: string, b: string): boolean {
+  const norm = (v: string) => v.replace(/^v/i, '').split('.').map((p) => parseInt(p, 10) || 0);
+  const [aa, bb] = [norm(a), norm(b)];
+  for (let i = 0; i < Math.max(aa.length, bb.length); i++) {
+    const x = aa[i] ?? 0, y = bb[i] ?? 0;
+    if (x > y) return true;
+    if (x < y) return false;
   }
+  return false;
 }
 
-function safeCheckForUpdates() {
-  if (!updaterAvailable || !app.isPackaged) return;
+async function checkGitHubReleaseNow(): Promise<typeof updateInfo & { state: UpdateState }> {
+  updateState = 'checking';
+  updateInfo = { ...updateInfo, error: undefined };
+  mainWindowRef?.webContents.send('updates:state', { state: updateState, ...updateInfo });
+  const currentVersion = app.getVersion();
   try {
-    const { autoUpdater } = require('electron');
-    autoUpdater.checkForUpdates();
-  } catch (e) {
-    console.warn('checkForUpdates failed:', e);
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+      headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'CureDesk-HMS-UpdateCheck' },
+    });
+    if (!res.ok) throw new Error(`GitHub API ${res.status}: ${res.statusText}`);
+    const json = await res.json() as any;
+    const tag = (json.tag_name || '').toString();
+    const latest = tag.replace(/^v/i, '');
+    // Find the Setup .exe asset (NSIS installer); fall back to release page if none.
+    const asset = (json.assets || []).find((a: any) =>
+      typeof a?.name === 'string' && /setup.*\.exe$/i.test(a.name)
+    );
+    const downloadUrl = asset?.browser_download_url || json.html_url;
+    const checkedAt = new Date().toISOString();
+    if (latest && isNewer(latest, currentVersion)) {
+      updateState = 'available';
+      updateInfo = {
+        currentVersion, latestVersion: latest,
+        releaseNotes: json.body || '',
+        releaseUrl: json.html_url,
+        downloadUrl, checkedAt,
+      };
+    } else {
+      updateState = 'uptodate';
+      updateInfo = {
+        currentVersion, latestVersion: latest || currentVersion,
+        releaseUrl: json.html_url, downloadUrl, checkedAt,
+      };
+    }
+  } catch (err: any) {
+    updateState = 'error';
+    updateInfo = { ...updateInfo, currentVersion, error: err?.message || String(err) };
   }
+  const payload = { state: updateState, ...updateInfo };
+  mainWindowRef?.webContents.send('updates:state', payload);
+  return payload;
 }
-function installNow() {
-  if (!updaterAvailable || !app.isPackaged) return;
-  try {
-    const { autoUpdater } = require('electron');
-    allowQuit = true;
-    autoUpdater.quitAndInstall();
-  } catch (e) {
-    console.warn('quitAndInstall failed:', e);
-  }
+
+function openDownloadPage() {
+  const url = updateInfo.downloadUrl || updateInfo.releaseUrl || `https://github.com/${GITHUB_REPO}/releases/latest`;
+  shell.openExternal(url);
 }
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
@@ -333,8 +343,14 @@ function createWindow() {
     isPackaged: app.isPackaged,
     ...updateInfo,
   }));
-  ipcMain.handle('updates:checkNow', () => { safeCheckForUpdates(); return { ok: true, isPackaged: app.isPackaged }; });
-  ipcMain.handle('updates:installNow', () => { installNow(); return { ok: true }; });
+  ipcMain.handle('updates:checkNow', async () => {
+    const result = await checkGitHubReleaseNow();
+    return { ok: true, isPackaged: app.isPackaged, ...result };
+  });
+  // "Install" now = open the new Setup.exe download in the user's browser.
+  // They double-click to install over the existing version. Their data
+  // in %APPDATA%\CureDesk HMS\ is preserved.
+  ipcMain.handle('updates:installNow', () => { openDownloadPage(); return { ok: true }; });
 }
 
 function latestBackupMtime(rootDir: string): number {
@@ -474,13 +490,16 @@ function tickReminder() {
       );
     }
 
-    // Daily update check
+    // Daily update check — hits the GitHub Releases API and pushes the
+    // result to the renderer; the Settings → Backups & Updates section
+    // shows it as either "You're on the latest version" or a blue
+    // "New version vX.Y.Z available · Download & Install" button.
     if (s.update_check_enabled !== false) {
       const updateTime = s.update_check_time || '10:30';
       const updateKey = dateKey + '@upd@' + updateTime;
       if (hhmm === updateTime && lastUpdateCheckKey !== updateKey) {
         lastUpdateCheckKey = updateKey;
-        safeCheckForUpdates();
+        checkGitHubReleaseNow().catch(() => { /* swallowed; state already published */ });
       }
     }
   } catch (e) {

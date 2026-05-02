@@ -392,7 +392,18 @@ function BackupSettings() {
   });
   const checkNow = useMutation({
     mutationFn: () => window.electronAPI.updates.checkNow(),
-    onSuccess: (r) => toast(r.isPackaged ? 'Checking GitHub for updates…' : 'Updates only work in installed app, not in dev mode', 'info'),
+    onSuccess: (r: any) => {
+      if (!r?.isPackaged) {
+        toast('Updates only work in the installed app, not in dev mode', 'info');
+        return;
+      }
+      if (r.state === 'available') toast(`New version ${r.latestVersion} available`, 'info');
+      else if (r.state === 'uptodate') toast('You\'re on the latest version', 'info');
+      else if (r.state === 'error') toast(`Update check failed: ${r.error || 'unknown'}`, 'error');
+    },
+  });
+  const installNow = useMutation({
+    mutationFn: () => window.electronAPI.updates.installNow(),
   });
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [restoreSource, setRestoreSource] = useState<string | null>(null);
@@ -615,26 +626,20 @@ function BackupSettings() {
 
       {/* App updates */}
       <div className="mt-6 pt-5 border-t border-gray-200 dark:border-slate-700">
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">App Updates</h3>
-            <p className="text-[11px] text-gray-500 dark:text-slate-400">
-              Once a day at the configured time, the app checks GitHub for new releases. When a new version is found, it downloads silently and shows a "Restart & install" banner. Your data is never touched by an update.
-            </p>
-            <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1">
-              Current version: <span className="font-mono">{updateState?.appVersion || '?'}</span> · State: <span className="font-mono">{updateState?.state || '—'}</span>
-              {!updateState?.isPackaged && <span className="text-amber-600 dark:text-amber-400"> · (dev mode — checks are disabled)</span>}
-            </p>
-          </div>
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => checkNow.mutate()}
-            disabled={checkNow.isPending}
-          >
-            Check now
-          </button>
+        <div className="mb-3">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">App Updates</h3>
+          <p className="text-[11px] text-gray-500 dark:text-slate-400">
+            Once a day at the configured time, the app checks GitHub for new releases. Your data is never touched by an update.
+          </p>
         </div>
+
+        {/* Status panel — colored by state */}
+        <UpdateStatusPanel
+          state={updateState as any}
+          checking={checkNow.isPending}
+          onCheck={() => checkNow.mutate()}
+          onInstall={() => installNow.mutate()}
+        />
         <div className="flex items-center justify-between">
           <span className="text-sm text-gray-700 dark:text-slate-200">Enable daily update check</span>
           <button
@@ -2320,6 +2325,119 @@ function DoctorTemplatePicker({ value, onChange }: { value: number | null; onCha
       </select>
       <div className="text-[10px] text-gray-500 mt-1">
         Drives the body sections shown on the doctor's consultation panel and printed slip. Edit templates in the <b>OPD Slip Body Templates</b> section above.
+      </div>
+    </div>
+  );
+}
+
+type UpdateState = {
+  state: 'idle' | 'checking' | 'uptodate' | 'available' | 'error';
+  appVersion?: string;
+  currentVersion?: string;
+  latestVersion?: string;
+  releaseNotes?: string;
+  releaseUrl?: string;
+  downloadUrl?: string;
+  isPackaged?: boolean;
+  checkedAt?: string;
+  error?: string;
+};
+
+/** Honest status panel for the update check. Colored card per state, real
+ *  version numbers, and a real "Download & Install" button when an update
+ *  is available (opens the new Setup.exe in the user's browser). */
+function UpdateStatusPanel({
+  state, checking, onCheck, onInstall,
+}: {
+  state: UpdateState | undefined;
+  checking: boolean;
+  onCheck: () => void;
+  onInstall: () => void;
+}) {
+  const v = state?.appVersion || state?.currentVersion || '?';
+  const latest = state?.latestVersion;
+  const dev = state && !state.isPackaged;
+
+  // Colored panel per state.
+  const variant = (() => {
+    if (dev) return { panel: 'border-amber-300 dark:border-amber-800 bg-amber-50/40 dark:bg-amber-900/10', dot: '#f59e0b' };
+    if (state?.state === 'available') return { panel: 'border-blue-400 dark:border-blue-700 bg-blue-50/60 dark:bg-blue-900/20', dot: '#2563eb' };
+    if (state?.state === 'uptodate') return { panel: 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/15', dot: '#059669' };
+    if (state?.state === 'error') return { panel: 'border-red-300 dark:border-red-800 bg-red-50/50 dark:bg-red-900/15', dot: '#dc2626' };
+    return { panel: 'border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/40', dot: '#94a3b8' };
+  })();
+
+  return (
+    <div className={cn('rounded-lg border-2 p-4', variant.panel)}>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-start gap-3 min-w-0 flex-1">
+          <span className="inline-block w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0" style={{ backgroundColor: variant.dot }} />
+          <div className="min-w-0 flex-1">
+            {dev && (
+              <>
+                <div className="text-sm font-semibold text-amber-900 dark:text-amber-200">Dev mode — update checks are disabled</div>
+                <div className="text-[11px] text-amber-700 dark:text-amber-300 mt-0.5">Updates only run on the installed CureDesk HMS, not when launched via <code className="font-mono">npm start</code>.</div>
+              </>
+            )}
+            {!dev && state?.state === 'checking' && (
+              <>
+                <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 inline-flex items-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Checking GitHub for new releases…
+                </div>
+                <div className="text-[11px] text-gray-600 dark:text-slate-400 mt-0.5">Current version: <span className="font-mono">{v}</span></div>
+              </>
+            )}
+            {!dev && state?.state === 'uptodate' && (
+              <>
+                <div className="text-sm font-semibold text-emerald-900 dark:text-emerald-200">✓ You're on the latest version</div>
+                <div className="text-[11px] text-emerald-800 dark:text-emerald-300 mt-0.5">
+                  Current version: <span className="font-mono">{v}</span>
+                  {latest && latest !== v && <> · GitHub latest: <span className="font-mono">{latest}</span></>}
+                  {state.checkedAt && <> · Checked {(() => { try { return new Date(state.checkedAt).toLocaleTimeString(); } catch { return state.checkedAt; } })()}</>}
+                </div>
+              </>
+            )}
+            {!dev && state?.state === 'available' && (
+              <>
+                <div className="text-sm font-semibold text-blue-900 dark:text-blue-200">
+                  🚀 New version <span className="font-mono">{latest}</span> available
+                </div>
+                <div className="text-[11px] text-blue-800 dark:text-blue-300 mt-0.5">
+                  You're on <span className="font-mono">{v}</span> · click <b>Download &amp; Install</b> to grab the new Setup.exe. Your patient data stays untouched.
+                </div>
+                {state.releaseNotes && (
+                  <details className="mt-2 text-[11px] text-gray-700 dark:text-slate-300">
+                    <summary className="cursor-pointer text-blue-700 dark:text-blue-400 font-semibold">Release notes</summary>
+                    <pre className="mt-1 whitespace-pre-wrap font-mono text-[10px] bg-white/50 dark:bg-slate-900/40 p-2 rounded max-h-40 overflow-auto">{state.releaseNotes}</pre>
+                  </details>
+                )}
+              </>
+            )}
+            {!dev && state?.state === 'error' && (
+              <>
+                <div className="text-sm font-semibold text-red-900 dark:text-red-200">Couldn't reach GitHub</div>
+                <div className="text-[11px] text-red-800 dark:text-red-300 mt-0.5 break-all">{state.error || 'Unknown error'}</div>
+                <div className="text-[11px] text-red-700 dark:text-red-400 mt-1">Check your internet connection and try again.</div>
+              </>
+            )}
+            {!dev && state?.state === 'idle' && (
+              <>
+                <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Update check not run yet today</div>
+                <div className="text-[11px] text-gray-600 dark:text-slate-400 mt-0.5">Current version: <span className="font-mono">{v}</span> · Click <b>Check now</b> to test.</div>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button type="button" className="btn-secondary text-xs" onClick={onCheck} disabled={checking}>
+            {checking ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Checking…</> : <><RefreshCw className="w-3.5 h-3.5" /> Check now</>}
+          </button>
+          {state?.state === 'available' && (
+            <button type="button" className="btn-primary text-xs" onClick={onInstall}>
+              <ArrowRight className="w-3.5 h-3.5" /> Download &amp; Install
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

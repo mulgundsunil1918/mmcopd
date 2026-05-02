@@ -426,8 +426,29 @@ const api = {
       >,
   },
   updates: {
-    state: () => ipcRenderer.invoke('updates:state') as Promise<{ state: string; appVersion: string; isPackaged: boolean; version?: string; releaseNotes?: string; error?: string }>,
-    checkNow: () => ipcRenderer.invoke('updates:checkNow') as Promise<{ ok: boolean; isPackaged: boolean }>,
+    state: () => ipcRenderer.invoke('updates:state') as Promise<{
+      state: 'idle' | 'checking' | 'uptodate' | 'available' | 'error';
+      appVersion: string;
+      isPackaged: boolean;
+      currentVersion?: string;
+      latestVersion?: string;
+      releaseNotes?: string;
+      releaseUrl?: string;
+      downloadUrl?: string;
+      checkedAt?: string;
+      error?: string;
+    }>,
+    checkNow: () => ipcRenderer.invoke('updates:checkNow') as Promise<{
+      ok: boolean;
+      isPackaged: boolean;
+      state: 'idle' | 'checking' | 'uptodate' | 'available' | 'error';
+      currentVersion?: string;
+      latestVersion?: string;
+      releaseNotes?: string;
+      releaseUrl?: string;
+      downloadUrl?: string;
+      error?: string;
+    }>,
     installNow: () => ipcRenderer.invoke('updates:installNow') as Promise<{ ok: boolean }>,
     onState: (cb: (s: any) => void) => {
       const handler = (_e: any, info: any) => cb(info);
