@@ -18,7 +18,8 @@ import { UsersPage } from './pages/Users';
 import { Reports } from './pages/Reports';
 import { Analytics } from './pages/Analytics';
 import { Miscellaneous } from './pages/Miscellaneous';
-import { useEffect } from 'react';
+import { WelcomeWizard } from './components/WelcomeWizard';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from './hooks/useAuth';
 import { useKeyboardShortcut } from './hooks/useKeyboardShortcut';
@@ -30,6 +31,21 @@ export default function App() {
     queryKey: ['clinic-name-title'],
     queryFn: () => window.electronAPI.app.getClinicName(),
   });
+  // First-launch welcome wizard — only shows if the user hasn't dismissed it
+  // AND the clinic isn't yet set up (clinic_name empty + network_mode is the
+  // default 'local'). One toggle per PC.
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => window.electronAPI.settings.get(),
+  });
+  const [wizardOpen, setWizardOpen] = useState(false);
+  useEffect(() => {
+    if (!user || !settings) return;
+    let dismissed = false;
+    try { dismissed = localStorage.getItem('caredesk:welcome-dismissed') === '1'; } catch { /* ignore */ }
+    const isFreshInstall = !settings.clinic_name && settings.network_mode === 'local';
+    if (isFreshInstall && !dismissed) setWizardOpen(true);
+  }, [user, settings?.clinic_name, settings?.network_mode]);
 
   useEffect(() => {
     if (clinicName) document.title = `${clinicName} · CureDesk HMS`;
@@ -52,6 +68,8 @@ export default function App() {
   if (!user) return <Login />;
 
   return (
+    <>
+      {wizardOpen && <WelcomeWizard onClose={() => setWizardOpen(false)} />}
     <Routes>
       <Route element={<Layout />}>
         <Route path="/" element={<Navigate to="/reception" replace />} />
@@ -75,5 +93,6 @@ export default function App() {
       </Route>
       <Route path="*" element={<Navigate to="/reception" replace />} />
     </Routes>
+    </>
   );
 }

@@ -1507,30 +1507,7 @@ function NetworkModeSettings() {
       </div>
 
       {/* Server-mode config */}
-      {mode === 'server' && (
-        <div className="rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50/40 dark:bg-blue-900/10 p-4 space-y-3">
-          <div className="text-xs font-semibold text-blue-900 dark:text-blue-200">Server settings</div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="label">Listen port</label>
-              <input type="number" min={1024} max={65535} className="input"
-                value={draft.network_listen_port ?? 4321}
-                onChange={(e) => set('network_listen_port', Math.max(1024, Math.min(65535, parseInt(e.target.value, 10) || 4321)))} />
-              <div className="text-[10px] text-gray-500 mt-1">Default 4321. Open this port on the Windows firewall for the LAN.</div>
-            </div>
-            <div>
-              <label className="label">Shared secret (token)</label>
-              <input type="text" className="input font-mono"
-                value={draft.network_secret || ''}
-                onChange={(e) => set('network_secret', e.target.value)} placeholder="any random string" />
-              <div className="text-[10px] text-gray-500 mt-1">Required by clients to connect. Empty = open access (only for trusted LAN).</div>
-            </div>
-          </div>
-          <div className="text-[11px] text-blue-800 dark:text-blue-300">
-            Clients connect to <code className="font-mono bg-white/60 dark:bg-slate-900/40 px-1 rounded">http://&lt;this PC's IP&gt;:{draft.network_listen_port ?? 4321}</code> with the secret above. Find this PC's IP via <code className="font-mono bg-white/60 dark:bg-slate-900/40 px-1 rounded">ipconfig</code> in Command Prompt.
-          </div>
-        </div>
-      )}
+      {mode === 'server' && <ServerJoinCodePanel />}
 
       {/* Client-mode config */}
       {mode === 'client' && (
@@ -1565,6 +1542,48 @@ function NetworkModeSettings() {
         </div>
       )}
     </section>
+  );
+}
+
+/** Big rotating join-code display for Server mode. Same code as the welcome wizard. */
+function ServerJoinCodePanel() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data: jc, refetch } = useQuery({
+    queryKey: ['join-code'],
+    queryFn: () => window.electronAPI.network.joinCode(),
+    refetchInterval: 5_000,
+  });
+  const remaining = (() => {
+    if (!jc?.expiresAt) return null;
+    const sec = Math.max(0, Math.round((jc.expiresAt - Date.now()) / 1000));
+    return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+  })();
+  const display = jc?.code ? `${jc.code.slice(0, 4)}-${jc.code.slice(4)}` : '······';
+  const regen = async () => {
+    const r = await window.electronAPI.network.regenJoinCode();
+    if ((r as any).ok) { toast('New join code minted'); await refetch(); }
+    else toast((r as any).error || 'Failed', 'error');
+  };
+  return (
+    <div className="rounded-2xl border-4 border-blue-300 dark:border-blue-700 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/30 dark:to-indigo-900/30 p-5">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-widest font-bold text-blue-900 dark:text-blue-200">Join Code</div>
+          <div className="text-[11px] text-blue-700 dark:text-blue-300">Doctor cabin / pharmacy / billing PCs type this to connect.</div>
+        </div>
+        <button className="btn-secondary text-xs" onClick={regen}>
+          <RefreshCw className="w-3.5 h-3.5" /> New code
+        </button>
+      </div>
+      <div className="text-5xl font-extrabold tracking-[0.3em] font-mono text-blue-900 dark:text-blue-100 text-center my-4">
+        {display}
+      </div>
+      <div className="flex items-center justify-between text-[11px] text-blue-800 dark:text-blue-300">
+        <span>{remaining ? `Valid for ${remaining}` : 'Code not minted yet'}</span>
+        <span>Host: <span className="font-mono">{jc?.lanIp || '—'}:{jc?.port || '—'}</span></span>
+      </div>
+    </div>
   );
 }
 

@@ -466,6 +466,11 @@ const api = {
     applyMode: () => ipcRenderer.invoke('network:applyMode') as Promise<{ ok: boolean; running: boolean; port: number; clients: number; ipcChannels: number }>,
     probe: (payload: { url: string; secret?: string }) =>
       ipcRenderer.invoke('network:probe', payload) as Promise<{ ok: true; info: any } | { ok: false; error: string }>,
+    joinCode: () => ipcRenderer.invoke('network:joinCode') as Promise<{ code: string | null; expiresAt: number | null; lanIp: string | null; port: number }>,
+    regenJoinCode: () => ipcRenderer.invoke('network:regenJoinCode') as Promise<{ ok: true; code: string; expiresAt: number } | { ok: false; error: string }>,
+    discover: (opts?: { timeoutMs?: number }) => ipcRenderer.invoke('network:discover', opts || {}) as Promise<{ ip: string; port: number; version: string; lastSeen: number }[]>,
+    pair: (payload: { url: string; code: string }) =>
+      ipcRenderer.invoke('network:pair', payload) as Promise<{ ok: true; secret: string; port: number; version: string } | { ok: false; error: string }>,
     onState: (cb: (s: any) => void) => {
       const handler = (_e: any, info: any) => cb(info);
       ipcRenderer.on('updates:state', handler);

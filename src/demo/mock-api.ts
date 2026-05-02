@@ -386,6 +386,10 @@ export function createMockElectronAPI(): any {
       status: () => r({ mode: 'local', listenPort: 4321, serverUrl: '', hasSecret: false, running: false, port: 0, clients: 0, ipcChannels: 0, appVersion: '0.3.0-demo' }),
       applyMode: () => r({ ok: true, running: false, port: 0, clients: 0, ipcChannels: 0 }),
       probe: () => r({ ok: false, error: 'Demo build — network mode not available in showcase' }),
+      joinCode: () => r({ code: null, expiresAt: null, lanIp: null, port: 0 }),
+      regenJoinCode: () => r({ ok: false, error: 'Demo build — only available in installed app' }),
+      discover: () => r([]),
+      pair: () => r({ ok: false, error: 'Demo build — pairing only works in installed app' }),
     },
     finance: {
       summary: () => {

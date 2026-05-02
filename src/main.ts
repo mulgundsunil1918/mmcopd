@@ -3,7 +3,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { registerIpc, runFullBackup, isBackupServiceReady } from './main/ipc';
 import { installIpcRegistry } from './main/ipc-registry';
-import { startNetworkServer, stopNetworkServer, networkServerStatus } from './main/network-server';
+import { startNetworkServer, stopNetworkServer, networkServerStatus, getJoinCode, regenerateJoinCode, getLocalLanIP } from './main/network-server';
+import { discoverServers, pairWithCode, addWindowsFirewallRule } from './main/network-discovery';
 // Vite's ?raw import bundles the splash HTML as a string at build time so the
 // main process can show it before the main BrowserWindow is ready.
 // @ts-ignore — Vite ?raw import has no built-in TS shim
@@ -96,9 +97,19 @@ async function applyNetworkMode() {
   const s = getAllSettings(getDb());
   if (s.network_mode === 'server') {
     const port = s.network_listen_port || 4321;
-    const result = await startNetworkServer(port, s.network_secret || '', app.getVersion());
+    // Auto-generate a secret if the user enabled Server mode without typing one.
+    let secret = s.network_secret || '';
+    if (!secret) {
+      secret = Math.random().toString(36).slice(2, 14) + Math.random().toString(36).slice(2, 14);
+      // Persist back so next launch keeps the same secret.
+      const { saveSettings } = require('./db/settings');
+      saveSettings(getDb(), { network_secret: secret });
+    }
+    const result = await startNetworkServer(port, secret, app.getVersion());
     if (result.ok) {
       console.log(`[network] Server listening on port ${result.port}`);
+      // Best-effort firewall rule (no-op if already exists or denied).
+      addWindowsFirewallRule(port).catch(() => { /* ignore */ });
     } else {
       console.warn(`[network] Failed to start server: ${result.error}`);
     }
@@ -403,6 +414,35 @@ function createWindow() {
     } catch (err: any) {
       return { ok: false, error: err?.message || String(err) };
     }
+  });
+
+  // Current join code + LAN IP — drives the big "Show this code on the host PC"
+  // panel in the Welcome wizard / Settings page.
+  ipcMain.handle('network:joinCode', () => ({
+    code: getJoinCode()?.code ?? null,
+    expiresAt: getJoinCode()?.expiresAt ?? null,
+    lanIp: getLocalLanIP(),
+    port: networkServerStatus().port,
+  }));
+  ipcMain.handle('network:regenJoinCode', () => {
+    const s = getAllSettings(getDb());
+    if (s.network_mode !== 'server') return { ok: false, error: 'Not in Server mode' };
+    const port = s.network_listen_port || 4321;
+    const fresh = regenerateJoinCode(s.network_secret || '', port);
+    return { ok: true, ...fresh };
+  });
+
+  // Listen for UDP broadcasts and return discovered CureDesk servers on the LAN.
+  // Used by the Welcome wizard's "Connect to existing clinic" flow.
+  ipcMain.handle('network:discover', async (_e, opts: { timeoutMs?: number } = {}) => {
+    const list = await discoverServers(opts.timeoutMs ?? 5_000);
+    return list;
+  });
+
+  // Trade a 6-char join code for the server's secret + port. On success, the
+  // renderer saves the result into settings and reloads in Client mode.
+  ipcMain.handle('network:pair', async (_e, payload: { url: string; code: string }) => {
+    return pairWithCode(payload.url, payload.code);
   });
 }
 
