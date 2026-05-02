@@ -90,6 +90,10 @@ export const DEMO_SETTINGS: Settings = {
   registration_fee_amount: 100,
   registration_fee_default_timing: 'ask',
   misc_services: 'Procedure,Vaccination,Nebulization,Wound Dressing,Injection,Suture / Stitches,IV Fluids,Other',
+  network_mode: 'local',
+  network_listen_port: 4321,
+  network_server_url: '',
+  network_secret: '',
 };
 
 // ---------- Doctors ----------

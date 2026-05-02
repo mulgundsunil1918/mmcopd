@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill, ShieldCheck, UserCircle2, Lock, Unlock, Activity, Syringe, ChevronLeft } from 'lucide-react';
+import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill, ShieldCheck, UserCircle2, Lock, Unlock, Activity, Syringe, ChevronLeft, Wifi, Server } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '../lib/utils';
 import { useTheme } from '../hooks/useTheme';
@@ -132,6 +132,7 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
       </nav>
 
       <div className="px-3 py-3 border-t sidebar-divider space-y-2">
+        <NetworkStatusPill />
         {user && (settings?.show_user_badge !== false) && (
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg sidebar-link">
             <UserCircle2 className="w-4 h-4 text-blue-500 flex-shrink-0" />
@@ -172,5 +173,35 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
         <div className="sidebar-meta text-[10px] px-3">v0.3.0 · {currentMode.replace(/_/g, ' + ')}</div>
       </div>
     </aside>
+  );
+}
+
+/** Compact pill that shows whether this PC is local / hosting (server) / connected
+ *  to a server, with live colored dot. Hidden when in plain Local mode to keep
+ *  the sidebar clean for single-PC users. */
+function NetworkStatusPill() {
+  const { data: status } = useQuery({
+    queryKey: ['network-status'],
+    queryFn: () => window.electronAPI.network.status(),
+    refetchInterval: 5_000,
+  });
+  if (!status || status.mode === 'local') return null;
+  const isServer = status.mode === 'server';
+  const ok = isServer ? status.running : true; // client probe TBD next session
+  const dot = ok ? '#10b981' : '#ef4444';
+  const Icon = isServer ? Server : Wifi;
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg sidebar-link" title={JSON.stringify(status, null, 2)}>
+      <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: dot }} />
+      <div className="flex-1 min-w-0">
+        <div className="text-[11px] font-semibold truncate">
+          {isServer ? `Hosting · :${status.port}` : `Client → ${status.serverUrl || '(not set)'}`}
+        </div>
+        <div className="text-[9px] opacity-80 uppercase tracking-wider">
+          {isServer ? `${status.clients} clients · ${status.ipcChannels} channels` : 'Connect mode'}
+        </div>
+      </div>
+      <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: dot }} />
+    </div>
   );
 }

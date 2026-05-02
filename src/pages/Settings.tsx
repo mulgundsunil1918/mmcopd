@@ -101,6 +101,9 @@ export function SettingsPage() {
               <SettingsGroup title="Startup & Background" subtitle="Auto-launch with Windows, minimize to tray, start hidden.">
                 <StartupBehavior />
               </SettingsGroup>
+              <SettingsGroup title="Network Mode (multi-station)" subtitle="Run reception + doctor cabins as separate PCs sharing one CureDesk. Pick a server PC, others connect over the LAN.">
+                <NetworkModeSettings />
+              </SettingsGroup>
               <SettingsGroup title="Backup, Restore & Updates" subtitle="Where backups go, daily auto-backup, weekly USB reminder, restore, and app updates.">
                 <BackupSettings />
               </SettingsGroup>
@@ -1379,6 +1382,185 @@ function FollowupPolicy() {
               onChange={(e) => set('followup_grace_days', Math.max(0, Math.min(30, parseInt(e.target.value, 10) || 0)))}
             />
             <div className="text-[10px] text-gray-500 mt-1">Extra days beyond the strict window where the receptionist can MANUALLY grant a courtesy free visit.</div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function NetworkModeSettings() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { draft, set, reset, dirty } = useSectionDraft(settings, ['network_mode', 'network_listen_port', 'network_server_url', 'network_secret']);
+  const { data: status, refetch: refetchStatus } = useQuery({
+    queryKey: ['network-status'],
+    queryFn: () => window.electronAPI.network.status(),
+    refetchInterval: 5_000,
+  });
+  const [saving, setSaving] = useState(false);
+  const [probing, setProbing] = useState(false);
+  const [probeResult, setProbeResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  if (!settings) return null;
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await window.electronAPI.settings.save({
+        network_mode: draft.network_mode,
+        network_listen_port: draft.network_listen_port,
+        network_server_url: draft.network_server_url,
+        network_secret: draft.network_secret,
+      });
+      // Mirror mode + url to localStorage so the renderer can pick the right
+      // routing at next boot (HTTP wrapper vs IPC).
+      try {
+        localStorage.setItem('caredesk:network-mode', draft.network_mode || 'local');
+        localStorage.setItem('caredesk:network-server-url', draft.network_server_url || '');
+        localStorage.setItem('caredesk:network-secret', draft.network_secret || '');
+      } catch { /* ignore */ }
+      // Restart the LAN server in the main process if needed.
+      await window.electronAPI.network.applyMode();
+      await qc.invalidateQueries({ queryKey: ['settings'] });
+      await refetchStatus();
+      toast('Network mode saved · restart the app for client-mode changes to take effect');
+    } catch (e: any) {
+      toast(e?.message || 'Save failed', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const probe = async () => {
+    setProbing(true);
+    setProbeResult(null);
+    try {
+      const r = await window.electronAPI.network.probe({ url: draft.network_server_url || '', secret: draft.network_secret });
+      if (r.ok) {
+        const info = (r as any).info;
+        setProbeResult({ ok: true, msg: `✓ Reached ${info.product} v${info.version} · ${info.clients} clients connected · ${info.ipcChannels} channels exposed` });
+      } else {
+        setProbeResult({ ok: false, msg: `✗ ${(r as any).error}` });
+      }
+    } finally {
+      setProbing(false);
+    }
+  };
+
+  const mode = draft.network_mode || 'local';
+
+  return (
+    <section className="card p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Network Mode</div>
+        <div className="flex items-center gap-2">
+          {dirty && <button className="btn-ghost text-xs" onClick={reset}>Reset</button>}
+          <button className="btn-primary text-xs" disabled={!dirty || saving} onClick={save}>{saving ? 'Saving…' : dirty ? 'Save changes' : 'All saved'}</button>
+        </div>
+      </div>
+
+      {/* BETA banner */}
+      <div className="rounded-lg border-2 border-amber-300 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/20 p-3 text-[12px] text-amber-900 dark:text-amber-200">
+        <b>⚠️ Beta — foundation only.</b> The Server / Client modes establish the connection and expose every IPC channel as an HTTP endpoint, but the renderer doesn't yet route through them automatically (coming next session). For now this is useful to verify the LAN topology and connectivity before the full sync ships.
+      </div>
+
+      {/* Live status pill */}
+      <div className="rounded-lg border-2 border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/40 p-3">
+        <div className="text-[10px] uppercase tracking-wider font-semibold text-gray-500 dark:text-slate-400 mb-1">Live status</div>
+        <div className="text-[13px] text-gray-900 dark:text-slate-100 font-mono">
+          mode = <b>{status?.mode || '—'}</b>
+          {status?.mode === 'server' && (
+            <> · server = <b>{status.running ? `running on :${status.port}` : 'NOT running'}</b> · clients = <b>{status.clients}</b> · channels exposed = <b>{status.ipcChannels}</b></>
+          )}
+          {status?.mode === 'client' && (
+            <> · target = <b>{status.serverUrl || '(not set)'}</b></>
+          )}
+        </div>
+      </div>
+
+      {/* Mode picker */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        {(['local', 'server', 'client'] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => set('network_mode', m)}
+            className={cn(
+              'rounded-lg border-2 p-3 text-left transition',
+              mode === m
+                ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
+                : 'border-gray-200 dark:border-slate-700 hover:border-blue-400 bg-white dark:bg-slate-900'
+            )}
+          >
+            <div className={cn('text-sm font-bold', mode === m ? 'text-blue-900 dark:text-blue-200' : 'text-gray-900 dark:text-slate-100')}>
+              {m === 'local' ? 'Local (single PC)' : m === 'server' ? 'Server (this PC hosts)' : 'Client (connect to server)'}
+            </div>
+            <div className="text-[11px] text-gray-600 dark:text-slate-400 mt-1">
+              {m === 'local' && 'Default. Patient data stays on this PC. No LAN required.'}
+              {m === 'server' && 'This PC hosts the database AND its own UI. Other CureDesk PCs connect to it.'}
+              {m === 'client' && 'No local data. Reads + writes go over the LAN to the configured server URL.'}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* Server-mode config */}
+      {mode === 'server' && (
+        <div className="rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50/40 dark:bg-blue-900/10 p-4 space-y-3">
+          <div className="text-xs font-semibold text-blue-900 dark:text-blue-200">Server settings</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="label">Listen port</label>
+              <input type="number" min={1024} max={65535} className="input"
+                value={draft.network_listen_port ?? 4321}
+                onChange={(e) => set('network_listen_port', Math.max(1024, Math.min(65535, parseInt(e.target.value, 10) || 4321)))} />
+              <div className="text-[10px] text-gray-500 mt-1">Default 4321. Open this port on the Windows firewall for the LAN.</div>
+            </div>
+            <div>
+              <label className="label">Shared secret (token)</label>
+              <input type="text" className="input font-mono"
+                value={draft.network_secret || ''}
+                onChange={(e) => set('network_secret', e.target.value)} placeholder="any random string" />
+              <div className="text-[10px] text-gray-500 mt-1">Required by clients to connect. Empty = open access (only for trusted LAN).</div>
+            </div>
+          </div>
+          <div className="text-[11px] text-blue-800 dark:text-blue-300">
+            Clients connect to <code className="font-mono bg-white/60 dark:bg-slate-900/40 px-1 rounded">http://&lt;this PC's IP&gt;:{draft.network_listen_port ?? 4321}</code> with the secret above. Find this PC's IP via <code className="font-mono bg-white/60 dark:bg-slate-900/40 px-1 rounded">ipconfig</code> in Command Prompt.
+          </div>
+        </div>
+      )}
+
+      {/* Client-mode config */}
+      {mode === 'client' && (
+        <div className="rounded-lg border border-violet-200 dark:border-violet-900 bg-violet-50/40 dark:bg-violet-900/10 p-4 space-y-3">
+          <div className="text-xs font-semibold text-violet-900 dark:text-violet-200">Client settings</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="label">Server URL</label>
+              <input type="text" className="input font-mono"
+                value={draft.network_server_url || ''}
+                onChange={(e) => set('network_server_url', e.target.value)}
+                placeholder="http://192.168.1.100:4321" />
+              <div className="text-[10px] text-gray-500 mt-1">IP + port of the CureDesk server PC.</div>
+            </div>
+            <div>
+              <label className="label">Shared secret (token)</label>
+              <input type="text" className="input font-mono"
+                value={draft.network_secret || ''}
+                onChange={(e) => set('network_secret', e.target.value)} placeholder="match the server's secret" />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" className="btn-secondary text-xs" onClick={probe} disabled={probing || !draft.network_server_url}>
+              {probing ? 'Probing…' : 'Test connection'}
+            </button>
+            {probeResult && (
+              <span className={cn('text-[12px] font-semibold', probeResult.ok ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300')}>
+                {probeResult.msg}
+              </span>
+            )}
           </div>
         </div>
       )}

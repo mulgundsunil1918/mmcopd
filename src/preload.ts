@@ -450,6 +450,22 @@ const api = {
       error?: string;
     }>,
     installNow: () => ipcRenderer.invoke('updates:installNow') as Promise<{ ok: boolean }>,
+  },
+  network: {
+    status: () => ipcRenderer.invoke('network:status') as Promise<{
+      mode: 'local' | 'server' | 'client';
+      listenPort: number;
+      serverUrl: string;
+      hasSecret: boolean;
+      running: boolean;
+      port: number;
+      clients: number;
+      ipcChannels: number;
+      appVersion: string;
+    }>,
+    applyMode: () => ipcRenderer.invoke('network:applyMode') as Promise<{ ok: boolean; running: boolean; port: number; clients: number; ipcChannels: number }>,
+    probe: (payload: { url: string; secret?: string }) =>
+      ipcRenderer.invoke('network:probe', payload) as Promise<{ ok: true; info: any } | { ok: false; error: string }>,
     onState: (cb: (s: any) => void) => {
       const handler = (_e: any, info: any) => cb(info);
       ipcRenderer.on('updates:state', handler);

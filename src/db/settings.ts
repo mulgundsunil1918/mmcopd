@@ -69,6 +69,10 @@ export function getAllSettings(db: Database.Database): Settings {
     registration_fee_amount: parseInt(map.registration_fee_amount || '100', 10),
     registration_fee_default_timing: (map.registration_fee_default_timing as any) || 'ask',
     misc_services: map.misc_services || 'Procedure,Vaccination,Nebulization,Wound Dressing,Injection,Suture / Stitches,IV Fluids,Other',
+    network_mode: (map.network_mode as any) || 'local',
+    network_listen_port: parseInt(map.network_listen_port || '4321', 10),
+    network_server_url: map.network_server_url || '',
+    network_secret: map.network_secret || '',
   };
 }
 

@@ -2,6 +2,8 @@ import { app, BrowserWindow, ipcMain, Notification, Tray, Menu, nativeImage, she
 import path from 'node:path';
 import fs from 'node:fs';
 import { registerIpc, runFullBackup, isBackupServiceReady } from './main/ipc';
+import { installIpcRegistry } from './main/ipc-registry';
+import { startNetworkServer, stopNetworkServer, networkServerStatus } from './main/network-server';
 // Vite's ?raw import bundles the splash HTML as a string at build time so the
 // main process can show it before the main BrowserWindow is ready.
 // @ts-ignore — Vite ?raw import has no built-in TS shim
@@ -85,6 +87,24 @@ async function checkGitHubReleaseNow(): Promise<typeof updateInfo & { state: Upd
 function openDownloadPage() {
   const url = updateInfo.downloadUrl || updateInfo.releaseUrl || `https://github.com/${GITHUB_REPO}/releases/latest`;
   shell.openExternal(url);
+}
+
+/** Read network_mode from settings and start/stop the LAN server accordingly.
+ *  Called once at boot AND every time the user saves Network Mode in Settings. */
+async function applyNetworkMode() {
+  // Lazy-import to avoid pulling DB before whenReady().
+  const s = getAllSettings(getDb());
+  if (s.network_mode === 'server') {
+    const port = s.network_listen_port || 4321;
+    const result = await startNetworkServer(port, s.network_secret || '', app.getVersion());
+    if (result.ok) {
+      console.log(`[network] Server listening on port ${result.port}`);
+    } else {
+      console.warn(`[network] Failed to start server: ${result.error}`);
+    }
+  } else {
+    await stopNetworkServer();
+  }
 }
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
@@ -351,6 +371,39 @@ function createWindow() {
   // They double-click to install over the existing version. Their data
   // in %APPDATA%\CureDesk HMS\ is preserved.
   ipcMain.handle('updates:installNow', () => { openDownloadPage(); return { ok: true }; });
+
+  // ===== Network / Multi-station =====
+  ipcMain.handle('network:status', () => {
+    const s = getAllSettings(getDb());
+    return {
+      mode: s.network_mode,
+      listenPort: s.network_listen_port,
+      serverUrl: s.network_server_url,
+      hasSecret: !!s.network_secret,
+      ...networkServerStatus(),
+      appVersion: app.getVersion(),
+    };
+  });
+  // Apply the current settings.network_mode. Renderer calls this after saving
+  // Settings so the server boots / stops without restarting the whole app.
+  ipcMain.handle('network:applyMode', async () => {
+    await applyNetworkMode();
+    return { ok: true, ...networkServerStatus() };
+  });
+  // Probe a remote server (used by the Settings "Test connection" button).
+  ipcMain.handle('network:probe', async (_e, payload: { url: string; secret?: string }) => {
+    try {
+      const u = (payload.url || '').replace(/\/+$/, '');
+      const headers: any = { 'Accept': 'application/json' };
+      if (payload.secret) headers['Authorization'] = `Bearer ${payload.secret}`;
+      const res = await fetch(`${u}/api/health`, { headers });
+      if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+      const json = await res.json();
+      return { ok: true, info: json };
+    } catch (err: any) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  });
 }
 
 function latestBackupMtime(rootDir: string): number {
@@ -511,7 +564,12 @@ app.whenReady().then(async () => {
   // Splash first — appears immediately while DB + IPC + main window spin up.
   showSplash();
   getDb();
+  // Wrap ipcMain.handle BEFORE registerIpc so every channel gets recorded into
+  // ipcHandlers (network-server.ts reads from there to expose POST /ipc/:channel).
+  installIpcRegistry();
   registerIpc();
+  // Boot the network server if Settings says we're in 'server' mode.
+  await applyNetworkMode().catch((e) => console.warn('Network server boot failed:', e));
   createWindow();
   ensureTray();
 

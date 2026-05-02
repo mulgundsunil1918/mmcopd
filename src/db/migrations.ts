@@ -75,6 +75,14 @@ export function runMigrations(db: Database.Database) {
   // settings table without schema work.
   setSettingIfEmpty(db, 'misc_services', 'Procedure,Vaccination,Nebulization,Wound Dressing,Injection,Suture / Stitches,IV Fluids,Other');
 
+  // Network mode (multi-station). Default 'local' on every fresh install — admin
+  // opts in via Settings → System → Network Mode after physically setting up
+  // the LAN topology + server PC.
+  setSettingIfEmpty(db, 'network_mode', 'local');
+  setSettingIfEmpty(db, 'network_listen_port', '4321');
+  setSettingIfEmpty(db, 'network_server_url', '');
+  setSettingIfEmpty(db, 'network_secret', '');
+
   // Per-specialty OPD-slip body templates. Each doctor picks one (doctors.template_id).
   // The templates themselves live as JSON in the settings table so the user can edit
   // / add / remove without a schema migration. Custom field values are stored on each

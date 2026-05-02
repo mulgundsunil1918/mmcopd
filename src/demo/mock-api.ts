@@ -382,6 +382,11 @@ export function createMockElectronAPI(): any {
       onState: () => () => {},
       onPromptInstall: () => () => {},
     },
+    network: {
+      status: () => r({ mode: 'local', listenPort: 4321, serverUrl: '', hasSecret: false, running: false, port: 0, clients: 0, ipcChannels: 0, appVersion: '0.3.0-demo' }),
+      applyMode: () => r({ ok: true, running: false, port: 0, clients: 0, ipcChannels: 0 }),
+      probe: () => r({ ok: false, error: 'Demo build — network mode not available in showcase' }),
+    },
     finance: {
       summary: () => {
         const totalAll = bills.reduce((s, b) => s + b.total, 0);

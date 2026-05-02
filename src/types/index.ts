@@ -492,6 +492,11 @@ export interface Settings {
   registration_fee_default_timing: 'at_registration' | 'at_first_appointment' | 'ask';
   /** Comma-separated list of misc-charge service categories shown as quick chips. */
   misc_services: string;
+  // Network / multi-station settings.
+  network_mode: 'local' | 'server' | 'client';
+  network_listen_port: number;
+  network_server_url: string;
+  network_secret: string;
 }
 
 /** Live state of a patient's free-follow-up entitlement with a given doctor, used at booking time. */

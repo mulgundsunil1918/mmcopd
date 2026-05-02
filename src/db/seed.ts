@@ -52,6 +52,15 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   registration_fee_amount: '100',
   registration_fee_default_timing: 'ask',
   misc_services: 'Procedure,Vaccination,Nebulization,Wound Dressing,Injection,Suture / Stitches,IV Fluids,Other',
+  // Network mode (multi-station / client-server). Default 'local' = single PC,
+  // private SQLite. 'server' = this PC hosts; 'client' = this PC connects to
+  // another PC running 'server'. URL + port + secret are honored only by the
+  // active mode. The mode is also mirrored to localStorage at runtime so the
+  // renderer can route IPC vs HTTP at boot.
+  network_mode: 'local',
+  network_listen_port: '4321',
+  network_server_url: '',
+  network_secret: '',
   // Default click-to-WhatsApp template. Placeholders are case-insensitive.
   whatsapp_template:
     'Namaste {{patient_name}} 🙏\n\n' +
