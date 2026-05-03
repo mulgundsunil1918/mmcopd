@@ -40,17 +40,17 @@ export default function App() {
     queryFn: () => window.electronAPI.settings.get(),
   });
   const [wizardOpen, setWizardOpen] = useState(false);
+  // Auto-open the wizard on FRESH installs as soon as settings load — does NOT
+  // wait for login. The wizard renders OVER the Login screen so the user can't
+  // miss it. Suppression uses sessionStorage so "Skip" only hides for this
+  // session; next launch reshows until clinic_name is set.
   useEffect(() => {
-    if (!user || !settings) return;
-    // Fresh install detection — clinic isn't configured yet AND user hasn't
-    // dismissed the wizard in THIS session. We use sessionStorage (not local)
-    // so a Skip only suppresses for the current launch — next launch shows it
-    // again until the user actually fills in clinic name (or picks Server / Client).
+    if (!settings) return;
     let dismissed = false;
     try { dismissed = sessionStorage.getItem('caredesk:welcome-dismissed') === '1'; } catch { /* ignore */ }
     const isFreshInstall = !settings.clinic_name && settings.network_mode === 'local';
     if (isFreshInstall && !dismissed) setWizardOpen(true);
-  }, [user, settings?.clinic_name, settings?.network_mode]);
+  }, [settings?.clinic_name, settings?.network_mode]);
 
   // Settings → "Run Setup Wizard" button dispatches this event so the
   // Settings page can re-open the App-level wizard without prop-drilling.
@@ -82,11 +82,28 @@ export default function App() {
   // / Server). Status drives the offline banner below.
   const live = useNetworkLive();
 
-  if (!user) return <Login />;
+  // Wizard renders ABOVE the login gate so a fresh install shows the host /
+  // client picker immediately — user doesn't have to log in first. The setup
+  // banner reminds them on every page after login if clinic isn't configured.
+  const wizardOverlay = wizardOpen ? <WelcomeWizard onClose={() => setWizardOpen(false)} /> : null;
+  const needsSetupBanner = !!settings && !settings.clinic_name && settings.network_mode === 'local';
+
+  if (!user) return <>{wizardOverlay}<Login /></>;
 
   return (
     <>
-      {wizardOpen && <WelcomeWizard onClose={() => setWizardOpen(false)} />}
+      {wizardOverlay}
+      {needsSetupBanner && !wizardOpen && (
+        <div className="no-print fixed top-0 left-0 right-0 z-[140] bg-blue-600 text-white px-4 py-2 text-xs text-center font-semibold shadow flex items-center justify-center gap-3">
+          <span>🪄 Clinic not set up yet — pick how this PC fits into your clinic</span>
+          <button
+            onClick={() => setWizardOpen(true)}
+            className="bg-white text-blue-700 px-3 py-0.5 rounded font-bold hover:bg-blue-50"
+          >
+            Open Setup Wizard
+          </button>
+        </div>
+      )}
       {(live.status === 'disconnected' || live.status === 'error') && (
         <div className="no-print fixed top-0 left-0 right-0 z-[150] bg-red-600 text-white px-4 py-1.5 text-xs text-center font-semibold shadow">
           ⚠ Disconnected from clinic server — trying to reconnect every 5 seconds. Recent changes may not have synced.
