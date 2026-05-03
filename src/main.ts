@@ -11,7 +11,7 @@ import { installNetworkClient, networkClientStatus } from './main/network-client
 // @ts-ignore — Vite ?raw import has no built-in TS shim
 import splashHtml from './splash.html?raw';
 import { getDb, closeDb } from './db/db';
-import { getAllSettings } from './db/settings';
+import { getAllSettings, saveSettings } from './db/settings';
 
 // Update mechanism: poll GitHub Releases API on demand and on a daily timer.
 // We ship via NSIS (electron-builder) so Electron's built-in Squirrel autoUpdater
@@ -102,8 +102,9 @@ async function applyNetworkMode() {
     let secret = s.network_secret || '';
     if (!secret) {
       secret = Math.random().toString(36).slice(2, 14) + Math.random().toString(36).slice(2, 14);
-      // Persist back so next launch keeps the same secret.
-      const { saveSettings } = require('./db/settings');
+      // Persist back so next launch keeps the same secret. Use the top-level
+      // import (NOT a dynamic require — Vite bundles main.ts into a single
+      // main.js so './db/settings' doesn't exist as a separate module at runtime).
       saveSettings(getDb(), { network_secret: secret });
     }
     const result = await startNetworkServer(port, secret, app.getVersion());
