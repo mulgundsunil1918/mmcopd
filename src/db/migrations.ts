@@ -82,6 +82,15 @@ export function runMigrations(db: Database.Database) {
   setSettingIfEmpty(db, 'network_listen_port', '4321');
   setSettingIfEmpty(db, 'network_server_url', '');
   setSettingIfEmpty(db, 'network_secret', '');
+  setSettingIfEmpty(db, 'station_name', '');
+
+  // Optimistic-lock row version for tables most likely to see concurrent edits
+  // across stations (reception books while doctor changes status, etc.). Default 1
+  // means existing rows behave like fresh ones; every UPDATE bumps it server-side
+  // and CAS-checks the caller's last-seen value to spot conflicts.
+  addColumnIfMissing(db, 'appointments', 'row_version', 'INTEGER NOT NULL DEFAULT 1');
+  addColumnIfMissing(db, 'consultations', 'row_version', 'INTEGER NOT NULL DEFAULT 1');
+  addColumnIfMissing(db, 'patients', 'row_version', 'INTEGER NOT NULL DEFAULT 1');
 
   // Per-specialty OPD-slip body templates. Each doctor picks one (doctors.template_id).
   // The templates themselves live as JSON in the settings table so the user can edit

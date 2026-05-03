@@ -1393,7 +1393,7 @@ function NetworkModeSettings() {
   const qc = useQueryClient();
   const toast = useToast();
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
-  const { draft, set, reset, dirty } = useSectionDraft(settings, ['network_mode', 'network_listen_port', 'network_server_url', 'network_secret']);
+  const { draft, set, reset, dirty } = useSectionDraft(settings, ['network_mode', 'network_listen_port', 'network_server_url', 'network_secret', 'station_name']);
   const { data: status, refetch: refetchStatus } = useQuery({
     queryKey: ['network-status'],
     queryFn: () => window.electronAPI.network.status(),
@@ -1413,6 +1413,7 @@ function NetworkModeSettings() {
         network_listen_port: draft.network_listen_port,
         network_server_url: draft.network_server_url,
         network_secret: draft.network_secret,
+        station_name: draft.station_name,
       });
       // Mirror mode + url to localStorage so the renderer can pick the right
       // routing at next boot (HTTP wrapper vs IPC).
@@ -1464,6 +1465,19 @@ function NetworkModeSettings() {
       {/* BETA banner */}
       <div className="rounded-lg border-2 border-amber-300 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/20 p-3 text-[12px] text-amber-900 dark:text-amber-200">
         <b>⚠️ Beta — foundation only.</b> The Server / Client modes establish the connection and expose every IPC channel as an HTTP endpoint, but the renderer doesn't yet route through them automatically (coming next session). For now this is useful to verify the LAN topology and connectivity before the full sync ships.
+      </div>
+
+      {/* Station name (always editable) */}
+      <div>
+        <label className="label">Station / room name</label>
+        <input
+          type="text"
+          className="input"
+          value={draft.station_name || ''}
+          onChange={(e) => set('station_name', e.target.value)}
+          placeholder='e.g. "Reception Desk", "Cabin 1 — Dr. Patil", "Pharmacy Counter"'
+        />
+        <div className="text-[10px] text-gray-500 mt-1">Shown on the sidebar pill and (next session) in the host's connected-clients list.</div>
       </div>
 
       {/* Live status pill */}

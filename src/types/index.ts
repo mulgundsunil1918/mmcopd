@@ -497,6 +497,8 @@ export interface Settings {
   network_listen_port: number;
   network_server_url: string;
   network_secret: string;
+  /** Friendly name for THIS PC, e.g. "Reception Desk", "Cabin 1 — Dr. Patil". */
+  station_name: string;
 }
 
 /** Live state of a patient's free-follow-up entitlement with a given doctor, used at booking time. */

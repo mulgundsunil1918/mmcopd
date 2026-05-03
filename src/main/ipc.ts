@@ -604,12 +604,32 @@ export function registerIpc() {
     }
   );
 
-  ipcMain.handle('appointments:updateStatus', (_e, id: number, status: AppointmentStatus) => {
+  ipcMain.handle('appointments:updateStatus', (_e, id: number, status: AppointmentStatus, expectedVersion?: number) => {
     const db = getDb();
-    db.prepare('UPDATE appointments SET status=? WHERE id=?').run(status, id);
+    // Optimistic locking — when the caller passes its last-seen row_version, we
+    // compare-and-swap so two stations changing the same appointment concurrently
+    // produce a clear "ConflictError" for the loser instead of silent overwrite.
+    // Backwards compatible: if expectedVersion is undefined (older renderer or
+    // pre-multistation install), fall back to plain last-write-wins UPDATE.
+    if (typeof expectedVersion === 'number') {
+      const info = db.prepare(
+        'UPDATE appointments SET status=?, row_version=row_version+1 WHERE id=? AND row_version=?'
+      ).run(status, id, expectedVersion);
+      if (info.changes === 0) {
+        const current = db.prepare('SELECT row_version, status FROM appointments WHERE id=?').get(id) as { row_version: number; status: string } | undefined;
+        if (!current) throw new Error('Appointment not found');
+        const err: any = new Error(`Conflict — another station already changed this appointment to "${current.status}". Refresh and try again.`);
+        err.code = 'CONFLICT';
+        err.currentVersion = current.row_version;
+        err.currentStatus = current.status;
+        throw err;
+      }
+    } else {
+      db.prepare('UPDATE appointments SET status=?, row_version=row_version+1 WHERE id=?').run(status, id);
+    }
     const row = db.prepare('SELECT * FROM appointments WHERE id=?').get(id);
     // Live event so doctor cabin / reception screens refresh without polling.
-    try { broadcastNetworkEvent('appointment:status', { id, status, doctor_id: (row as any)?.doctor_id }); } catch { /* ignore */ }
+    try { broadcastNetworkEvent('appointment:status', { id, status, doctor_id: (row as any)?.doctor_id, row_version: (row as any)?.row_version }); } catch { /* ignore */ }
     return row;
   });
 

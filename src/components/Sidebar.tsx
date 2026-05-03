@@ -185,20 +185,20 @@ function NetworkStatusPill() {
     queryFn: () => window.electronAPI.network.status(),
     refetchInterval: 5_000,
   });
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   if (!status || status.mode === 'local') return null;
   const isServer = status.mode === 'server';
-  const ok = isServer ? status.running : true; // client probe TBD next session
+  const ok = isServer ? status.running : true;
   const dot = ok ? '#10b981' : '#ef4444';
   const Icon = isServer ? Server : Wifi;
+  const station = settings?.station_name || (isServer ? 'Reception Desk' : 'This Cabin');
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg sidebar-link" title={JSON.stringify(status, null, 2)}>
+    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg sidebar-link" title={`Station: ${station}\n${JSON.stringify(status, null, 2)}`}>
       <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: dot }} />
       <div className="flex-1 min-w-0">
-        <div className="text-[11px] font-semibold truncate">
-          {isServer ? `Hosting · :${status.port}` : `Client → ${status.serverUrl || '(not set)'}`}
-        </div>
-        <div className="text-[9px] opacity-80 uppercase tracking-wider">
-          {isServer ? `${status.clients} clients · ${status.ipcChannels} channels` : 'Connect mode'}
+        <div className="text-[11px] font-semibold truncate">{station}</div>
+        <div className="text-[9px] opacity-80 uppercase tracking-wider truncate">
+          {isServer ? `Hosting · ${status.clients} clients` : `Client → ${status.serverUrl || '(not set)'}`}
         </div>
       </div>
       <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: dot }} />

@@ -18,7 +18,7 @@ import { Hospital, Wifi, Server, ArrowRight, Loader2, RefreshCw, X, Check, Alert
 import { useToast } from '../hooks/useToast';
 import { cn } from '../lib/utils';
 
-type Step = 'pick' | 'host-bootstrap' | 'host-show-code' | 'connect-discover' | 'connect-enter-code' | 'connect-success';
+type Step = 'pick' | 'host-name' | 'host-bootstrap' | 'host-show-code' | 'connect-discover' | 'connect-enter-code' | 'connect-name' | 'connect-success';
 
 export function WelcomeWizard({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
@@ -29,6 +29,9 @@ export function WelcomeWizard({ onClose }: { onClose: () => void }) {
   const [pickedServer, setPickedServer] = useState<{ ip: string; port: number } | null>(null);
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Station identity — what THIS PC is called in the clinic. Shown in sidebar
+  // pill, audit logs, and (next session) the connected-clients list on the host.
+  const [stationName, setStationName] = useState('');
 
   // ----- HOST PATH -----
   const becomeHost = async () => {
@@ -39,6 +42,7 @@ export function WelcomeWizard({ onClose }: { onClose: () => void }) {
       await window.electronAPI.settings.save({
         network_mode: 'server',
         network_listen_port: 4321,
+        station_name: stationName.trim() || 'Reception Desk',
       });
       try { localStorage.setItem('caredesk:network-mode', 'server'); } catch { /* ignore */ }
       await window.electronAPI.network.applyMode();
@@ -107,7 +111,9 @@ export function WelcomeWizard({ onClose }: { onClose: () => void }) {
       await window.electronAPI.network.applyMode();
       await qc.invalidateQueries({ queryKey: ['settings'] });
       await qc.invalidateQueries({ queryKey: ['network-status'] });
-      setStep('connect-success');
+      // Ask for station name BEFORE finishing — so the cabin is identifiable
+      // in the connected-clients list right away.
+      setStep('connect-name');
     } catch (e: any) {
       setError(e?.message || 'Connection failed');
     } finally {
@@ -132,9 +138,20 @@ export function WelcomeWizard({ onClose }: { onClose: () => void }) {
 
         {step === 'pick' && (
           <PickStep
-            onHost={() => { setStep('host-bootstrap'); becomeHost(); }}
+            onHost={() => setStep('host-name')}
             onConnect={() => setStep('connect-discover')}
             onSkip={dismiss}
+          />
+        )}
+
+        {step === 'host-name' && (
+          <NameStep
+            kind="host"
+            value={stationName}
+            setValue={setStationName}
+            placeholder="Reception Desk"
+            onBack={() => setStep('pick')}
+            onNext={() => { setStep('host-bootstrap'); becomeHost(); }}
           />
         )}
 
@@ -178,6 +195,23 @@ export function WelcomeWizard({ onClose }: { onClose: () => void }) {
             error={error}
             onConnect={(server) => pairAndConnect(server, code)}
             onBack={() => setStep('connect-discover')}
+          />
+        )}
+
+        {step === 'connect-name' && (
+          <NameStep
+            kind="client"
+            value={stationName}
+            setValue={setStationName}
+            placeholder="Cabin 1 — Dr. Patil"
+            onBack={() => setStep('connect-enter-code')}
+            onNext={async () => {
+              try {
+                await window.electronAPI.settings.save({ station_name: stationName.trim() || 'Cabin' });
+                await qc.invalidateQueries({ queryKey: ['settings'] });
+              } catch { /* non-fatal */ }
+              setStep('connect-success');
+            }}
           />
         )}
 
@@ -452,6 +486,60 @@ function ConnectCodeStep({
         <button className="btn-primary" onClick={submit} disabled={busy || code.replace(/-/g, '').length !== 6}>
           {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Connecting…</> : <>Connect <ArrowRight className="w-4 h-4" /></>}
         </button>
+      </div>
+    </div>
+  );
+}
+
+/** Step shown to both host + client: ask what THIS PC should be called.
+ *  Defaults to a useful placeholder if the user just clicks Continue. */
+function NameStep({
+  kind, value, setValue, placeholder, onBack, onNext,
+}: {
+  kind: 'host' | 'client';
+  value: string;
+  setValue: (s: string) => void;
+  placeholder: string;
+  onBack: () => void;
+  onNext: () => void;
+}) {
+  const isHost = kind === 'host';
+  return (
+    <div>
+      <div className="mb-6">
+        <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100">
+          {isHost ? 'Name this main PC' : 'Name this station'}
+        </h1>
+        <p className="text-sm text-gray-600 dark:text-slate-400 mt-1">
+          {isHost
+            ? 'A friendly label so cabin PCs and audit logs can identify the host. Defaults to "Reception Desk" if blank.'
+            : 'Tell the clinic what to call this PC. Shown on the sidebar and in audit logs.'}
+        </p>
+      </div>
+
+      <label className="label">{isHost ? 'Main PC name' : 'Station / room name'}</label>
+      <input
+        autoFocus
+        className="input text-base"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') onNext(); }}
+      />
+      {!isHost && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {['Cabin 1', 'Cabin 2', 'Cabin 3', 'Pharmacy', 'Lab', 'Billing'].map((p) => (
+            <button key={p} type="button" onClick={() => setValue(p)}
+              className="px-2 py-1 text-[11px] rounded border border-gray-300 dark:border-slate-700 hover:border-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 text-gray-700 dark:text-slate-300">
+              {p}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-6 flex items-center justify-between gap-2">
+        <button className="btn-ghost text-xs" onClick={onBack}>← Back</button>
+        <button className="btn-primary" onClick={onNext}>Continue <ArrowRight className="w-4 h-4" /></button>
       </div>
     </div>
   );

@@ -61,6 +61,10 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   network_listen_port: '4321',
   network_server_url: '',
   network_secret: '',
+  // Friendly name for THIS PC, shown to other stations + on the sidebar pill.
+  // Receptionist can rename later in Settings. Examples: "Reception Desk",
+  // "Cabin 1 — Dr. Patil", "Pharmacy Counter".
+  station_name: '',
   // Default click-to-WhatsApp template. Placeholders are case-insensitive.
   whatsapp_template:
     'Namaste {{patient_name}} 🙏\n\n' +
