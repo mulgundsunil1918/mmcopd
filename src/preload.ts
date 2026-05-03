@@ -450,6 +450,20 @@ const api = {
       error?: string;
     }>,
     installNow: () => ipcRenderer.invoke('updates:installNow') as Promise<{ ok: boolean }>,
+    /** Subscribe to live update-state pushes from the main process. Returns an
+     *  unsubscribe function. Used by the top-of-window UpdateBanner so the user
+     *  doesn't have to refresh to see "update available" / "downloaded". */
+    onState: (cb: (s: any) => void) => {
+      const handler = (_e: any, info: any) => cb(info);
+      ipcRenderer.on('updates:state', handler);
+      return () => ipcRenderer.removeListener('updates:state', handler);
+    },
+    /** Fired when the user clicks the OS notification to "Install update". */
+    onPromptInstall: (cb: (s: any) => void) => {
+      const handler = (_e: any, info: any) => cb(info);
+      ipcRenderer.on('updates:promptInstall', handler);
+      return () => ipcRenderer.removeListener('updates:promptInstall', handler);
+    },
   },
   network: {
     status: () => ipcRenderer.invoke('network:status') as Promise<{
