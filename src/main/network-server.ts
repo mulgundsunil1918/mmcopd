@@ -1,27 +1,23 @@
 /**
  * Network server for multi-station deployments (Option C — proper client-server).
  *
+ * IMPORTANT: uses Node's built-in `http` module instead of Express. Vite's
+ * production bundle has trouble with Express's dynamic `require()` calls and
+ * silently drops it from the main-process bundle, causing a white-screen
+ * launch in the installed app. Built-in http has zero external deps.
+ *
  * When the user sets Settings → Network Mode → Server, this module spins up:
- *   - An Express HTTP server on the configured port that accepts /api/health
- *     and /ipc/:channel from other CureDesk clients on the LAN.
- *   - A WebSocket server on the same port for live event broadcasts (queue
- *     status, new bookings, prescription saves, etc.) so client stations get
- *     real-time updates without polling.
+ *   - An HTTP server on the configured port that accepts /api/health,
+ *     /api/info, /api/pair, and /ipc/:channel from other CureDesk clients
+ *     on the LAN.
+ *   - A WebSocket server on the same port for live event broadcasts.
  *
  * Authentication: simple bearer-token check against settings.network_secret.
- * Anyone on the LAN with the right token can call any IPC channel — for
- * a small in-clinic deployment this matches the trust model of "everyone
- * sitting in front of a CureDesk station is a clinic staff member".
  *
- * Generic IPC bridge: every channel registered via the wrapped registerHandler
- * helper in src/main/ipc-registry.ts is exposed automatically as
- *   POST /ipc/:channel
- *   body: { args: [...] }
- * so we don't have to hand-port 50+ endpoints. The same handler runs in both
- * local IPC mode AND remote HTTP mode — single source of truth.
+ * Generic IPC bridge: every channel registered via the wrapped ipcMain.handle
+ * (see ipc-registry.ts) is exposed automatically as POST /ipc/:channel.
  */
 
-import express, { type Request, type Response } from 'express';
 import { WebSocketServer, type WebSocket } from 'ws';
 import http from 'node:http';
 import dgram from 'node:dgram';
@@ -31,21 +27,21 @@ import { ipcHandlers } from './ipc-registry';
 let httpServer: http.Server | null = null;
 let wss: WebSocketServer | null = null;
 let activePort = 0;
+let activeSecret = '';
+let activeVersion = '';
 const wsClients = new Set<WebSocket>();
 
-// Join-code pairing — short-lived 6-char code that maps to the current secret
-// so a client only has to type "7K3P-QM" once instead of an IP + port + secret.
+// ===== Join code (short pairing code) =====
 let joinCode: { code: string; secret: string; port: number; expiresAt: number } | null = null;
-const JOIN_CODE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-const JOIN_CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no I/L/O/0/1 — easier to read aloud
+const JOIN_CODE_TTL_MS = 10 * 60 * 1000;
+const JOIN_CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 function genJoinCode(): string {
   let s = '';
   for (let i = 0; i < 6; i++) s += JOIN_CODE_CHARS[Math.floor(Math.random() * JOIN_CODE_CHARS.length)];
-  return s; // e.g. "7K3PQM" — UI shows "7K3P-QM"
+  return s;
 }
 
-/** Mint (or refresh) the active join code. Called when Server mode boots and on demand. */
 export function regenerateJoinCode(secret: string, port: number): { code: string; expiresAt: number } {
   const code = genJoinCode();
   joinCode = { code, secret, port, expiresAt: Date.now() + JOIN_CODE_TTL_MS };
@@ -58,21 +54,17 @@ export function getJoinCode(): { code: string; expiresAt: number } | null {
   return { code: joinCode.code, expiresAt: joinCode.expiresAt };
 }
 
-// UDP broadcast (server side) — every 5s announce ourselves on the LAN so
-// client PCs can auto-discover without typing an IP.
+// ===== UDP broadcast =====
 const UDP_PORT = 4322;
 let udpSocket: dgram.Socket | null = null;
 let udpTimer: NodeJS.Timeout | null = null;
 
-/** Best-effort lookup of the LAN IP address (skip 127.0.0.1, virtual adapters). */
 export function getLocalLanIP(): string | null {
   const nets = os.networkInterfaces();
-  // Prefer non-virtual adapters; rank by typical home/clinic Wi-Fi/Ethernet.
   const candidates: string[] = [];
   for (const [name, infos] of Object.entries(nets)) {
     for (const info of infos || []) {
       if (info.family !== 'IPv4' || info.internal) continue;
-      // Skip Hyper-V / VMware / WSL adapters by name heuristic.
       if (/(virtual|vmware|hyper|loopback|docker)/i.test(name)) continue;
       candidates.push(info.address);
     }
@@ -80,18 +72,18 @@ export function getLocalLanIP(): string | null {
   return candidates[0] || null;
 }
 
-function startUdpBroadcast(version: string) {
+function startUdpBroadcast() {
   if (udpSocket) return;
   try {
     const sock = dgram.createSocket('udp4');
     sock.bind(() => {
       try { sock.setBroadcast(true); } catch { /* ignore */ }
       const send = () => {
-        if (!httpServer) return; // Stopped before tick fired.
+        if (!httpServer) return;
         const ip = getLocalLanIP();
         const payload = JSON.stringify({
           product: 'CureDesk HMS',
-          version,
+          version: activeVersion,
           ip,
           port: activePort,
           ts: Date.now(),
@@ -110,7 +102,46 @@ function stopUdpBroadcast() {
   if (udpSocket) { try { udpSocket.close(); } catch { /* ignore */ } udpSocket = null; }
 }
 
-/** Stop any running network server. Safe to call repeatedly. */
+// ===== HTTP helpers =====
+
+function sendJson(res: http.ServerResponse, status: number, body: any) {
+  const json = JSON.stringify(body);
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(json),
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  });
+  res.end(json);
+}
+
+async function readJsonBody(req: http.IncomingMessage): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    const MAX = 50 * 1024 * 1024;
+    req.on('data', (c) => {
+      chunks.push(c);
+      total += c.length;
+      if (total > MAX) {
+        req.destroy();
+        reject(new Error('Body too large'));
+      }
+    });
+    req.on('end', () => {
+      if (chunks.length === 0) return resolve({});
+      try {
+        const text = Buffer.concat(chunks).toString('utf8');
+        resolve(text ? JSON.parse(text) : {});
+      } catch (e) { reject(e); }
+    });
+    req.on('error', reject);
+  });
+}
+
+// ===== Lifecycle =====
+
 export async function stopNetworkServer(): Promise<void> {
   stopUdpBroadcast();
   joinCode = null;
@@ -127,112 +158,109 @@ export async function stopNetworkServer(): Promise<void> {
   }
   wsClients.clear();
   activePort = 0;
+  activeSecret = '';
 }
 
-/** Start the network server on the given port. Returns the bound port. */
 export async function startNetworkServer(port: number, secret: string, appVersion: string): Promise<{ ok: true; port: number } | { ok: false; error: string }> {
   await stopNetworkServer();
   try {
-    const app = express();
-    app.use(express.json({ limit: '50mb' }));
+    activeSecret = secret || '';
+    activeVersion = appVersion;
 
-    // Lightweight CORS for clients on the LAN.
-    app.use((req, res, next) => {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      if (req.method === 'OPTIONS') return res.sendStatus(204);
-      next();
-    });
+    httpServer = http.createServer(async (req, res) => {
+      const url = new URL(req.url || '/', 'http://localhost');
+      const method = req.method || 'GET';
 
-    // Health check — used by the client's connection-status pill.
-    app.get('/api/health', (_req, res) => {
-      res.json({
-        ok: true,
-        product: 'CureDesk HMS',
-        version: appVersion,
-        mode: 'server',
-        clients: wsClients.size,
-        ipcChannels: ipcHandlers.size,
-        time: new Date().toISOString(),
-      });
-    });
-
-    // Public discovery info — no auth required so a client can show "Found: X" in the wizard.
-    app.get('/api/info', (_req, res) => {
-      res.json({
-        product: 'CureDesk HMS',
-        version: appVersion,
-        port: activePort,
-        ip: getLocalLanIP(),
-        clients: wsClients.size,
-      });
-    });
-
-    // Pair endpoint — client trades a 6-char join code for the connection
-    // secret + port. Codes expire after 10 minutes; this endpoint is the only
-    // way for a fresh client to learn the secret without typing it manually.
-    app.post('/api/pair', (req, res) => {
-      const raw = String(req.body?.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-      if (!joinCode) return res.status(401).json({ ok: false, error: 'Pairing not active' });
-      if (Date.now() > joinCode.expiresAt) {
-        joinCode = null;
-        return res.status(401).json({ ok: false, error: 'Join code expired — generate a new one on the host PC' });
+      // CORS preflight.
+      if (method === 'OPTIONS') {
+        res.writeHead(204, {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        });
+        res.end();
+        return;
       }
-      if (raw !== joinCode.code) return res.status(401).json({ ok: false, error: 'Invalid join code' });
-      res.json({
-        ok: true,
-        secret: joinCode.secret,
-        port: joinCode.port,
-        product: 'CureDesk HMS',
-        version: appVersion,
-      });
+
+      // Public health/info/pair endpoints — no auth required.
+      if (method === 'GET' && url.pathname === '/api/health') {
+        return sendJson(res, 200, {
+          ok: true,
+          product: 'CureDesk HMS',
+          version: appVersion,
+          mode: 'server',
+          clients: wsClients.size,
+          ipcChannels: ipcHandlers.size,
+          time: new Date().toISOString(),
+        });
+      }
+      if (method === 'GET' && url.pathname === '/api/info') {
+        return sendJson(res, 200, {
+          product: 'CureDesk HMS',
+          version: appVersion,
+          port: activePort,
+          ip: getLocalLanIP(),
+          clients: wsClients.size,
+        });
+      }
+      if (method === 'POST' && url.pathname === '/api/pair') {
+        try {
+          const body = await readJsonBody(req);
+          const raw = String(body?.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+          if (!joinCode) return sendJson(res, 401, { ok: false, error: 'Pairing not active' });
+          if (Date.now() > joinCode.expiresAt) {
+            joinCode = null;
+            return sendJson(res, 401, { ok: false, error: 'Join code expired — generate a new one on the host PC' });
+          }
+          if (raw !== joinCode.code) return sendJson(res, 401, { ok: false, error: 'Invalid join code' });
+          return sendJson(res, 200, {
+            ok: true,
+            secret: joinCode.secret,
+            port: joinCode.port,
+            product: 'CureDesk HMS',
+            version: appVersion,
+          });
+        } catch (err: any) {
+          return sendJson(res, 400, { ok: false, error: err?.message || 'Bad request' });
+        }
+      }
+
+      // IPC bridge — all other endpoints require the bearer token.
+      if (method === 'POST' && url.pathname.startsWith('/ipc/')) {
+        if (activeSecret) {
+          const auth = req.headers['authorization'] || '';
+          const token = auth.startsWith('Bearer ') ? auth.slice(7) : auth;
+          if (token !== activeSecret) {
+            return sendJson(res, 401, { ok: false, error: 'Invalid or missing token' });
+          }
+        }
+        const channel = decodeURIComponent(url.pathname.slice('/ipc/'.length));
+        const handler = ipcHandlers.get(channel);
+        if (!handler) return sendJson(res, 404, { ok: false, error: `Unknown IPC channel: ${channel}` });
+        try {
+          const body = await readJsonBody(req);
+          const args = Array.isArray(body?.args) ? body.args : [];
+          const fakeEvent = { sender: { send: () => { /* noop */ } } } as any;
+          const result = await handler(fakeEvent, ...args);
+          return sendJson(res, 200, { ok: true, result });
+        } catch (err: any) {
+          return sendJson(res, 500, { ok: false, error: err?.message || String(err) });
+        }
+      }
+
+      sendJson(res, 404, { ok: false, error: 'Not found' });
     });
 
-    // Auth gate — bearer token must match settings.network_secret. Empty
-    // secret means the user explicitly opted into open access (warned in UI).
-    const authGate = (req: Request, res: Response, next: () => void) => {
-      if (!secret) return next();
-      const auth = req.header('authorization') || '';
-      const token = auth.startsWith('Bearer ') ? auth.slice(7) : auth;
-      if (token !== secret) {
-        return res.status(401).json({ ok: false, error: 'Invalid or missing token' });
-      }
-      next();
-    };
-
-    // Generic IPC bridge — looks up the registered handler for :channel and
-    // calls it with a fake "event" plus the args from the body.
-    app.post('/ipc/:channel', authGate, async (req, res) => {
-      const channel = req.params.channel;
-      const handler = ipcHandlers.get(channel);
-      if (!handler) {
-        return res.status(404).json({ ok: false, error: `Unknown IPC channel: ${channel}` });
-      }
-      try {
-        const args = Array.isArray(req.body?.args) ? req.body.args : [];
-        // Fake the IpcMainInvokeEvent — the handlers we have don't consult it.
-        const fakeEvent = { sender: { send: () => { /* noop */ } } } as any;
-        const result = await handler(fakeEvent, ...args);
-        res.json({ ok: true, result });
-      } catch (err: any) {
-        res.status(500).json({ ok: false, error: err?.message || String(err) });
-      }
-    });
-
-    httpServer = http.createServer(app);
     wss = new WebSocketServer({ server: httpServer, path: '/ws' });
-
     wss.on('connection', (ws, req) => {
-      // Auth on the WS handshake too.
       const url = new URL(req.url || '/ws', 'http://localhost');
       const token = url.searchParams.get('token') || '';
-      if (secret && token !== secret) {
+      if (activeSecret && token !== activeSecret) {
         ws.close(4401, 'unauthorized');
         return;
       }
       wsClients.add(ws);
-      ws.send(JSON.stringify({ event: 'hello', payload: { product: 'CureDesk HMS', version: appVersion, ts: Date.now() } }));
+      try { ws.send(JSON.stringify({ event: 'hello', payload: { product: 'CureDesk HMS', version: appVersion, ts: Date.now() } })); } catch { /* ignore */ }
       ws.on('close', () => wsClients.delete(ws));
       ws.on('error', () => wsClients.delete(ws));
     });
@@ -242,10 +270,8 @@ export async function startNetworkServer(port: number, secret: string, appVersio
       httpServer!.listen(port, () => resolve());
     });
     activePort = port;
-    // Mint an initial join code so the host can immediately show it on screen.
     regenerateJoinCode(secret || '', port);
-    // Start UDP discovery beacon so client wizards can auto-find this PC.
-    startUdpBroadcast(appVersion);
+    startUdpBroadcast();
     return { ok: true, port };
   } catch (err: any) {
     await stopNetworkServer();
@@ -253,7 +279,6 @@ export async function startNetworkServer(port: number, secret: string, appVersio
   }
 }
 
-/** Broadcast a live event to every connected client. Safe no-op if not running. */
 export function broadcastEvent(event: string, payload: any): void {
   if (!wss || wsClients.size === 0) return;
   const msg = JSON.stringify({ event, payload, ts: Date.now() });

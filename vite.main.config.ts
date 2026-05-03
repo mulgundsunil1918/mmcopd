@@ -14,7 +14,11 @@ import path from 'node:path';
  * then includes them in the asar; the packagerConfig.asar.unpack glob in
  * forge.config.ts pulls them back out so the .node files are loadable.
  */
-const NATIVE_DEPS = ['better-sqlite3', 'bindings', 'file-uri-to-path'];
+// Packages that must NOT be bundled by Vite — either native (.node binaries),
+// or pure-CJS with dynamic requires that Vite drops silently. Any of these
+// cause a white-screen launch in production if you forget to externalize.
+// `ws` is the WebSocket library used by the multi-station server.
+const NATIVE_DEPS = ['better-sqlite3', 'bindings', 'file-uri-to-path', 'ws'];
 
 function copyDirSync(src: string, dst: string) {
   fs.mkdirSync(dst, { recursive: true });
