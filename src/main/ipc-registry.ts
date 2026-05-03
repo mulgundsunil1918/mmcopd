@@ -19,16 +19,25 @@ export type IpcHandler = (event: any, ...args: any[]) => any;
 export const ipcHandlers = new Map<string, IpcHandler>();
 
 let monkeyPatched = false;
+let originalHandle: typeof ipcMain.handle | null = null;
 
 /** Install a thin proxy on ipcMain.handle that ALSO writes into ipcHandlers.
  *  Idempotent — calling twice is a no-op. */
 export function installIpcRegistry(): void {
   if (monkeyPatched) return;
   monkeyPatched = true;
-  const original = ipcMain.handle.bind(ipcMain);
+  originalHandle = ipcMain.handle.bind(ipcMain);
   // Override at runtime — typed loosely to avoid fighting Electron's overloaded signature.
   (ipcMain as any).handle = (channel: string, handler: IpcHandler) => {
     ipcHandlers.set(channel, handler);
-    return original(channel as any, handler as any);
+    return originalHandle!(channel as any, handler as any);
   };
+}
+
+/** Register a handler WITHOUT recording it into ipcHandlers. Used by the
+ *  network-client proxy installer — proxies are runtime overrides, not
+ *  authoritative handlers, and shouldn't shadow the originals in the registry. */
+export function rawHandle(channel: string, handler: IpcHandler): void {
+  if (!originalHandle) throw new Error('IPC registry not installed yet');
+  originalHandle(channel as any, handler as any);
 }

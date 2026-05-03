@@ -3,8 +3,9 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { registerIpc, runFullBackup, isBackupServiceReady } from './main/ipc';
 import { installIpcRegistry } from './main/ipc-registry';
-import { startNetworkServer, stopNetworkServer, networkServerStatus, getJoinCode, regenerateJoinCode, getLocalLanIP } from './main/network-server';
+import { startNetworkServer, stopNetworkServer, networkServerStatus, getJoinCode, regenerateJoinCode, getLocalLanIP, broadcastEvent } from './main/network-server';
 import { discoverServers, pairWithCode, addWindowsFirewallRule } from './main/network-discovery';
+import { installNetworkClient, networkClientStatus } from './main/network-client';
 // Vite's ?raw import bundles the splash HTML as a string at build time so the
 // main process can show it before the main BrowserWindow is ready.
 // @ts-ignore — Vite ?raw import has no built-in TS shim
@@ -112,6 +113,17 @@ async function applyNetworkMode() {
       addWindowsFirewallRule(port).catch(() => { /* ignore */ });
     } else {
       console.warn(`[network] Failed to start server: ${result.error}`);
+    }
+  } else if (s.network_mode === 'client') {
+    // Stop any local server first (in case user toggled from server → client).
+    await stopNetworkServer();
+    // Install the IPC-to-HTTP proxy. Every existing window.electronAPI call now
+    // routes through the configured server transparently. Renderer code unchanged.
+    const r = installNetworkClient(s.network_server_url, s.network_secret || '');
+    if (r.ok) {
+      console.log(`[network] Client installed — proxying ${r.channels} channels to ${s.network_server_url}`);
+    } else {
+      console.warn(`[network] Client install failed: ${r.error}`);
     }
   } else {
     await stopNetworkServer();
@@ -393,6 +405,7 @@ function createWindow() {
       hasSecret: !!s.network_secret,
       ...networkServerStatus(),
       appVersion: app.getVersion(),
+      client: networkClientStatus(),
     };
   });
   // Apply the current settings.network_mode. Renderer calls this after saving

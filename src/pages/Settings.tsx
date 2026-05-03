@@ -1507,7 +1507,12 @@ function NetworkModeSettings() {
       </div>
 
       {/* Server-mode config */}
-      {mode === 'server' && <ServerJoinCodePanel />}
+      {mode === 'server' && (
+        <>
+          <ServerJoinCodePanel />
+          <MigrationHelper />
+        </>
+      )}
 
       {/* Client-mode config */}
       {mode === 'client' && (
@@ -1542,6 +1547,45 @@ function NetworkModeSettings() {
         </div>
       )}
     </section>
+  );
+}
+
+/** Migration helper — guides the user through getting an existing local DB
+ *  onto the chosen server PC. We can't auto-push the file across the LAN
+ *  safely (it'd require server endpoints + careful FK ordering), so we hand
+ *  the user the existing backup workflow with one-tap defaults. */
+function MigrationHelper() {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const exportNow = async () => {
+    setBusy(true);
+    try {
+      const r = await window.electronAPI.backup.run();
+      if ((r as any).ok) {
+        setResult(`Backup written: ${(r as any).bundleDir}`);
+        toast('Backup ready — copy that folder to the server PC, then on the server use Settings → Backup → Restore');
+      } else {
+        toast((r as any).error || 'Backup failed', 'error');
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Backup failed', 'error');
+    } finally { setBusy(false); }
+  };
+  return (
+    <div className="rounded-lg border-2 border-amber-300 dark:border-amber-800 bg-amber-50/40 dark:bg-amber-900/15 p-4 space-y-3">
+      <div className="text-sm font-bold text-amber-900 dark:text-amber-200">Bringing existing data to the server PC</div>
+      <ol className="text-[12px] text-amber-900 dark:text-amber-200 list-decimal pl-5 space-y-1">
+        <li>On THIS PC (the one with existing patient data), click <b>Export now</b>. It creates a full backup folder.</li>
+        <li>Copy that folder onto a USB stick OR over the LAN to the SERVER PC.</li>
+        <li>On the SERVER PC, open Settings → System → Backup, Restore & Updates → <b>Pick Bundle Folder</b> and pick the folder. Confirm restore.</li>
+        <li>Server PC now has all your data. Cabin PCs auto-see it once they reconnect.</li>
+      </ol>
+      <div className="flex items-center gap-2">
+        <button className="btn-primary text-xs" onClick={exportNow} disabled={busy}>{busy ? 'Exporting…' : 'Export now'}</button>
+        {result && <span className="text-[11px] text-amber-800 dark:text-amber-300 font-mono truncate flex-1">{result}</span>}
+      </div>
+    </div>
   );
 }
 

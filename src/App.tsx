@@ -23,6 +23,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from './hooks/useAuth';
 import { useKeyboardShortcut } from './hooks/useKeyboardShortcut';
+import { useNetworkLive } from './hooks/useNetworkLive';
 
 export default function App() {
   const { user } = useAuth();
@@ -65,11 +66,20 @@ export default function App() {
     setTimeout(() => window.dispatchEvent(new Event('caredesk:bookAppointment')), 60);
   }, [user]);
 
+  // Subscribe to live WebSocket events when in Client mode (auto-no-op in Local
+  // / Server). Status drives the offline banner below.
+  const live = useNetworkLive();
+
   if (!user) return <Login />;
 
   return (
     <>
       {wizardOpen && <WelcomeWizard onClose={() => setWizardOpen(false)} />}
+      {(live.status === 'disconnected' || live.status === 'error') && (
+        <div className="no-print fixed top-0 left-0 right-0 z-[150] bg-red-600 text-white px-4 py-1.5 text-xs text-center font-semibold shadow">
+          ⚠ Disconnected from clinic server — trying to reconnect every 5 seconds. Recent changes may not have synced.
+        </div>
+      )}
     <Routes>
       <Route element={<Layout />}>
         <Route path="/" element={<Navigate to="/reception" replace />} />

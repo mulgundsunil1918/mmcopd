@@ -22,6 +22,7 @@ export function isBackupServiceReady() {
   return _performBackupToRoot !== null;
 }
 import { getAllSettings, saveSettings } from '../db/settings';
+import { broadcastEvent as broadcastNetworkEvent } from './network-server';
 import { NotificationService } from '../services/notifications';
 import { createUser, verifyLogin, ensureDefaultAdmin, changePassword, listUsers, updateUser, logAudit, listAudit, type Role, type SessionUser } from './auth';
 import type {
@@ -561,6 +562,9 @@ export function registerIpc() {
     notif.sendAppointmentConfirmation(patientRow, created, doctor, settings.clinic_name);
     notif.sendDoctorAlert(doctor, created, patientRow);
 
+    // Live event so doctor cabin "queue +1" + reception list refresh instantly.
+    try { broadcastNetworkEvent('appointment:new', { id: created.id, doctor_id: created.doctor_id, token_number: created.token_number, patient_name: created.patient_name }); } catch { /* ignore */ }
+
     return created;
   });
 
@@ -603,7 +607,10 @@ export function registerIpc() {
   ipcMain.handle('appointments:updateStatus', (_e, id: number, status: AppointmentStatus) => {
     const db = getDb();
     db.prepare('UPDATE appointments SET status=? WHERE id=?').run(status, id);
-    return db.prepare('SELECT * FROM appointments WHERE id=?').get(id);
+    const row = db.prepare('SELECT * FROM appointments WHERE id=?').get(id);
+    // Live event so doctor cabin / reception screens refresh without polling.
+    try { broadcastNetworkEvent('appointment:status', { id, status, doctor_id: (row as any)?.doctor_id }); } catch { /* ignore */ }
+    return row;
   });
 
   ipcMain.handle('appointments:get', (_e, id: number) => {
