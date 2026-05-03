@@ -1534,39 +1534,242 @@ function NetworkModeSettings() {
         </>
       )}
 
-      {/* Client-mode config */}
+      {/* Client-mode config — friendly join-code flow first, manual fields tucked away */}
       {mode === 'client' && (
-        <div className="rounded-lg border border-violet-200 dark:border-violet-900 bg-violet-50/40 dark:bg-violet-900/10 p-4 space-y-3">
-          <div className="text-xs font-semibold text-violet-900 dark:text-violet-200">Client settings</div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="label">Server URL</label>
-              <input type="text" className="input font-mono"
-                value={draft.network_server_url || ''}
-                onChange={(e) => set('network_server_url', e.target.value)}
-                placeholder="http://192.168.1.100:4321" />
-              <div className="text-[10px] text-gray-500 mt-1">IP + port of the CureDesk server PC.</div>
-            </div>
-            <div>
-              <label className="label">Shared secret (token)</label>
-              <input type="text" className="input font-mono"
-                value={draft.network_secret || ''}
-                onChange={(e) => set('network_secret', e.target.value)} placeholder="match the server's secret" />
-            </div>
+        <ClientConnectPanel
+          currentUrl={draft.network_server_url || ''}
+          currentSecret={draft.network_secret || ''}
+          onSavedConfig={async (url, secret) => {
+            // Persist the negotiated config + reload the network mode in main.
+            set('network_server_url', url);
+            set('network_secret', secret);
+            await window.electronAPI.settings.save({
+              network_mode: 'client',
+              network_server_url: url,
+              network_secret: secret,
+            });
+            try {
+              localStorage.setItem('caredesk:network-mode', 'client');
+              localStorage.setItem('caredesk:network-server-url', url);
+              localStorage.setItem('caredesk:network-secret', secret);
+            } catch { /* ignore */ }
+            await window.electronAPI.network.applyMode();
+            await qc.invalidateQueries({ queryKey: ['settings'] });
+            await refetchStatus();
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+/** Friendly Client setup panel — auto-discovery + 6-char join code, with
+ *  the manual URL/secret fields tucked under an "Advanced" toggle. */
+function ClientConnectPanel({
+  currentUrl, currentSecret, onSavedConfig,
+}: {
+  currentUrl: string;
+  currentSecret: string;
+  onSavedConfig: (url: string, secret: string) => Promise<void>;
+}) {
+  const toast = useToast();
+  const [discovered, setDiscovered] = useState<{ ip: string; port: number; version: string }[]>([]);
+  const [discovering, setDiscovering] = useState(false);
+  const [pickedServer, setPickedServer] = useState<{ ip: string; port: number } | null>(null);
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [manualUrl, setManualUrl] = useState(currentUrl);
+  const [manualSecret, setManualSecret] = useState(currentSecret);
+
+  const scan = async () => {
+    setDiscovering(true);
+    setMsg(null);
+    try {
+      const list = await window.electronAPI.network.discover({ timeoutMs: 5_000 });
+      setDiscovered(list);
+      if (list.length === 0) setMsg({ ok: false, text: 'No CureDesk servers found on this Wi-Fi. Make sure the host PC is running and on the same network.' });
+    } catch (e: any) {
+      setMsg({ ok: false, text: `Scan failed: ${e?.message || e}` });
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
+  const connectWithCode = async () => {
+    if (!pickedServer) { setMsg({ ok: false, text: 'Pick a discovered server first (or enter URL manually below).' }); return; }
+    const cleaned = code.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (cleaned.length !== 6) { setMsg({ ok: false, text: 'Join code must be 6 letters/digits.' }); return; }
+    setBusy(true);
+    setMsg(null);
+    try {
+      const url = `http://${pickedServer.ip}:${pickedServer.port}`;
+      const r = await window.electronAPI.network.pair({ url, code: cleaned });
+      if (!(r as any).ok) {
+        setMsg({ ok: false, text: (r as any).error || 'Pairing failed' });
+        setBusy(false);
+        return;
+      }
+      const { secret } = r as any;
+      await onSavedConfig(url, secret);
+      setMsg({ ok: true, text: `✓ Connected to ${url} — config saved` });
+      toast('Connected to clinic server');
+      setCode('');
+    } catch (e: any) {
+      setMsg({ ok: false, text: e?.message || String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const connectManual = async () => {
+    const url = manualUrl.trim().replace(/\/+$/, '');
+    const secret = manualSecret.trim();
+    if (!url) { setMsg({ ok: false, text: 'Enter the server URL.' }); return; }
+    setBusy(true);
+    setMsg(null);
+    try {
+      const probe = await window.electronAPI.network.probe({ url, secret });
+      if (!(probe as any).ok) {
+        setMsg({ ok: false, text: `Couldn't reach server: ${(probe as any).error}` });
+        setBusy(false);
+        return;
+      }
+      await onSavedConfig(url, secret);
+      setMsg({ ok: true, text: `✓ Connected to ${url} — config saved` });
+      toast('Connected to clinic server');
+    } catch (e: any) {
+      setMsg({ ok: false, text: e?.message || String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border-2 border-violet-300 dark:border-violet-800 bg-violet-50/40 dark:bg-violet-900/10 p-4 space-y-4">
+      {/* Current state */}
+      {currentUrl ? (
+        <div className="text-[12px] text-violet-900 dark:text-violet-200">
+          <b>Currently connected to:</b> <span className="font-mono">{currentUrl}</span>
+        </div>
+      ) : (
+        <div className="text-[13px] font-bold text-violet-900 dark:text-violet-200">
+          ⚠ Not connected to any clinic server yet.
+        </div>
+      )}
+
+      {/* STEP 1 — find host */}
+      <div>
+        <div className="text-xs font-bold text-violet-900 dark:text-violet-200 mb-2">Step 1 — Find the host PC</div>
+        <button type="button" className="btn-secondary text-xs" onClick={scan} disabled={discovering}>
+          {discovering ? 'Scanning Wi-Fi…' : (discovered.length > 0 ? '🔄 Rescan' : '🔍 Scan for clinic servers on this Wi-Fi')}
+        </button>
+        {discovered.length > 0 && (
+          <ul className="mt-3 space-y-1.5">
+            {discovered.map((s) => {
+              const isPicked = pickedServer?.ip === s.ip && pickedServer?.port === s.port;
+              return (
+                <li key={`${s.ip}:${s.port}`}>
+                  <button
+                    type="button"
+                    onClick={() => setPickedServer({ ip: s.ip, port: s.port })}
+                    className={cn(
+                      'w-full text-left rounded-md border-2 p-2 transition',
+                      isPicked
+                        ? 'border-violet-600 bg-violet-100 dark:bg-violet-900/40'
+                        : 'border-violet-200 dark:border-violet-800 bg-white dark:bg-slate-900 hover:border-violet-500'
+                    )}
+                  >
+                    <div className="text-[12px] font-semibold text-gray-900 dark:text-slate-100">
+                      {isPicked && '✓ '}CureDesk HMS · v{s.version}
+                    </div>
+                    <div className="text-[10px] text-gray-500 font-mono">{s.ip}:{s.port}</div>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      {/* STEP 2 — type code */}
+      {pickedServer && (
+        <div>
+          <div className="text-xs font-bold text-violet-900 dark:text-violet-200 mb-2">
+            Step 2 — Type the join code from the host PC's screen
           </div>
-          <div className="flex items-center gap-2">
-            <button type="button" className="btn-secondary text-xs" onClick={probe} disabled={probing || !draft.network_server_url}>
-              {probing ? 'Probing…' : 'Test connection'}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              className="input font-mono text-2xl tracking-[0.3em] text-center uppercase flex-1"
+              placeholder="XXXXXX"
+              maxLength={7}
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') connectWithCode(); }}
+            />
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={connectWithCode}
+              disabled={busy || code.replace(/-/g, '').length !== 6}
+            >
+              {busy ? 'Connecting…' : '🚀 Connect'}
             </button>
-            {probeResult && (
-              <span className={cn('text-[12px] font-semibold', probeResult.ok ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300')}>
-                {probeResult.msg}
-              </span>
-            )}
+          </div>
+          <div className="text-[10px] text-gray-500 mt-1">
+            On the host PC: Settings → System → Network Mode → big blue "Join Code" panel.
           </div>
         </div>
       )}
-    </section>
+
+      {/* Status message */}
+      {msg && (
+        <div className={cn('rounded p-2 text-[12px] font-semibold',
+          msg.ok ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300'
+                 : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300')}>
+          {msg.text}
+        </div>
+      )}
+
+      {/* Advanced (manual URL + secret) */}
+      <div className="border-t border-violet-200 dark:border-violet-800 pt-3">
+        <button
+          type="button"
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="text-[11px] text-violet-700 dark:text-violet-300 font-semibold hover:underline"
+        >
+          {showAdvanced ? '▼ Hide' : '▶ Show'} advanced — connect with URL + secret manually
+        </button>
+        {showAdvanced && (
+          <div className="mt-3 space-y-3">
+            <div className="text-[11px] text-gray-600 dark:text-slate-400">
+              Use this if auto-discovery doesn't find the host (different subnet, UDP blocked, etc.).
+              You'll need to copy the secret token from the host PC's settings file directly.
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="label">Server URL</label>
+                <input type="text" className="input font-mono"
+                  value={manualUrl}
+                  onChange={(e) => setManualUrl(e.target.value)}
+                  placeholder="http://192.168.1.100:4321" />
+              </div>
+              <div>
+                <label className="label">Shared secret (token)</label>
+                <input type="text" className="input font-mono"
+                  value={manualSecret}
+                  onChange={(e) => setManualSecret(e.target.value)} placeholder="paste from host" />
+              </div>
+            </div>
+            <button type="button" className="btn-primary" onClick={connectManual} disabled={busy || !manualUrl.trim()}>
+              {busy ? 'Connecting…' : '🚀 Connect with manual config'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
