@@ -1,5 +1,10 @@
 import { NavLink } from 'react-router-dom';
-import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill, ShieldCheck, UserCircle2, Lock, Unlock, Activity, Syringe, ChevronLeft, Wifi, Server } from 'lucide-react';
+import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill, ShieldCheck, UserCircle2, Lock, Unlock, Activity, Syringe, ChevronLeft, Wifi, Server, Heart } from 'lucide-react';
+
+const SUPPORT_URL = 'https://bridgr.co.in/support?from=curedesk';
+function openSupport() {
+  window.electronAPI.app.openExternal(SUPPORT_URL).catch(() => { /* ignore */ });
+}
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '../lib/utils';
 import { useTheme } from '../hooks/useTheme';
@@ -158,6 +163,18 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
         )}
 
         <BackupAndClose />
+
+        <button
+          onClick={openSupport}
+          className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition text-white shadow-sm"
+          style={{ background: 'linear-gradient(135deg, #ec4899, #db2777)' }}
+          title="Open the developer support page in your browser"
+        >
+          <span className="flex items-center gap-2">
+            <Heart className="w-3.5 h-3.5 fill-white" />
+            <span className="font-semibold">Support the developer</span>
+          </span>
+        </button>
 
         <button
           onClick={toggle}

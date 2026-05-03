@@ -115,6 +115,9 @@ export function SettingsPage() {
               <SettingsGroup title="WhatsApp Messaging" subtitle="Click-to-WhatsApp template editor + live preview.">
                 <WhatsAppMessaging />
               </SettingsGroup>
+              <SettingsGroup title="Support the Developer" subtitle="If CureDesk is helping your clinic, consider supporting continued development.">
+                <SupportDeveloperPanel />
+              </SettingsGroup>
             </>
           )}
         </div>
@@ -1560,6 +1563,41 @@ function NetworkModeSettings() {
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+/** Support button — opens the developer's support page in the user's browser. */
+function SupportDeveloperPanel() {
+  const SUPPORT_URL = 'https://bridgr.co.in/support?from=curedesk';
+  const open = () => { window.electronAPI.app.openExternal(SUPPORT_URL).catch(() => { /* ignore */ }); };
+  return (
+    <section className="card p-5">
+      <div className="flex items-start gap-4 flex-wrap">
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-bold text-gray-900 dark:text-slate-100 mb-1 inline-flex items-center gap-2">
+            <span className="text-pink-600">❤</span> Support keeps CureDesk free
+          </div>
+          <p className="text-[12px] text-gray-600 dark:text-slate-400 max-w-xl">
+            CureDesk HMS is built and maintained for Indian clinics. Free to install, free to use,
+            no subscriptions, no per-patient fees, your data stays on your computer.
+            If it's saving your clinic time, a one-time contribution helps fund new features
+            (lab reports, IPD billing, mobile receptionist app) and lets us keep it free for everyone.
+          </p>
+          <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-2 font-mono break-all">
+            {SUPPORT_URL}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={open}
+          className="px-5 py-3 rounded-lg text-white font-semibold inline-flex items-center gap-2 shadow-md hover:shadow-lg transition"
+          style={{ background: 'linear-gradient(135deg, #ec4899, #db2777)' }}
+        >
+          <span>❤</span>
+          <span>Open Support Page</span>
+        </button>
+      </div>
     </section>
   );
 }
