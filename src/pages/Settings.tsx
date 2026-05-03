@@ -102,6 +102,7 @@ export function SettingsPage() {
                 <StartupBehavior />
               </SettingsGroup>
               <SettingsGroup title="Network Mode (multi-station)" subtitle="Run reception + doctor cabins as separate PCs sharing one CureDesk. Pick a server PC, others connect over the LAN.">
+                <RelaunchWizardButton />
                 <NetworkModeSettings />
               </SettingsGroup>
               <SettingsGroup title="Multi-Station Setup Guide" subtitle="Step-by-step walkthrough — what to buy, how to wire it up, how to connect each PC, and what to do when something breaks.">
@@ -1391,6 +1392,34 @@ function FollowupPolicy() {
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+/** Big eye-catching button at the top of Network Mode that re-opens the
+ *  welcome wizard. Useful for users who clicked Skip on first launch but now
+ *  want to set up multi-station, OR users who want to re-pair quickly. */
+function RelaunchWizardButton() {
+  const open = () => {
+    // Clear the dismissed flag so the wizard treats this as fresh.
+    try { sessionStorage.removeItem('caredesk:welcome-dismissed'); } catch { /* ignore */ }
+    try { localStorage.removeItem('caredesk:welcome-dismissed'); } catch { /* ignore */ }
+    window.dispatchEvent(new Event('caredesk:openWelcomeWizard'));
+  };
+  return (
+    <section className="card p-4 mb-3 border-2 border-blue-300 dark:border-blue-800 bg-blue-50/40 dark:bg-blue-900/15">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-bold text-blue-900 dark:text-blue-200">🪄 Run the Setup Wizard</div>
+          <div className="text-[12px] text-blue-700 dark:text-blue-300 mt-0.5">
+            The same friendly flow that ran on first install — pick "host this clinic" or "connect to existing".
+            Use this if you skipped it earlier or want to re-pair a station.
+          </div>
+        </div>
+        <button type="button" className="btn-primary" onClick={open}>
+          Open Wizard
+        </button>
+      </div>
     </section>
   );
 }

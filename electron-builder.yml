@@ -25,5 +25,6 @@ nsis:
   installerSidebar: null                # use NSIS default sidebar (no custom asset needed)
   uninstallDisplayName: CureDesk HMS ${version}
   runAfterFinish: true
-  deleteAppDataOnUninstall: false       # keep clinic database safe on uninstall
+  deleteAppDataOnUninstall: false       # default off — our custom installer.nsh asks the user
+  include: build/installer.nsh          # adds the "Also delete clinic data?" Yes/No prompt
   artifactName: CureDesk-HMS-Setup-${version}.${ext}

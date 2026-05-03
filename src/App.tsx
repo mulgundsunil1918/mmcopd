@@ -42,11 +42,23 @@ export default function App() {
   const [wizardOpen, setWizardOpen] = useState(false);
   useEffect(() => {
     if (!user || !settings) return;
+    // Fresh install detection — clinic isn't configured yet AND user hasn't
+    // dismissed the wizard in THIS session. We use sessionStorage (not local)
+    // so a Skip only suppresses for the current launch — next launch shows it
+    // again until the user actually fills in clinic name (or picks Server / Client).
     let dismissed = false;
-    try { dismissed = localStorage.getItem('caredesk:welcome-dismissed') === '1'; } catch { /* ignore */ }
+    try { dismissed = sessionStorage.getItem('caredesk:welcome-dismissed') === '1'; } catch { /* ignore */ }
     const isFreshInstall = !settings.clinic_name && settings.network_mode === 'local';
     if (isFreshInstall && !dismissed) setWizardOpen(true);
   }, [user, settings?.clinic_name, settings?.network_mode]);
+
+  // Settings → "Run Setup Wizard" button dispatches this event so the
+  // Settings page can re-open the App-level wizard without prop-drilling.
+  useEffect(() => {
+    const open = () => setWizardOpen(true);
+    window.addEventListener('caredesk:openWelcomeWizard', open);
+    return () => window.removeEventListener('caredesk:openWelcomeWizard', open);
+  }, []);
 
   useEffect(() => {
     if (clinicName) document.title = `${clinicName} · CureDesk HMS`;

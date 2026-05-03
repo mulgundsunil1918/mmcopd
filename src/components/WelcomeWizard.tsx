@@ -122,7 +122,10 @@ export function WelcomeWizard({ onClose }: { onClose: () => void }) {
   };
 
   const dismiss = () => {
-    try { localStorage.setItem('caredesk:welcome-dismissed', '1'); } catch { /* ignore */ }
+    // Session-only suppression — next app launch reshows the wizard until the
+    // user actually configures the clinic. Stops "I dismissed and now I can't
+    // find it" loop.
+    try { sessionStorage.setItem('caredesk:welcome-dismissed', '1'); } catch { /* ignore */ }
     onClose();
   };
 
