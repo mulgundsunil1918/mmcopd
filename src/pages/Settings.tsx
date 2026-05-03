@@ -104,6 +104,9 @@ export function SettingsPage() {
               <SettingsGroup title="Network Mode (multi-station)" subtitle="Run reception + doctor cabins as separate PCs sharing one CureDesk. Pick a server PC, others connect over the LAN.">
                 <NetworkModeSettings />
               </SettingsGroup>
+              <SettingsGroup title="Multi-Station Setup Guide" subtitle="Step-by-step walkthrough — what to buy, how to wire it up, how to connect each PC, and what to do when something breaks.">
+                <NetworkSetupGuide />
+              </SettingsGroup>
               <SettingsGroup title="Backup, Restore & Updates" subtitle="Where backups go, daily auto-backup, weekly USB reminder, restore, and app updates.">
                 <BackupSettings />
               </SettingsGroup>
@@ -1564,6 +1567,276 @@ function NetworkModeSettings() {
         </div>
       )}
     </section>
+  );
+}
+
+/** Long-form, picture-free, paint-by-numbers setup guide for the multi-station
+ *  feature. Every section is collapsible (default closed) so the page stays
+ *  scannable. */
+function NetworkSetupGuide() {
+  const [open, setOpen] = useState<string | null>('overview');
+  const toggle = (key: string) => setOpen(open === key ? null : key);
+
+  return (
+    <section className="card p-5 space-y-3">
+      <div className="text-sm text-gray-700 dark:text-slate-300">
+        New to multi-station? Read the sections below in order. Each step is small enough
+        to do in 2-3 minutes.
+      </div>
+
+      <GuideSection
+        id="overview" open={open === 'overview'} onToggle={toggle}
+        title="What is multi-station and do I need it?"
+        tone="slate"
+      >
+        <p>
+          By default CureDesk runs on <b>one PC</b>. All your patient data, doctors, bills,
+          and settings live on that single computer. This is fine if reception and the doctor
+          share the same desk.
+        </p>
+        <p className="mt-2">
+          <b>Multi-station mode</b> lets you run CureDesk on several PCs at once — reception,
+          each doctor's cabin, pharmacy, billing — all sharing the same patient list and queue
+          live. Reception books a patient → the right doctor's cabin sees the new entry within
+          seconds.
+        </p>
+        <p className="mt-2">
+          <b>Use multi-station if:</b> you have 2+ PCs in your clinic and want them to see the
+          same data. Skip it if you only have one PC.
+        </p>
+      </GuideSection>
+
+      <GuideSection
+        id="prereq" open={open === 'prereq'} onToggle={toggle}
+        title="Prerequisites — what you need before starting"
+        tone="amber"
+      >
+        <ul className="list-disc pl-5 space-y-1">
+          <li><b>Windows PCs</b> — one for each station you want to run CureDesk on. Any modern PC works.</li>
+          <li><b>One Wi-Fi router</b> in the clinic. Both PCs must connect to the SAME Wi-Fi (or LAN cable).
+            A normal home/office router is fine — no special hardware needed.</li>
+          <li><b>One PC chosen as the "main PC"</b> (also called <i>server</i> or <i>host</i>). This is usually
+            the reception PC because it stays on all day. All patient data lives here. Other PCs (doctor cabins)
+            are <i>clients</i> that connect to it.</li>
+          <li><b>The CureDesk installer (.exe)</b> on a USB stick or downloaded — same Setup file for all PCs.</li>
+          <li><b>Admin rights on each PC</b> — needed once during install to allow the firewall.</li>
+        </ul>
+        <div className="mt-3 p-2 rounded bg-amber-100 dark:bg-amber-900/30 text-[12px]">
+          💡 <b>Tip:</b> If the main PC is shut down, cabin PCs can't see data. Keep the main PC plugged into
+          a UPS so a brief power cut doesn't disrupt the whole clinic.
+        </div>
+      </GuideSection>
+
+      <GuideSection
+        id="server" open={open === 'server'} onToggle={toggle}
+        title="Step-by-step: setting up the MAIN PC (server)"
+        tone="blue"
+      >
+        <ol className="list-decimal pl-5 space-y-2">
+          <li>On the main PC, run <code className="font-mono px-1 bg-gray-100 dark:bg-slate-800 rounded">CureDesk-HMS-Setup.exe</code>.
+            Follow the wizard: pick install location → click Install → click Finish.</li>
+          <li>CureDesk launches. The <b>Welcome wizard</b> appears.</li>
+          <li>Click the big blue card: <b>"🏥 This is my clinic's main PC"</b>.</li>
+          <li>Type a name for this PC: e.g. <b>Reception Desk</b> or <b>Front Office</b>.
+            (Skip — defaults to "Reception Desk".) Click Continue.</li>
+          <li>Wait 2-3 seconds. The wizard sets up the LAN server, generates a secret, and shows
+            a big <b>JOIN CODE</b> like <span className="font-mono font-bold">7K3P-QM</span>.</li>
+          <li>Windows asks <b>"Allow CureDesk HMS to communicate on networks?"</b> → click <b>Allow access</b>.
+            (One-time. This only opens your local Wi-Fi, NOT the internet.)</li>
+          <li>Note down the join code on a piece of paper, or just leave the wizard open while you go to
+            the cabin PCs. The code is valid for 10 minutes — if it expires, click <b>"New code"</b> to
+            mint a fresh one.</li>
+          <li>Click <b>Done — start using CureDesk</b>. The main PC is now ready.</li>
+        </ol>
+        <div className="mt-3 p-2 rounded bg-blue-100 dark:bg-blue-900/30 text-[12px]">
+          ✓ <b>How to know it worked:</b> Look at the bottom-left of the sidebar. You should see a green
+          dot next to <b>"Reception Desk"</b> with the text <i>"Hosting · 0 clients"</i>.
+        </div>
+      </GuideSection>
+
+      <GuideSection
+        id="client" open={open === 'client'} onToggle={toggle}
+        title="Step-by-step: connecting a CABIN PC (client)"
+        tone="violet"
+      >
+        <ol className="list-decimal pl-5 space-y-2">
+          <li>On the cabin PC, run the same <code className="font-mono px-1 bg-gray-100 dark:bg-slate-800 rounded">CureDesk-HMS-Setup.exe</code>.
+            Install + Finish.</li>
+          <li>CureDesk launches → Welcome wizard appears.</li>
+          <li>Click the violet card: <b>"👤 Connect to existing clinic"</b>.</li>
+          <li>The wizard scans the Wi-Fi for ~5 seconds. The main PC should appear as a clickable card
+            (e.g. <span className="font-mono">CureDesk HMS · v0.3.0 · 192.168.1.100:4321</span>). Click it.</li>
+          <li>If the scan finds nothing, click <b>"Type code manually"</b> instead and enter the main PC's IP
+            (find it on the main PC's join-code screen — bottom row, "This PC's IP").</li>
+          <li>Type the 6-character join code from the main PC's screen (e.g. <span className="font-mono">7K3P-QM</span>) → click <b>Connect</b>.</li>
+          <li>Wizard asks for a name for THIS station. Type <b>Cabin 1</b>, <b>Cabin 2</b>, <b>Pharmacy</b>, etc.
+            (Or click one of the quick chips.) Click Continue.</li>
+          <li>You'll see <b>"✓ Connected!"</b>. Click Continue. <b>Restart the app once</b> (close + reopen)
+            so the data starts flowing from the main PC.</li>
+        </ol>
+        <div className="mt-3 p-2 rounded bg-violet-100 dark:bg-violet-900/30 text-[12px]">
+          ✓ <b>How to know it worked:</b> The cabin PC's sidebar (bottom-left) shows a green dot next to
+          your station name (e.g. <b>"Cabin 1"</b>) with the text <i>"Client → http://192.168.1.100:4321"</i>.
+          Open the Reception page — the same patients you see on the main PC are now visible here.
+        </div>
+        <div className="mt-2 p-2 rounded bg-violet-100 dark:bg-violet-900/30 text-[12px]">
+          🔁 <b>Repeat for each cabin PC.</b> Each one is its own session — you can give them different
+          names so audit logs and the host's connected-clients list can tell them apart.
+        </div>
+      </GuideSection>
+
+      <GuideSection
+        id="usage" open={open === 'usage'} onToggle={toggle}
+        title="Day-to-day use: how the queue flows"
+        tone="emerald"
+      >
+        <ol className="list-decimal pl-5 space-y-2">
+          <li><b>Reception books a patient</b> with <i>Dr. Patil · Cabin 2</i>.
+            The booking saves on the main PC and broadcasts to all stations.</li>
+          <li><b>Cabin 2's screen</b> updates within ~1 second — Dr. Patil sees the new patient in
+            their queue list. (No "refresh" button needed.)</li>
+          <li>Doctor calls the patient → opens the consultation panel → fills
+            history / examination / impression / advice / Rx → clicks <b>Save</b>.</li>
+          <li>If the doctor uses the <b>"Send to Reception (Ready for Print)"</b> button, the appointment
+            status changes; reception's screen lights up the row in blue → reception clicks <b>Print OPD slip</b>.</li>
+          <li>Pharmacy PC (if you have one) sees the prescription appear in the dispense queue automatically.</li>
+        </ol>
+        <p className="mt-2">All this happens with <b>no manual file copying</b>, no shared drives — just live data
+          flowing between the PCs over your Wi-Fi.</p>
+      </GuideSection>
+
+      <GuideSection
+        id="rename" open={open === 'rename'} onToggle={toggle}
+        title="Renaming a station / re-pairing later"
+        tone="slate"
+      >
+        <p><b>To rename this PC:</b> Settings → System → Network Mode → edit the <b>"Station / room name"</b>
+          field at the top → click Save changes. Sidebar pill updates immediately.</p>
+        <p className="mt-2"><b>To add a NEW cabin PC later:</b></p>
+        <ol className="list-decimal pl-5 space-y-1 mt-1">
+          <li>On the MAIN PC, open Settings → System → Network Mode. Find the big rotating join code panel.</li>
+          <li>If the code has expired, click <b>"New code"</b>.</li>
+          <li>On the new cabin PC, install CureDesk → in the wizard pick "Connect to existing clinic" → enter the code.</li>
+        </ol>
+        <p className="mt-2"><b>To switch a cabin to a different role:</b> Settings → System → Network Mode → click
+          another mode card (Local / Server / Client) → save → restart the app.</p>
+      </GuideSection>
+
+      <GuideSection
+        id="trouble" open={open === 'trouble'} onToggle={toggle}
+        title="Troubleshooting"
+        tone="red"
+      >
+        <div className="space-y-3">
+          <Trouble q="The cabin PC's wizard says 'No clinics found'.">
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Make sure both PCs are on the <b>same Wi-Fi</b> (not different floors / different routers).</li>
+              <li>Check that the main PC's CureDesk is running and showing the join code.</li>
+              <li>Some routers block UDP broadcast. Click <b>"Type code manually"</b> in the wizard and enter
+                the main PC's IP (shown on the main PC's join-code screen).</li>
+              <li>Windows Firewall: when CureDesk first starts on the main PC, Windows asks to allow it.
+                If you accidentally clicked Block, run this in Command Prompt as Administrator:
+                <pre className="mt-1 p-2 bg-gray-100 dark:bg-slate-800 rounded text-[11px] overflow-x-auto">netsh advfirewall firewall add rule name="CureDesk HMS" dir=in action=allow protocol=TCP localport=4321</pre>
+              </li>
+            </ul>
+          </Trouble>
+          <Trouble q="The join code says 'Invalid' or 'Expired'.">
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Codes expire after 10 minutes. On the main PC, click the pink <b>"New code"</b> button to mint a fresh one.</li>
+              <li>Make sure you typed the code exactly — no spaces, the dash is auto-inserted.</li>
+              <li>The code is case-insensitive but no zeros / ones / letter-O / letter-L are used to avoid confusion.</li>
+            </ul>
+          </Trouble>
+          <Trouble q="Cabin PC shows the red 'Disconnected from clinic server' banner.">
+            <ul className="list-disc pl-5 space-y-1">
+              <li>The main PC may be off, sleeping, or the Wi-Fi dropped. Wait 5 seconds — the cabin auto-reconnects.</li>
+              <li>If the banner stays for more than a minute, walk to the main PC and check it's still running.</li>
+              <li>Make sure the main PC isn't in <b>Sleep</b> mode (Settings → System → Power → set "Never sleep" while plugged in).</li>
+            </ul>
+          </Trouble>
+          <Trouble q="Two stations changed the same appointment at the same moment.">
+            <p>CureDesk uses optimistic locking. The first save wins; the second one shows
+              <b> "Conflict — another station already changed this appointment to ___. Refresh and try again."</b>
+              The losing user just refreshes (F5 or click another tab and back) and re-applies their change.</p>
+          </Trouble>
+          <Trouble q="I want to STOP using multi-station and go back to one PC.">
+            <p>On every cabin PC: Settings → System → Network Mode → click <b>Local</b> → Save → restart app.
+              On the main PC: do the same. Each PC's local data stays put. (To consolidate the cabin's local
+              data into the main PC's DB, use the export/import flow under "Bringing existing data to the server PC".)</p>
+          </Trouble>
+          <Trouble q="The main PC's join-code screen disappeared.">
+            <p>It's still active. Open Settings → System → Network Mode → scroll to the big rotating code panel.
+              The code is the same as long as it hasn't expired; click "New code" if needed.</p>
+          </Trouble>
+        </div>
+      </GuideSection>
+
+      <GuideSection
+        id="security" open={open === 'security'} onToggle={toggle}
+        title="Security model — what's protected, what isn't"
+        tone="slate"
+      >
+        <ul className="list-disc pl-5 space-y-1">
+          <li><b>Patient data never leaves your clinic Wi-Fi.</b> No cloud, no internet calls.
+            CureDesk only opens an internet connection for daily update checks (which can be turned off).</li>
+          <li>The main PC's server requires a <b>shared secret token</b>. Cabin PCs without the token can't
+            read or write data. The token is auto-generated and stored on each PC after pairing.</li>
+          <li>The 6-character join code is <b>short-lived (10 minutes)</b> and rotates — so even if a code
+            is overheard, it can't be used after expiry.</li>
+          <li><b>Anyone on the same Wi-Fi with the token can use any feature.</b> Per-station role enforcement
+            (e.g. "this cabin can only see Dr. X's patients") isn't built yet — keep your clinic Wi-Fi
+            password-protected so outsiders can't join.</li>
+          <li>Daily backups still run on the main PC and protect against drive failure.</li>
+        </ul>
+      </GuideSection>
+    </section>
+  );
+}
+
+function GuideSection({
+  id, open, onToggle, title, tone, children,
+}: {
+  id: string;
+  open: boolean;
+  onToggle: (id: string) => void;
+  title: string;
+  tone: 'slate' | 'amber' | 'blue' | 'violet' | 'emerald' | 'red';
+  children: React.ReactNode;
+}) {
+  const tones: Record<string, { border: string; bg: string; head: string; chev: string }> = {
+    slate:   { border: 'border-slate-300 dark:border-slate-700',     bg: 'bg-slate-50/50 dark:bg-slate-800/30',     head: 'text-gray-900 dark:text-slate-100',     chev: 'text-gray-500' },
+    amber:   { border: 'border-amber-300 dark:border-amber-800',     bg: 'bg-amber-50/40 dark:bg-amber-900/15',     head: 'text-amber-900 dark:text-amber-200',    chev: 'text-amber-600' },
+    blue:    { border: 'border-blue-300 dark:border-blue-800',       bg: 'bg-blue-50/40 dark:bg-blue-900/15',       head: 'text-blue-900 dark:text-blue-200',      chev: 'text-blue-600' },
+    violet:  { border: 'border-violet-300 dark:border-violet-800',   bg: 'bg-violet-50/40 dark:bg-violet-900/15',   head: 'text-violet-900 dark:text-violet-200',  chev: 'text-violet-600' },
+    emerald: { border: 'border-emerald-300 dark:border-emerald-800', bg: 'bg-emerald-50/40 dark:bg-emerald-900/15', head: 'text-emerald-900 dark:text-emerald-200', chev: 'text-emerald-600' },
+    red:     { border: 'border-red-300 dark:border-red-800',         bg: 'bg-red-50/40 dark:bg-red-900/15',         head: 'text-red-900 dark:text-red-200',        chev: 'text-red-600' },
+  };
+  const t = tones[tone];
+  return (
+    <div className={cn('rounded-lg border-2', t.border, t.bg)}>
+      <button
+        type="button"
+        onClick={() => onToggle(id)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left"
+      >
+        <span className={cn('text-sm font-bold', t.head)}>{title}</span>
+        <span className={cn('text-lg font-bold leading-none', t.chev)}>{open ? '−' : '+'}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-4 text-[13px] text-gray-700 dark:text-slate-300 leading-relaxed">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Trouble({ q, children }: { q: string; children: React.ReactNode }) {
+  return (
+    <div className="border-l-2 border-red-400 pl-3">
+      <div className="font-semibold text-red-900 dark:text-red-300 text-[13px] mb-1">❓ {q}</div>
+      <div className="text-[12px]">{children}</div>
+    </div>
   );
 }
 
