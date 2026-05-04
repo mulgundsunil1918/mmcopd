@@ -509,7 +509,15 @@ function BookAppointmentModal({
     enabled: !!doctorId,
   });
 
-  const slots = generateTimeSlots(settings?.slot_duration ?? 30);
+  // Slots cover the SELECTED doctor's available window when configured —
+  // avoids showing 6 hours of struck-through "outside hours" slots when the
+  // doctor only works 4 PM – 10 PM.
+  const slots = generateTimeSlots(
+    settings?.slot_duration ?? 30,
+    6, 23,
+    selectedDoctor?.available_from,
+    selectedDoctor?.available_to,
+  );
   const bookedSet = new Set(booked.map((b) => b.appointment_time));
 
   const submit = async () => {

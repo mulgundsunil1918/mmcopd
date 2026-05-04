@@ -100,12 +100,46 @@ export function fmt12h(time24: string): string {
   return `${h12}:${String(m).padStart(2, '0')} ${period}`;
 }
 
-export function generateTimeSlots(durationMin = 30, startHour = 9, endHour = 18): string[] {
+/** Generate booking time slots at fixed intervals.
+ *
+ *  When `availableFrom` / `availableTo` ("HH:MM") are provided (the doctor's
+ *  configured window), slots are restricted to inside that window — no
+ *  greyed-out struck-through slots cluttering the picker. Otherwise we
+ *  default to a wide 6 AM – 11 PM range so late-evening doctors still get
+ *  full slot coverage.
+ *
+ *  durationMin is the spacing between slots (e.g. 30 for half-hour slots).
+ *  endHour is exclusive (`endHour=18` stops at 17:30 for 30-min slots).
+ */
+export function generateTimeSlots(
+  durationMin = 30,
+  startHour = 6,
+  endHour = 23,
+  availableFrom?: string | null,
+  availableTo?: string | null,
+): string[] {
+  // If the doctor has a configured window, snap the iteration bounds to it.
+  let startMin = startHour * 60;
+  let endMin = endHour * 60;
+  const parseHHMM = (s: string | null | undefined): number | null => {
+    if (!s || !/^\d{1,2}:\d{2}$/.test(s)) return null;
+    const [h, m] = s.split(':').map((x) => parseInt(x, 10));
+    if (Number.isNaN(h) || Number.isNaN(m)) return null;
+    return h * 60 + m;
+  };
+  const fromMin = parseHHMM(availableFrom);
+  const toMin = parseHHMM(availableTo);
+  if (fromMin != null) startMin = Math.max(startMin, fromMin);
+  if (toMin != null) endMin = Math.min(endMin, toMin);
+  // Round startMin UP to next slot boundary so the first slot is at-or-after the doctor's open time.
+  if (durationMin > 0 && startMin % durationMin !== 0) {
+    startMin = startMin + (durationMin - (startMin % durationMin));
+  }
   const slots: string[] = [];
-  for (let h = startHour; h < endHour; h++) {
-    for (let m = 0; m < 60; m += durationMin) {
-      slots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
-    }
+  for (let t = startMin; t <= endMin; t += durationMin) {
+    const h = Math.floor(t / 60), m = t % 60;
+    if (h > 23) break;
+    slots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
   }
   return slots;
 }
