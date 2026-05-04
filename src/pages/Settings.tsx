@@ -111,6 +111,9 @@ export function SettingsPage() {
               <SettingsGroup title="Backup, Restore & Updates" subtitle="Where backups go, daily auto-backup, weekly USB reminder, restore, and app updates.">
                 <BackupSettings />
               </SettingsGroup>
+              <SettingsGroup title="Reset all clinic data" subtitle="Nuclear option — wipes everything in %APPDATA%\CureDesk HMS\ and restarts the app. Use this for a truly fresh install without uninstalling.">
+                <HardResetPanel />
+              </SettingsGroup>
             </>
           )}
 
@@ -1389,6 +1392,93 @@ function FollowupPolicy() {
               onChange={(e) => set('followup_grace_days', Math.max(0, Math.min(30, parseInt(e.target.value, 10) || 0)))}
             />
             <div className="text-[10px] text-gray-500 mt-1">Extra days beyond the strict window where the receptionist can MANUALLY grant a courtesy free visit.</div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Hard-reset wipe + restart. Three-step confirmation to avoid accidents.
+ *  Bypasses the Windows uninstaller entirely so the user can get a fresh
+ *  install state without admin elevation or going through Add/Remove Programs. */
+function HardResetPanel() {
+  const toast = useToast();
+  const [step, setStep] = useState<'idle' | 'confirm1' | 'confirm2'>('idle');
+  const [phrase, setPhrase] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const reset = async () => {
+    setBusy(true);
+    try {
+      const r = await window.electronAPI.admin.hardResetAndRestart();
+      if (!r.ok) toast(r.error || 'Reset failed', 'error');
+      // If r.ok, the app restarts; nothing more to do here.
+    } catch (e: any) {
+      toast(e?.message || 'Reset failed', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card p-5 border-2 border-red-300 dark:border-red-800 bg-red-50/40 dark:bg-red-900/15">
+      <div className="text-sm font-bold text-red-900 dark:text-red-200 mb-1">⚠ Reset all clinic data</div>
+      <div className="text-[12px] text-red-800 dark:text-red-300 mb-4">
+        Permanently deletes EVERYTHING stored by CureDesk HMS on this PC:
+        <ul className="list-disc pl-5 mt-1 space-y-0.5">
+          <li>Patient records · doctors · bills · prescriptions</li>
+          <li>EMR (allergies, conditions, immunizations, family history, documents)</li>
+          <li>Pharmacy: drug master, batches, sales, dispensing register, purchases, wholesalers</li>
+          <li>Appointments, lab orders, consultations, IPD admissions</li>
+          <li>Settings, audit log, notifications</li>
+          <li><b>All backups in the configured backup folder are NOT touched</b> — you can restore from one if needed</li>
+        </ul>
+        After reset, the app restarts and shows the Welcome wizard like a fresh install.
+      </div>
+      {step === 'idle' && (
+        <button className="btn-danger" onClick={() => setStep('confirm1')}>
+          Reset all clinic data…
+        </button>
+      )}
+      {step === 'confirm1' && (
+        <div className="space-y-2">
+          <div className="text-[13px] text-red-900 dark:text-red-200 font-semibold">
+            This cannot be undone. Type <code className="font-mono px-1 bg-white/60 dark:bg-slate-900/40 rounded">RESET</code> below to continue:
+          </div>
+          <input
+            className="input"
+            value={phrase}
+            onChange={(e) => setPhrase(e.target.value)}
+            placeholder='Type "RESET" exactly'
+            autoFocus
+          />
+          <div className="flex gap-2">
+            <button className="btn-secondary text-xs" onClick={() => { setStep('idle'); setPhrase(''); }}>
+              Cancel
+            </button>
+            <button
+              className="btn-danger text-xs"
+              disabled={phrase !== 'RESET'}
+              onClick={() => setStep('confirm2')}
+            >
+              Continue →
+            </button>
+          </div>
+        </div>
+      )}
+      {step === 'confirm2' && (
+        <div className="space-y-2">
+          <div className="text-[13px] text-red-900 dark:text-red-200 font-semibold">
+            Final check — the app will close, wipe data, and restart in 3 seconds.
+          </div>
+          <div className="flex gap-2">
+            <button className="btn-secondary text-xs" onClick={() => { setStep('idle'); setPhrase(''); }} disabled={busy}>
+              Cancel
+            </button>
+            <button className="btn-danger text-xs" onClick={reset} disabled={busy}>
+              {busy ? 'Resetting…' : 'Yes, wipe everything and restart'}
+            </button>
           </div>
         </div>
       )}

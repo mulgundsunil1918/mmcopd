@@ -61,6 +61,12 @@ const api = {
       ipcRenderer.invoke('admin:deletePatients', patientIds) as Promise<{ ok: boolean; error?: string; deleted?: number }>,
     deleteAppointment: (appointmentId: number) =>
       ipcRenderer.invoke('admin:deleteAppointment', appointmentId) as Promise<{ ok: boolean; error?: string; appointment?: any }>,
+    /** WIPES %APPDATA%\CureDesk HMS\ entirely and restarts the app. Patient data,
+     *  settings, backups, localStorage — everything. Used by the Settings →
+     *  System → "Reset all clinic data" button for a true fresh-install state
+     *  without going through the Windows uninstaller. */
+    hardResetAndRestart: () =>
+      ipcRenderer.invoke('admin:hardResetAndRestart') as Promise<{ ok: boolean; error?: string }>,
   },
   patients: {
     search: (q: string) => ipcRenderer.invoke('patients:search', q) as Promise<(Patient & { last_visit: string | null })[]>,

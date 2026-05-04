@@ -397,6 +397,29 @@ function createWindow() {
   // in %APPDATA%\CureDesk HMS\ is preserved.
   ipcMain.handle('updates:installNow', () => { openDownloadPage(); return { ok: true }; });
 
+  // ===== Hard reset =====
+  // Wipes %APPDATA%\CureDesk HMS\ (everything: SQLite, settings, backups,
+  // localStorage). Then restarts the app. The user gets a truly fresh install
+  // experience without uninstalling — Welcome wizard shows on next launch.
+  // Gated by the admin-password confirmation in the renderer.
+  ipcMain.handle('admin:hardResetAndRestart', async () => {
+    try {
+      // Close DB first so file handles are released.
+      try { closeDb(); } catch { /* ignore */ }
+      const userData = app.getPath('userData');
+      // Remove the entire userData folder recursively. Electron will recreate
+      // it on next launch with seed.ts defaults.
+      try { fs.rmSync(userData, { recursive: true, force: true }); } catch (err) { console.warn('rmSync failed:', err); }
+      // Restart the app cleanly.
+      allowQuit = true;
+      app.relaunch();
+      app.exit(0);
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  });
+
   // ===== Network / Multi-station =====
   ipcMain.handle('network:status', () => {
     const s = getAllSettings(getDb());
