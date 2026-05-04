@@ -1,7 +1,7 @@
 {
   "name": "curedesk-hms",
   "productName": "CureDesk HMS",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "OPD management software for Mulgund Multispeciality Clinic",
   "main": ".vite/build/main.js",
   "scripts": {
