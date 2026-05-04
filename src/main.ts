@@ -48,10 +48,27 @@ async function checkGitHubReleaseNow(): Promise<typeof updateInfo & { state: Upd
   updateInfo = { ...updateInfo, error: undefined };
   mainWindowRef?.webContents.send('updates:state', { state: updateState, ...updateInfo });
   const currentVersion = app.getVersion();
+  const checkedAt = new Date().toISOString();
   try {
     const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
       headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'CureDesk-HMS-UpdateCheck' },
     });
+    // 404 from /releases/latest means the repo has no PUBLISHED releases yet
+    // (drafts and pre-releases don't count). Not an error — there's just
+    // nothing newer for the user to install. Show as "uptodate" so the user
+    // sees a green "you're on the latest version" instead of a scary red error.
+    if (res.status === 404) {
+      updateState = 'uptodate';
+      updateInfo = {
+        currentVersion,
+        latestVersion: currentVersion,
+        releaseUrl: `https://github.com/${GITHUB_REPO}/releases`,
+        checkedAt,
+      };
+      const payload = { state: updateState, ...updateInfo };
+      mainWindowRef?.webContents.send('updates:state', payload);
+      return payload;
+    }
     if (!res.ok) throw new Error(`GitHub API ${res.status}: ${res.statusText}`);
     const json = await res.json() as any;
     const tag = (json.tag_name || '').toString();
@@ -61,7 +78,6 @@ async function checkGitHubReleaseNow(): Promise<typeof updateInfo & { state: Upd
       typeof a?.name === 'string' && /setup.*\.exe$/i.test(a.name)
     );
     const downloadUrl = asset?.browser_download_url || json.html_url;
-    const checkedAt = new Date().toISOString();
     if (latest && isNewer(latest, currentVersion)) {
       updateState = 'available';
       updateInfo = {
