@@ -398,19 +398,24 @@ function createWindow() {
   ipcMain.handle('updates:installNow', () => { openDownloadPage(); return { ok: true }; });
 
   // ===== Hard reset =====
-  // Wipes %APPDATA%\CureDesk HMS\ (everything: SQLite, settings, backups,
-  // localStorage). Then restarts the app. The user gets a truly fresh install
-  // experience without uninstalling — Welcome wizard shows on next launch.
-  // Gated by the admin-password confirmation in the renderer.
+  // Wipes %APPDATA%\CureDesk HMS\ (everything: SQLite, settings, localStorage).
+  //
+  // Strategy: rmSync inside the running app DOESN'T work — Electron's own
+  // storage files (Local Storage, Code Cache, GPUCache, sqlite-wal) stay
+  // file-locked even after closeDb(), so the directory delete silently fails,
+  // the app restarts, and picks up the OLD DB. Result: wizard doesn't appear.
+  //
+  // Fix: write a "wipe me" marker file to OS temp dir before relaunching.
+  // The next launch reads the marker BEFORE any DB / storage opens, deletes
+  // userData clean, then continues normal startup. Bulletproof against locks.
   ipcMain.handle('admin:hardResetAndRestart', async () => {
     try {
-      // Close DB first so file handles are released.
-      try { closeDb(); } catch { /* ignore */ }
       const userData = app.getPath('userData');
-      // Remove the entire userData folder recursively. Electron will recreate
-      // it on next launch with seed.ts defaults.
-      try { fs.rmSync(userData, { recursive: true, force: true }); } catch (err) { console.warn('rmSync failed:', err); }
-      // Restart the app cleanly.
+      const marker = getResetMarkerPath();
+      try { fs.mkdirSync(path.dirname(marker), { recursive: true }); } catch { /* ignore */ }
+      fs.writeFileSync(marker, userData, 'utf8');
+      // Close DB so as much as possible flushes; final lock release happens on exit.
+      try { closeDb(); } catch { /* ignore */ }
       allowQuit = true;
       app.relaunch();
       app.exit(0);
@@ -638,7 +643,37 @@ function tickReminder() {
   }
 }
 
+/** Persistent path used to defer userData wipes across an app restart. Same
+ *  location every launch — derived from the userData path so different installs
+ *  (per-user vs per-machine) don't collide. */
+function getResetMarkerPath(): string {
+  const tmp = require('node:os').tmpdir();
+  const tag = require('node:crypto').createHash('md5').update(app.getPath('userData')).digest('hex').slice(0, 12);
+  return path.join(tmp, `curedesk-reset-${tag}.flag`);
+}
+
+/** If the previous run wrote a "wipe me" marker, do the actual delete BEFORE
+ *  any DB or Electron storage opens this session. Files are no longer locked
+ *  by the previous process, so rmSync succeeds cleanly. */
+function consumeResetMarkerIfPresent() {
+  try {
+    const marker = getResetMarkerPath();
+    if (!fs.existsSync(marker)) return;
+    const target = fs.readFileSync(marker, 'utf8').trim();
+    if (target && fs.existsSync(target)) {
+      fs.rmSync(target, { recursive: true, force: true });
+      console.log(`[reset] Wiped ${target}`);
+    }
+    try { fs.unlinkSync(marker); } catch { /* ignore */ }
+  } catch (err) {
+    console.warn('[reset] consumeResetMarkerIfPresent failed:', err);
+  }
+}
+
 app.whenReady().then(async () => {
+  // FIRST thing — process any pending hard reset from the last run. Must run
+  // before getDb / Electron storage to avoid re-locking files.
+  consumeResetMarkerIfPresent();
   // Splash first — appears immediately while DB + IPC + main window spin up.
   showSplash();
   getDb();
