@@ -69,7 +69,7 @@ async function checkGitHubReleaseNow(): Promise<typeof updateInfo & { state: Upd
       mainWindowRef?.webContents.send('updates:state', payload);
       return payload;
     }
-    if (!res.ok) throw new Error(`GitHub API ${res.status}: ${res.statusText}`);
+    if (!res.ok) throw new Error(`Update server ${res.status}: ${res.statusText}`);
     const json = await res.json() as any;
     const tag = (json.tag_name || '').toString();
     const latest = tag.replace(/^v/i, '');

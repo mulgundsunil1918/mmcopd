@@ -642,7 +642,7 @@ function BackupSettings() {
         <div className="mb-3">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">App Updates</h3>
           <p className="text-[11px] text-gray-500 dark:text-slate-400">
-            Once a day at the configured time, the app checks GitHub for new releases. Your data is never touched by an update.
+            Once a day at the configured time, the app checks the update server for new releases. Your data is never touched by an update.
           </p>
         </div>
 
@@ -3274,7 +3274,7 @@ function UpdateStatusPanel({
             {!dev && state?.state === 'checking' && (
               <>
                 <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 inline-flex items-center gap-2">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Checking GitHub for new releases…
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Checking for new releases…
                 </div>
                 <div className="text-[11px] text-gray-600 dark:text-slate-400 mt-0.5">Current version: <span className="font-mono">{v}</span></div>
               </>
@@ -3284,7 +3284,7 @@ function UpdateStatusPanel({
                 <div className="text-sm font-semibold text-emerald-900 dark:text-emerald-200">✓ You're on the latest version</div>
                 <div className="text-[11px] text-emerald-800 dark:text-emerald-300 mt-0.5">
                   Current version: <span className="font-mono">{v}</span>
-                  {latest && latest !== v && <> · GitHub latest: <span className="font-mono">{latest}</span></>}
+                  {latest && latest !== v && <> · Latest available: <span className="font-mono">{latest}</span></>}
                   {state.checkedAt && <> · Checked {(() => { try { return new Date(state.checkedAt).toLocaleTimeString(); } catch { return state.checkedAt; } })()}</>}
                 </div>
               </>
@@ -3307,7 +3307,7 @@ function UpdateStatusPanel({
             )}
             {!dev && state?.state === 'error' && (
               <>
-                <div className="text-sm font-semibold text-red-900 dark:text-red-200">Couldn't reach GitHub</div>
+                <div className="text-sm font-semibold text-red-900 dark:text-red-200">Couldn't reach the update server</div>
                 <div className="text-[11px] text-red-800 dark:text-red-300 mt-0.5 break-all">{state.error || 'Unknown error'}</div>
                 <div className="text-[11px] text-red-700 dark:text-red-400 mt-1">Check your internet connection and try again.</div>
               </>
