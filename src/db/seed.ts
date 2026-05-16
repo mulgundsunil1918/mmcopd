@@ -33,7 +33,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   auto_backup_time: '13:00',
   update_check_enabled: 'true',
   update_check_time: '10:30',
-  admin_password: '1918',
+  admin_password: '1234',
   sms_enabled: 'false',
   whatsapp_enabled: 'false',
   sms_provider: '',

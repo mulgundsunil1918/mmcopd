@@ -84,6 +84,16 @@ export function runMigrations(db: Database.Database) {
   setSettingIfEmpty(db, 'network_secret', '');
   setSettingIfEmpty(db, 'station_name', '');
 
+  // Factory default admin password changed 1918 → 1234. Migrate ONLY installs
+  // still sitting on the old factory default (i.e. the admin never changed it).
+  // Custom passwords are never touched.
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key='admin_password'").get() as { value: string } | undefined;
+    if (row && row.value === '1918') {
+      db.prepare("UPDATE settings SET value='1234' WHERE key='admin_password'").run();
+    }
+  } catch { /* ignore */ }
+
   // Optimistic-lock row version for tables most likely to see concurrent edits
   // across stations (reception books while doctor changes status, etc.). Default 1
   // means existing rows behave like fresh ones; every UPDATE bumps it server-side

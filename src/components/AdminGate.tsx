@@ -10,7 +10,7 @@ export function AdminGate({ children, title = 'Administrator area' }: { children
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Only show the "default is 1918" hint while the admin still has the factory password.
+  // Only show the "default is 1234" hint while the admin still has the factory password.
   const { data: isDefault = false } = useQuery({
     queryKey: ['is-default-admin-password'],
     queryFn: () =>
@@ -68,7 +68,7 @@ export function AdminGate({ children, title = 'Administrator area' }: { children
         </button>
         {isDefault ? (
           <div className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900 rounded p-2 mt-4">
-            🔐 First-time setup: default password is <code className="font-mono font-bold">1918</code>.
+            🔐 First-time setup: default password is <code className="font-mono font-bold">1234</code>.
             <br />Please change it under <b>Users → Admin Password</b> as soon as you log in.
           </div>
         ) : (

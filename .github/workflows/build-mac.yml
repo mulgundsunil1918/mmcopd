@@ -1,0 +1,88 @@
+# Builds the macOS app on a GitHub-hosted macOS runner.
+#
+# WHY this exists: better-sqlite3 is a native C++ module. The Windows dev
+# machine can only compile it for Windows. A working .app needs it compiled
+# for macOS (arm64 + x64), and .app/.zip packaging needs macOS-only tools.
+# GitHub's free macOS runners do this natively.
+#
+# HOW to use:
+#   • Manual:  GitHub repo → Actions → "Build macOS app" → Run workflow
+#   • On tag:  push a tag like v0.4.0 → it builds + attaches the .zip to
+#              that release automatically.
+#
+# OUTPUT: a CureDesk-HMS-macOS-<arch>.zip artifact on the Actions run
+# (downloadable for 90 days) and, for tag builds, attached to the GitHub
+# release. The .app inside is UNSIGNED — see RUNNING.md note printed in the
+# job summary for the one-time Gatekeeper bypass on the user's Mac.
+
+name: Build macOS app
+
+on:
+  workflow_dispatch: {}            # manual "Run workflow" button
+  push:
+    tags:
+      - 'v*'                       # also build on version tags
+
+jobs:
+  build-mac:
+    runs-on: macos-latest          # Apple Silicon runner (arm64)
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies (compiles better-sqlite3 for macOS)
+        run: npm ci
+
+      - name: Make macOS distributable
+        run: npx electron-forge make --platform=darwin
+
+      - name: Locate built artifacts
+        id: find
+        run: |
+          echo "Listing out/make:"
+          find out/make -type f \( -name "*.zip" -o -name "*.dmg" \) -print
+          ZIP=$(find out/make -type f -name "*.zip" | head -1)
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact (downloadable from this Actions run)
+        uses: actions/upload-artifact@v4
+        with:
+          name: CureDesk-HMS-macOS
+          path: |
+            out/make/**/*.zip
+            out/make/**/*.dmg
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Attach to GitHub release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/make/**/*.zip
+            out/make/**/*.dmg
+          fail_on_unmatched_files: false
+
+      - name: Print install instructions in job summary
+        run: |
+          {
+            echo "## CureDesk HMS — macOS build ready"
+            echo ""
+            echo "Download the **CureDesk-HMS-macOS** artifact above, unzip it,"
+            echo "and drag **CureDesk HMS.app** into /Applications."
+            echo ""
+            echo "### First launch (unsigned app — one time only)"
+            echo "macOS will say the app is from an unidentified developer."
+            echo "Either:"
+            echo "  - Right-click the app → **Open** → **Open** again, OR"
+            echo "  - Run in Terminal: \`xattr -cr \"/Applications/CureDesk HMS.app\"\`"
+            echo ""
+            echo "Patient data lives in \`~/Library/Application Support/CureDesk HMS/\`."
+          } >> "$GITHUB_STEP_SUMMARY"

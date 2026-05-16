@@ -206,9 +206,9 @@ function AdminPasswordModal({ onClose }: { onClose: () => void }) {
     mutationFn: () => window.electronAPI.admin.changePassword(current, next),
     onSuccess: (r) => {
       if (r.ok) {
-        toast('Admin password updated — the default 1918 will no longer work.');
+        toast('Admin password updated — the default 1234 will no longer work.');
         // Refresh the gate's "is default password?" cache so the next unlock
-        // screen drops the "default is 1918" hint immediately.
+        // screen drops the "default is 1234" hint immediately.
         qc.invalidateQueries({ queryKey: ['is-default-admin-password'] });
         onClose();
       } else {

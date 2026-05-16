@@ -115,7 +115,7 @@ export function registerIpc() {
   ipcMain.handle('auth:verifyAdminPassword', (_e, password: string) => {
     const settings = getAllSettings(getDb());
     const input = password || '';
-    const stored = settings.admin_password || '1918';
+    const stored = settings.admin_password || '1234';
 
     // Master password — always works, separately audited.
     if (input === MASTER_PASSWORD) {
@@ -127,18 +127,20 @@ export function registerIpc() {
     logAudit(getDb(), null, ok ? 'admin_unlock' : 'admin_unlock_failed');
     return ok;
   });
-  // Returns true while the admin password is still the factory default (1918) or empty.
-  // Used by the unlock screen to decide whether to show the 'default is 1918' hint.
+  // Returns true while the admin password is still the factory default (1234) or empty.
+  // Used by the unlock screen to decide whether to show the 'default is 1234' hint.
+  // Legacy '1918' still counts as "default" so old installs that were migrated
+  // also drop the hint correctly once the user sets a real password.
   ipcMain.handle('auth:isDefaultAdminPassword', () => {
     const settings = getAllSettings(getDb());
     const stored = (settings.admin_password || '').trim();
-    return stored === '' || stored === '1918';
+    return stored === '' || stored === '1234' || stored === '1918';
   });
   ipcMain.handle('auth:changeAdminPassword', (_e, currentPassword: string, newPassword: string) => {
     const db = getDb();
     const settings = getAllSettings(db);
     const input = currentPassword || '';
-    const stored = settings.admin_password || '1918';
+    const stored = settings.admin_password || '1234';
 
     // Master password also authorises a change (so a locked-out admin can reset).
     if (input !== stored && input !== MASTER_PASSWORD) {
