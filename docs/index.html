@@ -733,7 +733,7 @@ img, svg { display: block; max-width: 100%; }
           </div>
           <div style="background:var(--navy);border-radius:10px;padding:16px;color:#fff;">
             <div style="font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--teal);font-weight:700;margin-bottom:4px;">Annual Billing Discount</div>
-            <div style="font-size:13px;color:rgba(255,255,255,.7);">Pay 10 months, get 2 months free (≈17% savings). Collect upfront cash, improve runway.</div>
+            <div style="font-size:13px;color:rgba(255,255,255,.7);">Pay 11 months upfront, get 1 month free (≈8% savings). Collect cash upfront, improve runway.</div>
           </div>
         </div>
       </div>
@@ -1113,7 +1113,7 @@ img, svg { display: block; max-width: 100%; }
           <div class="ps-total" id="ps-total">₹8,999</div>
         </div>
         <div class="ps-annual" id="ps-annual">
-          <div class="ps-annual-label">Annual Billing (save 2 months)</div>
+          <div class="ps-annual-label">Pay 11 Months, Get 1 Month Free</div>
           <div class="ps-annual-val" id="ps-annual-val">₹89,990</div>
           <div class="ps-annual-save" id="ps-annual-save">You save ₹17,998 vs monthly</div>
         </div>
@@ -1766,8 +1766,8 @@ function updateSummary() {
     }
     itemsEl.innerHTML = html;
     totalEl.textContent = '₹' + total.toLocaleString('en-IN');
-    annualEl.textContent = '₹' + (total*10).toLocaleString('en-IN');
-    annualSaveEl.textContent = `Save ₹${(total*2).toLocaleString('en-IN')} vs monthly`;
+    annualEl.textContent = '₹' + (total*11).toLocaleString('en-IN');
+    annualSaveEl.textContent = `Save ₹${total.toLocaleString('en-IN')} vs monthly (1 month free)`;
     annualWrap.style.display = 'block';
   } else {
     // Digital tab
@@ -1786,7 +1786,7 @@ function updateSummary() {
     itemsEl.innerHTML = html;
     totalEl.textContent = moTotal ? '₹' + moTotal.toLocaleString('en-IN') + '/mo' : otTotal ? '₹' + otTotal.toLocaleString('en-IN') : '₹0';
     annualWrap.style.display = moTotal ? 'block' : 'none';
-    if (moTotal) { annualEl.textContent = '₹' + (moTotal*10).toLocaleString('en-IN'); annualSaveEl.textContent = `Save ₹${(moTotal*2).toLocaleString('en-IN')} on annual billing`; }
+    if (moTotal) { annualEl.textContent = '₹' + (moTotal*11).toLocaleString('en-IN'); annualSaveEl.textContent = `Save ₹${moTotal.toLocaleString('en-IN')} on annual billing (1 month free)`; }
   }
 }
 
@@ -1796,7 +1796,7 @@ function copyQuote() {
     const total = document.getElementById('ps-total').textContent;
     const annual = document.getElementById('ps-annual-val').textContent;
     const addons = Object.keys(hmsSelected).map(k => `• ${HMS_LABELS[k]}`).join('\n') || '• Base only';
-    text = `*CureDesk HMS Quote*\n\n• Base — Reception & OPD\n${addons}\n\nMonthly: ${total}/month\nAnnual: ${annual}/year (2 months free)\nSetup fee: ₹4,999 one-time\n\nBridgr Technologies\nContact: wa.me/91XXXXXXXXXX`;
+    text = `*CureDesk HMS Quote*\n\n• Base — Reception & OPD\n${addons}\n\nMonthly: ${total}/month\nAnnual: ${annual}/year (pay 11 months, 1 month free)\nSetup fee: ₹4,999 one-time\n\nBridgr Technologies\nContact: wa.me/91XXXXXXXXXX`;
   } else {
     const keys = Object.keys(digSelected);
     const lines = keys.map(k => `• ${DIG_LABELS[k]} — ₹${digSelected[k].price.toLocaleString('en-IN')}${digSelected[k].type==='mo'?'/mo':' OT'}`).join('\n');
