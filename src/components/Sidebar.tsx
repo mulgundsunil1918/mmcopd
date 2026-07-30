@@ -45,7 +45,7 @@ const NAV: NavItem2[] = [
   { to: '/analytics', label: 'Analytics', icon: Activity, color: 'text-indigo-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
   // Reports merged into Analytics → Operational Reports tab. Page kept reachable
   // by URL (/reports) but no sidebar entry. Re-enable here if you want it back.
-  { to: '/whatsapp', label: 'WhatsApp', icon: MessageSquare, color: 'text-green-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'], adminOnly: true },
+  { to: '/whatsapp', label: 'Communication', icon: MessageSquare, color: 'text-green-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
   { to: '/notifications', label: 'Notifications', icon: Bell, color: 'text-pink-500', modes: ALL_MODES, roles: ['receptionist'] },
   { to: '/users', label: 'Users & Access', icon: ShieldCheck, color: 'text-indigo-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'], adminOnly: true },
   { to: '/settings', label: 'Settings', icon: SettingsIcon, color: 'text-slate-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'], adminOnly: true },
