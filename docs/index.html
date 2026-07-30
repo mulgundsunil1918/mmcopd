@@ -1,0 +1,1326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CureDesk HMS — Bridgr Technologies Internal Portal</title>
+<meta name="description" content="Internal business portal: product modules, pricing, competitive analysis, business model, and sales playbook for the CureDesk HMS field team." />
+<style>
+/* ─── RESET & TOKENS ──────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+:root {
+  --navy:     #0C1B35;
+  --navy-mid: #162847;
+  --navy-lt:  #1E3560;
+  --teal:     #00B8A2;
+  --teal-dk:  #008F7E;
+  --saffron:  #F5922E;
+  --crimson:  #E84545;
+  --green:    #27AE60;
+  --purple:   #7C5CBF;
+  --bg:       #F5F7FA;
+  --white:    #FFFFFF;
+  --border:   #DDE4EF;
+  --text:     #0C1B35;
+  --muted:    #6B80A0;
+  --sans: -apple-system,'Helvetica Neue',Arial,sans-serif;
+  --serif: Georgia,'Times New Roman',serif;
+}
+body { font-family: var(--sans); color: var(--text); background: var(--bg); font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: none; }
+img, svg { display: block; max-width: 100%; }
+
+/* ─── NAV ──────────────────────────────────────────────────────────── */
+.nav {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(12,27,53,.95); backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.nav-inner {
+  max-width: 1160px; margin: 0 auto; padding: 0 32px;
+  display: flex; align-items: center; justify-content: space-between;
+  height: 60px;
+}
+.nav-brand { display: flex; align-items: center; gap: 10px; }
+.nav-logo {
+  width: 34px; height: 34px; background: var(--teal); border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+}
+.nav-logo svg { width: 18px; height: 18px; }
+.nav-brand-text { font-weight: 800; font-size: 16px; color: #fff; letter-spacing: -.02em; }
+.nav-brand-text span { color: var(--teal); }
+.nav-links { display: flex; gap: 4px; }
+.nav-links a {
+  padding: 6px 12px; border-radius: 6px;
+  font-size: 13px; color: rgba(255,255,255,.55); font-weight: 500;
+  transition: color .2s, background .2s;
+}
+.nav-links a:hover { color: #fff; background: rgba(255,255,255,.08); }
+.nav-badge {
+  background: rgba(245,146,46,.15); color: var(--saffron);
+  font-size: 10px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; padding: 3px 8px; border-radius: 4px;
+  border: 1px solid rgba(245,146,46,.3);
+}
+@media (max-width: 768px) { .nav-links { display: none; } }
+
+/* ─── HERO ──────────────────────────────────────────────────────────── */
+.hero {
+  background: linear-gradient(135deg, var(--navy) 0%, #0A2240 50%, #112E52 100%);
+  padding: 96px 32px 80px;
+  position: relative; overflow: hidden;
+}
+.hero::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse 900px 600px at 80% 50%, rgba(0,184,162,.12) 0%, transparent 60%);
+  pointer-events: none;
+}
+.hero-inner { max-width: 1160px; margin: 0 auto; position: relative; }
+.hero-eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: rgba(0,184,162,.12); border: 1px solid rgba(0,184,162,.25);
+  color: var(--teal); padding: 5px 12px; border-radius: 20px;
+  font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  margin-bottom: 24px;
+}
+.hero h1 {
+  font-family: var(--serif); font-size: clamp(32px, 5vw, 58px);
+  font-weight: 700; line-height: 1.1; color: #fff;
+  max-width: 800px; text-wrap: balance; margin-bottom: 20px;
+}
+.hero h1 em { font-style: normal; color: var(--teal); }
+.hero-sub {
+  color: rgba(255,255,255,.6); font-size: 17px;
+  max-width: 540px; line-height: 1.65; margin-bottom: 40px;
+}
+.hero-ctas { display: flex; gap: 14px; flex-wrap: wrap; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 12px 24px; border-radius: 8px;
+  font-size: 14px; font-weight: 700; cursor: pointer;
+  border: none; transition: transform .15s, box-shadow .15s;
+}
+.btn:hover { transform: translateY(-1px); }
+.btn-primary { background: var(--teal); color: #fff; }
+.btn-primary:hover { background: #00D4BC; box-shadow: 0 8px 24px rgba(0,184,162,.3); }
+.btn-ghost { background: rgba(255,255,255,.08); color: rgba(255,255,255,.8); border: 1px solid rgba(255,255,255,.15); }
+.btn-ghost:hover { background: rgba(255,255,255,.14); }
+.hero-stats {
+  display: flex; gap: 48px; margin-top: 56px; padding-top: 48px;
+  border-top: 1px solid rgba(255,255,255,.1); flex-wrap: wrap; gap: 32px;
+}
+.hero-stat-val { font-family: var(--serif); font-size: 36px; font-weight: 700; color: #fff; line-height: 1; margin-bottom: 4px; }
+.hero-stat-val span { color: var(--teal); }
+.hero-stat-label { font-size: 12px; color: rgba(255,255,255,.4); text-transform: uppercase; letter-spacing: .1em; }
+
+/* ─── SECTION BASE ──────────────────────────────────────────────────── */
+.sec { padding: 80px 32px; }
+.sec-inner { max-width: 1160px; margin: 0 auto; }
+.sec-tag {
+  font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
+  color: var(--teal); font-weight: 700; margin-bottom: 10px;
+}
+.sec h2 {
+  font-family: var(--serif); font-size: clamp(24px, 3vw, 38px);
+  font-weight: 700; line-height: 1.15; margin-bottom: 12px; text-wrap: balance;
+}
+.sec-intro { color: var(--muted); font-size: 15px; max-width: 600px; margin-bottom: 48px; line-height: 1.7; }
+.alt-bg { background: var(--white); }
+.dark-bg { background: var(--navy); }
+.dark-bg .sec-tag { color: rgba(0,184,162,.9); }
+.dark-bg h2 { color: #fff; }
+.dark-bg .sec-intro { color: rgba(255,255,255,.5); }
+
+/* ─── PROBLEM SECTION ───────────────────────────────────────────────── */
+.problem-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 24px; }
+@media (max-width: 768px) { .problem-grid { grid-template-columns: 1fr; } }
+.problem-card {
+  background: var(--white); border: 1px solid var(--border);
+  padding: 28px; border-radius: 12px; position: relative;
+}
+.problem-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  border-radius: 12px 12px 0 0; background: var(--crimson);
+}
+.problem-icon { font-size: 28px; margin-bottom: 14px; }
+.problem-card h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+.problem-card p { font-size: 13px; color: var(--muted); line-height: 1.65; }
+
+/* ─── MODULES SECTION ───────────────────────────────────────────────── */
+.module-row { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: start; }
+@media (max-width: 768px) { .module-row { grid-template-columns: 1fr; } }
+.module-list { display: flex; flex-direction: column; gap: 12px; }
+.module-card {
+  background: var(--bg); border: 2px solid var(--border); border-radius: 12px;
+  padding: 20px 20px 20px 64px; position: relative; cursor: pointer;
+  transition: border-color .2s, box-shadow .2s, transform .15s;
+}
+.module-card:hover { border-color: var(--teal); transform: translateX(4px); }
+.module-card.base { border-color: var(--teal); background: rgba(0,184,162,.04); }
+.module-card.addon { border-color: var(--border); }
+.module-icon {
+  position: absolute; left: 18px; top: 50%; transform: translateY(-50%);
+  width: 36px; height: 36px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center; font-size: 18px;
+  background: var(--navy);
+}
+.module-card.base .module-icon { background: var(--teal); }
+.module-card h3 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+.module-card p { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.module-price {
+  font-family: var(--serif); font-size: 18px; font-weight: 700;
+  color: var(--text); margin-top: 8px;
+}
+.module-price .plus { color: var(--saffron); font-size: 14px; margin-right: 2px; }
+.module-feat-pills { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.pill {
+  font-size: 10px; padding: 2px 8px; border-radius: 20px; font-weight: 600;
+  background: rgba(0,184,162,.1); color: var(--teal-dk); white-space: nowrap;
+}
+.pill.wa { background: rgba(39,174,96,.1); color: #1a7a42; }
+.pill.ph { background: rgba(124,92,191,.1); color: var(--purple); }
+.pill.ipd { background: rgba(245,146,46,.1); color: #a05d1a; }
+
+/* ─── PRICING CALCULATOR ────────────────────────────────────────────── */
+.pricing-wrap { display: grid; grid-template-columns: 1fr 380px; gap: 32px; }
+@media (max-width: 900px) { .pricing-wrap { grid-template-columns: 1fr; } }
+.pricing-modules { display: flex; flex-direction: column; gap: 10px; }
+.p-mod {
+  border: 2px solid var(--border); border-radius: 10px; padding: 16px 18px;
+  background: var(--white); cursor: pointer; transition: border-color .2s, background .2s;
+  display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center;
+}
+.p-mod.active { border-color: var(--teal); background: rgba(0,184,162,.04); }
+.p-mod.locked { opacity: .6; cursor: default; }
+.p-mod.locked .p-mod-check { border-color: var(--teal); background: var(--teal); }
+.p-mod-check {
+  width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--border);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  transition: background .2s, border-color .2s;
+}
+.p-mod.active .p-mod-check { background: var(--teal); border-color: var(--teal); }
+.p-mod-check svg { display: none; }
+.p-mod.active .p-mod-check svg { display: block; }
+.p-mod-info h4 { font-size: 14px; font-weight: 700; }
+.p-mod-info p { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.p-mod-price { font-family: var(--serif); font-weight: 700; font-size: 16px; white-space: nowrap; text-align: right; }
+.p-mod-price .note { font-size: 10px; font-weight: 400; color: var(--muted); font-family: var(--sans); display: block; }
+.wa-note { font-size: 12px; color: var(--muted); padding: 8px 12px; background: rgba(0,184,162,.05); border-left: 3px solid var(--teal); border-radius: 0 6px 6px 0; }
+
+/* Pricing summary card */
+.pricing-summary {
+  background: var(--navy); border-radius: 16px; padding: 28px;
+  position: sticky; top: 80px;
+}
+.pricing-summary h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .12em; color: rgba(255,255,255,.4); font-weight: 700; margin-bottom: 20px; }
+.ps-items { min-height: 120px; margin-bottom: 20px; }
+.ps-item { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.07); font-size: 14px; gap: 10px; }
+.ps-item:last-child { border-bottom: none; }
+.ps-item-name { color: rgba(255,255,255,.7); }
+.ps-item-price { font-variant-numeric: tabular-nums; color: #fff; font-weight: 600; white-space: nowrap; }
+.ps-empty { color: rgba(255,255,255,.25); font-size: 13px; font-style: italic; }
+.ps-divider { border: none; border-top: 1px solid rgba(255,255,255,.15); margin: 16px 0; }
+.ps-total-row { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 8px; }
+.ps-total-label { font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: rgba(255,255,255,.4); }
+.ps-total { font-family: var(--serif); font-size: 38px; font-weight: 700; color: var(--teal); font-variant-numeric: tabular-nums; line-height: 1; }
+.ps-total-note { font-size: 11px; color: rgba(255,255,255,.3); margin-bottom: 4px; }
+.ps-annual { background: rgba(0,184,162,.12); border: 1px solid rgba(0,184,162,.2); border-radius: 8px; padding: 12px 14px; margin-bottom: 20px; }
+.ps-annual-label { font-size: 11px; color: var(--teal); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px; }
+.ps-annual-val { font-family: var(--serif); font-size: 22px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
+.ps-annual-save { font-size: 12px; color: rgba(255,255,255,.4); margin-top: 2px; }
+.ps-setup { display: flex; justify-content: space-between; font-size: 13px; color: rgba(255,255,255,.5); margin-bottom: 20px; }
+.ps-setup strong { color: rgba(255,255,255,.8); }
+.ps-cta { display: block; background: var(--teal); color: #fff; text-align: center; padding: 14px; border-radius: 8px; font-weight: 700; font-size: 14px; letter-spacing: .02em; cursor: pointer; border: none; width: 100%; transition: background .2s; }
+.ps-cta:hover { background: #00D4BC; }
+.ps-note { font-size: 11px; color: rgba(255,255,255,.3); text-align: center; margin-top: 10px; }
+.bundle-badge { background: rgba(245,146,46,.15); border: 1px solid rgba(245,146,46,.3); color: var(--saffron); font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 4px; text-align: center; margin-bottom: 16px; }
+
+/* ─── COMPARE TABLE ─────────────────────────────────────────────────── */
+.comp-scroll { overflow-x: auto; }
+.comp-table { width: 100%; border-collapse: collapse; min-width: 800px; }
+.comp-table th { background: var(--navy); color: #fff; padding: 13px 16px; font-size: 11px; text-transform: uppercase; letter-spacing: .1em; text-align: left; white-space: nowrap; }
+.comp-table td { padding: 13px 16px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; background: var(--white); }
+.comp-table tr.us td { background: rgba(0,184,162,.05); }
+.comp-table tr.us td:first-child { border-left: 3px solid var(--teal); }
+.comp-name { font-weight: 700; font-size: 14px; }
+.comp-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.comp-price-cell { font-family: var(--serif); font-weight: 700; font-size: 16px; white-space: nowrap; }
+.comp-price-cell .mo { font-size: 11px; font-weight: 400; color: var(--muted); font-family: var(--sans); }
+.tick { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+.tick.yes { background: rgba(39,174,96,.12); color: var(--green); }
+.tick.no  { background: rgba(232,69,69,.1); color: var(--crimson); }
+.tick.part { background: rgba(245,146,46,.1); color: var(--saffron); }
+.tick.us  { background: rgba(0,184,162,.12); color: var(--teal-dk); }
+
+/* ─── BUSINESS MODEL SECTION ────────────────────────────────────────── */
+.bm-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; }
+@media (max-width: 768px) { .bm-grid { grid-template-columns: 1fr; } }
+.bm-card {
+  background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1);
+  border-radius: 12px; padding: 24px;
+}
+.bm-card h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .12em; color: rgba(255,255,255,.4); font-weight: 700; margin-bottom: 16px; }
+.bm-stat-row { display: flex; justify-content: space-between; align-items: baseline; padding: 9px 0; border-bottom: 1px solid rgba(255,255,255,.07); font-size: 13px; }
+.bm-stat-row:last-child { border-bottom: none; }
+.bm-stat-label { color: rgba(255,255,255,.5); }
+.bm-stat-val { color: #fff; font-weight: 700; font-variant-numeric: tabular-nums; }
+.bm-stat-val.teal { color: var(--teal); }
+.bm-stat-val.green { color: #4CDB85; }
+.bm-stat-val.orange { color: var(--saffron); }
+.proj-table { width: 100%; border-collapse: collapse; }
+.proj-table th { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: rgba(255,255,255,.35); padding: 10px 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,.1); }
+.proj-table th:not(:first-child) { text-align: right; }
+.proj-table td { padding: 12px 12px; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 13px; color: rgba(255,255,255,.75); font-variant-numeric: tabular-nums; }
+.proj-table td:not(:first-child) { text-align: right; }
+.proj-table td.teal { color: var(--teal); font-weight: 700; }
+.proj-table td.green { color: #4CDB85; font-weight: 700; }
+.proj-table tr:last-child td { border-bottom: none; font-weight: 700; color: #fff; }
+.ue-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; }
+@media (max-width: 768px) { .ue-grid { grid-template-columns: 1fr; } }
+.ue-card {
+  background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1);
+  border-radius: 12px; padding: 22px;
+}
+.ue-tier { font-size: 10px; text-transform: uppercase; letter-spacing: .14em; color: var(--teal); font-weight: 700; margin-bottom: 14px; }
+.ue-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,.07); font-size: 13px; }
+.ue-row:last-child { border-bottom: none; }
+.ue-row-name { color: rgba(255,255,255,.5); }
+.ue-row-val { color: #fff; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ue-margin-row { display: flex; justify-content: space-between; align-items: baseline; margin-top: 14px; padding-top: 12px; border-top: 2px solid rgba(255,255,255,.1); }
+.ue-margin-label { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: rgba(255,255,255,.4); }
+.ue-margin-val { font-family: var(--serif); font-size: 28px; font-weight: 700; color: #4CDB85; }
+
+/* ─── SALES PLAYBOOK ────────────────────────────────────────────────── */
+.playbook-grid { display: grid; grid-template-columns: 280px 1fr; gap: 32px; align-items: start; }
+@media (max-width: 768px) { .playbook-grid { grid-template-columns: 1fr; } }
+.pb-steps { display: flex; flex-direction: column; gap: 0; }
+.pb-step {
+  display: flex; gap: 16px; align-items: flex-start; padding: 16px 0;
+  border-left: 2px solid var(--border); padding-left: 20px;
+  position: relative; cursor: pointer;
+  transition: border-color .2s;
+}
+.pb-step.active { border-left-color: var(--teal); }
+.pb-step::before {
+  content: attr(data-num);
+  position: absolute; left: -13px; top: 18px;
+  width: 24px; height: 24px; border-radius: 50%;
+  background: var(--border); color: var(--muted);
+  font-size: 11px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .2s, color .2s;
+}
+.pb-step.active::before { background: var(--teal); color: #fff; }
+.pb-step-title { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+.pb-step.active .pb-step-title { color: var(--teal); }
+.pb-step-time { font-size: 11px; color: var(--muted); }
+.pb-content { background: var(--white); border: 1px solid var(--border); border-radius: 12px; padding: 28px; }
+.pb-content h3 { font-family: var(--serif); font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+.pb-content .time-badge { display: inline-block; font-size: 11px; font-weight: 700; background: rgba(0,184,162,.1); color: var(--teal-dk); padding: 2px 8px; border-radius: 4px; margin-bottom: 16px; }
+.pb-content .script-block {
+  background: var(--navy); color: rgba(255,255,255,.85); padding: 16px 18px;
+  border-radius: 8px; font-size: 13px; line-height: 1.65; margin-bottom: 16px;
+  border-left: 3px solid var(--teal);
+}
+.pb-content .script-block strong { color: var(--teal); }
+.pb-tip { display: flex; gap: 10px; padding: 10px 12px; background: rgba(0,184,162,.06); border-radius: 8px; margin-bottom: 8px; }
+.pb-tip-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+.pb-tip p { font-size: 13px; color: var(--text); line-height: 1.5; }
+.pb-tip strong { color: var(--teal-dk); }
+.objection-list { display: flex; flex-direction: column; gap: 12px; }
+.obj-card { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.obj-q { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: rgba(232,69,69,.04); border-bottom: 1px solid var(--border); }
+.obj-q-icon { font-size: 16px; }
+.obj-q-text { font-size: 13px; font-weight: 700; color: var(--crimson); }
+.obj-a { padding: 12px 16px; font-size: 13px; color: var(--text); line-height: 1.6; }
+.obj-a strong { color: var(--teal-dk); }
+
+/* ─── WHATSAPP COST ──────────────────────────────────────────────────── */
+.wa-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+@media (max-width: 700px) { .wa-grid { grid-template-columns: 1fr; } }
+.wa-card { background: var(--white); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+.wa-card-title { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); font-weight: 700; margin-bottom: 16px; }
+.wa-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.wa-row:last-child { border-bottom: none; }
+.wa-name { font-weight: 600; }
+.wa-eg { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.wa-price { font-family: var(--serif); font-size: 20px; font-weight: 700; }
+.wa-price .unit { font-size: 11px; font-weight: 400; color: var(--muted); font-family: var(--sans); }
+
+/* ─── GITHUB DEPLOY SECTION ─────────────────────────────────────────── */
+.deploy-box { background: var(--white); border: 1px solid var(--border); border-radius: 12px; padding: 32px; }
+.deploy-step { display: flex; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.deploy-step:last-child { border-bottom: none; }
+.deploy-num {
+  width: 28px; height: 28px; border-radius: 50%; background: var(--navy); color: var(--teal);
+  font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; margin-top: 1px;
+}
+.deploy-step-content h4 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+.deploy-step-content p { font-size: 13px; color: var(--muted); line-height: 1.55; }
+.code-block {
+  background: var(--navy); color: var(--teal); padding: 10px 14px; border-radius: 6px;
+  font-family: 'Courier New', monospace; font-size: 12px; margin-top: 8px;
+  overflow-x: auto; white-space: nowrap;
+}
+
+/* ─── FOOTER ────────────────────────────────────────────────────────── */
+.footer { background: var(--navy); border-top: 1px solid rgba(255,255,255,.07); padding: 40px 32px; }
+.footer-inner { max-width: 1160px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px; }
+.footer-brand { font-weight: 800; font-size: 15px; color: #fff; }
+.footer-brand span { color: var(--teal); }
+.footer-meta { font-size: 12px; color: rgba(255,255,255,.3); }
+.footer-badge { font-size: 10px; font-weight: 700; background: rgba(245,146,46,.15); color: var(--saffron); padding: 4px 10px; border-radius: 4px; text-transform: uppercase; letter-spacing: .08em; }
+
+/* ─── RESPONSIVE ────────────────────────────────────────────────────── */
+@media (max-width: 600px) { .sec { padding: 52px 20px; } .hero { padding: 64px 20px 52px; } }
+</style>
+</head>
+<body>
+
+<!-- ═══ NAV ═══════════════════════════════════════════════════════════ -->
+<nav class="nav">
+  <div class="nav-inner">
+    <div class="nav-brand">
+      <div class="nav-logo">
+        <svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="7" y="2" width="4" height="14" rx="1.5" fill="white"/>
+          <rect x="2" y="7" width="14" height="4" rx="1.5" fill="white"/>
+          <circle cx="15" cy="15" r="2" fill="white" opacity=".5"/>
+        </svg>
+      </div>
+      <span class="nav-brand-text">CureDesk <span>HMS</span></span>
+    </div>
+    <div class="nav-links">
+      <a href="#modules">Modules</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#compete">Competition</a>
+      <a href="#model">Business Model</a>
+      <a href="#playbook">Sales Playbook</a>
+      <a href="#deploy">Deploy</a>
+    </div>
+    <span class="nav-badge">Internal Portal</span>
+  </div>
+</nav>
+
+<!-- ═══ HERO ═══════════════════════════════════════════════════════════ -->
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-eyebrow">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4" fill="#00B8A2"/><circle cx="6" cy="6" r="2" fill="white"/></svg>
+      Bridgr Technologies · Internal Business Portal
+    </div>
+    <h1>CureDesk HMS — <em>The Clinic Software</em><br>Indian Tier 2 Towns Actually Need</h1>
+    <p class="hero-sub">Offline-first · WhatsApp-native · Pharmacy compliant · IPD-ready. Built from the ground up for clinics where internet cuts out, pharmacists don't use apps, and every rupee of margin matters.</p>
+    <div class="hero-ctas">
+      <a href="#pricing" class="btn btn-primary">Build a Quote →</a>
+      <a href="#playbook" class="btn btn-ghost">Sales Playbook</a>
+    </div>
+    <div class="hero-stats">
+      <div>
+        <div class="hero-stat-val">₹<span>8,999</span></div>
+        <div class="hero-stat-label">Base plan / month</div>
+      </div>
+      <div>
+        <div class="hero-stat-val"><span>79%</span></div>
+        <div class="hero-stat-label">Gross margin (Growth)</div>
+      </div>
+      <div>
+        <div class="hero-stat-val"><span>21</span></div>
+        <div class="hero-stat-label">Clinics to break even</div>
+      </div>
+      <div>
+        <div class="hero-stat-val">₹<span>23.6</span>Cr</div>
+        <div class="hero-stat-label">Year 3 ARR projection</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ THE PROBLEM ════════════════════════════════════════════════════ -->
+<section class="sec alt-bg" id="problem">
+  <div class="sec-inner">
+    <div class="sec-tag">The Problem</div>
+    <h2>What Breaks Every Morning in a Tier 2 Clinic</h2>
+    <p class="sec-intro">These aren't edge cases. This is every clinic, every day, in Hubli, Gadag, Shimoga, Davangere, and 400 more towns like them.</p>
+    <div class="problem-grid">
+      <div class="problem-card">
+        <div class="problem-icon">📋</div>
+        <h3>Paper Registers Fall Apart</h3>
+        <p>Patient OPD numbers are written in a register. Finding a patient who visited 3 months ago takes 10 minutes of flipping. No UHID, no history, no continuity of care.</p>
+      </div>
+      <div class="problem-card">
+        <div class="problem-icon">💊</div>
+        <h3>Pharmacy Expiry Losses</h3>
+        <p>No FEFO system. Drugs expiring in the back while newer stock gets sold first. Schedule H/H1 registers maintained in pencil. Drug inspector audit = panic.</p>
+      </div>
+      <div class="problem-card">
+        <div class="problem-icon">📵</div>
+        <h3>Internet Goes Down Daily</h3>
+        <p>Cloud-only software fails when BSNL cuts out for 2 hours. The clinic has to stop billing. Patients wait. Cloud software was designed for Mumbai, not Mandya.</p>
+      </div>
+      <div class="problem-card">
+        <div class="problem-icon">💬</div>
+        <h3>No Patient Follow-Up</h3>
+        <p>Appointment reminders are phone calls. The receptionist calls 30 patients every morning. Half don't pick up. 10 no-shows cost the doctor ₹5,000 in missed revenue.</p>
+      </div>
+      <div class="problem-card">
+        <div class="problem-icon">🏥</div>
+        <h3>IPD on Whiteboards</h3>
+        <p>Bed occupancy tracked on a whiteboard. Nursing notes handwritten. Discharge summaries typed in MS Word. No connection between OPD, IPD, and pharmacy.</p>
+      </div>
+      <div class="problem-card">
+        <div class="problem-icon">🧾</div>
+        <h3>Billing Chaos</h3>
+        <p>GST invoices done on Tally separately. Cash discrepancy at end of day. Insurance pre-auth done on phone calls. Daily revenue report = one column in Excel.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ MODULES ════════════════════════════════════════════════════════ -->
+<section class="sec" id="modules">
+  <div class="sec-inner">
+    <div class="sec-tag">Product Modules</div>
+    <h2>One Base, Five Add-Ons — Pay Only for What You Need</h2>
+    <p class="sec-intro">Start with Reception & OPD. Add pharmacy, IPD, and WhatsApp as the clinic grows. Every module works offline on LAN.</p>
+    <div class="module-row">
+      <div class="module-list">
+        <div class="module-card base">
+          <div class="module-icon">🏥</div>
+          <h3>Base — Reception & OPD</h3>
+          <p>Everything a clinic needs to run. UHID patient records, appointment scheduling, OPD consultation notes, GST billing, doctor profiles, multi-station LAN, daily reports.</p>
+          <div class="module-price">₹8,999 <span style="font-size:13px;font-weight:400;color:var(--muted);">/month</span></div>
+          <div class="module-feat-pills">
+            <span class="pill">UHID Records</span>
+            <span class="pill">GST Billing</span>
+            <span class="pill">Multi-station LAN</span>
+            <span class="pill">Appointments</span>
+            <span class="pill">Prescriptions</span>
+            <span class="pill">Daily Reports</span>
+            <span class="pill">Offline Mode</span>
+          </div>
+        </div>
+        <div class="module-card addon">
+          <div class="module-icon">💬</div>
+          <h3>WhatsApp Lite (Add-on)</h3>
+          <p>Manual send: receptionist clicks to send appointment reminder or invoice link on WhatsApp. Up to 500 conversations/month. Pre-approved templates.</p>
+          <div class="module-price"><span class="plus">+</span>₹999 <span style="font-size:13px;font-weight:400;color:var(--muted);">/month</span></div>
+          <div class="module-feat-pills">
+            <span class="pill wa">500 msgs/mo</span>
+            <span class="pill wa">Click-to-send</span>
+            <span class="pill wa">4 Templates</span>
+          </div>
+        </div>
+        <div class="module-card addon">
+          <div class="module-icon">📲</div>
+          <h3>WhatsApp Pro (Add-on)</h3>
+          <p>Fully automated: appointment reminders fire 24h + 1h before, follow-up reminders 3 days post-visit, birthday greetings, lab report delivery. Unlimited messaging.</p>
+          <div class="module-price"><span class="plus">+</span>₹1,999 <span style="font-size:13px;font-weight:400;color:var(--muted);">/month</span></div>
+          <div class="module-feat-pills">
+            <span class="pill wa">Unlimited msgs</span>
+            <span class="pill wa">Auto reminders</span>
+            <span class="pill wa">Birthday campaign</span>
+            <span class="pill wa">2-way inbox</span>
+          </div>
+        </div>
+        <div class="module-card addon">
+          <div class="module-icon">💊</div>
+          <h3>Pharmacy Module (Add-on)</h3>
+          <p>FEFO inventory (First Expiry First Out), Schedule H/H1 drug register, drug master with 12,000+ drugs, purchase orders, GRN, supplier ledger, expiry alerts.</p>
+          <div class="module-price"><span class="plus">+</span>₹1,000 <span style="font-size:13px;font-weight:400;color:var(--muted);">/month</span></div>
+          <div class="module-feat-pills">
+            <span class="pill ph">FEFO Inventory</span>
+            <span class="pill ph">Schedule H/H1</span>
+            <span class="pill ph">12,000+ Drugs</span>
+            <span class="pill ph">Drug Inspector Report</span>
+          </div>
+        </div>
+        <div class="module-card addon">
+          <div class="module-icon">🛏</div>
+          <h3>IPD Module (Add-on)</h3>
+          <p>Bed management (ward/room/bed), admission & discharge summaries, nursing notes, ward round documentation, OT scheduling, IPD billing linked to pharmacy stock.</p>
+          <div class="module-price"><span class="plus">+</span>₹1,000 <span style="font-size:13px;font-weight:400;color:var(--muted);">/month</span></div>
+          <div class="module-feat-pills">
+            <span class="pill ipd">Bed Management</span>
+            <span class="pill ipd">Nursing Notes</span>
+            <span class="pill ipd">Discharge Summary</span>
+            <span class="pill ipd">OT Scheduling</span>
+          </div>
+        </div>
+      </div>
+      <div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:28px;">
+        <div class="sec-tag" style="margin-bottom:12px;">Module Summary</div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div style="background:rgba(0,184,162,.06);border:1px solid rgba(0,184,162,.2);border-radius:10px;padding:16px;">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--teal);font-weight:700;margin-bottom:4px;">Solo Clinic (No Pharmacy)</div>
+            <div style="font-family:var(--serif);font-size:24px;font-weight:700;">₹10,998<span style="font-size:13px;font-weight:400;color:var(--muted);font-family:var(--sans);">/mo</span></div>
+            <div style="font-size:12px;color:var(--muted);margin-top:4px;">Base + WhatsApp Pro</div>
+          </div>
+          <div style="background:rgba(124,92,191,.06);border:1px solid rgba(124,92,191,.2);border-radius:10px;padding:16px;">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--purple);font-weight:700;margin-bottom:4px;">Clinic with Pharmacy</div>
+            <div style="font-family:var(--serif);font-size:24px;font-weight:700;">₹11,998<span style="font-size:13px;font-weight:400;color:var(--muted);font-family:var(--sans);">/mo</span></div>
+            <div style="font-size:12px;color:var(--muted);margin-top:4px;">Base + WhatsApp Pro + Pharmacy</div>
+          </div>
+          <div style="background:rgba(245,146,46,.06);border:1px solid rgba(245,146,46,.2);border-radius:10px;padding:16px;">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--saffron);font-weight:700;margin-bottom:4px;">Mini-Hospital (Full Suite)</div>
+            <div style="font-family:var(--serif);font-size:28px;font-weight:700;color:var(--text);">₹13,999<span style="font-size:13px;font-weight:400;color:var(--muted);font-family:var(--sans);">/mo</span></div>
+            <div style="font-size:12px;color:var(--muted);margin-top:4px;">All 5 modules · saves ₹2,000 vs à la carte</div>
+          </div>
+          <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:16px;">
+            <div style="font-size:12px;font-weight:700;margin-bottom:8px;">One-time Setup Fee</div>
+            <div style="font-family:var(--serif);font-size:22px;font-weight:700;">₹4,999</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:4px;">Covers installation, data import, 2-hour training, 30-day onboarding support</div>
+          </div>
+          <div style="background:var(--navy);border-radius:10px;padding:16px;color:#fff;">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--teal);font-weight:700;margin-bottom:4px;">Annual Billing Discount</div>
+            <div style="font-size:13px;color:rgba(255,255,255,.7);">Pay 10 months, get 2 months free (≈17% savings). Collect upfront cash, improve runway.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ INTERACTIVE PRICING ════════════════════════════════════════════ -->
+<section class="sec alt-bg" id="pricing">
+  <div class="sec-inner">
+    <div class="sec-tag">Pricing Calculator</div>
+    <h2>Build Any Clinic's Quote in 30 Seconds</h2>
+    <p class="sec-intro">Toggle modules on/off below. Share this page with a clinic owner — they build their own quote. Your sales call is already half-done.</p>
+    <div class="pricing-wrap">
+      <div>
+        <div class="pricing-modules">
+
+          <!-- BASE — always on -->
+          <div class="p-mod locked" data-key="base" data-price="8999">
+            <div class="p-mod-check" style="background:var(--teal);border-color:var(--teal);">
+              <svg width="12" height="9" viewBox="0 0 12 9" fill="none"><path d="M1 4.5L4.5 8L11 1" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div class="p-mod-info">
+              <h4>🏥 Base — Reception & OPD</h4>
+              <p>Patient registration (UHID) · Appointments · Prescriptions · GST Billing · Multi-station LAN · Offline mode · Daily analytics. Always included.</p>
+            </div>
+            <div class="p-mod-price">
+              ₹8,999
+              <span class="note">/month · required</span>
+            </div>
+          </div>
+
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:700;padding:8px 0 4px;">Optional Add-ons</div>
+
+          <div class="p-mod" data-key="wa_lite" data-price="999" data-exclusive="wa_pro" onclick="toggleMod(this)">
+            <div class="p-mod-check">
+              <svg width="12" height="9" viewBox="0 0 12 9" fill="none"><path d="M1 4.5L4.5 8L11 1" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div class="p-mod-info">
+              <h4>💬 WhatsApp Lite</h4>
+              <p>Manual reminders · 500 conversations/month · 4 pre-built templates. Good for low-volume solo clinics.</p>
+              <div style="margin-top:6px;font-size:11px;color:var(--saffron);">Cannot combine with WhatsApp Pro</div>
+            </div>
+            <div class="p-mod-price">
+              +₹999
+              <span class="note">/month</span>
+            </div>
+          </div>
+
+          <div class="p-mod" data-key="wa_pro" data-price="1999" data-exclusive="wa_lite" onclick="toggleMod(this)">
+            <div class="p-mod-check">
+              <svg width="12" height="9" viewBox="0 0 12 9" fill="none"><path d="M1 4.5L4.5 8L11 1" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div class="p-mod-info">
+              <h4>📲 WhatsApp Pro</h4>
+              <p>Fully automated reminders · Birthday campaigns · Lab report delivery · Unlimited conversations · 2-way inbox. Recommended for 30+ patients/day.</p>
+            </div>
+            <div class="p-mod-price">
+              +₹1,999
+              <span class="note">/month</span>
+            </div>
+          </div>
+
+          <div class="p-mod" data-key="pharmacy" data-price="1000" onclick="toggleMod(this)">
+            <div class="p-mod-check">
+              <svg width="12" height="9" viewBox="0 0 12 9" fill="none"><path d="M1 4.5L4.5 8L11 1" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div class="p-mod-info">
+              <h4>💊 Pharmacy Module</h4>
+              <p>FEFO inventory · Schedule H/H1 compliance · 12,000+ drug master · Purchase orders · GRN · Expiry alerts · Drug inspector register.</p>
+            </div>
+            <div class="p-mod-price">
+              +₹1,000
+              <span class="note">/month</span>
+            </div>
+          </div>
+
+          <div class="p-mod" data-key="ipd" data-price="1000" onclick="toggleMod(this)">
+            <div class="p-mod-check">
+              <svg width="12" height="9" viewBox="0 0 12 9" fill="none"><path d="M1 4.5L4.5 8L11 1" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div class="p-mod-info">
+              <h4>🛏 IPD Module</h4>
+              <p>Bed management · Nursing notes · Ward rounds · Discharge summaries · OT scheduling · IPD billing linked to pharmacy stock.</p>
+            </div>
+            <div class="p-mod-price">
+              +₹1,000
+              <span class="note">/month</span>
+            </div>
+          </div>
+
+        </div>
+        <div class="wa-note" style="margin-top:16px;">
+          <strong>WhatsApp usage note:</strong> Your WhatsApp costs (Meta API: ~₹0.12–₹0.88 per conversation) are included in the subscription at standard clinic volumes. Heavy-use clinics (&gt;5,000 conversations/month) may have a small usage overage billed separately.
+        </div>
+      </div>
+
+      <!-- Summary card -->
+      <div class="pricing-summary">
+        <h3>Your Quote</h3>
+        <div class="ps-items" id="ps-items">
+          <div class="ps-item">
+            <span class="ps-item-name">Base — Reception & OPD</span>
+            <span class="ps-item-price">₹8,999</span>
+          </div>
+          <p class="ps-empty" id="ps-empty" style="display:none;">Select add-ons to build your quote.</p>
+        </div>
+        <hr class="ps-divider"/>
+        <div class="ps-total-row">
+          <div>
+            <div class="ps-total-label">Monthly Total</div>
+            <div class="ps-total-note">excl. GST · excl. one-time setup</div>
+          </div>
+          <div class="ps-total" id="ps-total">₹8,999</div>
+        </div>
+        <div class="ps-annual" id="ps-annual">
+          <div class="ps-annual-label">Annual Billing (save 2 months)</div>
+          <div class="ps-annual-val" id="ps-annual-val">₹89,990</div>
+          <div class="ps-annual-save" id="ps-annual-save">You save ₹17,998 vs monthly</div>
+        </div>
+        <div class="ps-setup">
+          <span>One-time setup fee</span>
+          <strong>₹4,999</strong>
+        </div>
+        <button class="ps-cta" onclick="copyQuote()">📋 Copy Quote for WhatsApp</button>
+        <div class="ps-note" id="ps-copy-note"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ COMPETITIVE ANALYSIS ═══════════════════════════════════════════ -->
+<section class="sec" id="compete">
+  <div class="sec-inner">
+    <div class="sec-tag">Competitive Analysis</div>
+    <h2>Why Clinics Switch to CureDesk — The Numbers</h2>
+    <p class="sec-intro">Every competitor has at least one fatal flaw for Tier 2 clinics. We don't. That's the pitch.</p>
+    <div class="comp-scroll">
+      <table class="comp-table">
+        <thead>
+          <tr>
+            <th>Software</th>
+            <th>Monthly Price</th>
+            <th>Offline / LAN</th>
+            <th>WhatsApp</th>
+            <th>Pharmacy</th>
+            <th>IPD</th>
+            <th>Tier 2 Sales</th>
+            <th>Fatal Flaw</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="us">
+            <td>
+              <div class="comp-name">★ CureDesk HMS</div>
+              <div class="comp-sub">Bridgr Technologies</div>
+            </td>
+            <td class="comp-price-cell">₹8,999 <span class="mo">base</span></td>
+            <td><span class="tick us">✓</span></td>
+            <td><span class="tick us">✓</span></td>
+            <td><span class="tick us">✓</span></td>
+            <td><span class="tick us">✓</span></td>
+            <td><span class="tick us">✓</span></td>
+            <td style="font-size:12px;color:var(--teal-dk);font-weight:600;">None</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="comp-name">HealthPlix EMR</div>
+              <div class="comp-sub">VC-backed · Series C</div>
+            </td>
+            <td class="comp-price-cell">₹1,499 <span class="mo">/mo</span></td>
+            <td><span class="tick no">✗</span></td>
+            <td><span class="tick part">~</span></td>
+            <td><span class="tick no">✗</span></td>
+            <td><span class="tick no">✗</span></td>
+            <td><span class="tick yes">✓</span></td>
+            <td style="font-size:12px;color:var(--crimson);">No pharmacy, no offline</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="comp-name">Practo Ray</div>
+              <div class="comp-sub">Consumer marketplace</div>
+            </td>
+            <td class="comp-price-cell">₹5,999 <span class="mo">/mo</span></td>
+            <td><span class="tick no">✗</span></td>
+            <td><span class="tick part">~</span></td>
+            <td><span class="tick part">~</span></td>
+            <td><span class="tick part">~</span></td>
+            <td><span class="tick no">✗</span></td>
+            <td style="font-size:12px;color:var(--crimson);">Metro only, no field sales</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="comp-name">Marg HMS</div>
+              <div class="comp-sub">Desktop legacy software</div>
+            </td>
+            <td class="comp-price-cell">₹18,000 <span class="mo">/yr</span></td>
+            <td><span class="tick yes">✓</span></td>
+            <td><span class="tick no">✗</span></td>
+            <td><span class="tick yes">✓</span></td>
+            <td><span class="tick yes">✓</span></td>
+            <td><span class="tick yes">✓</span></td>
+            <td style="font-size:12px;color:var(--crimson);">2000s UI, no WhatsApp, dying</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="comp-name">eVital HMS</div>
+              <div class="comp-sub">Mid-market, web-based</div>
+            </td>
+            <td class="comp-price-cell">₹2,500 <span class="mo">/mo</span></td>
+            <td><span class="tick part">~</span></td>
+            <td><span class="tick no">✗</span></td>
+            <td><span class="tick yes">✓</span></td>
+            <td><span class="tick yes">✓</span></td>
+            <td><span class="tick no">✗</span></td>
+            <td style="font-size:12px;color:var(--crimson);">No WhatsApp, weak Tier 2 support</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="comp-name">Zoho Practice</div>
+              <div class="comp-sub">New entrant, ecosystem play</div>
+            </td>
+            <td class="comp-price-cell">₹3,500 <span class="mo">/mo</span></td>
+            <td><span class="tick no">✗</span></td>
+            <td><span class="tick part">~</span></td>
+            <td><span class="tick no">✗</span></td>
+            <td><span class="tick no">✗</span></td>
+            <td><span class="tick no">✗</span></td>
+            <td style="font-size:12px;color:var(--crimson);">Generic, no pharmacy/IPD</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="margin-top:24px;padding:20px 24px;background:rgba(0,184,162,.06);border:1px solid rgba(0,184,162,.2);border-radius:10px;display:flex;gap:20px;align-items:center;flex-wrap:wrap;">
+      <div style="font-size:28px;">💡</div>
+      <div>
+        <strong style="font-size:14px;color:var(--teal-dk);">Your 3-line pitch against any competitor:</strong>
+        <p style="font-size:13px;color:var(--text);margin-top:4px;">HealthPlix has no pharmacy. Practo doesn't come to Tier 2. Marg looks like Windows XP and has no WhatsApp. CureDesk is the only one that works offline, speaks WhatsApp, and handles pharmacy compliance — all in one.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ BUSINESS MODEL ══════════════════════════════════════════════════ -->
+<section class="sec dark-bg" id="model">
+  <div class="sec-inner">
+    <div class="sec-tag">Business Model</div>
+    <h2>The Numbers Behind the Business</h2>
+    <p class="sec-intro">Market opportunity, projections, and unit economics — everything you need to brief an investor or a partner.</p>
+    <div class="bm-grid" style="margin-bottom:40px;">
+      <div class="bm-card">
+        <h3>Market Opportunity</h3>
+        <div class="bm-stat-row"><span class="bm-stat-label">Target clinics in India</span><span class="bm-stat-val teal">7.4 Lakh</span></div>
+        <div class="bm-stat-row"><span class="bm-stat-label">Tier 2/3 unaddressed</span><span class="bm-stat-val teal">5.8 Lakh</span></div>
+        <div class="bm-stat-row"><span class="bm-stat-label">Karnataka addressable</span><span class="bm-stat-val">~28,000</span></div>
+        <div class="bm-stat-row"><span class="bm-stat-label">Avg subscription ARPU</span><span class="bm-stat-val">₹10,500/mo</span></div>
+        <div class="bm-stat-row"><span class="bm-stat-label">TAM (India, SaaS)</span><span class="bm-stat-val green">₹9,324 Cr/yr</span></div>
+      </div>
+      <div class="bm-card">
+        <h3>Unit Economics (Growth Tier)</h3>
+        <div class="bm-stat-row"><span class="bm-stat-label">Monthly subscription</span><span class="bm-stat-val">₹10,998</span></div>
+        <div class="bm-stat-row"><span class="bm-stat-label">WhatsApp COGS/mo</span><span class="bm-stat-val orange">–₹620</span></div>
+        <div class="bm-stat-row"><span class="bm-stat-label">Support COGS/mo</span><span class="bm-stat-val orange">–₹400</span></div>
+        <div class="bm-stat-row"><span class="bm-stat-label">Payment gateway (2%)</span><span class="bm-stat-val orange">–₹220</span></div>
+        <div class="bm-stat-row"><span class="bm-stat-label">Contribution margin</span><span class="bm-stat-val green">79.7%</span></div>
+      </div>
+      <div class="bm-card">
+        <h3>Customer Economics</h3>
+        <div class="bm-stat-row"><span class="bm-stat-label">CAC (field sales)</span><span class="bm-stat-val orange">₹8,000</span></div>
+        <div class="bm-stat-row"><span class="bm-stat-label">Avg clinic LTV (5yr)</span><span class="bm-stat-val teal">₹5.5 Lakh</span></div>
+        <div class="bm-stat-row"><span class="bm-stat-label">LTV:CAC ratio</span><span class="bm-stat-val green">69x</span></div>
+        <div class="bm-stat-row"><span class="bm-stat-label">Payback period</span><span class="bm-stat-val green">&lt;1 month</span></div>
+        <div class="bm-stat-row"><span class="bm-stat-label">Target annual churn</span><span class="bm-stat-val">&lt;8%</span></div>
+      </div>
+    </div>
+
+    <h3 style="font-family:var(--serif);font-size:22px;color:#fff;margin-bottom:20px;font-weight:700;">3-Year Revenue Projection</h3>
+    <div style="overflow-x:auto;margin-bottom:40px;">
+      <table class="proj-table">
+        <thead>
+          <tr>
+            <th>Year</th>
+            <th>Active Clinics</th>
+            <th>Avg ARPU/mo</th>
+            <th>MRR</th>
+            <th>ARR</th>
+            <th>Gross Margin</th>
+            <th>Net Profit</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="color:#fff;font-weight:700;">Year 1</td>
+            <td>60</td>
+            <td>₹10,500</td>
+            <td class="teal">₹6.3L</td>
+            <td class="teal">₹75.6L</td>
+            <td>72%</td>
+            <td>₹8L</td>
+          </tr>
+          <tr>
+            <td style="color:#fff;font-weight:700;">Year 2</td>
+            <td>380</td>
+            <td>₹11,000</td>
+            <td class="teal">₹41.8L</td>
+            <td class="teal">₹5.01Cr</td>
+            <td>76%</td>
+            <td>₹95L</td>
+          </tr>
+          <tr>
+            <td style="color:#fff;font-weight:700;">Year 3</td>
+            <td>1,800</td>
+            <td>₹11,500</td>
+            <td class="teal">₹2.07Cr</td>
+            <td class="green">₹24.8Cr</td>
+            <td>79%</td>
+            <td>₹5.2Cr</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="font-family:var(--serif);font-size:22px;color:#fff;margin-bottom:20px;font-weight:700;">Monthly Burn by Scale</h3>
+    <div class="ue-grid">
+      <div class="ue-card">
+        <div class="ue-tier">10 Clinics</div>
+        <div class="ue-row"><span class="ue-row-name">MRR</span><span class="ue-row-val" style="color:var(--teal);">₹1,05,000</span></div>
+        <div class="ue-row"><span class="ue-row-name">People costs</span><span class="ue-row-val">₹20,000</span></div>
+        <div class="ue-row"><span class="ue-row-name">WhatsApp costs</span><span class="ue-row-val">₹7,499</span></div>
+        <div class="ue-row"><span class="ue-row-name">Sales & marketing</span><span class="ue-row-val">₹4,083</span></div>
+        <div class="ue-row"><span class="ue-row-name">Total burn</span><span class="ue-row-val" style="color:var(--saffron);">₹37,582</span></div>
+        <div class="ue-margin-row">
+          <div class="ue-margin-label">Net Monthly</div>
+          <div class="ue-margin-val" style="color:var(--teal);">+₹67K</div>
+        </div>
+      </div>
+      <div class="ue-card">
+        <div class="ue-tier">100 Clinics</div>
+        <div class="ue-row"><span class="ue-row-name">MRR</span><span class="ue-row-val" style="color:var(--teal);">₹10.5L</span></div>
+        <div class="ue-row"><span class="ue-row-name">People costs</span><span class="ue-row-val">₹81,000</span></div>
+        <div class="ue-row"><span class="ue-row-name">WhatsApp costs</span><span class="ue-row-val">₹55,999</span></div>
+        <div class="ue-row"><span class="ue-row-name">Sales & marketing</span><span class="ue-row-val">₹20,083</span></div>
+        <div class="ue-row"><span class="ue-row-name">Total burn</span><span class="ue-row-val" style="color:var(--saffron);">₹1.67L</span></div>
+        <div class="ue-margin-row">
+          <div class="ue-margin-label">Net Monthly</div>
+          <div class="ue-margin-val">+₹8.8L</div>
+        </div>
+      </div>
+      <div class="ue-card">
+        <div class="ue-tier">500 Clinics</div>
+        <div class="ue-row"><span class="ue-row-name">MRR</span><span class="ue-row-val" style="color:var(--teal);">₹52.5L</span></div>
+        <div class="ue-row"><span class="ue-row-name">People costs</span><span class="ue-row-val">₹1.99L</span></div>
+        <div class="ue-row"><span class="ue-row-name">WhatsApp costs</span><span class="ue-row-val">₹2.61L</span></div>
+        <div class="ue-row"><span class="ue-row-name">Sales & marketing</span><span class="ue-row-val">₹74,166</span></div>
+        <div class="ue-row"><span class="ue-row-name">Total burn</span><span class="ue-row-val" style="color:var(--saffron);">₹5.59L</span></div>
+        <div class="ue-margin-row">
+          <div class="ue-margin-label">Net Monthly</div>
+          <div class="ue-margin-val">+₹47L</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ WHATSAPP COSTS ══════════════════════════════════════════════════ -->
+<section class="sec alt-bg">
+  <div class="sec-inner">
+    <div class="sec-tag">WhatsApp Business API Costs</div>
+    <h2>What WhatsApp Actually Costs — Meta's Rates Decoded</h2>
+    <p class="sec-intro">Meta charges per 24-hour conversation window, not per message. These are India-region rates (2025). You absorb this in the subscription.</p>
+    <div class="wa-grid">
+      <div class="wa-card">
+        <div class="wa-card-title">Meta API — Conversation Rates (India)</div>
+        <div class="wa-row"><div><div class="wa-name">Utility</div><div class="wa-eg">Appointment confirmations · OTP · invoice</div></div><div class="wa-price">₹0.125 <span class="unit">/conv</span></div></div>
+        <div class="wa-row"><div><div class="wa-name">Authentication</div><div class="wa-eg">Login OTP · account verification</div></div><div class="wa-price">₹0.135 <span class="unit">/conv</span></div></div>
+        <div class="wa-row"><div><div class="wa-name">Marketing</div><div class="wa-eg">Birthday wishes · health campaigns</div></div><div class="wa-price">₹0.882 <span class="unit">/conv</span></div></div>
+        <div class="wa-row"><div><div class="wa-name">Service (inbound)</div><div class="wa-eg">Patient replies to your messages</div></div><div class="wa-price" style="color:var(--green);">₹0 <span class="unit">FREE</span></div></div>
+      </div>
+      <div class="wa-card">
+        <div class="wa-card-title">Typical Clinic — Monthly WhatsApp Spend</div>
+        <div class="wa-row"><div><div class="wa-name">Scenario</div><div class="wa-eg">60 patients/day · 1,800/month</div></div></div>
+        <div class="wa-row"><div><div class="wa-name">Appointment confirmations (utility)</div><div class="wa-eg">1,800 × ₹0.125</div></div><div class="wa-price">₹225</div></div>
+        <div class="wa-row"><div><div class="wa-name">Follow-up reminders (utility)</div><div class="wa-eg">1,800 × ₹0.125</div></div><div class="wa-price">₹225</div></div>
+        <div class="wa-row"><div><div class="wa-name">Birthday + health tips (marketing)</div><div class="wa-eg">300 × ₹0.882</div></div><div class="wa-price">₹265</div></div>
+        <div class="wa-row" style="border-top:2px solid var(--border);font-weight:700;"><div class="wa-name">Total Meta API per clinic</div><div class="wa-price" style="color:var(--teal);">₹715</div></div>
+      </div>
+    </div>
+    <div style="margin-top:20px;padding:18px 20px;background:var(--white);border:1px solid var(--border);border-radius:10px;font-size:13px;color:var(--muted);">
+      <strong style="color:var(--text);">Our BSP: Wati Growth (₹2,499/month)</strong> — handles up to 200 active clinics with sub-account management. Each clinic gets their own WhatsApp sender number. At 500+ clinics, switch to Meta Direct API (₹0 platform fee). Total WhatsApp cost stabilises at <strong style="color:var(--teal);">~10–12% of MRR</strong> at scale.
+    </div>
+  </div>
+</section>
+
+<!-- ═══ SALES PLAYBOOK ══════════════════════════════════════════════════ -->
+<section class="sec" id="playbook">
+  <div class="sec-inner">
+    <div class="sec-tag">Sales Playbook</div>
+    <h2>How to Close a Clinic in One Visit</h2>
+    <p class="sec-intro">A 45-minute clinic visit framework. Every line of script is tested. Objections are pre-handled. Close rate target: 1 in 3 first visits.</p>
+    <div class="playbook-grid">
+      <div>
+        <div class="pb-steps">
+          <div class="pb-step active" data-num="1" data-target="pb1" onclick="switchStep(this)">
+            <div>
+              <div class="pb-step-title">Opening & Discovery</div>
+              <div class="pb-step-time">0–5 minutes</div>
+            </div>
+          </div>
+          <div class="pb-step" data-num="2" data-target="pb2" onclick="switchStep(this)">
+            <div>
+              <div class="pb-step-title">Pain Amplification</div>
+              <div class="pb-step-time">5–10 minutes</div>
+            </div>
+          </div>
+          <div class="pb-step" data-num="3" data-target="pb3" onclick="switchStep(this)">
+            <div>
+              <div class="pb-step-title">Live Demo</div>
+              <div class="pb-step-time">10–25 minutes</div>
+            </div>
+          </div>
+          <div class="pb-step" data-num="4" data-target="pb4" onclick="switchStep(this)">
+            <div>
+              <div class="pb-step-title">Pricing Reveal</div>
+              <div class="pb-step-time">25–30 minutes</div>
+            </div>
+          </div>
+          <div class="pb-step" data-num="5" data-target="pb5" onclick="switchStep(this)">
+            <div>
+              <div class="pb-step-title">Handle Objections</div>
+              <div class="pb-step-time">30–40 minutes</div>
+            </div>
+          </div>
+          <div class="pb-step" data-num="6" data-target="pb6" onclick="switchStep(this)">
+            <div>
+              <div class="pb-step-title">Close & Next Steps</div>
+              <div class="pb-step-time">40–45 minutes</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <!-- Step 1 -->
+        <div class="pb-content" id="pb1">
+          <h3>Opening & Discovery</h3>
+          <div class="time-badge">0–5 minutes</div>
+          <div class="script-block">
+            "Doctor sahab / Madam, namaste. Main Sunil hun, Bridgr Technologies se. Aap ke clinic mein roughly kitne patients per day dekhte hain? Aur abhi billing aur patient records ka kya system hai — paper hai ya koi software use karte hain?"
+          </div>
+          <div class="pb-tip">
+            <div class="pb-tip-icon">💡</div>
+            <p><strong>Listen first, don't pitch yet.</strong> You need to know: (1) patient volume, (2) current system (paper/Tally/old software), (3) who does billing — doctor, receptionist, or both. This shapes which modules to push.</p>
+          </div>
+          <div class="pb-tip">
+            <div class="pb-tip-icon">🎯</div>
+            <p><strong>Golden signal:</strong> If they say "paper register" or "Excel," they're a red-hot lead. If they say "we use some old software," ask what's frustrating them — usually Internet, support, or lack of WhatsApp.</p>
+          </div>
+        </div>
+        <!-- Step 2 -->
+        <div class="pb-content" id="pb2" style="display:none;">
+          <h3>Pain Amplification</h3>
+          <div class="time-badge">5–10 minutes</div>
+          <div class="script-block">
+            "Kabhi aisa hua hai ki patient pehle aaya tha aur uska purana prescription dhundna pad gaya? Aur kitna time laga?" [pause]<br><br>
+            "Pharmacy mein expiry check manually karte hain? Schedule H register ek alag copy mein rakhte ho?" [pause]<br><br>
+            "Patients ko appointment reminder kaun bhejta hai? Receptionist call karti hai? Ek din mein kitne no-show hote hain?" [pause]<br><br>
+            "Internet kabhi band hota hai? Tab billing band ho jaati hai kya?"
+          </div>
+          <div class="pb-tip">
+            <div class="pb-tip-icon">⚡</div>
+            <p><strong>Don't answer their pain — amplify it.</strong> "Aur us din jab net band tha, aapne 10 patients ko wait karaya tha, toh roughly kitna revenue tha jo bill nahi hua?" Make them feel the cost before you show the solution.</p>
+          </div>
+        </div>
+        <!-- Step 3 -->
+        <div class="pb-content" id="pb3" style="display:none;">
+          <h3>Live Demo — 5 Key Moments</h3>
+          <div class="time-badge">10–25 minutes · Show these 5 things only</div>
+          <div class="pb-tip" style="margin-bottom:10px;">
+            <div class="pb-tip-icon">1️⃣</div>
+            <p><strong>New Patient in 20 seconds.</strong> Type name, phone. UHID auto-generated. "Yeh UHID is patient ka permanent number hai — agle 20 saal baad bhi aayenge toh same number se pura history milega."</p>
+          </div>
+          <div class="pb-tip" style="margin-bottom:10px;">
+            <div class="pb-tip-icon">2️⃣</div>
+            <p><strong>GST Invoice in 30 seconds.</strong> Show the bill generate, PDF download, WhatsApp share in one click. "Receptionist ke paas mobile hai na? Yeh share kar degi — patient ko bhi milega aur aapke paas bhi record."</p>
+          </div>
+          <div class="pb-tip" style="margin-bottom:10px;">
+            <div class="pb-tip-icon">3️⃣</div>
+            <p><strong>Offline Mode demo.</strong> Turn off WiFi. Show that billing still works. "Net band hai — chalta rahega. Data local machine mein hai. Cloud par depend nahi hai."</p>
+          </div>
+          <div class="pb-tip" style="margin-bottom:10px;">
+            <div class="pb-tip-icon">4️⃣</div>
+            <p><strong>WhatsApp Automation.</strong> Show the "Reminder set" toggle. "Kal ka appointment set kiya — 6 baje subah patient ko WhatsApp jayega automatically. Receptionist ko kuch nahi karna."</p>
+          </div>
+          <div class="pb-tip">
+            <div class="pb-tip-icon">5️⃣</div>
+            <p><strong>Pharmacy Expiry Alert.</strong> If they have a pharmacy, show the FEFO stock view and expiry alert. "Agle 30 din mein jo bhi expire hone wala hai — yahan list aati hai. Drug inspector audit mein no problem."</p>
+          </div>
+        </div>
+        <!-- Step 4 -->
+        <div class="pb-content" id="pb4" style="display:none;">
+          <h3>Pricing Reveal</h3>
+          <div class="time-badge">25–30 minutes</div>
+          <div class="script-block">
+            "Ab price baat karte hain. Base system — reception, billing, aur OPD sab — <strong>₹8,999 per month</strong>. Agar WhatsApp automation chahiye, wo <strong>₹1,999 extra</strong>. Pharmacy module add karna hai toh aur <strong>₹1,000</strong>. IPD hai toh <strong>₹1,000 aur</strong>.<br><br>
+            Aapko sirf woh modules ke liye pay karna hai jo aapko chahiye. Installation fee ek baar ₹4,999 hai — usme hum aate hain, sab set up karte hain, staff ko train karte hain, aur 30 din support bhi dete hain.<br><br>
+            Aur agar <strong>saal bhar ke liye pay karein toh 2 mahine free</strong> milte hain."
+          </div>
+          <div class="pb-tip">
+            <div class="pb-tip-icon">💡</div>
+            <p><strong>Anchor with the annual number last.</strong> Say monthly first (smaller number), then drop the annual savings ("₹25,000 bachate ho"). Clinics with predictable revenue love annual billing — you collect cash upfront.</p>
+          </div>
+          <div class="pb-tip">
+            <div class="pb-tip-icon">🎯</div>
+            <p><strong>For a clinic with 50 patients/day:</strong> 10 no-shows saved per month = ~₹5,000 in recovered revenue. "Software ka cost ek no-show se kum hai." That's your ROI in one line.</p>
+          </div>
+        </div>
+        <!-- Step 5 -->
+        <div class="pb-content" id="pb5" style="display:none;">
+          <h3>Handle Objections</h3>
+          <div class="time-badge">30–40 minutes</div>
+          <div class="objection-list">
+            <div class="obj-card">
+              <div class="obj-q"><div class="obj-q-icon">💰</div><div class="obj-q-text">"Bahut expensive hai."</div></div>
+              <div class="obj-a">"Doctor sahab, aapke clinic mein ek patient ka average bill kitna hai? ₹300–₹500? Agar har mahine sirf <strong>20 patients zyada aate hain</strong> kyunki humara WhatsApp reminder ne unhe yaad dilaya — toh software free hai. Actually <strong>profit mein hain</strong>."<br><br>Plus: "Agar Practo use karo toh ₹5,999 sirf basic ke liye — aur offline nahi karta. Hum zyada dete hain, kam mein."</div>
+            </div>
+            <div class="obj-card">
+              <div class="obj-q"><div class="obj-q-icon">🤔</div><div class="obj-q-text">"Pehle try karke dekhna hai."</div></div>
+              <div class="obj-a">"Bilkul. Hum <strong>14-din free demo</strong> dete hain actual clinic data ke saath. Main aata hun, sab set up karta hun, 14 din baad aap decide karo. Installation fee bhi baad mein lenge — pehle dekho software suit karta hai ya nahi."</div>
+            </div>
+            <div class="obj-card">
+              <div class="obj-q"><div class="obj-q-icon">📡</div><div class="obj-q-text">"Internet nahi hai toh kaise chalega?"</div></div>
+              <div class="obj-a">"Yahi toh hamara sabse bada feature hai. <strong>Internet bilkul zaruri nahi.</strong> Software aapki machine par run karta hai — LAN cable se dono computers connected hain, net nahi chahiye. WhatsApp reminders tab jayenge jab thodi der ke liye bhi net aayega."</div>
+            </div>
+            <div class="obj-card">
+              <div class="obj-q"><div class="obj-q-icon">🔐</div><div class="obj-q-text">"Data safe rahega? Cloud par jayega kya?"</div></div>
+              <div class="obj-a">"<strong>Data aapka, aapke paas.</strong> Hamare server par kuch nahi jata. Patient data aapke computer mein hi rehta hai. Optional Google Drive backup set kar sakte hain — lekin wo bhi aapka choice hai. DPDP Act compliance ke liye bhi yahi safest approach hai."</div>
+            </div>
+            <div class="obj-card">
+              <div class="obj-q"><div class="obj-q-icon">🛠</div><div class="obj-q-text">"Baad mein koi problem aaye toh support milega?"</div></div>
+              <div class="obj-a">"Haan — WhatsApp helpline pe direct mujhse baat kar sakte ho. <strong>4 ghante mein response guaranteed.</strong> Aur agar koi technical issue aaya toh hum remotely bhi fix kar sakte hain zyada tar cheez. Aap akela nahi hoge."</div>
+            </div>
+          </div>
+        </div>
+        <!-- Step 6 -->
+        <div class="pb-content" id="pb6" style="display:none;">
+          <h3>Close & Next Steps</h3>
+          <div class="time-badge">40–45 minutes</div>
+          <div class="script-block">
+            "Doctor sahab, ek kaam karte hain. Main <strong>kal subah 10 baje</strong> aata hun — free installation karta hun, demo data se setup karta hun. Aap dekho, staff ko dikhao. 14 din mein agar suit kiya, tab payment karo.<br><br>
+            Agar suit nahi kiya — no problem, koi charge nahi. Deal?"
+          </div>
+          <div class="pb-tip">
+            <div class="pb-tip-icon">📅</div>
+            <p><strong>Always ask for a specific time, not "kab miloge?"</strong> A vague "call karta hun" dies. A specific "kal subah 10 baje" gets confirmed or rescheduled to a real slot.</p>
+          </div>
+          <div class="pb-tip">
+            <div class="pb-tip-icon">📲</div>
+            <p><strong>Before you leave,</strong> send them a WhatsApp message right there: "Hi Doctor [Name], yeh CureDesk ka brochure hai — [link]. Kal 10 baje milte hain." You're in their WhatsApp chat now. Follow-up is easy.</p>
+          </div>
+          <div class="pb-tip">
+            <div class="pb-tip-icon">🏆</div>
+            <p><strong>After closing:</strong> Ask "Aap jaante hain kisi aur doctor ko jo is area mein software dhundh rahe hain?" One referral per close = 50% CAC reduction. Offer 1 month free for every successful referral.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ GITHUB DEPLOY ═══════════════════════════════════════════════════ -->
+<section class="sec alt-bg" id="deploy">
+  <div class="sec-inner">
+    <div class="sec-tag">GitHub Pages Deployment</div>
+    <h2>Push This Website to GitHub Pages in 5 Steps</h2>
+    <p class="sec-intro">This file lives at <code style="background:rgba(0,184,162,.1);padding:2px 6px;border-radius:4px;font-size:13px;">docs/index.html</code> in your mmcopd repo. Enable GitHub Pages to serve it as your public site.</p>
+    <div class="deploy-box">
+      <div class="deploy-step">
+        <div class="deploy-num">1</div>
+        <div class="deploy-step-content">
+          <h4>Commit this file to your repo</h4>
+          <p>The file is already at <code>mmcopd/docs/index.html</code>. Stage and commit it.</p>
+          <div class="code-block">cd /Users/sunil/caredesk/mmcopd &amp;&amp; git add docs/index.html &amp;&amp; git commit -m "feat: add business portal website"</div>
+        </div>
+      </div>
+      <div class="deploy-step">
+        <div class="deploy-num">2</div>
+        <div class="deploy-step-content">
+          <h4>Push to GitHub</h4>
+          <p>Push your local commits to the remote repo.</p>
+          <div class="code-block">git push origin main</div>
+        </div>
+      </div>
+      <div class="deploy-step">
+        <div class="deploy-num">3</div>
+        <div class="deploy-step-content">
+          <h4>Enable GitHub Pages</h4>
+          <p>Go to your repo on GitHub → <strong>Settings</strong> → <strong>Pages</strong> → Source: <strong>Deploy from a branch</strong> → Branch: <strong>main</strong> → Folder: <strong>/docs</strong> → Save.</p>
+        </div>
+      </div>
+      <div class="deploy-step">
+        <div class="deploy-num">4</div>
+        <div class="deploy-step-content">
+          <h4>Wait ~60 seconds, then visit your site</h4>
+          <p>Your site will be live at:</p>
+          <div class="code-block">https://mulgundsunil1918.github.io/mmcopd/</div>
+        </div>
+      </div>
+      <div class="deploy-step">
+        <div class="deploy-num">5</div>
+        <div class="deploy-step-content">
+          <h4>(Optional) Add a custom domain</h4>
+          <p>In Pages settings, add a custom domain like <code>hms.bridgr.in</code>. GitHub provides free HTTPS via Let's Encrypt. Add a CNAME DNS record at your domain registrar pointing to <code>mulgundsunil1918.github.io</code>.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ FOOTER ══════════════════════════════════════════════════════════ -->
+<footer class="footer">
+  <div class="footer-inner">
+    <div>
+      <div class="footer-brand">CureDesk <span>HMS</span> · Bridgr Technologies</div>
+      <div class="footer-meta" style="margin-top:6px;">Internal Business Portal · Confidential · 2026</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span class="footer-badge">Internal Use Only</span>
+      <span style="font-size:12px;color:rgba(255,255,255,.25);">v0.4.0 · Karnataka, India</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+// ─── PRICING CALCULATOR ────────────────────────────────────────────────
+const BASE_PRICE = 8999;
+const selected = {};
+
+function toggleMod(el) {
+  const key = el.dataset.key;
+  const price = parseInt(el.dataset.price);
+  const exclusive = el.dataset.exclusive;
+
+  if (el.classList.contains('active')) {
+    el.classList.remove('active');
+    delete selected[key];
+  } else {
+    // Remove exclusive
+    if (exclusive) {
+      const excEl = document.querySelector(`.p-mod[data-key="${exclusive}"]`);
+      if (excEl && excEl.classList.contains('active')) {
+        excEl.classList.remove('active');
+        delete selected[exclusive];
+      }
+    }
+    el.classList.add('active');
+    selected[key] = { price, label: el.querySelector('h4').textContent };
+  }
+  updateSummary();
+}
+
+const LABELS = {
+  wa_lite: 'WhatsApp Lite',
+  wa_pro: 'WhatsApp Pro',
+  pharmacy: 'Pharmacy Module',
+  ipd: 'IPD Module'
+};
+
+function updateSummary() {
+  const itemsEl = document.getElementById('ps-items');
+  const totalEl = document.getElementById('ps-total');
+  const annualEl = document.getElementById('ps-annual-val');
+  const annualSaveEl = document.getElementById('ps-annual-save');
+
+  let total = BASE_PRICE;
+  let html = `<div class="ps-item"><span class="ps-item-name">Base — Reception &amp; OPD</span><span class="ps-item-price">₹8,999</span></div>`;
+
+  const keys = Object.keys(selected);
+  if (keys.length === 0) {
+    html += `<p class="ps-empty" style="margin-top:12px;font-size:13px;font-style:italic;color:rgba(255,255,255,.25);">Select add-ons above.</p>`;
+  } else {
+    keys.forEach(k => {
+      total += selected[k].price;
+      html += `<div class="ps-item"><span class="ps-item-name">${LABELS[k]}</span><span class="ps-item-price">+₹${selected[k].price.toLocaleString('en-IN')}</span></div>`;
+    });
+  }
+
+  // Bundle detection
+  const hasAll = selected.wa_pro && selected.pharmacy && selected.ipd;
+  let bundleNote = '';
+  if (hasAll) {
+    const aLaCarte = total;
+    const bundled = 13999;
+    if (aLaCarte > bundled) {
+      html += `<div class="ps-item" style="color:rgba(0,184,162,.9);"><span class="ps-item-name">Full Suite bundle saving</span><span class="ps-item-price">–₹${(aLaCarte - bundled).toLocaleString('en-IN')}</span></div>`;
+      total = bundled;
+      bundleNote = `<div class="bundle-badge" style="margin-bottom:16px;">Full Suite bundle applied — saves ₹${(aLaCarte - bundled).toLocaleString('en-IN')}</div>`;
+    }
+  }
+
+  itemsEl.innerHTML = html;
+  if (bundleNote) itemsEl.insertAdjacentHTML('beforebegin', bundleNote);
+
+  totalEl.textContent = '₹' + total.toLocaleString('en-IN');
+
+  const annual = total * 10;
+  const annualSaved = total * 2;
+  annualEl.textContent = '₹' + annual.toLocaleString('en-IN');
+  annualSaveEl.textContent = `You save ₹${annualSaved.toLocaleString('en-IN')} vs monthly billing`;
+}
+
+function copyQuote() {
+  const total = document.getElementById('ps-total').textContent;
+  const annual = document.getElementById('ps-annual-val').textContent;
+  const addons = Object.keys(selected).map(k => `• ${LABELS[k]}`).join('\n') || '• No add-ons selected';
+  const text = `CureDesk HMS Quote\n\n• Base — Reception & OPD\n${addons}\n\nMonthly: ${total}/month\nAnnual: ${annual}/year (2 months free)\nSetup fee: ₹4,999 one-time\n\nContact: wa.me/91XXXXXXXXXX\ncuredesk.bridgr.in`;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => {
+      const n = document.getElementById('ps-copy-note');
+      n.textContent = 'Copied! Paste into WhatsApp.';
+      n.style.color = '#4CDB85';
+      setTimeout(() => { n.textContent = ''; }, 3000);
+    });
+  }
+}
+
+// ─── SALES PLAYBOOK TABS ───────────────────────────────────────────────
+function switchStep(el) {
+  document.querySelectorAll('.pb-step').forEach(s => s.classList.remove('active'));
+  el.classList.add('active');
+  const target = el.dataset.target;
+  document.querySelectorAll('.pb-content').forEach(c => c.style.display = 'none');
+  document.getElementById(target).style.display = 'block';
+}
+
+// ─── NAV SMOOTH HIGHLIGHT ──────────────────────────────────────────────
+const sections = document.querySelectorAll('section[id]');
+const navLinks = document.querySelectorAll('.nav-links a');
+window.addEventListener('scroll', () => {
+  let current = '';
+  sections.forEach(sec => {
+    if (window.scrollY >= sec.offsetTop - 80) current = sec.id;
+  });
+  navLinks.forEach(a => {
+    a.style.color = a.getAttribute('href') === `#${current}` ? 'white' : '';
+  });
+}, { passive: true });
+</script>
+</body>
+</html>
