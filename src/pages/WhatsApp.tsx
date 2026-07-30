@@ -12,6 +12,17 @@ import type { WaAutomationTrigger } from '../types/whatsapp';
 
 type Tab = 'connect' | 'templates' | 'automation' | 'queue' | 'inbox' | 'campaigns' | 'broadcast';
 
+function safeClipboard(text: string) {
+  navigator.clipboard.writeText(text).catch(() => {
+    const el = document.createElement('textarea');
+    el.value = text;
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+  });
+}
+
 // ── Trigger metadata ──────────────────────────────────────────────────────────
 const TRIGGERS: { key: WaAutomationTrigger; label: string; desc: string }[] = [
   { key: 'appointment_created',      label: 'Appointment Confirmed',  desc: 'Sent immediately when a new appointment is booked' },
@@ -78,7 +89,7 @@ function RelayConfig({ accounts }: { accounts: any[] }) {
   const webhookUrl = `${url}/webhook`;
 
   const copyToClipboard = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
+    safeClipboard(text);
     toast(`${label} copied`);
   };
 
@@ -1626,7 +1637,7 @@ function BroadcastTab() {
                       <div className="flex gap-1 shrink-0">
                         <button
                           className="text-[10px] px-2 py-1 rounded bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 transition-colors"
-                          onClick={() => { navigator.clipboard.writeText(t.body); toast('Message text copied'); }}
+                          onClick={() => { safeClipboard(t.body); toast('Message text copied'); }}
                         >
                           Copy text
                         </button>
@@ -1886,7 +1897,7 @@ function GuidePanel({ onClose }: { onClose: () => void }) {
     });
 
   const copyText = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
+    safeClipboard(text);
     toast(`${label} copied`);
   };
 
