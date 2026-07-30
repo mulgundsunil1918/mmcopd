@@ -166,6 +166,10 @@ export function runMigrations(db: Database.Database) {
     migrateV1toV2(db);
   }
 
+  if (currentVersion < 3) {
+    migrateV2toV3(db);
+  }
+
   if (currentVersion < SCHEMA_VERSION) {
     db.prepare(
       "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)"
@@ -241,4 +245,115 @@ function migrateV1toV2(db: Database.Database) {
     remapMode.run('full', 'reception_doctor_lab_ip');
   });
   tx();
+}
+
+// ============================================================
+// v2 → v3: WhatsApp Communication Platform — Phase 1
+//   Adds 7 tables: wa_accounts, wa_templates, wa_automation_rules,
+//   wa_message_queue, wa_messages, wa_conversations, wa_webhook_events
+// ============================================================
+function migrateV2toV3(db: Database.Database) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS wa_accounts (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      phone_number_id     TEXT NOT NULL UNIQUE,
+      waba_id             TEXT NOT NULL,
+      display_name        TEXT,
+      phone_number        TEXT,
+      access_token_enc    TEXT NOT NULL,
+      webhook_verify_token TEXT NOT NULL,
+      status              TEXT NOT NULL DEFAULT 'disconnected',
+      last_health_check   TEXT,
+      created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS wa_templates (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id   INTEGER NOT NULL REFERENCES wa_accounts(id) ON DELETE CASCADE,
+      name         TEXT NOT NULL,
+      category     TEXT NOT NULL DEFAULT 'UTILITY',
+      language     TEXT NOT NULL DEFAULT 'en',
+      status       TEXT NOT NULL DEFAULT 'PENDING',
+      components   TEXT NOT NULL DEFAULT '[]',
+      meta_id      TEXT,
+      use_case     TEXT,
+      is_active    INTEGER NOT NULL DEFAULT 1,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(account_id, name)
+    );
+
+    CREATE TABLE IF NOT EXISTS wa_automation_rules (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id     INTEGER NOT NULL REFERENCES wa_accounts(id) ON DELETE CASCADE,
+      trigger        TEXT NOT NULL,
+      template_name  TEXT NOT NULL,
+      is_enabled     INTEGER NOT NULL DEFAULT 1,
+      delay_minutes  INTEGER NOT NULL DEFAULT 0,
+      extra_config   TEXT,
+      created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(account_id, trigger)
+    );
+
+    CREATE TABLE IF NOT EXISTS wa_message_queue (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id     INTEGER NOT NULL REFERENCES wa_accounts(id) ON DELETE CASCADE,
+      to_phone       TEXT NOT NULL,
+      patient_id     INTEGER REFERENCES patients(id) ON DELETE SET NULL,
+      appointment_id INTEGER REFERENCES appointments(id) ON DELETE SET NULL,
+      template_name  TEXT NOT NULL,
+      template_vars  TEXT,
+      status         TEXT NOT NULL DEFAULT 'pending',
+      attempts       INTEGER NOT NULL DEFAULT 0,
+      last_error     TEXT,
+      scheduled_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      sent_at        TEXT,
+      created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_wa_queue_status_sched
+      ON wa_message_queue(status, scheduled_at);
+
+    CREATE TABLE IF NOT EXISTS wa_conversations (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id      INTEGER NOT NULL REFERENCES wa_accounts(id) ON DELETE CASCADE,
+      patient_id      INTEGER REFERENCES patients(id) ON DELETE SET NULL,
+      phone           TEXT NOT NULL,
+      status          TEXT NOT NULL DEFAULT 'open',
+      last_message_at TEXT,
+      assigned_to     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(account_id, phone)
+    );
+
+    CREATE TABLE IF NOT EXISTS wa_messages (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id      INTEGER NOT NULL REFERENCES wa_accounts(id) ON DELETE CASCADE,
+      wam_id          TEXT UNIQUE,
+      conversation_id INTEGER REFERENCES wa_conversations(id) ON DELETE SET NULL,
+      patient_id      INTEGER REFERENCES patients(id) ON DELETE SET NULL,
+      direction       TEXT NOT NULL DEFAULT 'outbound',
+      message_type    TEXT NOT NULL DEFAULT 'template',
+      content         TEXT NOT NULL DEFAULT '{}',
+      status          TEXT NOT NULL DEFAULT 'sent',
+      timestamp       TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_wa_messages_conv
+      ON wa_messages(conversation_id, timestamp);
+
+    CREATE TABLE IF NOT EXISTS wa_webhook_events (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id  INTEGER REFERENCES wa_accounts(id) ON DELETE SET NULL,
+      event_type  TEXT NOT NULL,
+      payload     TEXT NOT NULL,
+      processed   INTEGER NOT NULL DEFAULT 0,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_wa_webhook_processed
+      ON wa_webhook_events(processed, created_at);
+  `);
 }

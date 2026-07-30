@@ -3,6 +3,9 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { registerIpc, runFullBackup, isBackupServiceReady } from './main/ipc';
 import { installIpcRegistry } from './main/ipc-registry';
+import { registerWhatsAppIpc } from './main/whatsapp-ipc';
+import { processQueue } from './services/whatsapp/queue-worker';
+import { runAutomationScheduler } from './services/whatsapp/scheduler';
 import { startNetworkServer, stopNetworkServer, networkServerStatus, getJoinCode, regenerateJoinCode, getLocalLanIP, broadcastEvent } from './main/network-server';
 import { discoverServers, pairWithCode, addWindowsFirewallRule } from './main/network-discovery';
 import { installNetworkClient, networkClientStatus } from './main/network-client';
@@ -697,6 +700,7 @@ app.whenReady().then(async () => {
   // ipcHandlers (network-server.ts reads from there to expose POST /ipc/:channel).
   installIpcRegistry();
   registerIpc();
+  registerWhatsAppIpc();
   // Boot the network server if Settings says we're in 'server' mode.
   await applyNetworkMode().catch((e) => console.warn('Network server boot failed:', e));
   createWindow();
@@ -711,6 +715,15 @@ app.whenReady().then(async () => {
   setInterval(() => runScheduledBackup('tick'), 5 * 60 * 1000);
   setInterval(tickReminder, 30_000);
   tickReminder();
+
+  // WhatsApp background workers — queue flush + automation scheduler
+  const waWorker = () => {
+    const d = getDb();
+    processQueue(d).catch((e) => console.warn('[WA queue]', e));
+    runAutomationScheduler(d);
+  };
+  setInterval(waWorker, 60_000);
+  waWorker();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
