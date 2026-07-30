@@ -4,6 +4,7 @@ import path from 'node:path';
 import * as XLSX from 'xlsx';
 import Database from 'better-sqlite3';
 import { getDb, closeDb } from '../db/db';
+import { enqueueWaEvent } from '../services/whatsapp/wa-trigger';
 
 /**
  * Cross-module hook: registerIpc() sets this to its internal `performBackupToRoot`
@@ -567,6 +568,21 @@ export function registerIpc() {
     // Live event so doctor cabin "queue +1" + reception list refresh instantly.
     try { broadcastNetworkEvent('appointment:new', { id: created.id, doctor_id: created.doctor_id, token_number: created.token_number, patient_name: created.patient_name }); } catch { /* ignore */ }
 
+    // WhatsApp appointment confirmation
+    try {
+      enqueueWaEvent(db, 'appointment_created', {
+        patientId: payload.patient_id,
+        phone: patientRow.phone,
+        appointmentId: created.id,
+        vars: {
+          '1': `${patientRow.first_name} ${patientRow.last_name}`.trim(),
+          '2': doctor.name,
+          '3': payload.appointment_date,
+          '4': payload.appointment_time ?? '',
+        },
+      });
+    } catch { /* WA queue optional */ }
+
     return created;
   });
 
@@ -710,19 +726,38 @@ export function registerIpc() {
         db.prepare("UPDATE appointments SET status='Done' WHERE id=?").run(payload.appointment_id);
       }
 
-      return db
+      const billResult = db
         .prepare(
           `SELECT b.*,
              (p.first_name || ' ' || p.last_name) as patient_name,
              p.uhid as patient_uhid,
-             d.name as doctor_name
+             d.name as doctor_name,
+             p.phone as patient_phone
            FROM bills b
            JOIN patients p ON p.id=b.patient_id
            LEFT JOIN appointments a ON a.id=b.appointment_id
            LEFT JOIN doctors d ON d.id=a.doctor_id
            WHERE b.id=?`
         )
-        .get(info.lastInsertRowid);
+        .get(info.lastInsertRowid) as any;
+
+      // WhatsApp: payment notification
+      try {
+        if (billResult?.patient_phone) {
+          enqueueWaEvent(db, 'bill_generated', {
+            patientId: payload.patient_id,
+            phone: billResult.patient_phone,
+            appointmentId: payload.appointment_id,
+            vars: {
+              '1': billResult.patient_name ?? '',
+              '2': String(total),
+              '3': payload.payment_mode,
+            },
+          });
+        }
+      } catch { /* WA queue optional */ }
+
+      return billResult;
     }
   );
 
@@ -1231,6 +1266,16 @@ export function registerIpc() {
         });
       });
       tx();
+      // WhatsApp: notify patient that prescription is ready
+      try {
+        const apptPt = db.prepare(
+          `SELECT p.id, p.phone, p.first_name, p.last_name FROM appointments a JOIN patients p ON p.id=a.patient_id WHERE a.id=?`
+        ).get(appointmentId) as { id: number; phone: string; first_name: string; last_name: string } | undefined;
+        if (apptPt) enqueueWaEvent(db, 'prescription_generated', {
+          patientId: apptPt.id, phone: apptPt.phone, appointmentId,
+          vars: { '1': `${apptPt.first_name} ${apptPt.last_name}`.trim() },
+        });
+      } catch { /* WA queue optional */ }
       return db
         .prepare('SELECT * FROM prescription_items WHERE appointment_id=? ORDER BY order_idx, id')
         .all(appointmentId);
@@ -1327,6 +1372,20 @@ export function registerIpc() {
     if (status === 'reported') fields.reported_at = now;
     const cols = Object.keys(fields).map((k) => `${k}=?`).join(', ');
     db.prepare(`UPDATE lab_orders SET ${cols} WHERE id=?`).run(...Object.values(fields), orderId);
+
+    // WhatsApp: notify patient when report is ready
+    if (status === 'reported') {
+      try {
+        const labPt = db.prepare(
+          `SELECT p.id, p.phone, p.first_name, p.last_name FROM lab_orders lo JOIN patients p ON p.id=lo.patient_id WHERE lo.id=?`
+        ).get(orderId) as { id: number; phone: string; first_name: string; last_name: string } | undefined;
+        if (labPt) enqueueWaEvent(db, 'lab_report_ready', {
+          patientId: labPt.id, phone: labPt.phone,
+          vars: { '1': `${labPt.first_name} ${labPt.last_name}`.trim() },
+        });
+      } catch { /* WA queue optional */ }
+    }
+
     return db.prepare('SELECT * FROM lab_orders WHERE id=?').get(orderId);
   });
 

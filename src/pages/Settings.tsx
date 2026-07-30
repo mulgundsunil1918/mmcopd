@@ -125,6 +125,9 @@ export function SettingsPage() {
               <SettingsGroup title="WhatsApp Messaging" subtitle="Click-to-WhatsApp template editor + live preview.">
                 <WhatsAppMessaging />
               </SettingsGroup>
+              <SettingsGroup title="AI Reply Suggestions" subtitle="Anthropic (Claude) API key for one-tap reply suggestions in the WhatsApp inbox.">
+                <AiSettings />
+              </SettingsGroup>
               <SettingsGroup title="Support the Developer" subtitle="If CureDesk is helping your clinic, consider supporting continued development.">
                 <SupportDeveloperPanel />
               </SettingsGroup>
@@ -972,7 +975,7 @@ function ClinicInfo() {
   const qc = useQueryClient();
   const toast = useToast();
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
-  const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, ['clinic_name', 'clinic_tagline', 'clinic_phone', 'clinic_email', 'clinic_address', 'clinic_registration_no'], {
+  const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, ['clinic_name', 'clinic_tagline', 'clinic_phone', 'clinic_email', 'clinic_address', 'clinic_registration_no', 'google_review_url'], {
     extraInvalidateKeys: [['clinic-name'], ['clinic-name-title']],
   });
 
@@ -1013,6 +1016,16 @@ function ClinicInfo() {
             <TxtField label="Address" value={draft.clinic_address ?? ''} onChange={(v) => set('clinic_address', v)} />
           </div>
           <TxtField label="Registration No." value={draft.clinic_registration_no ?? ''} onChange={(v) => set('clinic_registration_no', v)} />
+          <div className="col-span-2">
+            <label className="label">Google Review URL</label>
+            <input
+              className="input w-full"
+              value={draft.google_review_url ?? ''}
+              onChange={(e) => set('google_review_url', e.target.value)}
+              placeholder="https://g.page/r/…/review"
+            />
+            <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-1">Used in the WhatsApp "Rate Us" button and feedback automation.</p>
+          </div>
         </div>
       </div>
     </section>
@@ -1023,30 +1036,34 @@ function PrescriptionQr() {
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   const { draft, set, reset, dirty, save, saving } = useSectionDraft(
     settings,
-    ['qr1_url', 'qr1_label', 'qr2_url', 'qr2_label']
+    ['qr1_img', 'qr1_label', 'qr2_img', 'qr2_label']
   );
 
-  const hasQr1 = !!(draft.qr1_url);
-  const hasQr2 = !!(draft.qr2_url);
+  const hasQr1 = !!(draft.qr1_img);
+  const hasQr2 = !!(draft.qr2_img);
   const neither = !hasQr1 && !hasQr2;
 
   return (
     <div className="space-y-4">
       <p className="text-xs text-gray-500 dark:text-slate-400">
-        Leave both URLs blank to hide QR codes. Add just QR 1 for a single code, or fill both for two codes side-by-side.
+        Upload your QR code images (UPI, Google Pay, PhonePe, Google Review, etc.). Leave both blank to hide. One image = single code; both = two codes side-by-side on the prescription.
       </p>
 
       {/* QR 1 */}
       <div className="border border-gray-200 dark:border-slate-700 rounded-lg p-4 space-y-3">
         <div className="text-xs font-semibold text-gray-700 dark:text-slate-300 uppercase tracking-wide">QR Code 1</div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="label">URL</label>
-            <input className="input" value={draft.qr1_url ?? ''} onChange={(e) => set('qr1_url', e.target.value)} placeholder="https://yourclinic.com" />
-          </div>
-          <div>
-            <label className="label">Label (shown below QR)</label>
-            <input className="input" value={draft.qr1_label ?? ''} onChange={(e) => set('qr1_label', e.target.value)} placeholder="Visit Our Website" />
+        <div className="flex gap-4 items-start">
+          <ImageUpload
+            label="QR Image"
+            value={draft.qr1_img ?? null}
+            onChange={(v) => { set('qr1_img', v ?? ''); }}
+            aspect="square"
+            placeholder="Upload QR"
+            hint="JPG / PNG · Max 5 MB"
+          />
+          <div className="flex-1">
+            <label className="label">Label (shown below QR on prescription)</label>
+            <input className="input w-full" value={draft.qr1_label ?? ''} onChange={(e) => set('qr1_label', e.target.value)} placeholder="e.g. Scan to Pay, Google Review" />
           </div>
         </div>
       </div>
@@ -1054,25 +1071,61 @@ function PrescriptionQr() {
       {/* QR 2 */}
       <div className="border border-gray-200 dark:border-slate-700 rounded-lg p-4 space-y-3">
         <div className="text-xs font-semibold text-gray-700 dark:text-slate-300 uppercase tracking-wide">QR Code 2</div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="label">URL</label>
-            <input className="input" value={draft.qr2_url ?? ''} onChange={(e) => set('qr2_url', e.target.value)} placeholder="https://maps.google.com/..." />
-          </div>
-          <div>
-            <label className="label">Label (shown below QR)</label>
-            <input className="input" value={draft.qr2_label ?? ''} onChange={(e) => set('qr2_label', e.target.value)} placeholder="Find Us on Maps" />
+        <div className="flex gap-4 items-start">
+          <ImageUpload
+            label="QR Image"
+            value={draft.qr2_img ?? null}
+            onChange={(v) => { set('qr2_img', v ?? ''); }}
+            aspect="square"
+            placeholder="Upload QR"
+            hint="JPG / PNG · Max 5 MB"
+          />
+          <div className="flex-1">
+            <label className="label">Label (shown below QR on prescription)</label>
+            <input className="input w-full" value={draft.qr2_label ?? ''} onChange={(e) => set('qr2_label', e.target.value)} placeholder="e.g. Find Us on Maps" />
           </div>
         </div>
       </div>
 
       {neither && (
-        <p className="text-xs text-amber-600 dark:text-amber-400">No URLs entered — QR codes will not appear on the prescription.</p>
+        <p className="text-xs text-amber-600 dark:text-amber-400">No images uploaded — QR codes will not appear on the prescription.</p>
       )}
 
       <div className="flex gap-3">
         <button className="btn-primary text-sm" disabled={!dirty || saving} onClick={() => save()}>
           {saving ? 'Saving…' : 'Save QR Settings'}
+        </button>
+        {dirty && <button className="btn-ghost text-sm" onClick={() => reset()}>Discard</button>}
+      </div>
+    </div>
+  );
+}
+
+function AiSettings() {
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, ['anthropic_api_key']);
+  const [show, setShow] = useState(false);
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-gray-500 dark:text-slate-400">
+        When an Anthropic API key is set, a ✨ button appears in the WhatsApp inbox. Clicking it sends the last few messages to Claude and returns 3 ready-to-send reply chips. The key is stored locally only.
+      </p>
+      <div>
+        <label className="label">Anthropic API Key</label>
+        <div className="flex gap-2">
+          <input
+            className="input flex-1"
+            type={show ? 'text' : 'password'}
+            placeholder="sk-ant-…"
+            value={draft.anthropic_api_key ?? ''}
+            onChange={(e) => set('anthropic_api_key', e.target.value)}
+          />
+          <button className="btn-ghost text-xs" onClick={() => setShow((v) => !v)}>{show ? 'Hide' : 'Show'}</button>
+        </div>
+      </div>
+      <div className="flex gap-3">
+        <button className="btn-primary text-sm" disabled={!dirty || saving} onClick={() => save()}>
+          {saving ? 'Saving…' : 'Save'}
         </button>
         {dirty && <button className="btn-ghost text-sm" onClick={() => reset()}>Discard</button>}
       </div>

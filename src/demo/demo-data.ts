@@ -95,10 +95,12 @@ export const DEMO_SETTINGS: Settings = {
   network_server_url: '',
   network_secret: '',
   station_name: '',
-  qr1_url: '',
-  qr1_label: 'Visit Our Website',
-  qr2_url: '',
-  qr2_label: 'Find Us on Maps',
+  qr1_img: '',
+  qr1_label: 'Scan to Pay / Review',
+  qr2_img: '',
+  qr2_label: 'Scan to Pay / Review',
+  anthropic_api_key: '',
+  google_review_url: '',
 };
 
 // ---------- Doctors ----------

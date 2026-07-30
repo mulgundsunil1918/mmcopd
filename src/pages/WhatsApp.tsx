@@ -4,13 +4,13 @@ import {
   MessageSquare, Plug, PlugZap, RefreshCw, Zap, ListChecks,
   CheckCircle2, XCircle, AlertCircle, Clock, Send, Inbox,
   CheckCheck, User, Megaphone, Plus, Trash2, Play, Eye,
-  ChevronDown,
+  ChevronDown, Sparkles, Star, BookOpen, ChevronRight, X, BarChart2,
 } from 'lucide-react';
 import { cn, fmtDateTime } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import type { WaAutomationTrigger } from '../types/whatsapp';
 
-type Tab = 'connect' | 'templates' | 'automation' | 'queue' | 'inbox' | 'campaigns';
+type Tab = 'connect' | 'templates' | 'automation' | 'queue' | 'inbox' | 'campaigns' | 'broadcast';
 
 // ── Trigger metadata ──────────────────────────────────────────────────────────
 const TRIGGERS: { key: WaAutomationTrigger; label: string; desc: string }[] = [
@@ -23,6 +23,8 @@ const TRIGGERS: { key: WaAutomationTrigger; label: string; desc: string }[] = [
   { key: 'bill_generated',           label: 'Bill Generated',        desc: 'Sent when a bill is created at reception' },
   { key: 'followup_reminder_3d',     label: 'Follow-up Reminder',    desc: 'Sent 3 days before a scheduled follow-up date' },
   { key: 'birthday_wish',            label: 'Birthday Wish',         desc: 'Sent on the patient\'s birthday' },
+  { key: 'feedback_request',         label: 'Experience & Google Review', desc: 'Sent ~2–4 hours after appointment completion, asks for feedback and Google review' },
+  { key: 'vaccination_reminder',     label: 'Vaccination Reminder',       desc: 'Sent ~28 days after a vaccination service, reminding patient about next dose' },
 ];
 
 // ── Status badge ──────────────────────────────────────────────────────────────
@@ -46,59 +48,121 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+// Caredesk-hosted relay — clinics never need to deploy their own server.
+const CAREDESK_RELAY_URL = 'https://relay.caredesk.in';
+
 // ── Relay config panel (shown inside ConnectTab) ──────────────────────────────
 function RelayConfig({ accounts }: { accounts: any[] }) {
   const toast = useToast();
   const { data: cfg } = useQuery({ queryKey: ['wa:relayConfig'], queryFn: () => window.electronAPI.wa.relayConfig() });
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [url, setUrl] = useState('');
   const [secret, setSecret] = useState('');
-  useEffect(() => { if (cfg) { setUrl(cfg.url || ''); setSecret(cfg.secret || ''); } }, [cfg]);
+
+  useEffect(() => {
+    if (cfg) {
+      setUrl(cfg.url || CAREDESK_RELAY_URL);
+      setSecret(cfg.secret || '');
+    } else {
+      setUrl(CAREDESK_RELAY_URL);
+    }
+  }, [cfg]);
 
   const save = useMutation({
     mutationFn: () => window.electronAPI.wa.setRelayConfig(url, secret),
-    onSuccess: () => toast('Relay config saved'),
+    onSuccess: () => toast('Webhook config saved'),
     onError: (e: any) => toast(e.message || 'Save failed', 'error'),
   });
 
+  const verifyToken = accounts[0]?.webhook_verify_token ?? '—';
+  const webhookUrl = `${url}/webhook`;
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    toast(`${label} copied`);
+  };
+
+  const isConfigured = !!(cfg?.url);
+
   return (
-    <div className="card p-4 space-y-3">
-      <h2 className="font-semibold text-sm text-gray-800 dark:text-slate-100">Webhook Relay Server</h2>
+    <div className="card p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="font-semibold text-sm text-gray-800 dark:text-slate-100">Step 3 — Register Webhook with Meta</h2>
+        {isConfigured && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+            <CheckCircle2 className="w-3 h-3" /> Active
+          </span>
+        )}
+      </div>
+
       <p className="text-xs text-gray-500 dark:text-slate-400">
-        Meta sends webhook events (delivery receipts, inbound messages) to a public URL. CureDesk polls that server every 60s.
-        Deploy <code className="bg-gray-100 dark:bg-slate-700 px-1 rounded">relay-server/</code> on Railway (free tier), set the env vars below, then paste the URL here.
+        One-time setup: paste these two values into your Meta app's webhook settings so CureDesk can receive incoming messages and delivery updates.
       </p>
 
-      {/* Env vars to set on Railway */}
-      <div className="bg-gray-50 dark:bg-slate-800 rounded p-3 text-xs font-mono space-y-1">
-        <p className="text-gray-500 dark:text-slate-400"># Railway env vars:</p>
-        {accounts[0] && <>
-          <p className="text-gray-800 dark:text-slate-200">VERIFY_TOKEN=<span className="text-emerald-600 dark:text-emerald-400 select-all">{accounts[0].webhook_verify_token}</span></p>
-          <p className="text-gray-800 dark:text-slate-200">PHONE_NUMBER_ID=<span className="text-emerald-600 dark:text-emerald-400 select-all">{accounts[0].phone_number_id}</span></p>
-        </>}
-        <p className="text-gray-800 dark:text-slate-200">SECRET=<span className="text-amber-600 dark:text-amber-400">(set a random string, paste below)</span></p>
+      {/* The two values the user needs to copy */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 bg-gray-50 dark:bg-slate-800 rounded-lg px-3 py-2.5">
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] font-medium text-gray-400 dark:text-slate-500 uppercase tracking-wide mb-0.5">Webhook URL (paste in Meta)</p>
+            <p className="text-xs font-mono text-gray-800 dark:text-slate-100 truncate">{webhookUrl}</p>
+          </div>
+          <button
+            className="shrink-0 px-2.5 py-1 text-xs rounded-md bg-green-600 text-white hover:bg-green-700 transition-colors"
+            onClick={() => copyToClipboard(webhookUrl, 'Webhook URL')}
+          >
+            Copy
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2 bg-gray-50 dark:bg-slate-800 rounded-lg px-3 py-2.5">
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] font-medium text-gray-400 dark:text-slate-500 uppercase tracking-wide mb-0.5">Verify Token (paste in Meta)</p>
+            <p className="text-xs font-mono text-gray-800 dark:text-slate-100 truncate select-all">{verifyToken}</p>
+          </div>
+          <button
+            className="shrink-0 px-2.5 py-1 text-xs rounded-md bg-green-600 text-white hover:bg-green-700 transition-colors"
+            onClick={() => copyToClipboard(verifyToken, 'Verify token')}
+          >
+            Copy
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-xs font-medium text-gray-600 dark:text-slate-400 block mb-1">Relay URL</label>
-          <input className="input w-full" placeholder="https://your-relay.railway.app" value={url} onChange={(e) => setUrl(e.target.value)} />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-gray-600 dark:text-slate-400 block mb-1">Poll Secret (match SERVER env var)</label>
-          <input className="input w-full font-mono text-xs" type="password" placeholder="random-secret-string" value={secret} onChange={(e) => setSecret(e.target.value)} />
-        </div>
+      {/* Where to paste in Meta */}
+      <div className="bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800 rounded-lg p-3 text-xs text-blue-700 dark:text-blue-300 space-y-1">
+        <p className="font-semibold">Where to paste in Meta:</p>
+        <p>1. Open <strong>Meta Developer Console</strong> → your app → <strong>WhatsApp → Configuration</strong></p>
+        <p>2. Click <strong>Edit</strong> next to Webhooks → paste the URL and Verify Token above</p>
+        <p>3. Click <strong>Verify and Save</strong> → then subscribe to the <strong>messages</strong> field</p>
+        <p>Done — incoming messages will now appear in the Inbox.</p>
       </div>
 
+      {/* Save button (saves the relay URL so the app knows where to poll) */}
       <div className="flex items-center gap-3">
         <button className="btn-primary text-xs" disabled={save.isPending} onClick={() => save.mutate()}>
-          {save.isPending ? 'Saving…' : 'Save Relay Config'}
+          {save.isPending ? 'Saving…' : isConfigured ? 'Update' : 'Confirm Setup'}
         </button>
-        {cfg?.url && <span className="text-xs text-emerald-600 dark:text-emerald-400">✓ Relay configured — polling every 60s</span>}
+        <button className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 underline" onClick={() => setShowAdvanced(v => !v)}>
+          {showAdvanced ? 'Hide advanced' : 'Advanced (custom relay)'}
+        </button>
       </div>
 
-      <p className="text-xs text-gray-400 dark:text-slate-500">
-        Meta Developer Console → WhatsApp → Webhook: set Callback URL to <strong>{url || 'https://your-relay.railway.app'}/webhook</strong> and Verify Token to the VERIFY_TOKEN above.
-      </p>
+      {/* Advanced: custom relay URL + secret — hidden by default */}
+      {showAdvanced && (
+        <div className="border border-dashed border-gray-200 dark:border-slate-700 rounded-lg p-3 space-y-3">
+          <p className="text-[11px] text-gray-400 dark:text-slate-500">Only change these if you are hosting your own relay server.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-600 dark:text-slate-400 block mb-1">Relay Base URL</label>
+              <input className="input w-full text-xs" value={url} onChange={(e) => setUrl(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 dark:text-slate-400 block mb-1">Poll Secret</label>
+              <input className="input w-full font-mono text-xs" type="password" placeholder="secret" value={secret} onChange={(e) => setSecret(e.target.value)} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -603,12 +667,14 @@ function QueueTab() {
 
 // ── Segment metadata ──────────────────────────────────────────────────────────
 const SEGMENTS = [
-  { key: 'all',                label: 'All Patients',              desc: 'Every patient with a phone number on record' },
-  { key: 'visited_last_30d',   label: 'Visited — last 30 days',    desc: 'Patients who had an appointment in the last 30 days' },
-  { key: 'visited_last_90d',   label: 'Visited — last 90 days',    desc: 'Patients who had an appointment in the last 90 days' },
-  { key: 'followup_due_7d',    label: 'Follow-up due (next 7 days)', desc: 'Patients with a scheduled follow-up date in the next week' },
-  { key: 'birthday_this_month',label: 'Birthday this month',       desc: 'Patients whose birthday falls this calendar month' },
-  { key: 'no_visit_90d',       label: 'Inactive — no visit in 90 days', desc: 'Patients not seen in the last 90 days (re-engagement)' },
+  { key: 'all',                label: 'All Patients',                    desc: 'Every patient with a phone number on record' },
+  { key: 'visited_last_30d',   label: 'Visited — last 30 days',          desc: 'Patients who had an appointment in the last 30 days' },
+  { key: 'visited_last_90d',   label: 'Visited — last 90 days',          desc: 'Patients who had an appointment in the last 90 days' },
+  { key: 'followup_due_7d',    label: 'Follow-up due (next 7 days)',      desc: 'Patients with a scheduled follow-up date in the next week' },
+  { key: 'birthday_this_month',label: 'Birthday this month',              desc: 'Patients whose birthday falls this calendar month' },
+  { key: 'no_visit_90d',       label: 'Inactive — no visit in 90 days',  desc: 'Patients not seen in the last 90 days (re-engagement)' },
+  { key: 'health_awareness',   label: 'Health Awareness (visited 90d)',   desc: 'Active patients — ideal for health tips, seasonal alerts, preventive care' },
+  { key: 'promotion',          label: 'Health Package Promotion (all)',   desc: 'All patients — broadcast health packages, camp announcements, offers' },
 ] as const;
 
 // ── Campaigns tab ─────────────────────────────────────────────────────────────
@@ -911,6 +977,8 @@ function InboxTab() {
   const [convStatus, setConvStatus] = useState<'open' | 'resolved'>('open');
   const [selectedConvId, setSelectedConvId] = useState<number | null>(null);
   const [replyText, setReplyText] = useState('');
+  const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const activeAccountId = accountId ?? (accounts[0]?.id ?? null);
 
@@ -942,11 +1010,43 @@ function InboxTab() {
     }
   }, [(conversations as any[]).length]);
 
+  // Clear AI suggestions when switching conversations
+  useEffect(() => { setAiSuggestions([]); }, [selectedConvId]);
+
+  async function fetchAiSuggestions() {
+    if (!activeAccountId || !selectedConvId) return;
+    setAiLoading(true);
+    setAiSuggestions([]);
+    try {
+      const r = await window.electronAPI.wa.aiSuggest(activeAccountId, selectedConvId);
+      if (r.ok && r.suggestions) setAiSuggestions(r.suggestions);
+      else toast(r.error ?? 'AI suggest failed', 'error');
+    } catch (e: any) {
+      toast(e.message || 'AI suggest failed', 'error');
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
   const sendText = useMutation({
     mutationFn: () => window.electronAPI.wa.sendText(activeAccountId!, selectedConvId!, replyText.trim()),
     onSuccess: (r) => {
       if (r.ok) {
         setReplyText('');
+        qc.invalidateQueries({ queryKey: ['wa:messages', activeAccountId, selectedConvId] });
+        qc.invalidateQueries({ queryKey: ['wa:conversations', activeAccountId, convStatus] });
+      } else {
+        toast(r.error ?? 'Send failed', 'error');
+      }
+    },
+    onError: (e: any) => toast(e.message || 'Send failed', 'error'),
+  });
+
+  const sendFeedback = useMutation({
+    mutationFn: () => window.electronAPI.wa.sendFeedbackRequest(activeAccountId!, selectedConvId!),
+    onSuccess: (r) => {
+      if (r.ok) {
+        toast('Review request sent!');
         qc.invalidateQueries({ queryKey: ['wa:messages', activeAccountId, selectedConvId] });
         qc.invalidateQueries({ queryKey: ['wa:conversations', activeAccountId, convStatus] });
       } else {
@@ -1104,15 +1204,28 @@ function InboxTab() {
                     <p className="text-xs text-gray-500 dark:text-slate-400">{selectedConv?.phone}</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => resolve.mutate(convStatus === 'open' ? 'resolved' : 'open')}
-                  disabled={resolve.isPending}
-                  className={cn('btn-ghost text-xs flex items-center gap-1.5',
-                    convStatus === 'open' ? 'text-gray-600 dark:text-slate-400' : 'text-emerald-600 dark:text-emerald-400')}
-                >
-                  <CheckCheck className="w-3.5 h-3.5" />
-                  {convStatus === 'open' ? 'Resolve' : 'Reopen'}
-                </button>
+                <div className="flex items-center gap-1">
+                  {convStatus === 'open' && (
+                    <button
+                      onClick={() => sendFeedback.mutate()}
+                      disabled={sendFeedback.isPending}
+                      className="btn-ghost text-xs flex items-center gap-1.5 text-amber-600 dark:text-amber-400"
+                      title="Send experience & Google review request"
+                    >
+                      <Star className={cn('w-3.5 h-3.5', sendFeedback.isPending && 'animate-pulse')} />
+                      Rate Us
+                    </button>
+                  )}
+                  <button
+                    onClick={() => resolve.mutate(convStatus === 'open' ? 'resolved' : 'open')}
+                    disabled={resolve.isPending}
+                    className={cn('btn-ghost text-xs flex items-center gap-1.5',
+                      convStatus === 'open' ? 'text-gray-600 dark:text-slate-400' : 'text-emerald-600 dark:text-emerald-400')}
+                  >
+                    <CheckCheck className="w-3.5 h-3.5" />
+                    {convStatus === 'open' ? 'Resolve' : 'Reopen'}
+                  </button>
+                </div>
               </div>
 
               {/* Messages */}
@@ -1153,7 +1266,26 @@ function InboxTab() {
 
               {/* Reply box */}
               {convStatus === 'open' ? (
-                <div className="p-3 border-t border-gray-200 dark:border-slate-700">
+                <div className="p-3 border-t border-gray-200 dark:border-slate-700 space-y-2">
+                  {/* AI suggestion chips */}
+                  {(aiSuggestions.length > 0 || aiLoading) && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {aiLoading && (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-300 text-xs animate-pulse">
+                          <Sparkles className="w-3 h-3" /> Thinking…
+                        </span>
+                      )}
+                      {aiSuggestions.map((s, i) => (
+                        <button
+                          key={i}
+                          className="px-2.5 py-1 rounded-full text-xs bg-purple-50 hover:bg-purple-100 dark:bg-purple-900/20 dark:hover:bg-purple-900/40 text-purple-700 dark:text-purple-200 border border-purple-200 dark:border-purple-700 transition-colors text-left"
+                          onClick={() => { setReplyText(s); setAiSuggestions([]); }}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex gap-2 items-end">
                     <textarea
                       className="input flex-1 resize-none text-sm"
@@ -1168,17 +1300,27 @@ function InboxTab() {
                         }
                       }}
                     />
-                    <button
-                      className="btn-primary p-2.5 shrink-0"
-                      disabled={!replyText.trim() || sendText.isPending}
-                      onClick={() => sendText.mutate()}
-                      title="Send (Enter)"
-                    >
-                      <Send className={cn('w-4 h-4', sendText.isPending && 'animate-pulse')} />
-                    </button>
+                    <div className="flex flex-col gap-1 shrink-0">
+                      <button
+                        className="btn-primary p-2.5"
+                        disabled={!replyText.trim() || sendText.isPending}
+                        onClick={() => sendText.mutate()}
+                        title="Send (Enter)"
+                      >
+                        <Send className={cn('w-4 h-4', sendText.isPending && 'animate-pulse')} />
+                      </button>
+                      <button
+                        className="p-2.5 rounded-lg border border-purple-200 dark:border-purple-700 hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600 dark:text-purple-300 disabled:opacity-40 transition-colors"
+                        disabled={aiLoading || !selectedConvId}
+                        onClick={fetchAiSuggestions}
+                        title="AI reply suggestions"
+                      >
+                        <Sparkles className={cn('w-4 h-4', aiLoading && 'animate-pulse')} />
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1">
-                    Enter to send · Shift+Enter for newline · Free-text replies require the patient to have messaged you in the last 24 hours (Meta policy)
+                  <p className="text-[10px] text-gray-400 dark:text-slate-500">
+                    Enter to send · Shift+Enter for newline · ✨ = AI reply suggestions (requires Anthropic key in Settings)
                   </p>
                 </div>
               ) : (
@@ -1194,28 +1336,958 @@ function InboxTab() {
   );
 }
 
+// ── Broadcast tab ─────────────────────────────────────────────────────────────
+function getBodyText(template: any): string {
+  const body = (template.components as any[])?.find((c: any) => c.type === 'BODY');
+  return body?.text ?? '';
+}
+
+function extractVarCount(bodyText: string): number {
+  const matches = [...bodyText.matchAll(/\{\{(\d+)\}\}/g)];
+  if (!matches.length) return 0;
+  return Math.max(...matches.map((m) => parseInt(m[1])));
+}
+
+function applyVars(bodyText: string, vars: Record<string, string>): string {
+  return bodyText.replace(/\{\{(\d+)\}\}/g, (_, n) => vars[n] || `{{${n}}}`);
+}
+
+const BLAST_SEGMENTS = [
+  { key: 'all',                label: 'All Patients',         desc: 'Every registered patient with a phone number' },
+  { key: 'active_6m',          label: 'Active (6 months)',    desc: 'Patients who visited in the last 6 months' },
+  { key: 'visited_last_30d',   label: 'Visited last 30 days', desc: 'Patients seen this month' },
+  { key: 'visited_last_90d',   label: 'Visited last 90 days', desc: 'Patients seen this quarter' },
+  { key: 'no_visit_90d',       label: 'Not visited 90+ days', desc: 'Patients who haven\'t come in a while' },
+  { key: 'birthday_this_month',label: 'Birthday this month',  desc: 'Patients with birthday this month' },
+  { key: 'senior_citizens',    label: 'Senior Citizens (60+)', desc: 'Patients aged 60 and above' },
+  { key: 'pediatric',          label: 'Pediatric (<18)',       desc: 'Children and infants' },
+  { key: 'adults',             label: 'Adults (18–59)',        desc: 'Adult patients' },
+  { key: 'vaccination_due',    label: 'Vaccination Due',       desc: 'Patients due for next vaccination dose' },
+  { key: 'health_awareness',   label: 'Health Awareness',      desc: 'Active patients — for health tips & alerts' },
+  { key: 'promotion',          label: 'Promotions',            desc: 'All patients — for offers & announcements' },
+] as const;
+
+// Meta India marketing message rate (₹ per conversation, approximate)
+const META_INR_PER_MSG = 0.863;
+
+// ── Pre-built template library ────────────────────────────────────────────────
+const TEMPLATE_LIBRARY = [
+  {
+    category: 'Festivals',
+    emoji: '🪔',
+    templates: [
+      { name: 'Happy Diwali', body: 'Wishing you and your family a very Happy Diwali, {{1}}! May this festival of lights bring joy, health and prosperity to your home.\n\nWarm regards,\n[Clinic Name]' },
+      { name: 'Happy New Year', body: 'Happy New Year, {{1}}! Wishing you a year filled with good health and happiness.\n\nWarm regards,\n[Clinic Name]' },
+      { name: 'Ugadi Greetings', body: 'Happy Ugadi, {{1}}! May this New Year bring you good health and prosperity.\n\nWarm regards,\n[Clinic Name]' },
+      { name: 'Dussehra Wishes', body: 'Happy Dussehra, {{1}}! May the victory of good over evil bring peace and health to your life.\n\nWarm regards,\n[Clinic Name]' },
+      { name: 'Eid Mubarak', body: 'Eid Mubarak, {{1}}! Wishing you and your family health, happiness and blessings this Eid.\n\nWarm regards,\n[Clinic Name]' },
+      { name: 'Merry Christmas', body: 'Merry Christmas, {{1}}! Wishing you good health and joy this holiday season.\n\nWarm regards,\n[Clinic Name]' },
+      { name: 'Independence Day', body: 'Happy Independence Day, {{1}}! Stay healthy and keep your family safe.\n\nWarm regards,\n[Clinic Name]' },
+      { name: 'Republic Day', body: 'Happy Republic Day, {{1}}! Wishing you good health and happiness always.\n\nWarm regards,\n[Clinic Name]' },
+      { name: 'Karnataka Rajyotsava', body: 'Happy Karnataka Rajyotsava, {{1}}! ಕನ್ನಡ ರಾಜ್ಯೋತ್ಸವದ ಶುಭಾಶಯಗಳು.\n\nWarm regards,\n[Clinic Name]' },
+    ],
+  },
+  {
+    category: 'Health Days',
+    emoji: '🏥',
+    templates: [
+      { name: 'World Diabetes Day', body: 'Dear {{1}}, today is World Diabetes Day (Nov 14). Get your blood sugar checked regularly. We offer HbA1c tests at our clinic. Stay healthy!\n\n[Clinic Name]' },
+      { name: 'World Heart Day', body: 'Dear {{1}}, on World Heart Day (Sep 29) — protect your heart! Regular checkups, healthy diet and exercise go a long way. Book a cardiac screening today.\n\n[Clinic Name]' },
+      { name: 'World Hypertension Day', body: 'Dear {{1}}, it\'s World Hypertension Day (May 17). Know your blood pressure numbers! High BP has no symptoms — get checked today at [Clinic Name].' },
+      { name: 'World Kidney Day', body: 'Dear {{1}}, on World Kidney Day — kidneys are vital! Stay hydrated, control BP and sugar. Consult us for kidney function tests.\n\n[Clinic Name]' },
+      { name: 'World Immunization Week', body: 'Dear {{1}}, World Immunization Week is here! Is your family\'s vaccination schedule up to date? Contact [Clinic Name] for a complete vaccine check-up.' },
+      { name: 'National Doctors Day', body: 'Thank you for trusting us, {{1}}! On National Doctors Day (Jul 1) we renew our commitment to your health and well-being.\n\n[Clinic Name]' },
+      { name: "Children's Day", body: 'Happy Children\'s Day, {{1}}! Healthy children, healthy future. Schedule your child\'s annual health check-up at [Clinic Name] today.' },
+      { name: 'Breast Cancer Awareness', body: 'Dear {{1}}, October is Breast Cancer Awareness Month. Early detection saves lives — schedule a screening consultation at [Clinic Name] today.' },
+    ],
+  },
+  {
+    category: 'Healthcare',
+    emoji: '💉',
+    templates: [
+      { name: 'Free Health Camp', body: 'Dear {{1}}, [Clinic Name] is organising a FREE Health Check-up Camp on [Date]. Includes BP, Sugar, BMI check. Register now — limited slots!\n\nCall: [Phone]' },
+      { name: 'Vaccination Drive', body: 'Dear {{1}}, [Clinic Name] is conducting a Vaccination Drive on [Date]. Protect yourself and your family. Book your slot now!\n\nCall: [Phone]' },
+      { name: 'Dengue Awareness', body: 'Dear {{1}}, Dengue is spreading this season. Symptoms: fever, rash, joint pain. Do not ignore! Visit [Clinic Name] for early testing and treatment.' },
+      { name: 'Monsoon Precautions', body: 'Dear {{1}}, monsoon season brings infections! Drink clean water, avoid street food and use mosquito protection. Stay safe — [Clinic Name] is here for you.' },
+      { name: "Women's Health Camp", body: 'Dear {{1}}, [Clinic Name] is hosting a Women\'s Health Camp on [Date]. Free consultations on gynaecology, PCOS, thyroid and more. Register now!' },
+      { name: 'Eye Camp', body: 'Dear {{1}}, FREE Eye Check-up Camp at [Clinic Name] on [Date]. Get your vision tested by specialists. Limited slots — call [Phone] to register.' },
+      { name: 'Health Package Offer', body: 'Dear {{1}}, [Clinic Name] is offering a comprehensive health package at a special price this month. Includes blood work, ECG and consultation. Call us today!' },
+      { name: 'Seasonal Flu Advisory', body: 'Dear {{1}}, flu season is here. Wash hands frequently, avoid crowded places and get a flu shot. [Clinic Name] has flu vaccines available — walk in anytime.' },
+    ],
+  },
+  {
+    category: 'Seasonal',
+    emoji: '☔',
+    templates: [
+      { name: 'Monsoon Fever Alert', body: 'Dear {{1}}, monsoon fevers (Dengue, Typhoid, Malaria) are on the rise. Stay hydrated, use mosquito nets and visit us at the first sign of fever.\n\n[Clinic Name]' },
+      { name: 'Summer Heat Advisory', body: 'Dear {{1}}, beat the summer heat! Drink 3+ litres of water daily, avoid direct sun from 12–4 PM. If you feel dizzy or get heat stroke, visit [Clinic Name] immediately.' },
+      { name: 'Winter Wellness', body: 'Dear {{1}}, winter is here — take care of your health! Dress warmly, get your flu shot and keep up with your medications. [Clinic Name] is open all days.' },
+      { name: 'Post-Diwali Health', body: 'Dear {{1}}, the celebrations are over — time to detox! If you have respiratory issues from fireworks smoke or acidity from sweets, visit [Clinic Name].' },
+    ],
+  },
+] as const;
+
+function BroadcastTab() {
+  const toast = useToast();
+  const qc = useQueryClient();
+
+  const { data: accounts = [] } = useQuery({ queryKey: ['wa:accounts'], queryFn: () => window.electronAPI.wa.accounts() });
+  const activeAccountId: number | null = (accounts as any[])[0]?.id ?? null;
+
+  const { data: templates = [] } = useQuery({
+    queryKey: ['wa:templates', activeAccountId],
+    queryFn: () => activeAccountId ? window.electronAPI.wa.templates(activeAccountId) : [],
+    enabled: !!activeAccountId,
+  });
+
+  const approved = (templates as any[]).filter((t) => t.status === 'APPROVED');
+
+  const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
+  const [segment, setSegment] = useState<string>('all');
+  const [vars, setVars] = useState<Record<string, string>>({});
+  const [confirming, setConfirming] = useState(false);
+  const [libCategory, setLibCategory] = useState(0);
+  const [showLib, setShowLib] = useState(true);
+
+  // Schedule state
+  const [scheduleMode, setScheduleMode] = useState<'now' | 'later'>('now');
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleTime, setScheduleTime] = useState('08:00');
+
+  const { data: previewPatients = [], isFetching: previewing } = useQuery({
+    queryKey: ['wa:campaignPreview', activeAccountId, segment],
+    queryFn: () => activeAccountId ? window.electronAPI.wa.campaignPreview(activeAccountId, segment) : [],
+    enabled: !!activeAccountId && !!selectedTemplate,
+  });
+
+  const { data: recentCampaigns = [] } = useQuery({
+    queryKey: ['wa:campaigns', activeAccountId],
+    queryFn: () => activeAccountId ? window.electronAPI.wa.campaigns(activeAccountId) : [],
+    enabled: !!activeAccountId,
+    refetchInterval: 15_000,
+  });
+
+  const patientCount = (previewPatients as any[]).length;
+  const bodyText = selectedTemplate ? getBodyText(selectedTemplate) : '';
+  const varCount = extractVarCount(bodyText);
+  const preview = bodyText ? applyVars(bodyText, vars) : '';
+  const segmentLabel = BLAST_SEGMENTS.find((s) => s.key === segment)?.label ?? segment;
+  const estimatedCost = (patientCount * META_INR_PER_MSG).toFixed(0);
+
+  const create = useMutation({
+    mutationFn: () => {
+      const templateVars: Record<string, string> = {};
+      for (let i = 1; i <= varCount; i++) templateVars[String(i)] = vars[String(i)] || '';
+      const now = new Date();
+      const name = `${selectedTemplate.name} — ${now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+      const scheduled_at = scheduleMode === 'later' && scheduleDate
+        ? `${scheduleDate}T${scheduleTime}:00`
+        : undefined;
+      return window.electronAPI.wa.campaignCreate(activeAccountId!, {
+        name,
+        template_name: selectedTemplate.name,
+        template_vars: Object.keys(templateVars).length ? templateVars : undefined,
+        segment,
+        scheduled_at,
+      });
+    },
+    onSuccess: async (r) => {
+      if (!r.ok) { toast(r.error ?? 'Failed to create broadcast', 'error'); return; }
+      if (scheduleMode === 'later') {
+        toast(`Broadcast scheduled for ${scheduleDate} at ${scheduleTime}`);
+      } else {
+        const launchResult = await window.electronAPI.wa.campaignLaunch(r.id!);
+        if (launchResult.ok) {
+          toast(`Sending to ${launchResult.total} patients — messages go out in batches`);
+        } else {
+          toast(launchResult.error ?? 'Launch failed', 'error');
+        }
+      }
+      setConfirming(false);
+      setSelectedTemplate(null);
+      setVars({});
+      setScheduleMode('now');
+      qc.invalidateQueries({ queryKey: ['wa:campaigns', activeAccountId] });
+    },
+    onError: (e: any) => toast(e.message || 'Failed', 'error'),
+  });
+
+  if (!activeAccountId) {
+    return <div className="card p-8 text-center"><p className="text-sm text-gray-500 dark:text-slate-400">Connect a WhatsApp number first (Connect tab).</p></div>;
+  }
+
+  return (
+    <div className="space-y-4">
+
+      {/* ── Confirm modal ── */}
+      {confirming && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 max-w-sm w-full mx-4 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                <Megaphone className="w-5 h-5 text-green-600" />
+              </div>
+              <div>
+                <p className="font-semibold text-gray-800 dark:text-slate-100">
+                  {scheduleMode === 'later' ? 'Schedule broadcast?' : 'Send broadcast now?'}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-slate-400">This cannot be undone</p>
+              </div>
+            </div>
+            <div className="bg-gray-50 dark:bg-slate-800 rounded-xl p-4 space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500 dark:text-slate-400">Template</span>
+                <span className="font-medium text-gray-800 dark:text-slate-200">{selectedTemplate?.name}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500 dark:text-slate-400">Recipients</span>
+                <span className="font-semibold text-green-600 dark:text-green-400">{patientCount} patients</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500 dark:text-slate-400">Segment</span>
+                <span className="font-medium text-gray-800 dark:text-slate-200">{segmentLabel}</span>
+              </div>
+              {scheduleMode === 'later' && scheduleDate && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500 dark:text-slate-400">Scheduled for</span>
+                  <span className="font-medium text-blue-600 dark:text-blue-400">{scheduleDate} at {scheduleTime}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-xs border-t border-gray-200 dark:border-slate-700 pt-2">
+                <span className="text-gray-500 dark:text-slate-400">Est. WhatsApp cost</span>
+                <span className="font-medium text-amber-600 dark:text-amber-400">≈ ₹{estimatedCost}</span>
+              </div>
+              {preview && (
+                <div className="mt-1 border-t border-gray-200 dark:border-slate-700 pt-2">
+                  <p className="text-[10px] text-gray-400 dark:text-slate-500 mb-1">Message preview</p>
+                  <p className="text-xs text-gray-700 dark:text-slate-300 whitespace-pre-wrap line-clamp-4">{preview}</p>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <button className="flex-1 btn-primary py-2.5" disabled={create.isPending} onClick={() => create.mutate()}>
+                {create.isPending
+                  ? (scheduleMode === 'later' ? 'Scheduling…' : 'Sending…')
+                  : scheduleMode === 'later'
+                    ? `Schedule for ${scheduleDate}`
+                    : `Yes, send to ${patientCount} patients`}
+              </button>
+              <button className="btn-ghost px-4" onClick={() => setConfirming(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Template Library ── */}
+      <div className="card overflow-hidden">
+        <button
+          className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors"
+          onClick={() => setShowLib(v => !v)}
+        >
+          <div className="flex items-center gap-2">
+            <BookOpen className="w-4 h-4 text-violet-500" />
+            <span className="font-semibold text-sm text-gray-800 dark:text-slate-100">Template Library</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400 font-medium">
+              {TEMPLATE_LIBRARY.reduce((n, c) => n + c.templates.length, 0)} templates
+            </span>
+          </div>
+          <ChevronDown className={cn('w-4 h-4 text-gray-400 transition-transform', showLib && 'rotate-180')} />
+        </button>
+
+        {showLib && (
+          <div className="border-t border-gray-100 dark:border-slate-700/60">
+            {/* Category tabs */}
+            <div className="flex gap-1 p-3 pb-0 overflow-x-auto">
+              {TEMPLATE_LIBRARY.map((cat, i) => (
+                <button
+                  key={cat.category}
+                  onClick={() => setLibCategory(i)}
+                  className={cn(
+                    'px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors shrink-0',
+                    libCategory === i
+                      ? 'bg-violet-600 text-white'
+                      : 'text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800',
+                  )}
+                >
+                  {TEMPLATE_LIBRARY[i].emoji} {cat.category}
+                </button>
+              ))}
+            </div>
+            <div className="p-3 grid grid-cols-1 gap-2 max-h-64 overflow-y-auto">
+              {TEMPLATE_LIBRARY[libCategory].templates.map((t) => {
+                const matchedMeta = approved.find((m: any) =>
+                  m.name.toLowerCase().includes(t.name.toLowerCase().replace(/\s+/g, '_')) ||
+                  m.name.toLowerCase().includes(t.name.toLowerCase().replace(/\s+/g, ''))
+                );
+                return (
+                  <div key={t.name} className="border border-gray-200 dark:border-slate-700 rounded-lg p-3 bg-gray-50 dark:bg-slate-800/40">
+                    <div className="flex items-start justify-between gap-2 mb-1.5">
+                      <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{t.name}</p>
+                      <div className="flex gap-1 shrink-0">
+                        <button
+                          className="text-[10px] px-2 py-1 rounded bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-600 transition-colors"
+                          onClick={() => { navigator.clipboard.writeText(t.body); toast('Message text copied'); }}
+                        >
+                          Copy text
+                        </button>
+                        {matchedMeta && (
+                          <button
+                            className="text-[10px] px-2 py-1 rounded bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 hover:bg-violet-200 dark:hover:bg-violet-900/50 transition-colors"
+                            onClick={() => { setSelectedTemplate(matchedMeta); setVars({}); document.getElementById('compose-section')?.scrollIntoView({ behavior: 'smooth' }); }}
+                          >
+                            Use template ↓
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-gray-400 dark:text-slate-500 whitespace-pre-wrap line-clamp-3">{t.body}</p>
+                    {!matchedMeta && (
+                      <p className="mt-1.5 text-[10px] text-amber-600 dark:text-amber-400">
+                        Create this template in Meta Business Manager to use it
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Compose ── */}
+      <div id="compose-section" className="card p-5 space-y-5">
+        <div>
+          <h2 className="font-semibold text-gray-800 dark:text-slate-100 flex items-center gap-2">
+            <Megaphone className="w-4 h-4 text-rose-500" /> Compose Broadcast
+          </h2>
+          <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">
+            Pick a segment, choose an approved template and send in one click.
+          </p>
+        </div>
+
+        {/* Segment selector */}
+        <div>
+          <label className="text-xs font-medium text-gray-600 dark:text-slate-400 block mb-2">Who to send to</label>
+          <div className="flex flex-wrap gap-2">
+            {BLAST_SEGMENTS.map((s) => (
+              <button
+                key={s.key}
+                onClick={() => setSegment(s.key)}
+                title={s.desc}
+                className={cn(
+                  'px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
+                  segment === s.key
+                    ? 'bg-green-600 text-white border-green-600'
+                    : 'border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300 hover:border-green-400 hover:text-green-700 dark:hover:text-green-400',
+                )}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+          {selectedTemplate && (
+            <p className="mt-2 text-xs text-gray-400 dark:text-slate-500">
+              {previewing
+                ? 'Counting…'
+                : <><span className="font-semibold text-gray-700 dark:text-slate-200">{patientCount}</span> patients · estimated cost <span className="text-amber-600 dark:text-amber-400 font-medium">≈ ₹{estimatedCost}</span></>}
+            </p>
+          )}
+        </div>
+
+        {/* Template picker */}
+        <div>
+          <label className="text-xs font-medium text-gray-600 dark:text-slate-400 block mb-2">
+            Choose an approved template
+            {approved.length === 0 && <span className="ml-2 text-amber-500"> — none approved yet (create in Meta &amp; sync)</span>}
+          </label>
+          {approved.length > 0 ? (
+            <div className="space-y-2">
+              {approved.map((t: any) => {
+                const body = getBodyText(t);
+                const isSelected = selectedTemplate?.id === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => { setSelectedTemplate(isSelected ? null : t); setVars({}); }}
+                    className={cn(
+                      'w-full text-left rounded-xl border p-3.5 transition-all',
+                      isSelected
+                        ? 'border-green-500 bg-green-50 dark:bg-green-900/15 ring-1 ring-green-500'
+                        : 'border-gray-200 dark:border-slate-700 hover:border-green-300 dark:hover:border-green-700 bg-white dark:bg-slate-800/50',
+                    )}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className={cn(
+                        'w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5',
+                        isSelected ? 'border-green-600 bg-green-600' : 'border-gray-300 dark:border-slate-600',
+                      )}>
+                        {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-white" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-gray-800 dark:text-slate-100">{t.name}</p>
+                        {body && <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5 line-clamp-2 whitespace-pre-wrap">{body}</p>}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="border-2 border-dashed border-gray-200 dark:border-slate-700 rounded-xl p-6 text-center">
+              <ListChecks className="w-6 h-6 text-gray-300 dark:text-slate-600 mx-auto mb-2" />
+              <p className="text-xs text-gray-400 dark:text-slate-500">Go to Templates tab → Sync from Meta once your templates are approved</p>
+            </div>
+          )}
+        </div>
+
+        {/* Variable inputs */}
+        {selectedTemplate && varCount > 0 && (
+          <div className="space-y-3">
+            <label className="text-xs font-medium text-gray-600 dark:text-slate-400 block">Fill in the message variables</label>
+            {Array.from({ length: varCount }, (_, i) => i + 1).map((n) => (
+              <div key={n}>
+                <label className="text-xs text-gray-500 dark:text-slate-400 block mb-1">
+                  {`{{${n}}}`}
+                  {n === 1 && <span className="ml-1 text-gray-400">(leave blank to use patient name)</span>}
+                </label>
+                <input
+                  className="input w-full"
+                  placeholder={n === 1 ? 'e.g. Wishing you a Happy Diwali!' : `Variable ${n}`}
+                  value={vars[String(n)] ?? ''}
+                  onChange={(e) => setVars((v) => ({ ...v, [String(n)]: e.target.value }))}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Preview */}
+        {selectedTemplate && preview && (
+          <div className="bg-[#dcf8c6] dark:bg-green-900/20 rounded-xl p-4">
+            <p className="text-[10px] font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2">Message Preview</p>
+            <p className="text-sm text-gray-800 dark:text-slate-100 whitespace-pre-wrap leading-relaxed">{preview}</p>
+            <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-2">{'{{1}}'} resolves to each patient&apos;s name if left blank</p>
+          </div>
+        )}
+
+        {/* Schedule toggle */}
+        {selectedTemplate && (
+          <div>
+            <label className="text-xs font-medium text-gray-600 dark:text-slate-400 block mb-2">When to send</label>
+            <div className="flex gap-2 mb-3">
+              {(['now', 'later'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setScheduleMode(m)}
+                  className={cn(
+                    'px-4 py-2 rounded-lg text-xs font-medium border transition-colors',
+                    scheduleMode === m
+                      ? 'bg-green-600 text-white border-green-600'
+                      : 'border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300',
+                  )}
+                >
+                  {m === 'now' ? 'Send Now' : 'Schedule for Later'}
+                </button>
+              ))}
+            </div>
+            {scheduleMode === 'later' && (
+              <div className="flex gap-3">
+                <input
+                  type="date"
+                  className="input flex-1"
+                  value={scheduleDate}
+                  min={new Date().toISOString().slice(0, 10)}
+                  onChange={(e) => setScheduleDate(e.target.value)}
+                />
+                <input
+                  type="time"
+                  className="input w-32"
+                  value={scheduleTime}
+                  onChange={(e) => setScheduleTime(e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Send / Schedule button */}
+        <button
+          className={cn(
+            'w-full py-3 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2',
+            selectedTemplate && (scheduleMode === 'now' ? patientCount > 0 : scheduleDate)
+              ? 'bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-200 dark:shadow-green-900/30'
+              : 'bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-slate-500 cursor-not-allowed',
+          )}
+          disabled={!selectedTemplate || (scheduleMode === 'now' ? patientCount === 0 : !scheduleDate) || previewing}
+          onClick={() => setConfirming(true)}
+        >
+          <Megaphone className="w-4 h-4" />
+          {!selectedTemplate
+            ? 'Select a template above'
+            : scheduleMode === 'later'
+              ? scheduleDate ? `Schedule for ${scheduleDate} at ${scheduleTime}` : 'Pick a date to schedule'
+              : previewing
+                ? 'Counting patients…'
+                : `Send to ${patientCount} patients (≈ ₹${estimatedCost})`}
+        </button>
+      </div>
+
+      {/* ── Recent broadcasts ── */}
+      {(recentCampaigns as any[]).length > 0 && (
+        <div className="card p-4">
+          <h3 className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">Recent Broadcasts</h3>
+          <div className="space-y-0">
+            {(recentCampaigns as any[]).slice(0, 10).map((c: any) => (
+              <div key={c.id} className="flex items-center gap-3 py-2.5 border-b border-gray-100 dark:border-slate-700/50 last:border-0">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-gray-700 dark:text-slate-200 truncate">{c.name}</p>
+                  <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5">
+                    {c.sent_count}/{c.total_count} sent
+                    {c.scheduled_at && c.status === 'draft' && ` · scheduled ${new Date(c.scheduled_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} ${c.scheduled_at.slice(11, 16)}`}
+                    {c.completed_at && ` · ${new Date(c.completed_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}`}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {c.status === 'completed' && c.total_count > 0 && (
+                    <span className="text-[10px] text-gray-400 dark:text-slate-500 font-mono">
+                      {Math.round(c.sent_count / c.total_count * 100)}%
+                    </span>
+                  )}
+                  <span className={cn(
+                    'text-[10px] px-2 py-0.5 rounded-full font-medium',
+                    c.status === 'completed' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                    : c.status === 'running'  ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                    : c.status === 'failed'   ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                    : c.scheduled_at ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400'
+                    : 'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-slate-300',
+                  )}>
+                    {c.status === 'draft' && c.scheduled_at ? 'scheduled' : c.status}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Setup Guide Panel ─────────────────────────────────────────────────────────
+function GuidePanel({ onClose }: { onClose: () => void }) {
+  const toast = useToast();
+  const [openSections, setOpenSections] = useState<Set<string>>(new Set(['setup']));
+
+  const toggleSection = (id: string) =>
+    setOpenSections((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  const copyText = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    toast(`${label} copied`);
+  };
+
+  type AccordionProps = { id: string; icon: React.ReactNode; iconColor: string; title: string; children: React.ReactNode };
+  const Accordion = ({ id, icon, iconColor, title, children }: AccordionProps) => {
+    const isOpen = openSections.has(id);
+    return (
+      <div className="border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden">
+        <button
+          className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-slate-800/40 transition-colors"
+          onClick={() => toggleSection(id)}
+        >
+          <span className={cn('w-6 h-6 rounded-md flex items-center justify-center shrink-0', iconColor)}>{icon}</span>
+          <span className="flex-1 text-sm font-semibold text-gray-800 dark:text-slate-100">{title}</span>
+          <ChevronDown className={cn('w-4 h-4 text-gray-400 shrink-0 transition-transform', isOpen && 'rotate-180')} />
+        </button>
+        {isOpen && (
+          <div className="px-4 pb-4 pt-1 border-t border-gray-100 dark:border-slate-700/50 text-xs text-gray-600 dark:text-slate-300 space-y-3">
+            {children}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const Q = ({ q, children }: { q: string; children: React.ReactNode }) => (
+    <div>
+      <p className="font-semibold text-gray-700 dark:text-slate-200 mb-1">Q: {q}</p>
+      <div className="text-gray-500 dark:text-slate-400 space-y-1">{children}</div>
+    </div>
+  );
+
+  const Step = ({ n, children }: { n: number; children: React.ReactNode }) => (
+    <div className="flex gap-2.5">
+      <span className="shrink-0 w-5 h-5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-[10px] font-bold flex items-center justify-center mt-0.5">{n}</span>
+      <span>{children}</span>
+    </div>
+  );
+
+  const Tip = ({ children }: { children: React.ReactNode }) => (
+    <div className="bg-blue-50 dark:bg-blue-900/15 border border-blue-100 dark:border-blue-800 rounded-lg px-3 py-2 text-blue-700 dark:text-blue-300">
+      <span className="font-semibold">Tip: </span>{children}
+    </div>
+  );
+
+  const Warn = ({ children }: { children: React.ReactNode }) => (
+    <div className="bg-amber-50 dark:bg-amber-900/15 border border-amber-100 dark:border-amber-800 rounded-lg px-3 py-2 text-amber-700 dark:text-amber-300">
+      <span className="font-semibold">Note: </span>{children}
+    </div>
+  );
+
+  const Code = ({ children }: { children: React.ReactNode }) => (
+    <code className="bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-200 px-1.5 py-0.5 rounded text-[10px] font-mono">{children}</code>
+  );
+
+  return (
+    <div className="fixed inset-y-0 right-0 w-[420px] z-50 flex flex-col shadow-2xl bg-white dark:bg-slate-900 border-l border-gray-200 dark:border-slate-700">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-slate-700 shrink-0 bg-green-50 dark:bg-green-900/20">
+        <div className="flex items-center gap-2">
+          <BookOpen className="w-4 h-4 text-green-600" />
+          <span className="font-bold text-sm text-gray-800 dark:text-slate-100">WhatsApp Help Guide</span>
+        </div>
+        <button className="p-1.5 rounded-lg hover:bg-white/60 dark:hover:bg-slate-800 text-gray-400" onClick={onClose}>
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      <p className="px-4 py-2 text-[11px] text-gray-400 dark:text-slate-500 bg-gray-50 dark:bg-slate-800/50 border-b border-gray-100 dark:border-slate-700/50 shrink-0">
+        Click any section to expand it. All common questions are covered here.
+      </p>
+
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2.5">
+
+        {/* ── OVERVIEW ── */}
+        <Accordion id="overview" icon={<MessageSquare className="w-3.5 h-3.5" />} iconColor="bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400" title="What is this? (Read first)">
+          <p>CureDesk connects to <strong>WhatsApp Business Cloud API</strong> — the same technology used by banks, hospitals and e-commerce companies to send WhatsApp messages at scale.</p>
+          <p>This is <strong>not</strong> your personal WhatsApp. It uses a dedicated business number registered with Meta (WhatsApp's parent company). Every message goes directly through WhatsApp's official servers.</p>
+          <p><strong>What you can do:</strong></p>
+          <ul className="space-y-0.5 pl-3">
+            <li>• Send automatic appointment reminders, prescriptions, bills</li>
+            <li>• Broadcast Diwali wishes, health camps, offers to all patients</li>
+            <li>• Receive and reply to patient messages in the Inbox</li>
+            <li>• Ask patients for Google reviews</li>
+            <li>• Get AI help writing replies</li>
+          </ul>
+          <p><strong>What you need:</strong></p>
+          <ul className="space-y-0.5 pl-3">
+            <li>• A Facebook / Meta Business account (free)</li>
+            <li>• A phone number to use as your WhatsApp Business number (can be a new SIM or existing landline)</li>
+            <li>• Internet connection on the computer running CureDesk</li>
+          </ul>
+          <Tip>Your existing personal WhatsApp number cannot be used here — it would need to be migrated and you'd lose your chats. It's better to get a new number specifically for the clinic.</Tip>
+        </Accordion>
+
+        {/* ── SETUP ── */}
+        <Accordion id="setup" icon={<PlugZap className="w-3.5 h-3.5" />} iconColor="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400" title="Setup — Step by Step">
+          <p className="font-semibold text-gray-700 dark:text-slate-200">Step 1 — Create a Meta app and get your credentials</p>
+          <Step n={1}>Go to <strong>developers.facebook.com</strong> and log in with your Facebook account.</Step>
+          <Step n={2}>Click <strong>My Apps → Create App → Business</strong>. Give it any name (e.g. "Clinic WhatsApp").</Step>
+          <Step n={3}>Inside the app, click <strong>Add Product</strong> → find <strong>WhatsApp</strong> → click Set Up.</Step>
+          <Step n={4}>You'll see a panel called <strong>WhatsApp → API Setup</strong>. Note down:
+            <ul className="mt-1 ml-2 space-y-0.5">
+              <li>• <strong>Phone Number ID</strong> (looks like: 123456789012345)</li>
+              <li>• <strong>WhatsApp Business Account ID</strong> (WABA ID)</li>
+            </ul>
+          </Step>
+          <Step n={5}>Go to <strong>Business Settings → System Users → Add</strong>. Create a user with Admin role. Click <strong>Generate New Token</strong>, select your app, enable <Code>whatsapp_business_messaging</Code> and <Code>whatsapp_business_management</Code> permissions. Copy the token — this is your <strong>Access Token</strong>.</Step>
+          <Warn>The temporary access token shown on the API Setup page expires in 24 hours. Always generate a Permanent token via System Users — otherwise automation will stop working.</Warn>
+
+          <p className="font-semibold text-gray-700 dark:text-slate-200 mt-1">Step 2 — Connect in CureDesk</p>
+          <Step n={1}>Open the <strong>Connect</strong> tab above.</Step>
+          <Step n={2}>Enter the Phone Number ID, WABA ID, and Access Token you just copied.</Step>
+          <Step n={3}>Enter your clinic's display name and the WhatsApp phone number.</Step>
+          <Step n={4}>Click <strong>Connect</strong>. The status turns green if successful.</Step>
+
+          <p className="font-semibold text-gray-700 dark:text-slate-200 mt-1">Step 3 — Register Webhook (one-time)</p>
+          <Step n={1}>In the Connect tab, scroll to the <strong>Webhook</strong> section. Copy the Webhook URL and Verify Token.</Step>
+          <Step n={2}>Go to <strong>Meta Developer Console → your app → WhatsApp → Configuration → Webhooks</strong>.</Step>
+          <Step n={3}>Click Edit → paste the Webhook URL and Verify Token → click Verify and Save.</Step>
+          <Step n={4}>Subscribe to the <strong>messages</strong> field.</Step>
+          <Tip>This step is needed so CureDesk receives incoming messages and delivery receipts. Without it the Inbox won't show patient replies.</Tip>
+        </Accordion>
+
+        {/* ── TEMPLATES ── */}
+        <Accordion id="templates" icon={<ListChecks className="w-3.5 h-3.5" />} iconColor="bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400" title="Message Templates — Everything You Need to Know">
+          <Q q="What is a template?">
+            <p>A template is a pre-written message format that Meta reviews and approves before you can send it. Think of it like a stamp of approval — Meta wants to make sure businesses aren't sending spam.</p>
+            <p>Templates are used for all outgoing messages <strong>outside</strong> the 24-hour window (appointment reminders, broadcast messages, etc.).</p>
+          </Q>
+          <Q q="Why does Meta need to approve my template?">
+            <p>Meta's policy: businesses can only initiate WhatsApp conversations using approved templates. This prevents spam. Utility messages (appointment reminders, prescriptions) get approved easily. Marketing messages (offers, camp announcements) take longer and must follow stricter rules.</p>
+          </Q>
+          <Q q="How do I create a template?">
+            <Step n={1}>Go to <strong>Meta Business Manager</strong> (business.facebook.com) → <strong>WhatsApp Manager → Message Templates → Create Template</strong>.</Step>
+            <Step n={2}>Choose a category: <strong>Utility</strong> (for transactional messages like appointment reminders) or <strong>Marketing</strong> (for promotional messages like camps, offers).</Step>
+            <Step n={3}>Write your message. Use <Code>{'{{1}}'}</Code>, <Code>{'{{2}}'}</Code> etc. for dynamic parts (patient name, date, etc.).</Step>
+            <Step n={4}>Submit for review. Utility templates usually approve in a few hours. Marketing can take 24–48 hours.</Step>
+            <Step n={5}>Once approved, go to the <strong>Templates</strong> tab in CureDesk and click <strong>Sync from Meta</strong>.</Step>
+          </Q>
+          <Q q="What are {{1}}, {{2}} variables?">
+            <p>These are placeholders that get replaced with real patient data when the message is sent. For example:</p>
+            <p>Template: <em>"Hello <Code>{'{{1}}'}</Code>, your appointment on <Code>{'{{2}}'}</Code> at <Code>{'{{3}}'}</Code> is confirmed."</em></p>
+            <p>Sent as: <em>"Hello Ravi Sharma, your appointment on 15 Jan at 10:30 AM is confirmed."</em></p>
+            <p><strong>Variable reference for each automation:</strong></p>
+            <div className="bg-gray-50 dark:bg-slate-800 rounded-lg p-2 space-y-1.5 mt-1">
+              {[
+                { t: 'Appointment reminders', v: '{{1}} Patient name · {{2}} Doctor · {{3}} Date · {{4}} Time' },
+                { t: 'Prescription ready', v: '{{1}} Patient name · {{2}} Doctor name' },
+                { t: 'Lab report ready', v: '{{1}} Patient name' },
+                { t: 'Bill generated', v: '{{1}} Patient name · {{2}} Bill total · {{3}} Payment mode' },
+                { t: 'Follow-up reminder', v: '{{1}} Patient name · {{2}} Follow-up date' },
+                { t: 'Birthday wish', v: '{{1}} Patient name' },
+                { t: 'Feedback / Rate Us', v: '{{1}} Patient name' },
+                { t: 'Vaccination reminder', v: '{{1}} Patient name' },
+                { t: 'Broadcast / Campaign', v: '{{1}} Patient name (auto) · rest you fill in' },
+              ].map((r) => (
+                <div key={r.t}>
+                  <p className="font-medium text-gray-700 dark:text-slate-200 text-[10px]">{r.t}</p>
+                  <p className="text-gray-400 dark:text-slate-500 text-[10px]">{r.v}</p>
+                </div>
+              ))}
+            </div>
+          </Q>
+          <Q q="My template was rejected. What do I do?">
+            <p>Common rejection reasons:</p>
+            <ul className="space-y-0.5 pl-3">
+              <li>• Contains too much promotional language in a Utility template → change category to Marketing</li>
+              <li>• Mentions competitor brands</li>
+              <li>• Template text is too vague</li>
+              <li>• Has external links that look suspicious</li>
+            </ul>
+            <p className="mt-1">Fix the issue and resubmit. You can also appeal the rejection directly in Meta Business Manager.</p>
+          </Q>
+          <Q q="How many templates can I have?">
+            <p>Meta allows up to 250 active approved templates per WhatsApp Business Account on the free tier.</p>
+          </Q>
+        </Accordion>
+
+        {/* ── AUTOMATION ── */}
+        <Accordion id="automation" icon={<Zap className="w-3.5 h-3.5" />} iconColor="bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400" title="Automation — How Each Trigger Works">
+          <p>Go to the <strong>Automation</strong> tab, toggle on a trigger, and select which approved template to send. CureDesk handles the rest automatically.</p>
+          <div className="space-y-2">
+            {[
+              { name: 'Appointment Confirmed', icon: '📅', when: 'Fires immediately when a new appointment is created in CureDesk OPD.', note: 'Works for walk-in and pre-booked appointments.' },
+              { name: 'Reminder — 24 hours', icon: '⏰', when: 'Fires automatically ~24 hours before the appointment time.', note: 'The scheduler checks every 60 seconds so reminders are accurate within 1 minute.' },
+              { name: 'Reminder — 1 hour', icon: '⏰', when: 'Fires ~1 hour before the appointment time.', note: '' },
+              { name: 'Prescription Ready', icon: '💊', when: 'Fires when the doctor clicks Save on a prescription in CureDesk.', note: '' },
+              { name: 'Lab Report Ready', icon: '🧪', when: 'Fires when a lab order status is changed to "Reported".', note: '' },
+              { name: 'Bill Generated', icon: '🧾', when: 'Fires when reception creates a new bill. Variables include total amount and payment mode.', note: '' },
+              { name: 'Follow-up Reminder', icon: '🔁', when: 'Fires 3 days before the follow-up date set on a consultation note.', note: '' },
+              { name: 'Birthday Wish', icon: '🎂', when: 'Fires every morning to patients whose birthday is today (matches date of birth in patient record).', note: '' },
+              { name: 'Experience & Review', icon: '⭐', when: 'Fires 2–4 hours after an appointment is marked Done. Sends a feedback + Google Review request.', note: 'Requires Google Review URL in Settings → Clinic Info.' },
+              { name: 'Vaccination Reminder', icon: '💉', when: 'Fires 27–30 days after a bill that contains "vacc" in its line items (indicating a vaccination was given).', note: 'Perfect for multi-dose vaccines like Hepatitis B.' },
+            ].map((t) => (
+              <div key={t.name} className="bg-gray-50 dark:bg-slate-800/50 rounded-lg p-2.5">
+                <p className="font-semibold text-gray-700 dark:text-slate-200 text-[11px]">{t.icon} {t.name}</p>
+                <p className="text-gray-400 dark:text-slate-500 text-[10px] mt-0.5">{t.when}</p>
+                {t.note && <p className="text-blue-600 dark:text-blue-400 text-[10px] mt-0.5 italic">{t.note}</p>}
+              </div>
+            ))}
+          </div>
+          <Warn>Each trigger only fires if a <strong>connected WhatsApp account</strong> exists and the trigger is <strong>toggled on</strong> with a valid approved template selected. If no template is selected, nothing is sent — no error shown.</Warn>
+        </Accordion>
+
+        {/* ── MASS MESSAGES ── */}
+        <Accordion id="broadcast" icon={<Megaphone className="w-3.5 h-3.5" />} iconColor="bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400" title="Mass Messages & Broadcasts">
+          <Q q="How do I send a Diwali message to all patients?">
+            <Step n={1}>Go to the <strong>Mass Message</strong> tab.</Step>
+            <Step n={2}>Browse the <strong>Template Library</strong> — there's a ready-made Diwali template. Click <strong>Copy text</strong>.</Step>
+            <Step n={3}>Create the template in <strong>Meta Business Manager</strong> using the copied text. Wait for approval.</Step>
+            <Step n={4}>Once approved, come back to Mass Message → select <strong>All Patients</strong> → pick the template → click Send.</Step>
+          </Q>
+          <Q q="Who receives the message?">
+            <p>Only patients who have a phone number recorded in CureDesk AND who have WhatsApp on that number. If a patient doesn't have WhatsApp, the message will fail silently (shown as failed in the Queue).</p>
+          </Q>
+          <Q q="Can I send to a specific group of patients?">
+            <p>Yes — use the segment selector:</p>
+            <ul className="space-y-0.5 pl-3 mt-1">
+              <li>• <strong>All Patients</strong> — everyone in the database</li>
+              <li>• <strong>Active (6 months)</strong> — patients seen in the last 6 months</li>
+              <li>• <strong>Senior Citizens (60+)</strong> — good for health camps</li>
+              <li>• <strong>Pediatric</strong> — children's health day campaigns</li>
+              <li>• <strong>Birthday this month</strong> — birthday wishes</li>
+              <li>• <strong>Vaccination Due</strong> — patients 27–30 days past their last vaccination bill</li>
+            </ul>
+          </Q>
+          <Q q="Can I schedule a message for later?">
+            <p>Yes — in the Compose section, switch from <strong>Send Now</strong> to <strong>Schedule for Later</strong>, pick a date and time, then click Schedule. CureDesk will automatically send it at that time as long as the app is running.</p>
+          </Q>
+          <Q q="How fast does the broadcast go out?">
+            <p>Messages are sent in batches of 10, with a 1-second gap between batches. For 500 patients that's about 50 seconds. For 5,000 patients it takes ~8 minutes. You don't need to stay on the page — it runs in the background.</p>
+          </Q>
+        </Accordion>
+
+        {/* ── INBOX ── */}
+        <Accordion id="inbox" icon={<Inbox className="w-3.5 h-3.5" />} iconColor="bg-teal-100 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400" title="Inbox & Replying to Patients">
+          <Q q="Why can't I reply to a patient?">
+            <p>WhatsApp has a <strong>24-hour customer service window</strong>. You can only send a free-text reply within 24 hours of the patient's last message to you. After that window closes, you can only send a pre-approved template message (via the Queue tab).</p>
+            <p className="mt-1">This is Meta's policy to prevent businesses from spamming patients. It's the same rule for all WhatsApp Business providers (WATI, Zoko, etc.).</p>
+          </Q>
+          <Q q="Patient replied but I don't see it in the Inbox?">
+            <p>Check that the Webhook is registered correctly (Step 3 of setup). Without the webhook, CureDesk doesn't receive incoming messages. Go to Connect tab → Webhook section and verify the URL and Verify Token are saved.</p>
+          </Q>
+          <Q q="How do AI reply suggestions work?">
+            <Step n={1}>Go to <strong>Settings → Communications → AI Reply Suggestions</strong>.</Step>
+            <Step n={2}>Sign up at <strong>console.anthropic.com</strong> → API Keys → Create new key.</Step>
+            <Step n={3}>Paste the key in Settings and save.</Step>
+            <Step n={4}>In any Inbox conversation, click the <strong>✨ (sparkles)</strong> button. Three suggested replies appear based on the conversation context.</Step>
+            <Step n={5}>Click a suggestion to fill the reply box, then send.</Step>
+            <Tip>AI reads the last 10 messages. It understands medical context and suggests appropriate, professional responses in the patient's language.</Tip>
+          </Q>
+          <Q q="What does 'Resolved' mean?">
+            <p>Marking a conversation Resolved moves it out of the active list. The conversation history is preserved. You can filter to see resolved conversations. Use it when a patient's issue has been addressed.</p>
+          </Q>
+        </Accordion>
+
+        {/* ── RATE US ── */}
+        <Accordion id="review" icon={<Star className="w-3.5 h-3.5" />} iconColor="bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400" title="Google Review / Rate Us">
+          <Q q="How do I get my clinic's Google Review link?">
+            <Step n={1}>Go to <strong>business.google.com</strong> and log in with the Google account linked to your clinic.</Step>
+            <Step n={2}>Find your clinic's Business Profile → click <strong>Get more reviews</strong> (or "Share review form").</Step>
+            <Step n={3}>Google will show you a short link like <Code>g.page/r/XXXXXX/review</Code>.</Step>
+            <Step n={4}>Copy that link.</Step>
+            <Step n={5}>Open <strong>Settings → Clinic Info → Google Review URL</strong> in CureDesk and paste it. Save.</Step>
+          </Q>
+          <Q q="How do I send a Rate Us request to a patient?">
+            <p>Two ways:</p>
+            <ul className="space-y-1 pl-3">
+              <li>• <strong>Manually</strong>: Open a conversation in the Inbox → click the <strong>⭐ Rate Us</strong> button in the conversation header. A WhatsApp message with the review link is sent.</li>
+              <li>• <strong>Automatically</strong>: Enable the <strong>Experience & Review</strong> automation trigger. It sends the message automatically 2–4 hours after every appointment completion.</li>
+            </ul>
+          </Q>
+          <Warn>The Rate Us button uses a free-text message (not a template), so it only works within the 24-hour window after the patient last messaged you. The automation trigger uses an approved template so it works anytime.</Warn>
+        </Accordion>
+
+        {/* ── PRICING ── */}
+        <Accordion id="pricing" icon={<BarChart2 className="w-3.5 h-3.5" />} iconColor="bg-sky-100 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400" title="Pricing & Message Limits">
+          <Q q="How much does WhatsApp cost?">
+            <p>Meta charges per <strong>conversation</strong> (a 24-hour session, not per message). Rates for India:</p>
+            <div className="bg-gray-50 dark:bg-slate-800 rounded-lg p-3 mt-1 space-y-1.5">
+              <div className="flex justify-between text-[11px]">
+                <span className="text-gray-600 dark:text-slate-300 font-medium">Marketing (offers, campaigns)</span>
+                <span className="font-mono text-amber-600 dark:text-amber-400">≈ ₹0.86/msg</span>
+              </div>
+              <div className="flex justify-between text-[11px]">
+                <span className="text-gray-600 dark:text-slate-300 font-medium">Utility (reminders, prescriptions)</span>
+                <span className="font-mono text-green-600 dark:text-green-400">≈ ₹0.14/msg</span>
+              </div>
+              <div className="flex justify-between text-[11px]">
+                <span className="text-gray-600 dark:text-slate-300 font-medium">Service (replies to patient)</span>
+                <span className="font-mono text-green-600 dark:text-green-400">Free (first 1000/month)</span>
+              </div>
+            </div>
+            <p className="mt-1.5">Example: sending a Diwali message to 1,000 patients ≈ ₹860. CureDesk shows you the estimated cost before you broadcast.</p>
+          </Q>
+          <Q q="How many messages can I send per day?">
+            <p>Meta has tier-based limits:</p>
+            <ul className="space-y-0.5 pl-3">
+              <li>• New account: <strong>1,000 unique users per day</strong></li>
+              <li>• After 7+ days + good quality: auto-upgrade to <strong>10,000/day</strong></li>
+              <li>• Higher tiers: <strong>100,000/day</strong> and <strong>unlimited</strong></li>
+            </ul>
+            <p className="mt-1">Your tier upgrades automatically as you build a good messaging history (high delivery rate, low blocks).</p>
+          </Q>
+          <Q q="What's free?">
+            <p>Meta gives you <strong>1,000 free service conversations per month</strong> (patient-initiated). The first 250 template messages are free for new accounts. After that, standard rates apply.</p>
+          </Q>
+        </Accordion>
+
+        {/* ── TROUBLESHOOTING ── */}
+        <Accordion id="troubleshoot" icon={<AlertCircle className="w-3.5 h-3.5" />} iconColor="bg-red-100 dark:bg-red-900/30 text-red-500 dark:text-red-400" title="Troubleshooting — Common Problems">
+          <Q q="Status shows 'Connected' but messages are not sending?">
+            <ul className="space-y-0.5 pl-3">
+              <li>• Check the <strong>Queue</strong> tab — messages may be in "failed" status with an error message</li>
+              <li>• Verify the Access Token hasn't expired (generate a Permanent token via System Users)</li>
+              <li>• Make sure the phone number hasn't been banned by Meta (check Meta Business Manager)</li>
+              <li>• Check if the patient's number has WhatsApp — if not, it will fail</li>
+            </ul>
+          </Q>
+          <Q q="Status is not turning green after entering credentials?">
+            <ul className="space-y-0.5 pl-3">
+              <li>• Double-check the Phone Number ID and WABA ID — they're different numbers, easy to mix up</li>
+              <li>• Make sure the Access Token has both permissions: <Code>whatsapp_business_messaging</Code> and <Code>whatsapp_business_management</Code></li>
+              <li>• The token must be for a System User, not a temporary test token</li>
+            </ul>
+          </Q>
+          <Q q="Patient messages are not appearing in the Inbox?">
+            <ul className="space-y-0.5 pl-3">
+              <li>• Verify the Webhook is registered in Meta Developer Console</li>
+              <li>• Confirm you subscribed to the <strong>messages</strong> field in the webhook</li>
+              <li>• Check that the Verify Token in CureDesk matches what you entered in Meta</li>
+              <li>• The Connect tab must show "Active" in the Webhook section</li>
+            </ul>
+          </Q>
+          <Q q="Automation triggers are set up but nothing is sending?">
+            <ul className="space-y-0.5 pl-3">
+              <li>• Confirm the trigger is <strong>toggled on</strong> (green) in the Automation tab</li>
+              <li>• Confirm a valid <strong>approved</strong> template is selected for that trigger</li>
+              <li>• The patient must have a phone number in their profile</li>
+              <li>• Check the Queue tab — the message may have failed with an error</li>
+            </ul>
+          </Q>
+          <Q q="AI suggestions (✨) not working?">
+            <ul className="space-y-0.5 pl-3">
+              <li>• Verify the Anthropic API key is saved in <strong>Settings → Communications → AI Reply Suggestions</strong></li>
+              <li>• Make sure the key starts with <Code>sk-ant-</Code></li>
+              <li>• Check your Anthropic account has credits (console.anthropic.com → Billing)</li>
+            </ul>
+          </Q>
+          <Q q="Template approval is taking too long?">
+            <p>Utility templates usually approve in 1–6 hours. Marketing templates can take 24–48 hours. If it's been more than 3 days, check Meta Business Manager for any rejection messages. You can also contact Meta Business Support.</p>
+          </Q>
+          <Q q="Getting 'message_send_failed' errors?">
+            <p>Common causes: invalid phone number format (must include country code, e.g. 919876543210 for India), number not on WhatsApp, account temporarily blocked, or template not yet approved.</p>
+          </Q>
+        </Accordion>
+
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export function WhatsApp() {
   const [tab, setTab] = useState<Tab>('inbox');
+  const [showGuide, setShowGuide] = useState(false);
 
   const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
-    { key: 'inbox',      label: 'Inbox',      icon: <Inbox className="w-4 h-4" /> },
-    { key: 'campaigns',  label: 'Campaigns',  icon: <Megaphone className="w-4 h-4" /> },
-    { key: 'connect',    label: 'Connect',    icon: <PlugZap className="w-4 h-4" /> },
-    { key: 'templates',  label: 'Templates',  icon: <ListChecks className="w-4 h-4" /> },
-    { key: 'automation', label: 'Automation', icon: <Zap className="w-4 h-4" /> },
-    { key: 'queue',      label: 'Queue',      icon: <Send className="w-4 h-4" /> },
+    { key: 'inbox',      label: 'Inbox',         icon: <Inbox className="w-4 h-4" /> },
+    { key: 'broadcast',  label: 'Mass Message',  icon: <Megaphone className="w-4 h-4" /> },
+    { key: 'campaigns',  label: 'Campaigns',     icon: <BarChart2 className="w-4 h-4" /> },
+    { key: 'connect',    label: 'Connect',       icon: <PlugZap className="w-4 h-4" /> },
+    { key: 'templates',  label: 'Templates',     icon: <ListChecks className="w-4 h-4" /> },
+    { key: 'automation', label: 'Automation',    icon: <Zap className="w-4 h-4" /> },
+    { key: 'queue',      label: 'Queue',         icon: <Send className="w-4 h-4" /> },
   ];
 
   return (
-    <div className="p-6 space-y-5">
-      <div>
-        <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-2">
-          <MessageSquare className="w-5 h-5 text-green-600" /> WhatsApp Hub
-        </h1>
-        <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
-          Connect your clinic's WhatsApp Business number and automate patient communication.
-        </p>
+    <div className="p-6 space-y-5 relative">
+      {showGuide && <GuidePanel onClose={() => setShowGuide(false)} />}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-2">
+            <MessageSquare className="w-5 h-5 text-green-600" /> Communication
+          </h1>
+          <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
+            WhatsApp-powered patient communication — inbox, broadcasts, automation and campaigns.
+          </p>
+        </div>
+        <button
+          className={cn(
+            'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+            showGuide
+              ? 'bg-green-600 text-white border-green-600'
+              : 'border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20',
+          )}
+          onClick={() => setShowGuide(v => !v)}
+        >
+          <BookOpen className="w-3.5 h-3.5" />
+          How to Use
+        </button>
       </div>
 
       {/* Tab bar */}
@@ -1238,6 +2310,7 @@ export function WhatsApp() {
 
       {/* Tab content */}
       {tab === 'inbox'      && <InboxTab />}
+      {tab === 'broadcast'  && <BroadcastTab />}
       {tab === 'campaigns'  && <CampaignsTab />}
       {tab === 'connect'    && <ConnectTab />}
       {tab === 'templates'  && <TemplatesTab />}

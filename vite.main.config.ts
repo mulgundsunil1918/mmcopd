@@ -60,6 +60,10 @@ export default defineConfig({
     rollupOptions: {
       external: NATIVE_DEPS,
     },
+    watch: {
+      // Prevent the .vite/build output dir from triggering another rebuild
+      exclude: ['node_modules/**', '.vite/**'],
+    },
   },
   plugins: [copyNativeModulesPlugin()],
   resolve: {

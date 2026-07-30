@@ -50,7 +50,9 @@ export type WaAutomationTrigger =
   | 'lab_report_ready'
   | 'bill_generated'
   | 'followup_reminder_3d'
-  | 'birthday_wish';
+  | 'birthday_wish'
+  | 'feedback_request'
+  | 'vaccination_reminder';
 
 export interface WaAutomationRule {
   id: number;
@@ -119,9 +121,16 @@ export type WaCampaignSegment =
   | 'all'
   | 'visited_last_30d'
   | 'visited_last_90d'
+  | 'active_6m'
   | 'followup_due_7d'
   | 'birthday_this_month'
-  | 'no_visit_90d';
+  | 'no_visit_90d'
+  | 'health_awareness'
+  | 'promotion'
+  | 'pediatric'
+  | 'senior_citizens'
+  | 'adults'
+  | 'vaccination_due';
 
 export interface WaCampaign {
   id: number;

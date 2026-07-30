@@ -500,10 +500,12 @@ export interface Settings {
   /** Friendly name for THIS PC, e.g. "Reception Desk", "Cabin 1 — Dr. Patil". */
   station_name: string;
   // QR codes on prescription page 2 (near follow-up box)
-  qr1_url: string;
+  qr1_img: string;
   qr1_label: string;
-  qr2_url: string;
+  qr2_img: string;
   qr2_label: string;
+  anthropic_api_key: string;
+  google_review_url: string;
 }
 
 /** Live state of a patient's free-follow-up entitlement with a given doctor, used at booking time. */

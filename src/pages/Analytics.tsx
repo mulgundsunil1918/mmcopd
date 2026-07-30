@@ -5,13 +5,14 @@ import {
   BarChart3, Wallet, MapPin, FileText, Users as UsersIcon, Pill,
   TrendingUp, AlertTriangle, Calendar, Activity, RefreshCw,
   Download, Database, FolderOpen, HardDriveDownload, Syringe,
+  MessageSquare,
 } from 'lucide-react';
 import { cn, fmt12h, fmtDate, fmtDateTime, formatINR, todayISO } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import { colorForDoctor } from '../lib/doctor-colors';
 import type { Doctor } from '../types';
 
-type Tab = 'overview' | 'finance' | 'demographics' | 'origin' | 'pharmacy' | 'services' | 'operations';
+type Tab = 'overview' | 'finance' | 'demographics' | 'origin' | 'pharmacy' | 'services' | 'operations' | 'whatsapp';
 
 /**
  * Unified Analytics page — consolidates the metrics that previously lived in
@@ -59,6 +60,7 @@ export function Analytics() {
         <TabBtn active={tab === 'pharmacy'} onClick={() => setTab('pharmacy')} icon={<Pill className="w-3.5 h-3.5" />}>Pharmacy</TabBtn>
         <TabBtn active={tab === 'services'} onClick={() => setTab('services')} icon={<Syringe className="w-3.5 h-3.5" />}>Services</TabBtn>
         <TabBtn active={tab === 'operations'} onClick={() => setTab('operations')} icon={<FileText className="w-3.5 h-3.5" />}>Operational Reports</TabBtn>
+        <TabBtn active={tab === 'whatsapp'} onClick={() => setTab('whatsapp')} icon={<MessageSquare className="w-3.5 h-3.5 text-green-500" />}>WhatsApp</TabBtn>
       </div>
 
       {tab === 'overview' && <OverviewTab />}
@@ -68,6 +70,7 @@ export function Analytics() {
       {tab === 'pharmacy' && <PharmacyTab from={from} to={to} />}
       {tab === 'services' && <ServicesTab from={from} to={to} />}
       {tab === 'operations' && <OperationsTab from={from} to={to} />}
+      {tab === 'whatsapp' && <WhatsAppAnalyticsTab from={from} to={to} />}
     </div>
   );
 }
@@ -1101,6 +1104,238 @@ function ServicesTab({ from, to }: { from: string; to: string }) {
           </div>
         </div>
       </section>
+    </div>
+  );
+}
+
+// ── WhatsApp Analytics Tab ─────────────────────────────────────────────────────
+
+function WaStat({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) {
+  return (
+    <div className="card p-4 flex flex-col gap-1">
+      <div className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-slate-400">{label}</div>
+      <div className={`text-2xl font-bold tabular-nums ${color ?? 'text-gray-900 dark:text-slate-100'}`}>{value}</div>
+      {sub && <div className="text-[11px] text-gray-500 dark:text-slate-400">{sub}</div>}
+    </div>
+  );
+}
+
+function WaBarChart({ data }: { data: { date: string; sent: number; received: number }[] }) {
+  const maxVal = Math.max(...data.map((d) => Math.max(d.sent, d.received)), 1);
+  const barW = Math.max(4, Math.floor(540 / Math.max(data.length, 1)) - 3);
+  return (
+    <div className="overflow-x-auto">
+      <svg viewBox={`0 0 ${data.length * (barW + 3) + 20} 120`} style={{ width: '100%', minWidth: 300, height: 120 }}>
+        {data.map((d, i) => {
+          const x = 10 + i * (barW + 3);
+          const sentH = Math.max(1, (d.sent / maxVal) * 90);
+          const rxH = Math.max(1, (d.received / maxVal) * 90);
+          return (
+            <g key={d.date}>
+              <rect x={x} y={100 - sentH} width={barW / 2 - 1} height={sentH} fill="#22c55e" opacity={0.85} rx={1} />
+              <rect x={x + barW / 2} y={100 - rxH} width={barW / 2 - 1} height={rxH} fill="#3b82f6" opacity={0.7} rx={1} />
+            </g>
+          );
+        })}
+        <line x1={10} y1={100} x2={data.length * (barW + 3) + 10} y2={100} stroke="currentColor" strokeOpacity={0.2} strokeWidth={1} />
+      </svg>
+      <div className="flex items-center gap-4 mt-1 text-[11px] text-gray-500 dark:text-slate-400">
+        <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-2 bg-green-500 rounded-sm" />Sent</span>
+        <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-2 bg-blue-500 rounded-sm opacity-70" />Received</span>
+      </div>
+    </div>
+  );
+}
+
+function WhatsAppAnalyticsTab({ from, to }: { from: string; to: string }) {
+  const accountQ = useQuery({
+    queryKey: ['wa-accounts-analytics'],
+    queryFn: () => window.electronAPI.wa.accounts(),
+  });
+  const accountId: number | null = (accountQ.data as any[])?.[0]?.id ?? null;
+
+  const analyticsQ = useQuery({
+    queryKey: ['wa-analytics', accountId, from, to],
+    queryFn: () => window.electronAPI.wa.analytics(accountId!, from, to),
+    enabled: accountId !== null,
+  });
+
+  if (accountQ.isLoading) return <div className="p-8 text-center text-sm text-gray-400">Loading…</div>;
+  if (!accountId) {
+    return (
+      <div className="p-8 text-center">
+        <MessageSquare className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+        <p className="text-sm text-gray-500">No WhatsApp account connected. Go to <strong>WhatsApp → Connect</strong> to set one up.</p>
+      </div>
+    );
+  }
+
+  const data = analyticsQ.data as any;
+  if (!data) return <div className="p-8 text-center text-sm text-gray-400">Loading analytics…</div>;
+
+  const totals = data.totals ?? {};
+  const daily: { date: string; sent: number; received: number }[] = data.daily ?? [];
+  const statusBreakdown: { status: string; count: number }[] = data.statusBreakdown ?? [];
+  const templates: { template_name: string; sent: number; delivered: number; read: number; failed: number }[] = data.templates ?? [];
+  const campaigns: { name: string; status: string; total_count: number; sent_count: number; failed_count: number; started_at: string | null }[] = data.campaigns ?? [];
+  const automation: { trigger: string; count: number }[] = data.automation ?? [];
+
+  const statusColor: Record<string, string> = {
+    sent: 'text-blue-600',
+    delivered: 'text-indigo-600',
+    read: 'text-green-600',
+    failed: 'text-red-600',
+  };
+
+  return (
+    <div className="space-y-6">
+      <section>
+        <SectionTitle icon={<MessageSquare className="w-4 h-4 text-green-600" />} title="Message Totals" subtitle={`${from} → ${to}`} />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <WaStat label="Total Sent" value={totals.sent ?? 0} color="text-green-600" />
+          <WaStat label="Delivered" value={totals.delivered ?? 0} color="text-indigo-600" />
+          <WaStat label="Read" value={totals.read ?? 0} color="text-blue-600" />
+          <WaStat label="Received" value={totals.received ?? 0} />
+        </div>
+      </section>
+
+      {daily.length > 0 && (
+        <section>
+          <SectionTitle icon={<BarChart3 className="w-4 h-4 text-green-600" />} title="Daily Volume" subtitle="Messages sent and received per day" />
+          <div className="card p-4">
+            <WaBarChart data={daily} />
+          </div>
+        </section>
+      )}
+
+      {statusBreakdown.length > 0 && (
+        <section>
+          <SectionTitle icon={<Activity className="w-4 h-4 text-green-600" />} title="Status Breakdown" subtitle="Overall delivery funnel" />
+          <div className="card p-4">
+            <ul className="space-y-2">
+              {statusBreakdown.map((s) => {
+                const total = statusBreakdown.reduce((a, b) => a + b.count, 0);
+                const pct = total ? Math.round((s.count / total) * 100) : 0;
+                return (
+                  <li key={s.status} className="flex items-center gap-3">
+                    <span className={`w-20 text-xs font-medium capitalize ${statusColor[s.status] ?? 'text-gray-600'}`}>{s.status}</span>
+                    <div className="flex-1 h-2 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                      <div className="h-full bg-green-500 rounded-full" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-xs text-gray-600 dark:text-slate-300 tabular-nums w-16 text-right">{s.count.toLocaleString()} ({pct}%)</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </section>
+      )}
+
+      {templates.length > 0 && (
+        <section>
+          <SectionTitle icon={<FileText className="w-4 h-4 text-green-600" />} title="Template Performance" subtitle="Per-template delivery stats" />
+          <div className="card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
+                  <tr>
+                    {['Template', 'Sent', 'Delivered', 'Read', 'Failed', 'Read rate'].map((h) => (
+                      <th key={h} className="px-3 py-2 text-left font-medium text-gray-500 dark:text-slate-400">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
+                  {templates.map((t) => {
+                    const readRate = t.sent ? Math.round((t.read / t.sent) * 100) : 0;
+                    return (
+                      <tr key={t.template_name} className="hover:bg-gray-50 dark:hover:bg-slate-800/50">
+                        <td className="px-3 py-2 font-medium text-gray-900 dark:text-slate-100 max-w-[180px] truncate">{t.template_name}</td>
+                        <td className="px-3 py-2 tabular-nums">{t.sent}</td>
+                        <td className="px-3 py-2 tabular-nums text-indigo-600">{t.delivered}</td>
+                        <td className="px-3 py-2 tabular-nums text-blue-600">{t.read}</td>
+                        <td className="px-3 py-2 tabular-nums text-red-500">{t.failed}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-16 h-1.5 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                              <div className="h-full bg-green-500" style={{ width: `${readRate}%` }} />
+                            </div>
+                            <span className="tabular-nums text-gray-500">{readRate}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {campaigns.length > 0 && (
+        <section>
+          <SectionTitle icon={<TrendingUp className="w-4 h-4 text-green-600" />} title="Campaigns" subtitle="Broadcast campaigns in this period" />
+          <div className="card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
+                  <tr>
+                    {['Name', 'Status', 'Sent', 'Failed', 'Progress', 'Started'].map((h) => (
+                      <th key={h} className="px-3 py-2 text-left font-medium text-gray-500 dark:text-slate-400">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
+                  {campaigns.map((c, i) => {
+                    const pct = c.total_count ? Math.round((c.sent_count / c.total_count) * 100) : 0;
+                    const statusCls: Record<string, string> = {
+                      completed: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
+                      running: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+                      draft: 'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-slate-300',
+                      failed: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+                    };
+                    return (
+                      <tr key={i} className="hover:bg-gray-50 dark:hover:bg-slate-800/50">
+                        <td className="px-3 py-2 font-medium text-gray-900 dark:text-slate-100 max-w-[160px] truncate">{c.name}</td>
+                        <td className="px-3 py-2">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${statusCls[c.status] ?? ''}`}>{c.status}</span>
+                        </td>
+                        <td className="px-3 py-2 tabular-nums text-green-600">{c.sent_count}</td>
+                        <td className="px-3 py-2 tabular-nums text-red-500">{c.failed_count}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-16 h-1.5 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                              <div className="h-full bg-green-500" style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className="text-gray-500 tabular-nums">{pct}%</span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 text-gray-500">{c.started_at ? fmtDate(c.started_at.slice(0, 10)) : '—'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {automation.length > 0 && (
+        <section>
+          <SectionTitle icon={<Calendar className="w-4 h-4 text-green-600" />} title="Automation" subtitle="Messages triggered by automation rules" />
+          <div className="card p-4">
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {automation.map((a) => (
+                <li key={a.trigger} className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-slate-800 rounded-lg">
+                  <span className="text-xs text-gray-700 dark:text-slate-200 capitalize">{a.trigger.replace(/_/g, ' ')}</span>
+                  <span className="text-sm font-semibold tabular-nums text-green-600">{a.count}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

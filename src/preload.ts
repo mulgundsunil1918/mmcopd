@@ -598,6 +598,8 @@ const api = {
       ipcRenderer.invoke('wa:relayConfig') as Promise<{ url: string; secret: string }>,
     setRelayConfig: (url: string, secret: string) =>
       ipcRenderer.invoke('wa:setRelayConfig', url, secret) as Promise<{ ok: boolean }>,
+    analytics: (accountId: number, from: string, to: string) =>
+      ipcRenderer.invoke('wa:analytics', accountId, from, to) as Promise<any>,
     campaigns: (accountId: number) =>
       ipcRenderer.invoke('wa:campaigns', accountId) as Promise<any[]>,
     campaignCreate: (accountId: number, input: any) =>
@@ -614,6 +616,10 @@ const api = {
       ipcRenderer.invoke('wa:sendText', accountId, conversationId, text) as Promise<{ ok: boolean; wam_id?: string; error?: string }>,
     resolveConversation: (conversationId: number, status: 'open' | 'resolved') =>
       ipcRenderer.invoke('wa:resolveConversation', conversationId, status) as Promise<{ ok: boolean }>,
+    aiSuggest: (accountId: number, conversationId: number) =>
+      ipcRenderer.invoke('wa:aiSuggest', accountId, conversationId) as Promise<{ ok: boolean; suggestions?: string[]; error?: string }>,
+    sendFeedbackRequest: (accountId: number, conversationId: number) =>
+      ipcRenderer.invoke('wa:sendFeedbackRequest', accountId, conversationId) as Promise<{ ok: boolean; error?: string }>,
   },
 };
 

@@ -37,6 +37,12 @@ export function runAutomationScheduler(db: Database.Database): void {
         case 'birthday_wish':
           enqueueBirthdayWishes(db, rule);
           break;
+        case 'feedback_request':
+          enqueueFeedbackRequests(db, rule);
+          break;
+        case 'vaccination_reminder':
+          enqueueVaccinationReminders(db, rule);
+          break;
         // appointment_created, appointment_completed, prescription_generated,
         // lab_report_ready, bill_generated are triggered imperatively from IPC
         // handlers rather than polled — no polling case needed here.
@@ -173,6 +179,67 @@ function enqueueBirthdayWishes(db: Database.Database, rule: AutomationRow) {
       rule.account_id,
       normalizePhone(row.phone),
       row.id,
+      rule.template_name,
+      JSON.stringify({ '1': `${row.first_name} ${row.last_name}`.trim() })
+    );
+  }
+}
+
+function enqueueFeedbackRequests(db: Database.Database, rule: AutomationRow) {
+  // Find appointments marked Done whose scheduled time was 2–4 hours ago
+  const rows = db
+    .prepare(
+      `SELECT a.id as appointment_id, a.patient_id, p.phone, p.first_name, p.last_name
+       FROM appointments a
+       JOIN patients p ON p.id = a.patient_id
+       WHERE a.status = 'Done'
+         AND (julianday('now') - julianday(a.appointment_date || ' ' || a.appointment_time)) * 1440 BETWEEN 120 AND 240`
+    )
+    .all() as Array<{ appointment_id: number; patient_id: number; phone: string; first_name: string; last_name: string }>;
+
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO wa_message_queue
+     (account_id, to_phone, patient_id, appointment_id, template_name, template_vars, status, scheduled_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', datetime('now'))`
+  );
+
+  for (const row of rows) {
+    if (alreadyQueued(db, rule.account_id, row.appointment_id, rule.template_name)) continue;
+    insert.run(
+      rule.account_id,
+      normalizePhone(row.phone),
+      row.patient_id,
+      row.appointment_id,
+      rule.template_name,
+      JSON.stringify({ '1': `${row.first_name} ${row.last_name}`.trim() })
+    );
+  }
+}
+
+function enqueueVaccinationReminders(db: Database.Database, rule: AutomationRow) {
+  // Find patients who received a vaccination (misc bill item containing 'vacc') 27-30 days ago
+  // and remind them about their next dose.
+  const rows = db.prepare(
+    `SELECT DISTINCT p.id as patient_id, p.phone, p.first_name, p.last_name, b.id as bill_id
+     FROM bills b
+     JOIN patients p ON p.id = b.patient_id
+     WHERE b.bill_kind = 'misc'
+       AND (julianday('now') - julianday(b.created_at)) BETWEEN 27 AND 30
+       AND lower(b.items_json) LIKE '%vacc%'`
+  ).all() as Array<{ patient_id: number; phone: string; first_name: string; last_name: string; bill_id: number }>;
+
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO wa_message_queue
+     (account_id, to_phone, patient_id, template_name, template_vars, status, scheduled_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', datetime('now'))`
+  );
+
+  for (const row of rows) {
+    if (alreadyQueued(db, rule.account_id, null, rule.template_name)) continue;
+    insert.run(
+      rule.account_id,
+      normalizePhone(row.phone),
+      row.patient_id,
       rule.template_name,
       JSON.stringify({ '1': `${row.first_name} ${row.last_name}`.trim() })
     );

@@ -3,7 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { registerIpc, runFullBackup, isBackupServiceReady } from './main/ipc';
 import { installIpcRegistry } from './main/ipc-registry';
-import { registerWhatsAppIpc, pollRelayServer } from './main/whatsapp-ipc';
+import { registerWhatsAppIpc, pollRelayServer, runScheduledCampaigns } from './main/whatsapp-ipc';
 import { processQueue } from './services/whatsapp/queue-worker';
 import { runAutomationScheduler } from './services/whatsapp/scheduler';
 import { startNetworkServer, stopNetworkServer, networkServerStatus, getJoinCode, regenerateJoinCode, getLocalLanIP, broadcastEvent } from './main/network-server';
@@ -722,6 +722,7 @@ app.whenReady().then(async () => {
     processQueue(d).catch((e) => console.warn('[WA queue]', e));
     runAutomationScheduler(d);
     pollRelayServer().catch((e) => console.warn('[WA relay]', e));
+    runScheduledCampaigns().catch((e) => console.warn('[WA scheduled]', e));
   };
   setInterval(waWorker, 60_000);
   waWorker();

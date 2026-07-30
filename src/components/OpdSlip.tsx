@@ -1,7 +1,6 @@
 import { format, parseISO } from 'date-fns';
 import { Printer, X, MapPin, Phone, Mail, HeartPulse } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import QRCode from 'qrcode';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ageStringFull, fmt12h, fmtDateTime } from '../lib/utils';
 import type { AppointmentWithJoins, Consultation, Doctor, FollowupSummary, LabOrder, PrescriptionItem, Settings, SlipTemplate, SlipTemplateSection, Vitals } from '../types';
@@ -593,39 +592,28 @@ function PageTwo({
 }
 
 /** Single QR code rendered as an inline SVG data-URI img tag. */
-function QrBox({ url, label }: { url: string; label: string }) {
-  const [svg, setSvg] = useState<string | null>(null);
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    if (!url) return;
-    QRCode.toString(url, { type: 'svg', margin: 1, color: { dark: '#1e293b', light: '#ffffff' } })
-      .then((s) => { if (mounted.current) setSvg(s); })
-      .catch(() => {});
-    return () => { mounted.current = false; };
-  }, [url]);
-  if (!url || !svg) return null;
-  const dataUri = `data:image/svg+xml;base64,${btoa(svg)}`;
+function QrBox({ img, label }: { img: string; label: string }) {
+  if (!img) return null;
   return (
     <div className="flex flex-col items-center gap-1">
-      <img src={dataUri} alt={label} style={{ width: 72, height: 72, display: 'block' }} />
+      <img src={img} alt={label} style={{ width: 72, height: 72, display: 'block', objectFit: 'contain' }} />
       <div className="text-[10px] font-medium text-center" style={{ color: '#475569', maxWidth: 80 }}>{label}</div>
     </div>
   );
 }
 
-/** Row of 1 or 2 QR codes shown on page 2, below the signature. Hidden if no URLs are configured. */
+/** Row of 1 or 2 QR codes shown on page 2, below the signature. Hidden if no images are uploaded. */
 function QrRow({ settings }: { settings: Settings }) {
-  const hasQr1 = !!settings.qr1_url;
-  const hasQr2 = !!settings.qr2_url;
+  const hasQr1 = !!settings.qr1_img;
+  const hasQr2 = !!settings.qr2_img;
   if (!hasQr1 && !hasQr2) return null;
   return (
     <div
       className="mt-3 flex items-center justify-center gap-8 rounded"
       style={{ border: '1px solid #e2e8f0', padding: '8px 16px', background: '#f8fafc' }}
     >
-      {hasQr1 && <QrBox url={settings.qr1_url} label={settings.qr1_label || 'QR Code'} />}
-      {hasQr2 && <QrBox url={settings.qr2_url} label={settings.qr2_label || 'QR Code'} />}
+      {hasQr1 && <QrBox img={settings.qr1_img} label={settings.qr1_label || 'QR Code'} />}
+      {hasQr2 && <QrBox img={settings.qr2_img} label={settings.qr2_label || 'QR Code'} />}
     </div>
   );
 }

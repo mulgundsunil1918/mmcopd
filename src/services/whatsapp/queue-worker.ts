@@ -39,8 +39,8 @@ export async function processQueue(db: Database.Database): Promise<void> {
     `UPDATE wa_message_queue SET status = ?, attempts = attempts + 1, last_error = ?, sent_at = ? WHERE id = ?`
   );
   const logMessage = db.prepare(
-    `INSERT INTO wa_messages (account_id, wam_id, patient_id, appointment_id, direction, message_type, content, status, timestamp)
-     SELECT account_id, ?, patient_id, appointment_id, 'outbound', 'template', ?, 'sent', datetime('now')
+    `INSERT INTO wa_messages (account_id, wam_id, patient_id, direction, message_type, content, status, timestamp)
+     SELECT account_id, ?, patient_id, 'outbound', 'template', ?, 'sent', datetime('now')
      FROM wa_message_queue WHERE id = ?`
   );
 
