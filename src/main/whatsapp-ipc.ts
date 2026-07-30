@@ -171,21 +171,52 @@ export function registerWhatsAppIpc() {
   });
 
   // ── Messages for a conversation ─────────────────────────────────────────
-  ipcMain.handle('wa:messages', (_e, accountId: number, conversationId: number, limit = 50) => {
-    return db().prepare(
-      `SELECT * FROM wa_messages WHERE account_id=? AND conversation_id=? ORDER BY timestamp DESC LIMIT ?`
+  ipcMain.handle('wa:messages', (_e, accountId: number, conversationId: number, limit = 80) => {
+    const rows = db().prepare(
+      `SELECT * FROM wa_messages WHERE account_id=? AND conversation_id=? ORDER BY timestamp ASC LIMIT ?`
     ).all(accountId, conversationId, limit) as WaMessage[];
+    return rows;
   });
 
-  // ── Conversations list ──────────────────────────────────────────────────
+  // ── Conversations list with last-message preview ────────────────────────
   ipcMain.handle('wa:conversations', (_e, accountId: number, status = 'open') => {
     return db().prepare(
-      `SELECT c.*, p.first_name || ' ' || p.last_name as patient_name, p.phone as patient_phone
+      `SELECT c.*,
+              p.first_name || ' ' || p.last_name as patient_name,
+              p.phone as patient_phone,
+              (SELECT content FROM wa_messages WHERE conversation_id=c.id ORDER BY timestamp DESC LIMIT 1) as last_msg_content,
+              (SELECT direction FROM wa_messages WHERE conversation_id=c.id ORDER BY timestamp DESC LIMIT 1) as last_msg_direction,
+              (SELECT COUNT(*) FROM wa_messages WHERE conversation_id=c.id AND direction='inbound' AND status='delivered') as unread_count
        FROM wa_conversations c
        LEFT JOIN patients p ON p.id = c.patient_id
        WHERE c.account_id=? AND c.status=?
        ORDER BY c.last_message_at DESC`
-    ).all(accountId, status) as WaConversation[];
+    ).all(accountId, status);
+  });
+
+  // ── Send plain text reply (24-hour service window) ─────────────────────
+  ipcMain.handle('wa:sendText', async (_e, accountId: number, conversationId: number, text: string) => {
+    const d = db();
+    const acct = d.prepare(`SELECT phone_number_id, access_token_enc FROM wa_accounts WHERE id=?`).get(accountId) as { phone_number_id: string; access_token_enc: string } | undefined;
+    const conv = d.prepare(`SELECT phone FROM wa_conversations WHERE id=?`).get(conversationId) as { phone: string } | undefined;
+    if (!acct || !conv) return { ok: false, error: 'Account or conversation not found' };
+
+    const { sendText } = await import('../services/whatsapp/meta-api');
+    const result = await sendText(acct.phone_number_id, reveal(acct.access_token_enc), conv.phone, text);
+    if (result.ok) {
+      d.prepare(
+        `INSERT INTO wa_messages (account_id, wam_id, conversation_id, direction, message_type, content, status, timestamp)
+         VALUES (?, ?, ?, 'outbound', 'text', ?, 'sent', datetime('now'))`
+      ).run(accountId, result.wam_id ?? null, conversationId, JSON.stringify({ text }));
+      d.prepare(`UPDATE wa_conversations SET last_message_at=datetime('now') WHERE id=?`).run(conversationId);
+    }
+    return result;
+  });
+
+  // ── Mark conversation resolved / reopen ────────────────────────────────
+  ipcMain.handle('wa:resolveConversation', (_e, conversationId: number, status: 'open' | 'resolved') => {
+    db().prepare(`UPDATE wa_conversations SET status=? WHERE id=?`).run(status, conversationId);
+    return { ok: true };
   });
 
   // ── Webhook verification (for relay server) ────────────────────────────

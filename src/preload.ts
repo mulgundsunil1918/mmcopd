@@ -598,6 +598,10 @@ const api = {
       ipcRenderer.invoke('wa:relayConfig') as Promise<{ url: string; secret: string }>,
     setRelayConfig: (url: string, secret: string) =>
       ipcRenderer.invoke('wa:setRelayConfig', url, secret) as Promise<{ ok: boolean }>,
+    sendText: (accountId: number, conversationId: number, text: string) =>
+      ipcRenderer.invoke('wa:sendText', accountId, conversationId, text) as Promise<{ ok: boolean; wam_id?: string; error?: string }>,
+    resolveConversation: (conversationId: number, status: 'open' | 'resolved') =>
+      ipcRenderer.invoke('wa:resolveConversation', conversationId, status) as Promise<{ ok: boolean }>,
   },
 };
 

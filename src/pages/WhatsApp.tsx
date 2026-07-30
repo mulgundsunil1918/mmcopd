@@ -1,14 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   MessageSquare, Plug, PlugZap, RefreshCw, Zap, ListChecks,
-  CheckCircle2, XCircle, AlertCircle, Clock, Send, ChevronDown, ChevronUp,
+  CheckCircle2, XCircle, AlertCircle, Clock, Send, Inbox,
+  CheckCheck, User, ChevronRight,
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, fmtDateTime } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import type { WaAutomationTrigger } from '../types/whatsapp';
 
-type Tab = 'connect' | 'templates' | 'automation' | 'queue';
+type Tab = 'connect' | 'templates' | 'automation' | 'queue' | 'inbox';
 
 // ── Trigger metadata ──────────────────────────────────────────────────────────
 const TRIGGERS: { key: WaAutomationTrigger; label: string; desc: string }[] = [
@@ -599,11 +600,304 @@ function QueueTab() {
   );
 }
 
+// ── Inbox tab ─────────────────────────────────────────────────────────────────
+function InboxTab() {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const { data: accounts = [] } = useQuery({ queryKey: ['wa:accounts'], queryFn: () => window.electronAPI.wa.accounts() });
+  const [accountId, setAccountId] = useState<number | null>(null);
+  const [convStatus, setConvStatus] = useState<'open' | 'resolved'>('open');
+  const [selectedConvId, setSelectedConvId] = useState<number | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const activeAccountId = accountId ?? (accounts[0]?.id ?? null);
+
+  // Conversations list — refresh every 15s
+  const { data: conversations = [], isLoading: convsLoading } = useQuery({
+    queryKey: ['wa:conversations', activeAccountId, convStatus],
+    queryFn: () => activeAccountId ? window.electronAPI.wa.conversations(activeAccountId, convStatus) : [],
+    enabled: !!activeAccountId,
+    refetchInterval: 15_000,
+  });
+
+  // Messages for selected conversation — refresh every 10s
+  const { data: messages = [], isLoading: msgsLoading } = useQuery({
+    queryKey: ['wa:messages', activeAccountId, selectedConvId],
+    queryFn: () => activeAccountId && selectedConvId ? window.electronAPI.wa.messages(activeAccountId, selectedConvId) : [],
+    enabled: !!activeAccountId && !!selectedConvId,
+    refetchInterval: 10_000,
+  });
+
+  // Auto-scroll to bottom when messages load or change
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages.length]);
+
+  // Auto-select first conversation when list loads
+  useEffect(() => {
+    if (!selectedConvId && (conversations as any[]).length > 0) {
+      setSelectedConvId((conversations as any[])[0].id);
+    }
+  }, [(conversations as any[]).length]);
+
+  const sendText = useMutation({
+    mutationFn: () => window.electronAPI.wa.sendText(activeAccountId!, selectedConvId!, replyText.trim()),
+    onSuccess: (r) => {
+      if (r.ok) {
+        setReplyText('');
+        qc.invalidateQueries({ queryKey: ['wa:messages', activeAccountId, selectedConvId] });
+        qc.invalidateQueries({ queryKey: ['wa:conversations', activeAccountId, convStatus] });
+      } else {
+        toast(r.error ?? 'Send failed', 'error');
+      }
+    },
+    onError: (e: any) => toast(e.message || 'Send failed', 'error'),
+  });
+
+  const resolve = useMutation({
+    mutationFn: (status: 'open' | 'resolved') => window.electronAPI.wa.resolveConversation(selectedConvId!, status),
+    onSuccess: (_, status) => {
+      toast(status === 'resolved' ? 'Conversation resolved' : 'Conversation reopened');
+      setSelectedConvId(null);
+      qc.invalidateQueries({ queryKey: ['wa:conversations', activeAccountId, convStatus] });
+    },
+    onError: (e: any) => toast(e.message || 'Failed', 'error'),
+  });
+
+  const selectedConv = (conversations as any[]).find((c) => c.id === selectedConvId);
+
+  function msgPreview(conv: any): string {
+    if (!conv.last_msg_content) return '';
+    try {
+      const c = JSON.parse(conv.last_msg_content);
+      if (typeof c.text === 'string') return c.text;
+      if (c.template) return `[template: ${c.template}]`;
+      return '';
+    } catch { return ''; }
+  }
+
+  function msgText(msg: any): string {
+    try {
+      const c = JSON.parse(msg.content || '{}');
+      if (typeof c.text === 'string') return c.text;
+      if (c.template) return `📋 ${c.template}`;
+      return msg.message_type ?? '…';
+    } catch { return '…'; }
+  }
+
+  function relTime(iso: string) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const now = new Date();
+    const diffMin = Math.floor((now.getTime() - d.getTime()) / 60_000);
+    if (diffMin < 1) return 'just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return `${diffH}h ago`;
+    return fmtDateTime(iso);
+  }
+
+  if (!activeAccountId) {
+    return (
+      <div className="card p-8 text-center">
+        <PlugZap className="w-8 h-8 text-gray-300 dark:text-slate-600 mx-auto mb-2" />
+        <p className="text-sm text-gray-500 dark:text-slate-400">Connect a WhatsApp number first.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card overflow-hidden" style={{ height: 'calc(100vh - 220px)', minHeight: 500 }}>
+      <div className="flex h-full">
+
+        {/* ── Left: conversation list ─────────────────────────────────────── */}
+        <div className="w-72 shrink-0 border-r border-gray-200 dark:border-slate-700 flex flex-col">
+          {/* Header */}
+          <div className="p-3 border-b border-gray-200 dark:border-slate-700 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-gray-700 dark:text-slate-300">Conversations</span>
+              {accounts.length > 1 && (
+                <select className="input text-xs w-auto" value={activeAccountId ?? ''} onChange={(e) => { setAccountId(Number(e.target.value)); setSelectedConvId(null); }}>
+                  {accounts.map((a: any) => <option key={a.id} value={a.id}>{a.display_name || a.phone_number}</option>)}
+                </select>
+              )}
+            </div>
+            <div className="flex gap-1">
+              {(['open', 'resolved'] as const).map((s) => (
+                <button key={s} onClick={() => { setConvStatus(s); setSelectedConvId(null); }}
+                  className={cn('flex-1 py-1 text-xs rounded font-medium transition-colors',
+                    convStatus === s ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800')}>
+                  {s === 'open' ? 'Open' : 'Resolved'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* List */}
+          <div className="flex-1 overflow-y-auto">
+            {convsLoading ? (
+              <p className="text-xs text-gray-400 p-4">Loading…</p>
+            ) : (conversations as any[]).length === 0 ? (
+              <div className="p-6 text-center">
+                <Inbox className="w-6 h-6 text-gray-300 dark:text-slate-600 mx-auto mb-2" />
+                <p className="text-xs text-gray-400">No {convStatus} conversations</p>
+              </div>
+            ) : (
+              (conversations as any[]).map((conv) => {
+                const preview = msgPreview(conv);
+                const unread = (conv.unread_count ?? 0) > 0;
+                const isSelected = conv.id === selectedConvId;
+                return (
+                  <button key={conv.id} onClick={() => setSelectedConvId(conv.id)}
+                    className={cn('w-full text-left px-3 py-3 border-b border-gray-100 dark:border-slate-800 transition-colors',
+                      isSelected ? 'bg-green-50 dark:bg-green-900/20' : 'hover:bg-gray-50 dark:hover:bg-slate-800/50')}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-slate-700 flex items-center justify-center shrink-0">
+                          <User className="w-4 h-4 text-gray-500 dark:text-slate-400" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className={cn('text-xs truncate', unread ? 'font-semibold text-gray-900 dark:text-slate-100' : 'font-medium text-gray-800 dark:text-slate-200')}>
+                            {conv.patient_name?.trim() || conv.phone}
+                          </p>
+                          <p className="text-[11px] text-gray-500 dark:text-slate-400 truncate">{conv.phone}</p>
+                        </div>
+                      </div>
+                      <div className="shrink-0 flex flex-col items-end gap-1">
+                        <span className="text-[10px] text-gray-400 dark:text-slate-500 whitespace-nowrap">{relTime(conv.last_message_at)}</span>
+                        {unread && <span className="w-2 h-2 rounded-full bg-green-500" />}
+                      </div>
+                    </div>
+                    {preview && (
+                      <p className="text-[11px] text-gray-400 dark:text-slate-500 truncate mt-1 pl-10">{conv.last_msg_direction === 'inbound' ? '← ' : '→ '}{preview}</p>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* ── Right: message thread ──────────────────────────────────────── */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {!selectedConvId ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center">
+                <MessageSquare className="w-10 h-10 text-gray-200 dark:text-slate-700 mx-auto mb-3" />
+                <p className="text-sm text-gray-400 dark:text-slate-500">Select a conversation</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Thread header */}
+              <div className="p-3 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                    <User className="w-4 h-4 text-green-600 dark:text-green-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+                      {selectedConv?.patient_name?.trim() || selectedConv?.phone}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-slate-400">{selectedConv?.phone}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => resolve.mutate(convStatus === 'open' ? 'resolved' : 'open')}
+                  disabled={resolve.isPending}
+                  className={cn('btn-ghost text-xs flex items-center gap-1.5',
+                    convStatus === 'open' ? 'text-gray-600 dark:text-slate-400' : 'text-emerald-600 dark:text-emerald-400')}
+                >
+                  <CheckCheck className="w-3.5 h-3.5" />
+                  {convStatus === 'open' ? 'Resolve' : 'Reopen'}
+                </button>
+              </div>
+
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {msgsLoading ? (
+                  <p className="text-xs text-gray-400 text-center py-8">Loading messages…</p>
+                ) : (messages as any[]).length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-8">No messages yet.</p>
+                ) : (
+                  (messages as any[]).map((msg) => {
+                    const isOut = msg.direction === 'outbound';
+                    const text = msgText(msg);
+                    return (
+                      <div key={msg.id} className={cn('flex', isOut ? 'justify-end' : 'justify-start')}>
+                        <div className={cn('max-w-[70%] rounded-2xl px-3 py-2 text-sm shadow-sm',
+                          isOut
+                            ? 'bg-green-500 text-white rounded-br-none'
+                            : 'bg-gray-100 dark:bg-slate-700 text-gray-900 dark:text-slate-100 rounded-bl-none')}>
+                          <p className="leading-snug break-words">{text}</p>
+                          <div className={cn('flex items-center gap-1 mt-1 text-[10px]',
+                            isOut ? 'text-green-100 justify-end' : 'text-gray-400 dark:text-slate-500 justify-start')}>
+                            <span>{relTime(msg.timestamp)}</span>
+                            {isOut && (
+                              <span title={msg.status}>
+                                {msg.status === 'read'      ? '✓✓' :
+                                 msg.status === 'delivered' ? '✓✓' :
+                                 msg.status === 'sent'      ? '✓'  : '⏳'}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+                <div ref={bottomRef} />
+              </div>
+
+              {/* Reply box */}
+              {convStatus === 'open' ? (
+                <div className="p-3 border-t border-gray-200 dark:border-slate-700">
+                  <div className="flex gap-2 items-end">
+                    <textarea
+                      className="input flex-1 resize-none text-sm"
+                      rows={2}
+                      placeholder="Type a reply… (only works within 24h of patient's last message)"
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          if (replyText.trim()) sendText.mutate();
+                        }
+                      }}
+                    />
+                    <button
+                      className="btn-primary p-2.5 shrink-0"
+                      disabled={!replyText.trim() || sendText.isPending}
+                      onClick={() => sendText.mutate()}
+                      title="Send (Enter)"
+                    >
+                      <Send className={cn('w-4 h-4', sendText.isPending && 'animate-pulse')} />
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1">
+                    Enter to send · Shift+Enter for newline · Free-text replies require the patient to have messaged you in the last 24 hours (Meta policy)
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 border-t border-gray-200 dark:border-slate-700 text-center">
+                  <p className="text-xs text-gray-400 dark:text-slate-500">This conversation is resolved. <button className="underline text-green-600 dark:text-green-400" onClick={() => resolve.mutate('open')}>Reopen</button> to reply.</p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export function WhatsApp() {
-  const [tab, setTab] = useState<Tab>('connect');
+  const [tab, setTab] = useState<Tab>('inbox');
 
   const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
+    { key: 'inbox',      label: 'Inbox',      icon: <Inbox className="w-4 h-4" /> },
     { key: 'connect',    label: 'Connect',    icon: <PlugZap className="w-4 h-4" /> },
     { key: 'templates',  label: 'Templates',  icon: <ListChecks className="w-4 h-4" /> },
     { key: 'automation', label: 'Automation', icon: <Zap className="w-4 h-4" /> },
@@ -640,6 +934,7 @@ export function WhatsApp() {
       </div>
 
       {/* Tab content */}
+      {tab === 'inbox'      && <InboxTab />}
       {tab === 'connect'    && <ConnectTab />}
       {tab === 'templates'  && <TemplatesTab />}
       {tab === 'automation' && <AutomationTab />}
