@@ -112,6 +112,49 @@ export interface WaConversation {
   created_at: string;
 }
 
+// ── Campaigns ─────────────────────────────────────────────────────────────────
+export type WaCampaignStatus = 'draft' | 'running' | 'completed' | 'failed';
+
+export type WaCampaignSegment =
+  | 'all'
+  | 'visited_last_30d'
+  | 'visited_last_90d'
+  | 'followup_due_7d'
+  | 'birthday_this_month'
+  | 'no_visit_90d';
+
+export interface WaCampaign {
+  id: number;
+  account_id: number;
+  name: string;
+  template_name: string;
+  template_vars: Record<string, string> | null;
+  segment: WaCampaignSegment;
+  segment_config: Record<string, unknown> | null;
+  status: WaCampaignStatus;
+  total_count: number;
+  sent_count: number;
+  failed_count: number;
+  scheduled_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WaCampaignRecipient {
+  id: number;
+  campaign_id: number;
+  patient_id: number | null;
+  phone: string;
+  patient_name: string | null;
+  status: 'pending' | 'sent' | 'failed';
+  wam_id: string | null;
+  error: string | null;
+  sent_at: string | null;
+  created_at: string;
+}
+
 // IPC payloads
 export interface WaConnectInput {
   phone_number_id: string;

@@ -170,6 +170,10 @@ export function runMigrations(db: Database.Database) {
     migrateV2toV3(db);
   }
 
+  if (currentVersion < 4) {
+    migrateV3toV4(db);
+  }
+
   if (currentVersion < SCHEMA_VERSION) {
     db.prepare(
       "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)"
@@ -355,5 +359,48 @@ function migrateV2toV3(db: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_wa_webhook_processed
       ON wa_webhook_events(processed, created_at);
+  `);
+}
+
+// ============================================================
+// v3 → v4: WhatsApp Campaigns (broadcast to patient segments)
+// ============================================================
+function migrateV3toV4(db: Database.Database) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS wa_campaigns (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id     INTEGER NOT NULL REFERENCES wa_accounts(id) ON DELETE CASCADE,
+      name           TEXT NOT NULL,
+      template_name  TEXT NOT NULL,
+      template_vars  TEXT,
+      segment        TEXT NOT NULL DEFAULT 'all',
+      segment_config TEXT,
+      status         TEXT NOT NULL DEFAULT 'draft',
+      total_count    INTEGER NOT NULL DEFAULT 0,
+      sent_count     INTEGER NOT NULL DEFAULT 0,
+      failed_count   INTEGER NOT NULL DEFAULT 0,
+      scheduled_at   TEXT,
+      started_at     TEXT,
+      completed_at   TEXT,
+      created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_wa_campaigns_account
+      ON wa_campaigns(account_id, status);
+
+    CREATE TABLE IF NOT EXISTS wa_campaign_recipients (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      campaign_id  INTEGER NOT NULL REFERENCES wa_campaigns(id) ON DELETE CASCADE,
+      patient_id   INTEGER REFERENCES patients(id) ON DELETE SET NULL,
+      phone        TEXT NOT NULL,
+      patient_name TEXT,
+      status       TEXT NOT NULL DEFAULT 'pending',
+      wam_id       TEXT,
+      error        TEXT,
+      sent_at      TEXT,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_wa_camp_recip_campaign
+      ON wa_campaign_recipients(campaign_id, status);
   `);
 }

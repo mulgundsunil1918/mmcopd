@@ -598,6 +598,18 @@ const api = {
       ipcRenderer.invoke('wa:relayConfig') as Promise<{ url: string; secret: string }>,
     setRelayConfig: (url: string, secret: string) =>
       ipcRenderer.invoke('wa:setRelayConfig', url, secret) as Promise<{ ok: boolean }>,
+    campaigns: (accountId: number) =>
+      ipcRenderer.invoke('wa:campaigns', accountId) as Promise<any[]>,
+    campaignCreate: (accountId: number, input: any) =>
+      ipcRenderer.invoke('wa:campaignCreate', accountId, input) as Promise<{ ok: boolean; id?: number; error?: string }>,
+    campaignDelete: (campaignId: number) =>
+      ipcRenderer.invoke('wa:campaignDelete', campaignId) as Promise<{ ok: boolean }>,
+    campaignPreview: (accountId: number, segment: string) =>
+      ipcRenderer.invoke('wa:campaignPreview', accountId, segment) as Promise<{ id: number; phone: string; name: string }[]>,
+    campaignLaunch: (campaignId: number) =>
+      ipcRenderer.invoke('wa:campaignLaunch', campaignId) as Promise<{ ok: boolean; total?: number; error?: string }>,
+    campaignRecipients: (campaignId: number) =>
+      ipcRenderer.invoke('wa:campaignRecipients', campaignId) as Promise<any[]>,
     sendText: (accountId: number, conversationId: number, text: string) =>
       ipcRenderer.invoke('wa:sendText', accountId, conversationId, text) as Promise<{ ok: boolean; wam_id?: string; error?: string }>,
     resolveConversation: (conversationId: number, status: 'open' | 'resolved') =>

@@ -3,13 +3,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   MessageSquare, Plug, PlugZap, RefreshCw, Zap, ListChecks,
   CheckCircle2, XCircle, AlertCircle, Clock, Send, Inbox,
-  CheckCheck, User, ChevronRight,
+  CheckCheck, User, Megaphone, Plus, Trash2, Play, Eye,
+  ChevronDown,
 } from 'lucide-react';
 import { cn, fmtDateTime } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import type { WaAutomationTrigger } from '../types/whatsapp';
 
-type Tab = 'connect' | 'templates' | 'automation' | 'queue' | 'inbox';
+type Tab = 'connect' | 'templates' | 'automation' | 'queue' | 'inbox' | 'campaigns';
 
 // ── Trigger metadata ──────────────────────────────────────────────────────────
 const TRIGGERS: { key: WaAutomationTrigger; label: string; desc: string }[] = [
@@ -600,6 +601,307 @@ function QueueTab() {
   );
 }
 
+// ── Segment metadata ──────────────────────────────────────────────────────────
+const SEGMENTS = [
+  { key: 'all',                label: 'All Patients',              desc: 'Every patient with a phone number on record' },
+  { key: 'visited_last_30d',   label: 'Visited — last 30 days',    desc: 'Patients who had an appointment in the last 30 days' },
+  { key: 'visited_last_90d',   label: 'Visited — last 90 days',    desc: 'Patients who had an appointment in the last 90 days' },
+  { key: 'followup_due_7d',    label: 'Follow-up due (next 7 days)', desc: 'Patients with a scheduled follow-up date in the next week' },
+  { key: 'birthday_this_month',label: 'Birthday this month',       desc: 'Patients whose birthday falls this calendar month' },
+  { key: 'no_visit_90d',       label: 'Inactive — no visit in 90 days', desc: 'Patients not seen in the last 90 days (re-engagement)' },
+] as const;
+
+// ── Campaigns tab ─────────────────────────────────────────────────────────────
+function CampaignsTab() {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const { data: accounts = [] } = useQuery({ queryKey: ['wa:accounts'], queryFn: () => window.electronAPI.wa.accounts() });
+  const [accountId, setAccountId] = useState<number | null>(null);
+  const activeAccountId = accountId ?? (accounts[0]?.id ?? null);
+
+  const [showNew, setShowNew] = useState(false);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(null);
+
+  // New campaign form state
+  const [form, setForm] = useState({
+    name: '', template_name: '', segment: 'all',
+    v1: '', v2: '', v3: '', v4: '',
+  });
+
+  const { data: campaigns = [], isLoading } = useQuery({
+    queryKey: ['wa:campaigns', activeAccountId],
+    queryFn: () => activeAccountId ? window.electronAPI.wa.campaigns(activeAccountId) : [],
+    enabled: !!activeAccountId,
+    refetchInterval: 10_000,
+  });
+
+  const { data: templates = [] } = useQuery({
+    queryKey: ['wa:templates', activeAccountId],
+    queryFn: () => activeAccountId ? window.electronAPI.wa.templates(activeAccountId) : [],
+    enabled: !!activeAccountId,
+  });
+
+  const { data: previewPatients, isFetching: previewing } = useQuery({
+    queryKey: ['wa:campaignPreview', activeAccountId, form.segment],
+    queryFn: () => activeAccountId ? window.electronAPI.wa.campaignPreview(activeAccountId, form.segment) : [],
+    enabled: !!activeAccountId && showNew,
+  });
+
+  const { data: recipients = [] } = useQuery({
+    queryKey: ['wa:campaignRecipients', selectedCampaignId],
+    queryFn: () => selectedCampaignId ? window.electronAPI.wa.campaignRecipients(selectedCampaignId) : [],
+    enabled: !!selectedCampaignId,
+    refetchInterval: 5_000,
+  });
+
+  const approvedTemplates = (templates as any[]).filter((t) => t.status === 'APPROVED');
+
+  const create = useMutation({
+    mutationFn: () => {
+      const vars: Record<string, string> = {};
+      if (form.v1) vars['1'] = form.v1;
+      if (form.v2) vars['2'] = form.v2;
+      if (form.v3) vars['3'] = form.v3;
+      if (form.v4) vars['4'] = form.v4;
+      return window.electronAPI.wa.campaignCreate(activeAccountId!, {
+        name: form.name, template_name: form.template_name,
+        template_vars: Object.keys(vars).length ? vars : undefined,
+        segment: form.segment,
+      });
+    },
+    onSuccess: (r) => {
+      if (r.ok) {
+        toast('Campaign created');
+        setShowNew(false);
+        setForm({ name: '', template_name: '', segment: 'all', v1: '', v2: '', v3: '', v4: '' });
+        qc.invalidateQueries({ queryKey: ['wa:campaigns', activeAccountId] });
+      } else toast(r.error ?? 'Create failed', 'error');
+    },
+    onError: (e: any) => toast(e.message || 'Create failed', 'error'),
+  });
+
+  const launch = useMutation({
+    mutationFn: (id: number) => window.electronAPI.wa.campaignLaunch(id),
+    onSuccess: (r, id) => {
+      if (r.ok) { toast(`Campaign launched — ${r.total} recipients`); setSelectedCampaignId(id); }
+      else toast(r.error ?? 'Launch failed', 'error');
+      qc.invalidateQueries({ queryKey: ['wa:campaigns', activeAccountId] });
+    },
+    onError: (e: any) => toast(e.message || 'Launch failed', 'error'),
+  });
+
+  const deleteCampaign = useMutation({
+    mutationFn: (id: number) => window.electronAPI.wa.campaignDelete(id),
+    onSuccess: () => { toast('Campaign deleted'); qc.invalidateQueries({ queryKey: ['wa:campaigns', activeAccountId] }); },
+    onError: (e: any) => toast(e.message || 'Delete failed', 'error'),
+  });
+
+  const statusColor: Record<string, string> = {
+    draft:     'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-slate-300',
+    running:   'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+    completed: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+    failed:    'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  };
+
+  const recipientStatusColor: Record<string, string> = {
+    pending: 'text-amber-600 dark:text-amber-400',
+    sent:    'text-emerald-600 dark:text-emerald-400',
+    failed:  'text-red-600 dark:text-red-400',
+  };
+
+  if (!activeAccountId) {
+    return <div className="card p-8 text-center"><p className="text-sm text-gray-500 dark:text-slate-400">Connect a WhatsApp number first.</p></div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="card p-4">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div className="flex items-center gap-3">
+            <h2 className="font-semibold text-sm text-gray-800 dark:text-slate-100">Broadcast Campaigns</h2>
+            {accounts.length > 1 && (
+              <select className="input w-auto text-xs" value={activeAccountId ?? ''} onChange={(e) => setAccountId(Number(e.target.value))}>
+                {accounts.map((a: any) => <option key={a.id} value={a.id}>{a.display_name || a.phone_number}</option>)}
+              </select>
+            )}
+          </div>
+          <button className="btn-primary text-xs flex items-center gap-1.5" onClick={() => { setShowNew((v) => !v); setSelectedCampaignId(null); }}>
+            <Plus className="w-3.5 h-3.5" /> New Campaign
+          </button>
+        </div>
+
+        {/* ── New campaign form ── */}
+        {showNew && (
+          <div className="border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4 bg-blue-50/40 dark:bg-blue-900/10 space-y-4">
+            <p className="text-xs font-semibold text-blue-700 dark:text-blue-400">New Campaign</p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="label">Campaign Name</label>
+                <input className="input w-full" placeholder="e.g. Monsoon Health Check-up" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">Template</label>
+                <select className="input w-full" value={form.template_name} onChange={(e) => setForm({ ...form, template_name: e.target.value })}>
+                  <option value="">— select —</option>
+                  {approvedTemplates.map((t: any) => <option key={t.id} value={t.name}>{t.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Patient Segment</label>
+                <select className="input w-full" value={form.segment} onChange={(e) => setForm({ ...form, segment: e.target.value })}>
+                  {SEGMENTS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* Segment preview */}
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500 dark:text-slate-400">Estimated reach:</span>
+              {previewing
+                ? <span className="text-gray-400">calculating…</span>
+                : <span className="font-semibold text-gray-800 dark:text-slate-200">{previewPatients?.length ?? 0} patients</span>}
+              <span className="text-gray-400 dark:text-slate-500">· {SEGMENTS.find((s) => s.key === form.segment)?.desc}</span>
+            </div>
+
+            {/* Template vars */}
+            <div className="grid grid-cols-2 gap-3">
+              {(['v1', 'v2', 'v3', 'v4'] as const).map((k, i) => (
+                <div key={k}>
+                  <label className="label">Variable {`{{${i + 1}}}`} <span className="text-gray-400 font-normal">(optional — {`{{1}}`} defaults to patient name)</span></label>
+                  <input className="input w-full" placeholder={i === 0 ? 'defaults to patient name' : `value for {{${i + 1}}}`} value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} />
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <button className="btn-primary text-xs" disabled={!form.name || !form.template_name || create.isPending || !previewPatients?.length} onClick={() => create.mutate()}>
+                {create.isPending ? 'Creating…' : `Create Campaign (${previewPatients?.length ?? 0} recipients)`}
+              </button>
+              <button className="btn-ghost text-xs" onClick={() => setShowNew(false)}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Campaign list ── */}
+        {isLoading ? (
+          <p className="text-xs text-gray-400 py-4">Loading…</p>
+        ) : (campaigns as any[]).length === 0 ? (
+          <div className="text-center py-8">
+            <Megaphone className="w-8 h-8 text-gray-300 dark:text-slate-600 mx-auto mb-2" />
+            <p className="text-sm text-gray-500 dark:text-slate-400">No campaigns yet</p>
+            <p className="text-xs text-gray-400 mt-1">Create a campaign to broadcast a template message to a patient segment</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {(campaigns as any[]).map((c) => {
+              const seg = SEGMENTS.find((s) => s.key === c.segment);
+              const isSelected = c.id === selectedCampaignId;
+              const pct = c.total_count > 0 ? Math.round(((c.sent_count + c.failed_count) / c.total_count) * 100) : 0;
+              return (
+                <div key={c.id} className="border border-gray-200 dark:border-slate-700 rounded-lg">
+                  <div className="flex items-center justify-between p-3 cursor-pointer" onClick={() => setSelectedCampaignId(isSelected ? null : c.id)}>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Megaphone className="w-4 h-4 text-gray-400 dark:text-slate-500 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">{c.name}</p>
+                        <p className="text-xs text-gray-500 dark:text-slate-400 truncate">
+                          {seg?.label} · <span className="font-mono">{c.template_name}</span>
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      {c.status === 'running' && (
+                        <div className="text-xs text-blue-600 dark:text-blue-400 tabular-nums">
+                          {c.sent_count + c.failed_count}/{c.total_count} ({pct}%)
+                        </div>
+                      )}
+                      {c.status === 'completed' && (
+                        <div className="text-xs text-emerald-600 dark:text-emerald-400 tabular-nums">
+                          ✓ {c.sent_count} sent · {c.failed_count} failed
+                        </div>
+                      )}
+                      <span className={cn('inline-block px-2 py-0.5 rounded-full text-xs font-semibold', statusColor[c.status] ?? statusColor.draft)}>{c.status}</span>
+                      {c.status === 'draft' && (
+                        <button className="btn-ghost text-xs flex items-center gap-1 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20" onClick={(e) => { e.stopPropagation(); launch.mutate(c.id); }} disabled={launch.isPending}>
+                          <Play className="w-3.5 h-3.5" /> Launch
+                        </button>
+                      )}
+                      {c.status === 'draft' && (
+                        <button className="btn-ghost text-xs text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20" onClick={(e) => { e.stopPropagation(); deleteCampaign.mutate(c.id); }} title="Delete draft">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      <ChevronDown className={cn('w-4 h-4 text-gray-400 transition-transform', isSelected && 'rotate-180')} />
+                    </div>
+                  </div>
+
+                  {/* Progress bar for running */}
+                  {c.status === 'running' && (
+                    <div className="px-3 pb-2">
+                      <div className="h-1.5 rounded-full bg-gray-100 dark:bg-slate-700 overflow-hidden">
+                        <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recipients table */}
+                  {isSelected && (
+                    <div className="border-t border-gray-100 dark:border-slate-800 p-3">
+                      {(recipients as any[]).length === 0 ? (
+                        <p className="text-xs text-gray-400 text-center py-2">No recipients yet (launch to populate)</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="text-left border-b border-gray-100 dark:border-slate-800 text-gray-500 dark:text-slate-400 uppercase text-[10px]">
+                                <th className="py-1.5 pr-3">Patient</th>
+                                <th className="py-1.5 pr-3">Phone</th>
+                                <th className="py-1.5 pr-3">Status</th>
+                                <th className="py-1.5">Sent at</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(recipients as any[]).slice(0, 50).map((r) => (
+                                <tr key={r.id} className="border-b border-gray-50 dark:border-slate-800/50">
+                                  <td className="py-1.5 pr-3 text-gray-800 dark:text-slate-200">{r.patient_name || '—'}</td>
+                                  <td className="py-1.5 pr-3 font-mono text-gray-600 dark:text-slate-400">{r.phone}</td>
+                                  <td className={cn('py-1.5 pr-3 font-medium', recipientStatusColor[r.status])}>{r.status}</td>
+                                  <td className="py-1.5 text-gray-400">{r.sent_at ? new Date(r.sent_at).toLocaleTimeString() : '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {(recipients as any[]).length > 50 && (
+                            <p className="text-xs text-gray-400 mt-2 text-center">Showing first 50 of {(recipients as any[]).length}</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Info box */}
+      <div className="card p-4">
+        <h2 className="font-semibold text-sm text-gray-800 dark:text-slate-100 mb-2">How campaigns work</h2>
+        <div className="text-xs text-gray-500 dark:text-slate-400 space-y-1">
+          <p>• Create a campaign: pick a patient segment, choose an approved template, set optional variable overrides</p>
+          <p>• <code className="bg-gray-100 dark:bg-slate-700 px-1 rounded">{'{{1}}'}</code> automatically fills with the patient's name unless you override it</p>
+          <p>• Click Launch — messages send in batches of 10, with 1s between batches (Meta rate-limit safe)</p>
+          <p>• Track delivery in real-time via the recipient table — refreshes every 5s while running</p>
+          <p>• Only APPROVED templates can be used; UTILITY templates have the highest delivery rate</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Inbox tab ─────────────────────────────────────────────────────────────────
 function InboxTab() {
   const toast = useToast();
@@ -898,6 +1200,7 @@ export function WhatsApp() {
 
   const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: 'inbox',      label: 'Inbox',      icon: <Inbox className="w-4 h-4" /> },
+    { key: 'campaigns',  label: 'Campaigns',  icon: <Megaphone className="w-4 h-4" /> },
     { key: 'connect',    label: 'Connect',    icon: <PlugZap className="w-4 h-4" /> },
     { key: 'templates',  label: 'Templates',  icon: <ListChecks className="w-4 h-4" /> },
     { key: 'automation', label: 'Automation', icon: <Zap className="w-4 h-4" /> },
@@ -935,6 +1238,7 @@ export function WhatsApp() {
 
       {/* Tab content */}
       {tab === 'inbox'      && <InboxTab />}
+      {tab === 'campaigns'  && <CampaignsTab />}
       {tab === 'connect'    && <ConnectTab />}
       {tab === 'templates'  && <TemplatesTab />}
       {tab === 'automation' && <AutomationTab />}
