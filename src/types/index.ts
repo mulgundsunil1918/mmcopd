@@ -499,6 +499,11 @@ export interface Settings {
   network_secret: string;
   /** Friendly name for THIS PC, e.g. "Reception Desk", "Cabin 1 — Dr. Patil". */
   station_name: string;
+  // QR codes on prescription page 2 (near follow-up box)
+  qr1_url: string;
+  qr1_label: string;
+  qr2_url: string;
+  qr2_label: string;
 }
 
 /** Live state of a patient's free-follow-up entitlement with a given doctor, used at booking time. */

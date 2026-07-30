@@ -74,6 +74,10 @@ export function getAllSettings(db: Database.Database): Settings {
     network_server_url: map.network_server_url || '',
     network_secret: map.network_secret || '',
     station_name: map.station_name || '',
+    qr1_url: map.qr1_url || '',
+    qr1_label: map.qr1_label || 'Visit Our Website',
+    qr2_url: map.qr2_url || '',
+    qr2_label: map.qr2_label || 'Find Us on Maps',
   };
 }
 

@@ -51,6 +51,9 @@ export function SettingsPage() {
               <SettingsGroup title="Clinic Identity" subtitle="Name, logo, address, contact details printed on every OPD slip.">
                 <ClinicInfo />
               </SettingsGroup>
+              <SettingsGroup title="Prescription QR Codes" subtitle="Show 1 or 2 QR codes on the prescription page 2 — e.g. website link and Google Maps location.">
+                <PrescriptionQr />
+              </SettingsGroup>
               <SettingsGroup title="App Mode" subtitle="Pick which modules are visible in the sidebar (Reception, Pharmacy, Doctor, Lab, IPD).">
                 <AppModeSelector />
               </SettingsGroup>
@@ -1013,6 +1016,67 @@ function ClinicInfo() {
         </div>
       </div>
     </section>
+  );
+}
+
+function PrescriptionQr() {
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { draft, set, reset, dirty, save, saving } = useSectionDraft(
+    settings,
+    ['qr1_url', 'qr1_label', 'qr2_url', 'qr2_label']
+  );
+
+  const hasQr1 = !!(draft.qr1_url);
+  const hasQr2 = !!(draft.qr2_url);
+  const neither = !hasQr1 && !hasQr2;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-gray-500 dark:text-slate-400">
+        Leave both URLs blank to hide QR codes. Add just QR 1 for a single code, or fill both for two codes side-by-side.
+      </p>
+
+      {/* QR 1 */}
+      <div className="border border-gray-200 dark:border-slate-700 rounded-lg p-4 space-y-3">
+        <div className="text-xs font-semibold text-gray-700 dark:text-slate-300 uppercase tracking-wide">QR Code 1</div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">URL</label>
+            <input className="input" value={draft.qr1_url ?? ''} onChange={(e) => set('qr1_url', e.target.value)} placeholder="https://yourclinic.com" />
+          </div>
+          <div>
+            <label className="label">Label (shown below QR)</label>
+            <input className="input" value={draft.qr1_label ?? ''} onChange={(e) => set('qr1_label', e.target.value)} placeholder="Visit Our Website" />
+          </div>
+        </div>
+      </div>
+
+      {/* QR 2 */}
+      <div className="border border-gray-200 dark:border-slate-700 rounded-lg p-4 space-y-3">
+        <div className="text-xs font-semibold text-gray-700 dark:text-slate-300 uppercase tracking-wide">QR Code 2</div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">URL</label>
+            <input className="input" value={draft.qr2_url ?? ''} onChange={(e) => set('qr2_url', e.target.value)} placeholder="https://maps.google.com/..." />
+          </div>
+          <div>
+            <label className="label">Label (shown below QR)</label>
+            <input className="input" value={draft.qr2_label ?? ''} onChange={(e) => set('qr2_label', e.target.value)} placeholder="Find Us on Maps" />
+          </div>
+        </div>
+      </div>
+
+      {neither && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">No URLs entered — QR codes will not appear on the prescription.</p>
+      )}
+
+      <div className="flex gap-3">
+        <button className="btn-primary text-sm" disabled={!dirty || saving} onClick={() => save()}>
+          {saving ? 'Saving…' : 'Save QR Settings'}
+        </button>
+        {dirty && <button className="btn-ghost text-sm" onClick={() => reset()}>Discard</button>}
+      </div>
+    </div>
   );
 }
 
