@@ -422,7 +422,7 @@ function BookAppointmentModal({
   const [apptDate, setApptDate] = useState(defaultDate);
   const [slot, setSlot] = useState<string>('');
   const [notes, setNotes] = useState('');
-  const [feeMode, setFeeMode] = useState<'regular' | 'special' | 'custom' | 'free_followup' | 'relaxed_followup'>('regular');
+  const [feeMode, setFeeMode] = useState<'regular' | 'special' | 'custom' | 'free_followup' | 'relaxed_followup' | null>(null);
   const [customFee, setCustomFee] = useState<string>('');
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('Cash');
   const [includeRegFee, setIncludeRegFee] = useState<boolean>(false);
@@ -435,7 +435,7 @@ function BookAppointmentModal({
     setPatientQuery('');
     setSlot('');
     setNotes('');
-    setFeeMode('regular');
+    setFeeMode(null);
     setCustomFee('');
     setPaymentMode('Cash');
     setIncludeRegFee(false);
@@ -475,7 +475,7 @@ function BookAppointmentModal({
   // override by clicking another fee tile. We only auto-snap once per eligibility flip.
   useEffect(() => {
     if (followup?.eligible) setFeeMode('free_followup');
-    else if (feeMode === 'free_followup') setFeeMode('regular');
+    else if (feeMode === 'free_followup') setFeeMode(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [followup?.eligible]);
 
@@ -493,9 +493,10 @@ function BookAppointmentModal({
     : feeMode === 'relaxed_followup' ? 0
     : feeMode === 'special' ? specialFee
     : feeMode === 'custom' ? Math.max(0, parseFloat(customFee || '0') || 0)
-    : regularFee;
+    : feeMode === 'regular' ? regularFee
+    : null;
   const regFeeAmount = includeRegFee ? (settings?.registration_fee_amount ?? 0) : 0;
-  const fee = consultationFee + regFeeAmount;
+  const fee = consultationFee !== null ? consultationFee + regFeeAmount : null;
 
   const { data: searchResults = [] } = useQuery({
     queryKey: ['patient-search-modal', patientQuery],
@@ -523,6 +524,7 @@ function BookAppointmentModal({
   const submit = async () => {
     if (!patient) return toast('Select a patient', 'error');
     if (!doctorId) return toast('Select a doctor', 'error');
+    if (feeMode === null) return toast('Please choose a payment amount — Regular, Special, or Custom', 'error');
 
     const chosenTime = (() => {
       if (slot) return slot;
@@ -545,9 +547,10 @@ function BookAppointmentModal({
         : feeMode === 'special' ? 'OPD Consultation (Special Price)'
         : feeMode === 'custom' ? 'OPD Consultation (Custom)'
         : 'OPD Consultation';
+      const resolvedFee = consultationFee ?? regularFee;
 
       const items = [
-        { description: feeLabel, qty: 1, rate: consultationFee, amount: consultationFee },
+        { description: feeLabel, qty: 1, rate: resolvedFee, amount: resolvedFee },
       ];
       if (includeRegFee && regFeeAmount > 0) {
         items.push({ description: 'Patient Registration Fee', qty: 1, rate: regFeeAmount, amount: regFeeAmount });
@@ -561,6 +564,7 @@ function BookAppointmentModal({
         payment_mode: paymentMode,
         is_free_followup: feeMode === 'free_followup' ? 1 : 0,
         is_relaxed_followup: feeMode === 'relaxed_followup' ? 1 : 0,
+
         followup_parent_appt_id: (feeMode === 'free_followup' || feeMode === 'relaxed_followup') ? (followup?.parent_appt_id ?? null) : null,
         marks_registration_fee_paid: includeRegFee ? 1 : 0,
       });
@@ -824,16 +828,26 @@ function BookAppointmentModal({
         )}
 
         {/* Upfront payment */}
-        <div className="card p-4 border-2 border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-900/10">
+        <div className={cn(
+          'card p-4 border-2',
+          feeMode === null
+            ? 'border-amber-400 dark:border-amber-500 bg-amber-50 dark:bg-amber-900/20 ring-2 ring-amber-300 dark:ring-amber-600 ring-offset-1'
+            : 'border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-900/10'
+        )}>
           <div className="flex items-center justify-between mb-3">
             <div>
               <div className="text-sm font-semibold text-amber-900 dark:text-amber-200">Payment at Registration</div>
-              <div className="text-[11px] text-amber-700 dark:text-amber-300">
-                Consultation {formatINR(consultationFee)}
-                {includeRegFee && ` + Registration ${formatINR(regFeeAmount)}`}
-              </div>
+              {feeMode === null
+                ? <div className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 animate-pulse">↓ Choose an amount to continue</div>
+                : <div className="text-[11px] text-amber-700 dark:text-amber-300">
+                    Consultation {formatINR(consultationFee ?? 0)}
+                    {includeRegFee && ` + Registration ${formatINR(regFeeAmount)}`}
+                  </div>
+              }
             </div>
-            <div className="text-2xl font-bold text-amber-700 dark:text-amber-300">{formatINR(fee)}</div>
+            <div className={cn('text-2xl font-bold', feeMode === null ? 'text-amber-400 dark:text-amber-500' : 'text-amber-700 dark:text-amber-300')}>
+              {fee !== null ? formatINR(fee) : '₹ —'}
+            </div>
           </div>
 
           <div className="grid grid-cols-3 gap-2">
@@ -908,7 +922,12 @@ function BookAppointmentModal({
 
         <div className="flex justify-end gap-2">
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-success" onClick={submit}>
+          <button
+            className={cn('btn-success', feeMode === null && 'opacity-40 cursor-not-allowed')}
+            onClick={submit}
+            disabled={feeMode === null}
+            title={feeMode === null ? 'Choose Regular, Special, or Custom amount first' : undefined}
+          >
             <CheckCircle2 className="w-4 h-4" /> Confirm & Print Slip
           </button>
         </div>
