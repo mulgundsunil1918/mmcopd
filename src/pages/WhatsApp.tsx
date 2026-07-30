@@ -59,8 +59,8 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-// Caredesk-hosted relay — clinics never need to deploy their own server.
-const CAREDESK_RELAY_URL = 'https://caredesk-relay.curedesk.workers.dev';
+// CureDesk-hosted relay — clinics never need to deploy their own server.
+const CAREDESK_RELAY_URL = 'https://curedesk-relay.curedesk.workers.dev';
 
 // ── Relay config panel (shown inside ConnectTab) ──────────────────────────────
 function RelayConfig({ accounts }: { accounts: any[] }) {
@@ -71,12 +71,9 @@ function RelayConfig({ accounts }: { accounts: any[] }) {
   const [secret, setSecret] = useState('');
 
   useEffect(() => {
-    if (cfg) {
-      setUrl(cfg.url || CAREDESK_RELAY_URL);
-      setSecret(cfg.secret || '');
-    } else {
-      setUrl(CAREDESK_RELAY_URL);
-    }
+    // Always use the hosted relay URL — ignore any old saved value
+    setUrl(CAREDESK_RELAY_URL);
+    if (cfg) setSecret(cfg.secret || '');
   }, [cfg]);
 
   const save = useMutation({
