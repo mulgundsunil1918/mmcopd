@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill, ShieldCheck, UserCircle2, Lock, Unlock, Activity, Syringe, ChevronLeft, Wifi, Server, Heart } from 'lucide-react';
+import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill, ShieldCheck, UserCircle2, Lock, Unlock, Activity, Syringe, ChevronLeft, Wifi, Server, Heart, MessageSquare } from 'lucide-react';
 
 const SUPPORT_URL = 'https://bridgr.co.in/support?from=curedesk';
 function openSupport() {
@@ -45,6 +45,7 @@ const NAV: NavItem2[] = [
   { to: '/analytics', label: 'Analytics', icon: Activity, color: 'text-indigo-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
   // Reports merged into Analytics → Operational Reports tab. Page kept reachable
   // by URL (/reports) but no sidebar entry. Re-enable here if you want it back.
+  { to: '/whatsapp', label: 'WhatsApp', icon: MessageSquare, color: 'text-green-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'], adminOnly: true },
   { to: '/notifications', label: 'Notifications', icon: Bell, color: 'text-pink-500', modes: ALL_MODES, roles: ['receptionist'] },
   { to: '/users', label: 'Users & Access', icon: ShieldCheck, color: 'text-indigo-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'], adminOnly: true },
   { to: '/settings', label: 'Settings', icon: SettingsIcon, color: 'text-slate-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'], adminOnly: true },

@@ -18,6 +18,7 @@ import { UsersPage } from './pages/Users';
 import { Reports } from './pages/Reports';
 import { Analytics } from './pages/Analytics';
 import { Miscellaneous } from './pages/Miscellaneous';
+import { WhatsApp } from './pages/WhatsApp';
 import { WelcomeWizard } from './components/WelcomeWizard';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -125,6 +126,7 @@ export default function App() {
         <Route path="/pharmacy" element={<Pharmacy />} />
         <Route path="/ipd" element={<IPD />} />
         <Route path="/notifications" element={<Notifications />} />
+        <Route path="/whatsapp" element={<WhatsApp />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/users" element={<UsersPage />} />
         <Route path="/reports" element={<Reports />} />
