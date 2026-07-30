@@ -60,7 +60,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 // Caredesk-hosted relay — clinics never need to deploy their own server.
-const CAREDESK_RELAY_URL = 'https://relay.caredesk.in';
+const CAREDESK_RELAY_URL = 'https://caredesk-relay.curedesk.workers.dev';
 
 // ── Relay config panel (shown inside ConnectTab) ──────────────────────────────
 function RelayConfig({ accounts }: { accounts: any[] }) {

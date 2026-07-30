@@ -238,7 +238,7 @@ function applyAutoLaunch(enabled: boolean, startMinimized: boolean): { ok: boole
     if (!app.isPackaged) {
       // In dev mode (npm start), app.getPath('exe') points at electron.exe inside
       // node_modules — registering that in the Windows Run key would launch a bare
-      // Electron, not CareDesk. Skip and tell the UI.
+      // Electron, not CureDesk. Skip and tell the UI.
       return { ok: false, reason: 'Auto-launch only takes effect in installed builds — running in dev mode (npm start) does NOT register with Windows. After installing the .exe, this will work.' };
     }
     const exePath = app.getPath('exe');

@@ -451,7 +451,7 @@ function BackupSettings() {
   };
 
   const pickBundleFolder = async () => {
-    const p = await window.electronAPI.dialog.pickFolder({ title: 'Pick a CareDesk backup bundle folder (caredesk-<timestamp>)' });
+    const p = await window.electronAPI.dialog.pickFolder({ title: 'Pick a CureDesk backup bundle folder (caredesk-<timestamp>)' });
     if (p) await openRestoreFor(p);
   };
   const pickSqliteFile = async () => {
@@ -484,7 +484,7 @@ function BackupSettings() {
       <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-4">
         Where the daily SQLite backup is written. Tip: install{' '}
         <a href="https://www.google.com/drive/download/" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Google Drive for Desktop</a>
-        {' '}and point this at a Drive-synced folder (e.g. <code className="font-mono">G:\My Drive\CareDesk Backups</code>) — files upload to the cloud automatically.
+        {' '}and point this at a Drive-synced folder (e.g. <code className="font-mono">G:\My Drive\CureDesk Backups</code>) — files upload to the cloud automatically.
       </p>
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2">
@@ -492,7 +492,7 @@ function BackupSettings() {
           <div className="flex gap-2">
             <input
               className="input font-mono text-xs flex-1"
-              placeholder="G:\My Drive\CareDesk Backups"
+              placeholder="G:\My Drive\CureDesk Backups"
               value={draft.backup_folder ?? ''}
               onChange={(e) => set('backup_folder', e.target.value)}
             />
@@ -508,7 +508,7 @@ function BackupSettings() {
             </button>
           </div>
           <div className="text-[11px] text-amber-700 dark:text-amber-300 mt-1">
-            ⚠ Must be a LOCAL folder on this PC (like <code>G:\My Drive\CareDesk Backups</code>). Google Drive web links (<code>drive.google.com/...</code>) don't work.
+            ⚠ Must be a LOCAL folder on this PC (like <code>G:\My Drive\CureDesk Backups</code>). Google Drive web links (<code>drive.google.com/...</code>) don't work.
           </div>
           <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-0.5">
             Leave blank to use the app's default folder (<code>%APPDATA%\CureDesk HMS\backups</code>).
@@ -1175,7 +1175,7 @@ function StartupBehavior() {
         <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Startup & Background Behavior</h2>
       </div>
       <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-4">
-        Run CareDesk silently in the background like Google Drive Desktop — opens with your PC, sits in the tray, ready when you need it.
+        Run CureDesk silently in the background like Google Drive Desktop — opens with your PC, sits in the tray, ready when you need it.
       </p>
 
       {/* Live OS-registration status pill */}
@@ -1201,7 +1201,7 @@ function StartupBehavior() {
 
       <div className="space-y-4">
         <ToggleRow
-          label="Start CareDesk with Windows"
+          label="Start CureDesk with Windows"
           subtitle="Launches automatically when you log into Windows. Recommended ON for clinics that keep the app running all day."
           checked={settings.auto_launch}
           onChange={(v) => save.mutate({ auto_launch: v })}

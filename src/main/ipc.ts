@@ -2620,7 +2620,7 @@ export function registerIpc() {
 
   function validateFolderPath(p: string): string | null {
     if (!p) return null;
-    if (/^https?:\/\//i.test(p.trim())) return 'Backup folder is a web URL (http/https). You need a LOCAL folder path like G:\\My Drive\\CareDesk Backups — install Google Drive for Desktop and use the folder it creates.';
+    if (/^https?:\/\//i.test(p.trim())) return 'Backup folder is a web URL (http/https). You need a LOCAL folder path like G:\\My Drive\\CureDesk Backups — install Google Drive for Desktop and use the folder it creates.';
     if (p.includes('drive.google.com')) return 'That is a Google Drive sharing link, not a folder on this PC. Install Google Drive for Desktop and point this at the synced folder (usually G:\\My Drive\\...).';
     return null;
   }
@@ -2833,12 +2833,12 @@ export function registerIpc() {
     const stat = fs.statSync(sourcePath);
     if (stat.isDirectory()) {
       const cand = path.join(sourcePath, 'caredesk.sqlite');
-      if (!fs.existsSync(cand)) return { ok: false, error: 'Folder does not contain caredesk.sqlite (not a valid CareDesk bundle)' };
+      if (!fs.existsSync(cand)) return { ok: false, error: 'Folder does not contain caredesk.sqlite (not a valid CureDesk bundle)' };
       const docsDir = path.join(sourcePath, 'documents');
       return { ok: true, sqlitePath: cand, docsDir: fs.existsSync(docsDir) && fs.statSync(docsDir).isDirectory() ? docsDir : null };
     }
     if (!sourcePath.toLowerCase().endsWith('.sqlite') && !sourcePath.toLowerCase().endsWith('.db')) {
-      return { ok: false, error: 'Pick a .sqlite file or a CareDesk bundle folder' };
+      return { ok: false, error: 'Pick a .sqlite file or a CureDesk bundle folder' };
     }
     return { ok: true, sqlitePath: sourcePath, docsDir: null };
   }
@@ -2912,14 +2912,14 @@ export function registerIpc() {
     if (stat.isDirectory()) {
       const candidate = path.join(sourcePath, 'caredesk.sqlite');
       if (!fs.existsSync(candidate)) {
-        return { ok: false, error: 'Folder does not contain caredesk.sqlite (not a valid CareDesk bundle)' };
+        return { ok: false, error: 'Folder does not contain caredesk.sqlite (not a valid CureDesk bundle)' };
       }
       sourceSqlite = candidate;
       const docsDir = path.join(sourcePath, 'documents');
       if (fs.existsSync(docsDir) && fs.statSync(docsDir).isDirectory()) sourceDocs = docsDir;
     } else {
       if (!sourcePath.toLowerCase().endsWith('.sqlite')) {
-        return { ok: false, error: 'Pick a .sqlite file or a CareDesk bundle folder' };
+        return { ok: false, error: 'Pick a .sqlite file or a CureDesk bundle folder' };
       }
       sourceSqlite = sourcePath;
     }
