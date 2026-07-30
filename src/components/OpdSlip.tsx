@@ -425,13 +425,13 @@ function PageOne({
       {/* Vitals strip — order: Temp, Pulse, RR, SpO2, BP, Weight, Height */}
       <Section title="Vitals">
         <div className="grid grid-cols-7 gap-2 mt-1 text-center">
-          <Vital label="Temp (°F)" value={vitals.temp} />
-          <Vital label="Pulse" value={vitals.pulse} />
-          <Vital label="RR" value={vitals.rr} />
-          <Vital label="SpO₂ (%)" value={vitals.spo2} />
-          <Vital label="BP (mmHg)" value={vitals.bp} />
-          <Vital label="Weight (kg)" value={vitals.weight} />
-          <Vital label="Height (cm)" value={vitals.height} />
+          <Vital label="Temp" unit="°F" value={vitals.temp} />
+          <Vital label="Pulse" unit="bpm" value={vitals.pulse} />
+          <Vital label="RR" unit="cpm" value={vitals.rr} />
+          <Vital label="SpO₂" unit="%" value={vitals.spo2} />
+          <Vital label="BP" unit="mmHg" value={vitals.bp} />
+          <Vital label="Weight" unit="kg" value={vitals.weight} />
+          <Vital label="Height" unit="cm" value={vitals.height} />
         </div>
       </Section>
 
@@ -651,11 +651,13 @@ function Section({ title, children, grow = false }: { title: string; children: R
   );
 }
 
-function Vital({ label, value }: { label: string; value?: string }) {
+function Vital({ label, unit, value }: { label: string; unit?: string; value?: string }) {
   return (
     <div className="border border-gray-200 rounded py-1 px-1">
-      <div className="text-[12px] uppercase tracking-wider" style={{ color: '#64748b' }}>{label}</div>
-      <div className="text-sm font-semibold mt-0.5 min-h-[18px]" style={{ color: '#0f172a' }}>{value || '\u00A0'}</div>
+      <div className="text-[11px] tracking-wide whitespace-nowrap text-center" style={{ color: '#64748b' }}>
+        {label}{unit && <span className="text-[9px] ml-0.5">({unit})</span>}
+      </div>
+      <div className="text-sm font-semibold mt-0.5 min-h-[18px] text-center" style={{ color: '#0f172a' }}>{value || '\u00A0'}</div>
     </div>
   );
 }
