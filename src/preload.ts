@@ -594,6 +594,10 @@ const api = {
       ipcRenderer.invoke('wa:webhookToken', accountId) as Promise<string | null>,
     ingestWebhookEvents: (accountId: number, events: Array<{ event_type: string; payload: unknown }>) =>
       ipcRenderer.invoke('wa:ingestWebhookEvents', accountId, events) as Promise<{ ok: boolean; ingested: number }>,
+    relayConfig: () =>
+      ipcRenderer.invoke('wa:relayConfig') as Promise<{ url: string; secret: string }>,
+    setRelayConfig: (url: string, secret: string) =>
+      ipcRenderer.invoke('wa:setRelayConfig', url, secret) as Promise<{ ok: boolean }>,
   },
 };
 

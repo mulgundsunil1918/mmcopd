@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   MessageSquare, Plug, PlugZap, RefreshCw, Zap, ListChecks,
@@ -41,6 +41,63 @@ function StatusBadge({ status }: { status: string }) {
     <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold', map[status] ?? map.disconnected)}>
       {icon[status] ?? null} {status}
     </span>
+  );
+}
+
+// ── Relay config panel (shown inside ConnectTab) ──────────────────────────────
+function RelayConfig({ accounts }: { accounts: any[] }) {
+  const toast = useToast();
+  const { data: cfg } = useQuery({ queryKey: ['wa:relayConfig'], queryFn: () => window.electronAPI.wa.relayConfig() });
+  const [url, setUrl] = useState('');
+  const [secret, setSecret] = useState('');
+  useEffect(() => { if (cfg) { setUrl(cfg.url || ''); setSecret(cfg.secret || ''); } }, [cfg]);
+
+  const save = useMutation({
+    mutationFn: () => window.electronAPI.wa.setRelayConfig(url, secret),
+    onSuccess: () => toast('Relay config saved'),
+    onError: (e: any) => toast(e.message || 'Save failed', 'error'),
+  });
+
+  return (
+    <div className="card p-4 space-y-3">
+      <h2 className="font-semibold text-sm text-gray-800 dark:text-slate-100">Webhook Relay Server</h2>
+      <p className="text-xs text-gray-500 dark:text-slate-400">
+        Meta sends webhook events (delivery receipts, inbound messages) to a public URL. CureDesk polls that server every 60s.
+        Deploy <code className="bg-gray-100 dark:bg-slate-700 px-1 rounded">relay-server/</code> on Railway (free tier), set the env vars below, then paste the URL here.
+      </p>
+
+      {/* Env vars to set on Railway */}
+      <div className="bg-gray-50 dark:bg-slate-800 rounded p-3 text-xs font-mono space-y-1">
+        <p className="text-gray-500 dark:text-slate-400"># Railway env vars:</p>
+        {accounts[0] && <>
+          <p className="text-gray-800 dark:text-slate-200">VERIFY_TOKEN=<span className="text-emerald-600 dark:text-emerald-400 select-all">{accounts[0].webhook_verify_token}</span></p>
+          <p className="text-gray-800 dark:text-slate-200">PHONE_NUMBER_ID=<span className="text-emerald-600 dark:text-emerald-400 select-all">{accounts[0].phone_number_id}</span></p>
+        </>}
+        <p className="text-gray-800 dark:text-slate-200">SECRET=<span className="text-amber-600 dark:text-amber-400">(set a random string, paste below)</span></p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs font-medium text-gray-600 dark:text-slate-400 block mb-1">Relay URL</label>
+          <input className="input w-full" placeholder="https://your-relay.railway.app" value={url} onChange={(e) => setUrl(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-600 dark:text-slate-400 block mb-1">Poll Secret (match SERVER env var)</label>
+          <input className="input w-full font-mono text-xs" type="password" placeholder="random-secret-string" value={secret} onChange={(e) => setSecret(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button className="btn-primary text-xs" disabled={save.isPending} onClick={() => save.mutate()}>
+          {save.isPending ? 'Saving…' : 'Save Relay Config'}
+        </button>
+        {cfg?.url && <span className="text-xs text-emerald-600 dark:text-emerald-400">✓ Relay configured — polling every 60s</span>}
+      </div>
+
+      <p className="text-xs text-gray-400 dark:text-slate-500">
+        Meta Developer Console → WhatsApp → Webhook: set Callback URL to <strong>{url || 'https://your-relay.railway.app'}/webhook</strong> and Verify Token to the VERIFY_TOKEN above.
+      </p>
+    </div>
   );
 }
 
@@ -179,23 +236,8 @@ function ConnectTab() {
         )}
       </div>
 
-      {/* Webhook relay setup guide */}
-      {accounts.length > 0 && (
-        <div className="card p-4 space-y-3">
-          <h2 className="font-semibold text-sm text-gray-800 dark:text-slate-100">Webhook Relay Setup</h2>
-          <p className="text-xs text-gray-500 dark:text-slate-400">
-            Meta sends webhook events to a public server. CureDesk polls that server every 60s to fetch delivery receipts and inbound messages.
-            Deploy the relay server on Railway or Render (free tier), then paste your relay URL in Meta's Developer Console.
-          </p>
-          {accounts[0] && (
-            <div className="bg-gray-50 dark:bg-slate-800 rounded p-3 text-xs font-mono space-y-1">
-              <p className="text-gray-500 dark:text-slate-400"># Set these environment variables on your relay server:</p>
-              <p className="text-gray-800 dark:text-slate-200">VERIFY_TOKEN=<span className="text-blue-600 dark:text-blue-400 select-all">{accounts[0].webhook_verify_token}</span></p>
-              <p className="text-gray-800 dark:text-slate-200">PHONE_NUMBER_ID=<span className="text-blue-600 dark:text-blue-400 select-all">{accounts[0].phone_number_id}</span></p>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Webhook relay setup */}
+      {accounts.length > 0 && <RelayConfig accounts={accounts} />}
     </div>
   );
 }

@@ -208,6 +208,20 @@ export function registerWhatsAppIpc() {
     processWebhookEvents(db());
     return { ok: true, ingested: events.length };
   });
+
+  // ── Relay server URL & secret (stored in settings table) ─────────────────
+  ipcMain.handle('wa:relayConfig', () => {
+    const d = db();
+    const get = (k: string) => (d.prepare(`SELECT value FROM settings WHERE key=?`).get(k) as { value: string } | undefined)?.value ?? '';
+    return { url: get('wa_relay_url'), secret: get('wa_relay_secret') };
+  });
+  ipcMain.handle('wa:setRelayConfig', (_e, url: string, secret: string) => {
+    const d = db();
+    const upsert = d.prepare(`INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`);
+    upsert.run('wa_relay_url', url);
+    upsert.run('wa_relay_secret', secret);
+    return { ok: true };
+  });
 }
 
 // ── Process unprocessed webhook events (status updates, inbound messages) ──
@@ -235,6 +249,49 @@ function processWebhookEvents(db: Database.Database) {
       console.error('[WA webhook] process error', e);
     }
     markDone.run(ev.id);
+  }
+}
+
+/** Poll the relay server for new webhook events and ingest them. Called from main.ts every 60s. */
+export async function pollRelayServer(): Promise<void> {
+  const d = getDb();
+  const get = (k: string) => (d.prepare(`SELECT value FROM settings WHERE key=?`).get(k) as { value: string } | undefined)?.value ?? '';
+  const relayUrl = get('wa_relay_url');
+  const secret   = get('wa_relay_secret');
+  if (!relayUrl) return;
+
+  const accounts = d.prepare(`SELECT id, phone_number_id FROM wa_accounts WHERE status='connected'`).all() as { id: number; phone_number_id: string }[];
+  if (accounts.length === 0) return;
+
+  for (const acct of accounts) {
+    const lastSince = (() => {
+      const row = d.prepare(`SELECT value FROM settings WHERE key=?`).get(`wa_relay_since_${acct.id}`) as { value: string } | undefined;
+      return parseInt(row?.value || '0', 10);
+    })();
+
+    try {
+      const headers: Record<string, string> = { 'Accept': 'application/json' };
+      if (secret) headers['x-poll-secret'] = secret;
+      const res = await fetch(`${relayUrl}/poll/${acct.phone_number_id}?since=${lastSince}`, { headers });
+      if (!res.ok) continue;
+      const data = await res.json() as { events: Array<{ type: string; payload: unknown; ts: number }>; server_ts: number };
+
+      if (data.events.length > 0) {
+        const insert = d.prepare(`INSERT INTO wa_webhook_events (account_id, event_type, payload, processed) VALUES (?,?,?,0)`);
+        const tx = d.transaction(() => {
+          for (const ev of data.events) insert.run(acct.id, ev.type, JSON.stringify(ev.payload));
+        });
+        tx();
+        processWebhookEvents(d);
+      }
+
+      // Advance the since cursor to the latest event's timestamp
+      const maxTs = data.events.reduce((m, e) => Math.max(m, e.ts), lastSince);
+      d.prepare(`INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`)
+       .run(`wa_relay_since_${acct.id}`, String(maxTs));
+    } catch (e) {
+      console.warn('[WA relay poll]', acct.phone_number_id, e);
+    }
   }
 }
 
