@@ -5,12 +5,15 @@ import {
   CheckCircle2, XCircle, AlertCircle, Clock, Send, Inbox,
   CheckCheck, User, Megaphone, Plus, Trash2, Play, Eye,
   ChevronDown, Sparkles, Star, BookOpen, ChevronRight, X, BarChart2,
+  Smartphone, Cloud, FileText, Calendar, Pill, Receipt, TestTube, RotateCcw, Cake, ThumbsUp, Syringe,
 } from 'lucide-react';
 import { cn, fmtDateTime } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
+import { buildWhatsAppUrl, renderTemplate, DEFAULT_WHATSAPP_TEMPLATE } from '../lib/whatsapp';
 import type { WaAutomationTrigger } from '../types/whatsapp';
 
 type Tab = 'dashboard' | 'connect' | 'templates' | 'automation' | 'queue' | 'inbox' | 'campaigns' | 'broadcast';
+type ActiveModule = 'module1' | 'module2';
 
 function safeClipboard(text: string) {
   navigator.clipboard.writeText(text).catch(() => {
@@ -2257,7 +2260,277 @@ function GuidePanel({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ── Dashboard tab ─────────────────────────────────────────────────────────────
+// ── Module 1 — WhatsApp Business App ─────────────────────────────────────────
+function Module1Section() {
+  const toast = useToast();
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+
+  // Manual quick-send state
+  const [phone, setPhone] = useState('');
+  const [msgType, setMsgType] = useState<'appointment' | 'prescription' | 'lab' | 'bill' | 'custom'>('appointment');
+  const [customMsg, setCustomMsg] = useState('');
+  const [sentLog, setSentLog] = useState<{ phone: string; type: string; time: string }[]>([]);
+
+  const MESSAGE_TYPES = [
+    { key: 'appointment', label: 'Appointment Reminder', icon: <Calendar className="w-4 h-4" />, color: 'emerald',
+      getText: (s: any) => `Hello 👋\n\nThis is a reminder for your appointment at *${s?.clinic_name || 'our clinic'}*.\n\nPlease arrive 10 minutes early.\n\n📍 ${s?.clinic_address || ''}\n\nThank you,\n*${s?.clinic_name || 'The Clinic Team'}*` },
+    { key: 'prescription', label: 'Prescription Ready', icon: <Pill className="w-4 h-4" />, color: 'blue',
+      getText: (s: any) => `Hello 👋\n\nYour prescription is ready. Please collect it from *${s?.clinic_name || 'our clinic'}* at your earliest convenience.\n\nThank you,\n*${s?.clinic_name || 'The Clinic Team'}*` },
+    { key: 'lab', label: 'Lab Report Ready', icon: <TestTube className="w-4 h-4" />, color: 'purple',
+      getText: (s: any) => `Hello 👋\n\nYour lab report is ready. Please collect it from *${s?.clinic_name || 'our clinic'}*.\n\nThank you,\n*${s?.clinic_name || 'The Clinic Team'}*` },
+    { key: 'bill', label: 'Bill / Receipt', icon: <Receipt className="w-4 h-4" />, color: 'amber',
+      getText: (s: any) => `Hello 👋\n\nThank you for visiting *${s?.clinic_name || 'us'}*. Please find your bill attached.\n\nFor any queries, contact us at ${s?.clinic_phone || ''}.\n\nThank you!` },
+    { key: 'custom', label: 'Custom Message', icon: <MessageSquare className="w-4 h-4" />, color: 'gray',
+      getText: () => customMsg },
+  ] as const;
+
+  const currentType = MESSAGE_TYPES.find(t => t.key === msgType)!;
+  const message = msgType === 'custom' ? customMsg : currentType.getText(settings);
+
+  const openWhatsApp = async () => {
+    if (!phone.trim()) { toast('Enter a phone number', 'error'); return; }
+    if (!message.trim()) { toast('Message is empty', 'error'); return; }
+    const url = buildWhatsAppUrl(phone.trim(), message, settings?.whatsapp_country_code || '91');
+    if (!url) { toast('Invalid phone number', 'error'); return; }
+    const res = await window.electronAPI.app.openExternal(url);
+    if (res.ok) {
+      toast('WhatsApp opened — press Send there to deliver the message', 'success');
+      setSentLog(prev => [{ phone: phone.trim(), type: currentType.label, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 9)]);
+    } else {
+      toast(res.error || 'Could not open WhatsApp', 'error');
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* How it works banner */}
+      <div className="rounded-xl p-4 flex gap-4 items-start" style={{ background: 'linear-gradient(135deg,#f0fdf4,#dcfce7)' }}>
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0" style={{ background: '#25D366' }}>📱</div>
+        <div>
+          <p className="font-bold text-emerald-800 text-sm mb-1">Module 1 — WhatsApp Business App</p>
+          <p className="text-xs text-emerald-700 leading-relaxed">
+            Uses the WhatsApp app already on your phone. CureDesk opens WhatsApp with the message pre-typed —
+            you just press <strong>Send</strong>. No Meta credentials, no separate number, completely free.
+          </p>
+          <div className="flex gap-2 mt-2 flex-wrap">
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-800 font-semibold">✓ No setup</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-800 font-semibold">✓ Existing number</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-800 font-semibold">✓ Free forever</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-white text-emerald-700 font-semibold border border-emerald-300">Manual Send</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-5">
+        {/* Quick Send Panel */}
+        <div className="card p-5 space-y-4">
+          <h3 className="font-bold text-sm text-gray-800 dark:text-slate-100 flex items-center gap-2">
+            <Send className="w-4 h-4 text-emerald-500" /> Quick Send
+          </h3>
+
+          {/* Message type picker */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2">Message Type</p>
+            <div className="space-y-1.5">
+              {MESSAGE_TYPES.map(t => (
+                <button key={t.key} onClick={() => setMsgType(t.key as any)}
+                  className={cn(
+                    'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-left transition-all text-sm font-medium',
+                    msgType === t.key
+                      ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300'
+                      : 'border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-400 hover:border-emerald-300',
+                  )}>
+                  <span className={cn('w-6 h-6 rounded-md flex items-center justify-center',
+                    msgType === t.key ? 'bg-emerald-500 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-400')}>
+                    {t.icon}
+                  </span>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Phone input */}
+          <div>
+            <label className="label">Patient Phone Number</label>
+            <input className="input w-full" placeholder="9876543210 or +91 98765 43210"
+              value={phone} onChange={e => setPhone(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && openWhatsApp()} />
+          </div>
+
+          {/* Custom message textarea */}
+          {msgType === 'custom' && (
+            <div>
+              <label className="label">Custom Message</label>
+              <textarea className="input w-full resize-none" rows={4} placeholder="Type your message here…"
+                value={customMsg} onChange={e => setCustomMsg(e.target.value)} />
+            </div>
+          )}
+
+          <button onClick={openWhatsApp}
+            disabled={!phone.trim() || !message.trim()}
+            className="w-full py-2.5 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ background: '#25D366' }}>
+            📱 Open in WhatsApp
+          </button>
+          <p className="text-[10px] text-center text-gray-400 dark:text-slate-500">
+            WhatsApp will open with the message pre-typed · You press Send
+          </p>
+        </div>
+
+        <div className="space-y-4">
+          {/* Message Preview */}
+          <div className="card p-4">
+            <p className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">Message Preview</p>
+            <div className="rounded-xl rounded-tl-none p-3 text-sm leading-relaxed whitespace-pre-wrap" style={{ background: '#dcf8c6', color: '#111' }}>
+              {message || <span className="text-gray-400 italic">Select a message type above…</span>}
+            </div>
+            <p className="text-[10px] text-gray-400 mt-2">This is exactly what the patient will receive</p>
+          </div>
+
+          {/* Where M1 buttons live in the app */}
+          <div className="card p-4">
+            <p className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">Send from Patient Profile</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400 mb-3">WhatsApp buttons appear throughout the app — no need to come here.</p>
+            <div className="space-y-2">
+              {[
+                { icon: '📋', label: 'OPD / Reception', desc: 'Green WA button on each appointment row' },
+                { icon: '👤', label: 'Patient Profile', desc: 'Send reminder, prescription, or lab report' },
+                { icon: '🧾', label: 'Billing', desc: 'Send invoice/receipt via WhatsApp' },
+                { icon: '🔬', label: 'Lab', desc: 'Notify patient when report is ready' },
+              ].map(item => (
+                <div key={item.label} className="flex items-center gap-3 py-1.5 border-b border-gray-100 dark:border-slate-700/50 last:border-0">
+                  <span className="text-base">{item.icon}</span>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{item.label}</p>
+                    <p className="text-[10px] text-gray-400">{item.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Recent sends log */}
+      {sentLog.length > 0 && (
+        <div className="card p-4">
+          <p className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">Recent Sends This Session</p>
+          <div className="space-y-0">
+            {sentLog.map((entry, i) => (
+              <div key={i} className="flex items-center gap-3 py-2 border-b border-gray-100 dark:border-slate-700/50 last:border-0">
+                <span className="text-lg">📤</span>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{entry.phone}</p>
+                  <p className="text-[10px] text-gray-400">{entry.type}</p>
+                </div>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-medium">↗ Opened WA</span>
+                <span className="text-[10px] text-gray-400">{entry.time}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Supported message types */}
+      <div className="card p-5">
+        <p className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-4">What You Can Send via WA Business App</p>
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { icon: '📅', title: 'Appointment Confirmation', desc: 'Sent when booking is done' },
+            { icon: '⏰', title: 'Appointment Reminder', desc: 'Send manually before appointment' },
+            { icon: '💊', title: 'Prescription', desc: 'Share PDF or text summary' },
+            { icon: '🧾', title: 'Invoice / Bill', desc: 'Share bill as PDF' },
+            { icon: '🧪', title: 'Lab Report', desc: 'Notify when report is ready' },
+            { icon: '📈', title: 'Growth Chart', desc: 'Share child growth chart' },
+          ].map(item => (
+            <div key={item.title} className="rounded-lg p-3 bg-gray-50 dark:bg-slate-800/40 border border-gray-100 dark:border-slate-700">
+              <span className="text-xl">{item.icon}</span>
+              <p className="text-xs font-semibold text-gray-700 dark:text-slate-200 mt-2">{item.title}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">{item.desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Module 2 — Cloud API section ─────────────────────────────────────────────
+function Module2Section() {
+  const [tab, setTab] = useState<Tab>('inbox');
+  const { data: accounts = [] } = useQuery({ queryKey: ['wa:accounts'], queryFn: () => window.electronAPI.wa.accounts(), refetchInterval: 60_000 });
+  const isConnected = (accounts as any[]).some((a: any) => a.status === 'connected');
+
+  const M2_TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
+    { key: 'inbox',      label: 'Inbox',        icon: <Inbox className="w-3.5 h-3.5" /> },
+    { key: 'broadcast',  label: 'Mass Message', icon: <Megaphone className="w-3.5 h-3.5" /> },
+    { key: 'campaigns',  label: 'Campaigns',    icon: <BarChart2 className="w-3.5 h-3.5" /> },
+    { key: 'automation', label: 'Automation',   icon: <Zap className="w-3.5 h-3.5" /> },
+    { key: 'templates',  label: 'Templates',    icon: <ListChecks className="w-3.5 h-3.5" /> },
+    { key: 'queue',      label: 'Queue',        icon: <Send className="w-3.5 h-3.5" /> },
+    { key: 'connect',    label: 'Cloud Setup',  icon: <PlugZap className="w-3.5 h-3.5" /> },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* Module 2 header */}
+      <div className="rounded-xl p-4 flex gap-4 items-start" style={{ background: 'linear-gradient(135deg,#eef2ff,#e0e7ff)' }}>
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 bg-indigo-500">☁️</div>
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <p className="font-bold text-indigo-800 text-sm">Module 2 — WhatsApp Cloud API</p>
+            {isConnected
+              ? <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-200 text-indigo-800 font-semibold">✓ Connected</span>
+              : <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">⚠ Not set up</span>}
+          </div>
+          <p className="text-xs text-indigo-700 leading-relaxed">
+            Full automation via Meta's Cloud API. Messages send themselves — reminders, prescriptions, birthday wishes —
+            plus a full inbox to receive and reply to patient messages.
+          </p>
+          <div className="flex gap-2 mt-2 flex-wrap">
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-200 text-indigo-800 font-semibold">✓ Fully automated</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-200 text-indigo-800 font-semibold">✓ Inbox + replies</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-200 text-indigo-800 font-semibold">✓ Read receipts</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-white text-indigo-700 font-semibold border border-indigo-300">Separate number needed</span>
+          </div>
+        </div>
+        {!isConnected && (
+          <button onClick={() => setTab('connect')}
+            className="shrink-0 px-3 py-2 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">
+            Set Up →
+          </button>
+        )}
+      </div>
+
+      {/* M2 Sub-tabs */}
+      <div className="flex gap-1 border-b border-gray-200 dark:border-slate-700 overflow-x-auto">
+        {M2_TABS.map(({ key, label, icon }) => (
+          <button key={key} onClick={() => setTab(key)}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap -mb-px',
+              tab === key
+                ? 'border-indigo-500 text-indigo-700 dark:text-indigo-400'
+                : 'border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200',
+            )}>
+            {icon} {label}
+          </button>
+        ))}
+      </div>
+
+      {/* M2 Tab content */}
+      {tab === 'inbox'      && <InboxTab />}
+      {tab === 'broadcast'  && <BroadcastTab />}
+      {tab === 'campaigns'  && <CampaignsTab />}
+      {tab === 'connect'    && <ConnectTab />}
+      {tab === 'templates'  && <TemplatesTab />}
+      {tab === 'automation' && <AutomationTab />}
+      {tab === 'queue'      && <QueueTab />}
+    </div>
+  );
+}
+
+// ── Dashboard tab (kept for reference, now replaced by two-module view) ───────
 function DashboardTab({ onNavigate }: { onNavigate: (t: Tab) => void }) {
   const { data: accounts = [] } = useQuery({ queryKey: ['wa:accounts'], queryFn: () => window.electronAPI.wa.accounts(), refetchInterval: 60_000 });
   const activeAccountId: number | null = (accounts as any[])[0]?.id ?? null;
@@ -2437,29 +2710,16 @@ function DashboardTab({ onNavigate }: { onNavigate: (t: Tab) => void }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export function WhatsApp() {
-  const [tab, setTab] = useState<Tab>('dashboard');
+  const [activeModule, setActiveModule] = useState<ActiveModule>('module1');
   const [showGuide, setShowGuide] = useState(false);
-
-  const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
-    { key: 'dashboard',  label: 'Dashboard',    icon: <BarChart2 className="w-4 h-4" /> },
-    { key: 'inbox',      label: 'Inbox',        icon: <Inbox className="w-4 h-4" /> },
-    { key: 'broadcast',  label: 'Mass Message', icon: <Megaphone className="w-4 h-4" /> },
-    { key: 'campaigns',  label: 'Campaigns',    icon: <CheckCheck className="w-4 h-4" /> },
-    { key: 'automation', label: 'Automation',   icon: <Zap className="w-4 h-4" /> },
-    { key: 'templates',  label: 'Templates',    icon: <ListChecks className="w-4 h-4" /> },
-    { key: 'queue',      label: 'Queue',        icon: <Send className="w-4 h-4" /> },
-    { key: 'connect',    label: 'Cloud Setup',  icon: <PlugZap className="w-4 h-4" /> },
-  ];
 
   return (
     <div className="relative">
       {showGuide && <GuidePanel onClose={() => setShowGuide(false)} />}
 
       {/* ── Hero banner ── */}
-      <div
-        className="px-6 pt-6 pb-5"
-        style={{ background: 'linear-gradient(135deg, #075E54 0%, #128C7E 55%, #25D366 100%)' }}
-      >
+      <div className="px-6 pt-6 pb-5"
+        style={{ background: 'linear-gradient(135deg, #075E54 0%, #128C7E 55%, #25D366 100%)' }}>
         <div className="flex items-start justify-between">
           <div>
             <div className="text-[10px] font-bold tracking-widest text-white/60 uppercase mb-1">CureDesk HMS</div>
@@ -2467,61 +2727,83 @@ export function WhatsApp() {
               <MessageSquare className="w-5 h-5" /> Communication Center
             </h1>
             <p className="text-sm text-white/75 mt-1">
-              WhatsApp-powered patient messaging — automation, inbox, and campaigns.
+              Two independent WhatsApp integration modes — choose the one that fits your clinic.
             </p>
-            <div className="flex gap-2 flex-wrap mt-3">
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-white/20 text-white">📱 WA Business App</span>
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-white/20 text-white">☁️ Cloud API</span>
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-white/20 text-white">📋 Templates</span>
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-white/20 text-white">📊 Campaigns</span>
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-white/20 text-white">🔔 Automation</span>
-            </div>
           </div>
           <button
+            onClick={() => setShowGuide(v => !v)}
             className={cn(
               'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors shrink-0',
-              showGuide
-                ? 'bg-white text-emerald-700'
-                : 'bg-white/20 hover:bg-white/30 text-white border border-white/30',
-            )}
-            onClick={() => setShowGuide(v => !v)}
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            Help Guide
+              showGuide ? 'bg-white text-emerald-700' : 'bg-white/20 hover:bg-white/30 text-white border border-white/30',
+            )}>
+            <BookOpen className="w-3.5 h-3.5" /> Help Guide
+          </button>
+        </div>
+
+        {/* ── Module switcher (inside banner) ── */}
+        <div className="grid grid-cols-2 gap-3 mt-5">
+          {/* Module 1 card */}
+          <button onClick={() => setActiveModule('module1')}
+            className={cn(
+              'rounded-xl p-4 text-left transition-all border-2',
+              activeModule === 'module1'
+                ? 'border-white bg-white/25 shadow-lg scale-[1.01]'
+                : 'border-white/20 bg-white/10 hover:bg-white/15',
+            )}>
+            <div className="flex items-center gap-2.5 mb-2">
+              <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center text-base">📱</div>
+              <div>
+                <p className="text-sm font-bold text-white">WA Business App</p>
+                <p className="text-[10px] text-white/70">Module 1</p>
+              </div>
+              {activeModule === 'module1' && (
+                <CheckCircle2 className="w-4 h-4 text-white ml-auto shrink-0" />
+              )}
+            </div>
+            <p className="text-[11px] text-white/80 leading-relaxed">
+              Zero setup · Use your existing number · You press Send manually in WhatsApp
+            </p>
+            <div className="flex gap-1.5 mt-2 flex-wrap">
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/20 text-white font-medium">✓ Free</span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/20 text-white font-medium">✓ No approval</span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/20 text-white font-medium">✓ Existing number</span>
+            </div>
+          </button>
+
+          {/* Module 2 card */}
+          <button onClick={() => setActiveModule('module2')}
+            className={cn(
+              'rounded-xl p-4 text-left transition-all border-2',
+              activeModule === 'module2'
+                ? 'border-white bg-white/25 shadow-lg scale-[1.01]'
+                : 'border-white/20 bg-white/10 hover:bg-white/15',
+            )}>
+            <div className="flex items-center gap-2.5 mb-2">
+              <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center text-base">☁️</div>
+              <div>
+                <p className="text-sm font-bold text-white">Cloud API</p>
+                <p className="text-[10px] text-white/70">Module 2</p>
+              </div>
+              {activeModule === 'module2' && (
+                <CheckCircle2 className="w-4 h-4 text-white ml-auto shrink-0" />
+              )}
+            </div>
+            <p className="text-[11px] text-white/80 leading-relaxed">
+              Full automation · Inbox · Campaigns · Messages send themselves
+            </p>
+            <div className="flex gap-1.5 mt-2 flex-wrap">
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/20 text-white font-medium">✓ Auto reminders</span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/20 text-white font-medium">✓ Inbox</span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/20 text-white font-medium">✓ Read receipts</span>
+            </div>
           </button>
         </div>
       </div>
 
-      {/* ── Tab bar ── */}
-      <div className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 shadow-sm">
-        <div className="px-6 flex gap-0.5 overflow-x-auto">
-          {TABS.map(({ key, label, icon }) => (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              className={cn(
-                'flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap -mb-px',
-                tab === key
-                  ? 'border-green-500 text-green-700 dark:text-green-400 bg-green-50/50 dark:bg-green-900/10'
-                  : 'border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200 hover:border-gray-200 dark:hover:border-slate-600',
-              )}
-            >
-              {icon} {label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Tab content ── */}
-      <div className="p-6 space-y-5">
-        {tab === 'dashboard'  && <DashboardTab onNavigate={setTab} />}
-        {tab === 'inbox'      && <InboxTab />}
-        {tab === 'broadcast'  && <BroadcastTab />}
-        {tab === 'campaigns'  && <CampaignsTab />}
-        {tab === 'connect'    && <ConnectTab />}
-        {tab === 'templates'  && <TemplatesTab />}
-        {tab === 'automation' && <AutomationTab />}
-        {tab === 'queue'      && <QueueTab />}
+      {/* ── Module content ── */}
+      <div className="p-6">
+        {activeModule === 'module1' && <Module1Section />}
+        {activeModule === 'module2' && <Module2Section />}
       </div>
     </div>
   );
