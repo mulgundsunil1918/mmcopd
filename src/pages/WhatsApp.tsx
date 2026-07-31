@@ -10,7 +10,7 @@ import { cn, fmtDateTime } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import type { WaAutomationTrigger } from '../types/whatsapp';
 
-type Tab = 'connect' | 'templates' | 'automation' | 'queue' | 'inbox' | 'campaigns' | 'broadcast';
+type Tab = 'dashboard' | 'connect' | 'templates' | 'automation' | 'queue' | 'inbox' | 'campaigns' | 'broadcast';
 
 function safeClipboard(text: string) {
   navigator.clipboard.writeText(text).catch(() => {
@@ -2257,73 +2257,272 @@ function GuidePanel({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
-export function WhatsApp() {
-  const [tab, setTab] = useState<Tab>('inbox');
-  const [showGuide, setShowGuide] = useState(false);
+// ── Dashboard tab ─────────────────────────────────────────────────────────────
+function DashboardTab({ onNavigate }: { onNavigate: (t: Tab) => void }) {
+  const { data: accounts = [] } = useQuery({ queryKey: ['wa:accounts'], queryFn: () => window.electronAPI.wa.accounts(), refetchInterval: 60_000 });
+  const activeAccountId: number | null = (accounts as any[])[0]?.id ?? null;
 
-  const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
-    { key: 'inbox',      label: 'Inbox',         icon: <Inbox className="w-4 h-4" /> },
-    { key: 'broadcast',  label: 'Mass Message',  icon: <Megaphone className="w-4 h-4" /> },
-    { key: 'campaigns',  label: 'Campaigns',     icon: <BarChart2 className="w-4 h-4" /> },
-    { key: 'connect',    label: 'Connect',       icon: <PlugZap className="w-4 h-4" /> },
-    { key: 'templates',  label: 'Templates',     icon: <ListChecks className="w-4 h-4" /> },
-    { key: 'automation', label: 'Automation',    icon: <Zap className="w-4 h-4" /> },
-    { key: 'queue',      label: 'Queue',         icon: <Send className="w-4 h-4" /> },
+  const { data: stats } = useQuery({
+    queryKey: ['wa:queueStats', activeAccountId],
+    queryFn: () => activeAccountId ? window.electronAPI.wa.queueStats(activeAccountId) : null,
+    enabled: !!activeAccountId,
+    refetchInterval: 30_000,
+  });
+
+  const { data: conversations = [] } = useQuery({
+    queryKey: ['wa:conversations', activeAccountId, 'open'],
+    queryFn: () => activeAccountId ? window.electronAPI.wa.conversations(activeAccountId, 'open') : [],
+    enabled: !!activeAccountId,
+    refetchInterval: 30_000,
+  });
+
+  const isConnected = (accounts as any[]).some((a: any) => a.status === 'connected');
+  const unreadCount = (conversations as any[]).filter((c: any) => (c.unread_count ?? 0) > 0).length;
+
+  const statCards = [
+    { label: 'Sent Today',       value: stats?.sent_today    ?? '—', icon: '📤', color: 'text-emerald-600 dark:text-emerald-400' },
+    { label: 'Pending',          value: stats?.pending       ?? '—', icon: '⏳', color: 'text-amber-600 dark:text-amber-400' },
+    { label: 'Failed Today',     value: stats?.failed_today  ?? '—', icon: '⚠️', color: 'text-red-500 dark:text-red-400' },
+    { label: 'Unread Messages',  value: unreadCount,                 icon: '💬', color: 'text-blue-600 dark:text-blue-400' },
   ];
 
   return (
-    <div className="p-6 space-y-5 relative">
-      {showGuide && <GuidePanel onClose={() => setShowGuide(false)} />}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-2">
-            <MessageSquare className="w-5 h-5 text-green-600" /> Communication
-          </h1>
-          <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
-            WhatsApp-powered patient communication — inbox, broadcasts, automation and campaigns.
-          </p>
-        </div>
-        <button
-          className={cn(
-            'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
-            showGuide
-              ? 'bg-green-600 text-white border-green-600'
-              : 'border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20',
-          )}
-          onClick={() => setShowGuide(v => !v)}
-        >
-          <BookOpen className="w-3.5 h-3.5" />
-          How to Use
-        </button>
-      </div>
-
-      {/* Tab bar */}
-      <div className="flex gap-1 border-b border-gray-200 dark:border-slate-700">
-        {TABS.map(({ key, label, icon }) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px',
-              tab === key
-                ? 'border-green-500 text-green-700 dark:text-green-400'
-                : 'border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200'
-            )}
-          >
-            {icon} {label}
-          </button>
+    <div className="space-y-5">
+      {/* Stat cards */}
+      <div className="grid grid-cols-4 gap-4">
+        {statCards.map(({ label, value, icon, color }) => (
+          <div key={label} className="card p-4 flex flex-col gap-2">
+            <span className="text-xl">{icon}</span>
+            <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">{label}</p>
+            <p className={cn('text-3xl font-extrabold tabular-nums', color)}>{value}</p>
+          </div>
         ))}
       </div>
 
-      {/* Tab content */}
-      {tab === 'inbox'      && <InboxTab />}
-      {tab === 'broadcast'  && <BroadcastTab />}
-      {tab === 'campaigns'  && <CampaignsTab />}
-      {tab === 'connect'    && <ConnectTab />}
-      {tab === 'templates'  && <TemplatesTab />}
-      {tab === 'automation' && <AutomationTab />}
-      {tab === 'queue'      && <QueueTab />}
+      <div className="grid grid-cols-2 gap-5">
+        {/* Quick actions */}
+        <div className="space-y-3">
+          <h3 className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide">Quick Actions</h3>
+
+          <button onClick={() => onNavigate('broadcast')}
+            className="w-full card p-4 flex items-center gap-3 hover:border-rose-300 dark:hover:border-rose-700 hover:bg-rose-50/50 dark:hover:bg-rose-900/10 transition-all text-left">
+            <span className="text-xl">📣</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-gray-800 dark:text-slate-100">Mass Message / Broadcast</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400">Festival wishes, health camps, offers to all patients</p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />
+          </button>
+
+          <button onClick={() => onNavigate('automation')}
+            className="w-full card p-4 flex items-center gap-3 hover:border-amber-300 dark:hover:border-amber-700 hover:bg-amber-50/50 dark:hover:bg-amber-900/10 transition-all text-left">
+            <span className="text-xl">⚡</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-gray-800 dark:text-slate-100">Automation Rules</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400">Appointment reminders, prescriptions, birthday wishes</p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />
+          </button>
+
+          <button onClick={() => onNavigate('inbox')}
+            className="w-full card p-4 flex items-center gap-3 hover:border-green-300 dark:hover:border-green-700 hover:bg-green-50/50 dark:hover:bg-green-900/10 transition-all text-left">
+            <span className="text-xl">💬</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-gray-800 dark:text-slate-100">Patient Inbox</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400">
+                {unreadCount > 0 ? <span className="text-green-600 dark:text-green-400 font-semibold">{unreadCount} unread</span> : 'All conversations'}
+              </p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />
+          </button>
+
+          <button onClick={() => onNavigate('campaigns')}
+            className="w-full card p-4 flex items-center gap-3 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition-all text-left">
+            <span className="text-xl">📊</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-gray-800 dark:text-slate-100">Campaign Manager</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400">Track sent campaigns and delivery stats</p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />
+          </button>
+        </div>
+
+        {/* Connection + automation status */}
+        <div className="space-y-3">
+          <h3 className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide">Module Status</h3>
+
+          {/* M1 — always available */}
+          <div className="card p-4 border-l-4 border-l-emerald-500">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center text-lg shrink-0" style={{ background: '#25D366' }}>📱</div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm font-semibold text-gray-800 dark:text-slate-100">WA Business App</p>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 font-semibold">✓ Always On</span>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-slate-400">One-click sends from patient profile — no setup needed. Works with your existing WhatsApp number.</p>
+              </div>
+            </div>
+          </div>
+
+          {/* M2 — Cloud API */}
+          <div className={cn('card p-4 border-l-4', isConnected ? 'border-l-indigo-500' : 'border-l-gray-300 dark:border-l-slate-600')}>
+            <div className="flex items-start gap-3">
+              <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center text-lg shrink-0', isConnected ? 'bg-indigo-500' : 'bg-gray-200 dark:bg-slate-700')}>☁️</div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm font-semibold text-gray-800 dark:text-slate-100">Cloud API</p>
+                  {isConnected
+                    ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 font-semibold">✓ Connected</span>
+                    : <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-400 font-semibold">Not set up</span>}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-slate-400">
+                  {isConnected
+                    ? `${(accounts as any[]).length} number(s) connected · Full automation active`
+                    : 'Enable for automated reminders, inbox, and delivery receipts.'}
+                </p>
+                {!isConnected && (
+                  <button onClick={() => onNavigate('connect')} className="mt-2 text-xs text-indigo-600 dark:text-indigo-400 font-semibold hover:underline">
+                    Set up Cloud API →
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* How-to summary */}
+          <div className="card p-4 bg-blue-50/60 dark:bg-blue-900/10 border-blue-100 dark:border-blue-800">
+            <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-2">💡 How it works</p>
+            <ul className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
+              <li>• <strong>WA Business App</strong> — send from patient profile with one click, you press Send in WhatsApp</li>
+              <li>• <strong>Cloud API</strong> — fully automated: reminders send themselves, inbox + read receipts</li>
+              <li>• Both modules share the same template library and patient history</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      {/* Automation triggers summary */}
+      <div className="card p-5">
+        <h3 className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-4">Automation Triggers Available</h3>
+        <div className="grid grid-cols-2 gap-2">
+          {TRIGGERS.map(({ key, label, desc }) => (
+            <div key={key} className="flex items-start gap-2.5 p-3 rounded-lg bg-gray-50 dark:bg-slate-800/50">
+              <span className="text-base shrink-0">
+                {key.includes('appointment_created') ? '📅' :
+                 key.includes('reminder') ? '⏰' :
+                 key.includes('prescription') ? '💊' :
+                 key.includes('lab') ? '🧪' :
+                 key.includes('bill') ? '🧾' :
+                 key.includes('followup') ? '🔁' :
+                 key.includes('birthday') ? '🎂' :
+                 key.includes('feedback') ? '⭐' :
+                 key.includes('vaccination') ? '💉' : '📩'}
+              </span>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-gray-700 dark:text-slate-200">{label}</p>
+                <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5 leading-relaxed">{desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+        <button onClick={() => onNavigate('automation')}
+          className="mt-4 w-full py-2 rounded-lg border border-amber-200 dark:border-amber-800 text-xs font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors flex items-center justify-center gap-2">
+          <Zap className="w-3.5 h-3.5" /> Configure Automation Rules
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+export function WhatsApp() {
+  const [tab, setTab] = useState<Tab>('dashboard');
+  const [showGuide, setShowGuide] = useState(false);
+
+  const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
+    { key: 'dashboard',  label: 'Dashboard',    icon: <BarChart2 className="w-4 h-4" /> },
+    { key: 'inbox',      label: 'Inbox',        icon: <Inbox className="w-4 h-4" /> },
+    { key: 'broadcast',  label: 'Mass Message', icon: <Megaphone className="w-4 h-4" /> },
+    { key: 'campaigns',  label: 'Campaigns',    icon: <CheckCheck className="w-4 h-4" /> },
+    { key: 'automation', label: 'Automation',   icon: <Zap className="w-4 h-4" /> },
+    { key: 'templates',  label: 'Templates',    icon: <ListChecks className="w-4 h-4" /> },
+    { key: 'queue',      label: 'Queue',        icon: <Send className="w-4 h-4" /> },
+    { key: 'connect',    label: 'Cloud Setup',  icon: <PlugZap className="w-4 h-4" /> },
+  ];
+
+  return (
+    <div className="relative">
+      {showGuide && <GuidePanel onClose={() => setShowGuide(false)} />}
+
+      {/* ── Hero banner ── */}
+      <div
+        className="px-6 pt-6 pb-5"
+        style={{ background: 'linear-gradient(135deg, #075E54 0%, #128C7E 55%, #25D366 100%)' }}
+      >
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="text-[10px] font-bold tracking-widest text-white/60 uppercase mb-1">CureDesk HMS</div>
+            <h1 className="text-xl font-extrabold text-white flex items-center gap-2">
+              <MessageSquare className="w-5 h-5" /> Communication Center
+            </h1>
+            <p className="text-sm text-white/75 mt-1">
+              WhatsApp-powered patient messaging — automation, inbox, and campaigns.
+            </p>
+            <div className="flex gap-2 flex-wrap mt-3">
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-white/20 text-white">📱 WA Business App</span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-white/20 text-white">☁️ Cloud API</span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-white/20 text-white">📋 Templates</span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-white/20 text-white">📊 Campaigns</span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-white/20 text-white">🔔 Automation</span>
+            </div>
+          </div>
+          <button
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors shrink-0',
+              showGuide
+                ? 'bg-white text-emerald-700'
+                : 'bg-white/20 hover:bg-white/30 text-white border border-white/30',
+            )}
+            onClick={() => setShowGuide(v => !v)}
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            Help Guide
+          </button>
+        </div>
+      </div>
+
+      {/* ── Tab bar ── */}
+      <div className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 shadow-sm">
+        <div className="px-6 flex gap-0.5 overflow-x-auto">
+          {TABS.map(({ key, label, icon }) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={cn(
+                'flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap -mb-px',
+                tab === key
+                  ? 'border-green-500 text-green-700 dark:text-green-400 bg-green-50/50 dark:bg-green-900/10'
+                  : 'border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200 hover:border-gray-200 dark:hover:border-slate-600',
+              )}
+            >
+              {icon} {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Tab content ── */}
+      <div className="p-6 space-y-5">
+        {tab === 'dashboard'  && <DashboardTab onNavigate={setTab} />}
+        {tab === 'inbox'      && <InboxTab />}
+        {tab === 'broadcast'  && <BroadcastTab />}
+        {tab === 'campaigns'  && <CampaignsTab />}
+        {tab === 'connect'    && <ConnectTab />}
+        {tab === 'templates'  && <TemplatesTab />}
+        {tab === 'automation' && <AutomationTab />}
+        {tab === 'queue'      && <QueueTab />}
+      </div>
     </div>
   );
 }
