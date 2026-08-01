@@ -108,6 +108,10 @@ export function runMigrations(db: Database.Database) {
   // consultation in extra_fields_json. The "header / vitals / signature / follow-up"
   // wrappers on the printed slip are unchanged — only the body sections are template-driven.
   addColumnIfMissing(db, 'doctors', 'template_id', 'INTEGER');
+  // v2+ — each doctor can have up to 3 named template slots (New Patient / Follow-up / Procedure).
+  addColumnIfMissing(db, 'doctors', 'template_id_2', 'INTEGER');
+  addColumnIfMissing(db, 'doctors', 'template_id_3', 'INTEGER');
+  addColumnIfMissing(db, 'doctors', 'template_slot_names', 'TEXT');
   addColumnIfMissing(db, 'consultations', 'extra_fields_json', 'TEXT');
   setSettingIfEmpty(db, 'slip_templates', JSON.stringify(DEFAULT_SLIP_TEMPLATES));
 

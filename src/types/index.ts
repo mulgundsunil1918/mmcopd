@@ -59,8 +59,12 @@ export interface Doctor {
   /** Optional daily availability window. HH:MM 24h. Empty = always available. */
   available_from?: string | null;
   available_to?: string | null;
-  /** Which OPD-slip body template this doctor uses on consultation + slip. */
+  /** OPD-slip template slots — up to 3 per doctor (e.g. New Patient / Follow-up / Procedure). */
   template_id?: number | null;
+  template_id_2?: number | null;
+  template_id_3?: number | null;
+  /** JSON-encoded array of 3 user-editable slot names, e.g. ["New Patient","Follow-up","Procedure"]. */
+  template_slot_names?: string | null;
 }
 
 export type SlipSectionType = 'textarea' | 'singleline' | 'date' | 'number' | 'dropdown';
@@ -73,11 +77,25 @@ export interface SlipTemplateSection {
   options?: string[];
   printed?: boolean;
 }
+export interface SlipLayout {
+  pages: 1 | 2;
+  logoSize: 'none' | 'small' | 'medium' | 'large';
+  headerStyle: 'full' | 'compact';
+  fontSize: number;
+  showVitals: boolean;
+  showRxTable: boolean;
+  showSignature: boolean;
+  showQrCodes: boolean;
+  showFollowupBox: boolean;
+  page1Keys: string[];
+  page2Keys: string[];
+}
 export interface SlipTemplate {
   id: number;
   name: string;
   specialty_hint?: string;
   sections: SlipTemplateSection[];
+  layout?: SlipLayout;
 }
 
 export interface Appointment {
