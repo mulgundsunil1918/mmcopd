@@ -229,6 +229,11 @@ function ConnectTab() {
         {showForm && (
           <div className="border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4 bg-blue-50/50 dark:bg-blue-900/10 space-y-3">
             <p className="text-xs text-blue-700 dark:text-blue-400 font-medium">Enter your Meta WhatsApp Cloud API credentials</p>
+            <div className="rounded-lg bg-amber-50 dark:bg-amber-900/15 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-700 dark:text-amber-300 space-y-1">
+              <p className="font-semibold">Which number should I connect?</p>
+              <p>You can try connecting your <strong>existing WhatsApp Business App number</strong>. After connecting, open the WhatsApp Business App on that phone — if it still works normally, <strong>coexistence is enabled</strong> and you have both manual sends + automation on one number.</p>
+              <p>If the app stops working after connecting, Meta has migrated the number to API-only mode. In that case, get a <strong>new SIM or landline number</strong> specifically for the clinic's automation.</p>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-medium text-gray-600 dark:text-slate-400 block mb-1">Phone Number ID</label>
@@ -429,8 +434,16 @@ function AutomationTab() {
   const toast = useToast();
   const qc = useQueryClient();
   const { data: accounts = [] } = useQuery({ queryKey: ['wa:accounts'], queryFn: () => window.electronAPI.wa.accounts() });
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   const [accountId, setAccountId] = useState<number | null>(null);
+  const [reviewLinkDraft, setReviewLinkDraft] = useState<string | null>(null);
   const activeAccountId = accountId ?? (accounts[0]?.id ?? null);
+
+  const saveReviewLink = useMutation({
+    mutationFn: (url: string) => window.electronAPI.settings.save({ google_review_url: url }),
+    onSuccess: () => { toast('Google Review link saved'); qc.invalidateQueries({ queryKey: ['settings'] }); setReviewLinkDraft(null); },
+    onError: () => toast('Could not save link', 'error'),
+  });
 
   const { data: rules = [], isLoading } = useQuery({
     queryKey: ['wa:automationRules', activeAccountId],
@@ -485,6 +498,9 @@ function AutomationTab() {
               const isEnabled = rule?.is_enabled === 1 || rule?.is_enabled === true;
               const templateName = rule?.template_name ?? '';
 
+              const isFeedback = key === 'feedback_request';
+              const currentReviewLink = reviewLinkDraft ?? settings?.google_review_url ?? '';
+
               return (
                 <div key={key} className={cn('border rounded-lg p-3 transition-colors', isEnabled ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10' : 'border-gray-200 dark:border-slate-700')}>
                   <div className="flex items-start justify-between gap-4">
@@ -520,6 +536,37 @@ function AutomationTab() {
                       </button>
                     </div>
                   </div>
+
+                  {/* Google Review URL field — only on feedback_request trigger */}
+                  {isFeedback && (
+                    <div className="mt-3 pt-3 border-t border-yellow-200 dark:border-yellow-800/50">
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <Star className="w-3 h-3 text-yellow-500" />
+                        <span className="text-[11px] font-semibold text-yellow-700 dark:text-yellow-400">Google Review Link</span>
+                        {settings?.google_review_url && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 font-medium">✓ Set</span>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          className="input flex-1 text-xs"
+                          placeholder="https://g.page/r/your-clinic-review-link"
+                          value={reviewLinkDraft ?? (settings?.google_review_url ?? '')}
+                          onChange={e => setReviewLinkDraft(e.target.value)}
+                        />
+                        <button
+                          onClick={() => saveReviewLink.mutate(currentReviewLink)}
+                          disabled={saveReviewLink.isPending || !currentReviewLink.trim()}
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-yellow-500 hover:bg-yellow-600 text-white disabled:opacity-40 transition-colors whitespace-nowrap"
+                        >
+                          {saveReviewLink.isPending ? 'Saving…' : 'Save'}
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1">
+                        This link is included in the automated review request message sent after each appointment.
+                      </p>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1989,7 +2036,7 @@ function GuidePanel({ onClose }: { onClose: () => void }) {
             <li>• A phone number to use as your WhatsApp Business number (can be a new SIM or existing landline)</li>
             <li>• Internet connection on the computer running CureDesk</li>
           </ul>
-          <Tip>Your existing personal WhatsApp number cannot be used here — it would need to be migrated and you'd lose your chats. It's better to get a new number specifically for the clinic.</Tip>
+          <Tip>You may be able to use your existing WhatsApp Business App number here. After connecting, open the WhatsApp Business App — if it still works, Meta has enabled <strong>coexistence</strong> and you keep both. If the app stops, you'll need a new number for the API. When in doubt, try your existing number first.</Tip>
         </Accordion>
 
         {/* ── SETUP ── */}
@@ -2006,6 +2053,11 @@ function GuidePanel({ onClose }: { onClose: () => void }) {
           </Step>
           <Step n={5}>Go to <strong>Business Settings → System Users → Add</strong>. Create a user with Admin role. Click <strong>Generate New Token</strong>, select your app, enable <Code>whatsapp_business_messaging</Code> and <Code>whatsapp_business_management</Code> permissions. Copy the token — this is your <strong>Access Token</strong>.</Step>
           <Warn>The temporary access token shown on the API Setup page expires in 24 hours. Always generate a Permanent token via System Users — otherwise automation will stop working.</Warn>
+          <Q q="Can I use my existing clinic WhatsApp number?">
+            <p>Possibly yes — Meta introduced <strong>coexistence mode</strong> in 2023, which lets some accounts use the same number on both the WhatsApp Business App and the Cloud API simultaneously.</p>
+            <p className="mt-1"><strong>How to check:</strong> Connect your existing number using the steps above. Then open the WhatsApp Business App on that phone. If the app still works normally — coexistence is on and you're good. If the app shows an error or stops working — Meta has migrated the number to API-only and you'll need a separate number.</p>
+            <Tip>Try your existing number first. If it works, you save yourself a new SIM.</Tip>
+          </Q>
 
           <p className="font-semibold text-gray-700 dark:text-slate-200 mt-1">Step 2 — Connect in CureDesk</p>
           <Step n={1}>Open the <strong>Connect</strong> tab above.</Step>
@@ -2089,7 +2141,7 @@ function GuidePanel({ onClose }: { onClose: () => void }) {
               { name: 'Bill Generated', icon: '🧾', when: 'Fires when reception creates a new bill. Variables include total amount and payment mode.', note: '' },
               { name: 'Follow-up Reminder', icon: '🔁', when: 'Fires 3 days before the follow-up date set on a consultation note.', note: '' },
               { name: 'Birthday Wish', icon: '🎂', when: 'Fires every morning to patients whose birthday is today (matches date of birth in patient record).', note: '' },
-              { name: 'Experience & Review', icon: '⭐', when: 'Fires 2–4 hours after an appointment is marked Done. Sends a feedback + Google Review request.', note: 'Requires Google Review URL in Settings → Clinic Info.' },
+              { name: 'Experience & Review', icon: '⭐', when: 'Fires 2–4 hours after an appointment is marked Done. Sends a feedback + Google Review request.', note: 'Set your Google Review link in the Automation tab (Experience & Review row) or in Settings → Clinic Info.' },
               { name: 'Vaccination Reminder', icon: '💉', when: 'Fires 27–30 days after a bill that contains "vacc" in its line items (indicating a vaccination was given).', note: 'Perfect for multi-dose vaccines like Hepatitis B.' },
             ].map((t) => (
               <div key={t.name} className="bg-gray-50 dark:bg-slate-800/50 rounded-lg p-2.5">
@@ -2164,13 +2216,21 @@ function GuidePanel({ onClose }: { onClose: () => void }) {
             <Step n={5}>Open <strong>Settings → Clinic Info → Google Review URL</strong> in CureDesk and paste it. Save.</Step>
           </Q>
           <Q q="How do I send a Rate Us request to a patient?">
-            <p>Two ways:</p>
+            <p>Three ways:</p>
             <ul className="space-y-1 pl-3">
-              <li>• <strong>Manually</strong>: Open a conversation in the Inbox → click the <strong>⭐ Rate Us</strong> button in the conversation header. A WhatsApp message with the review link is sent.</li>
-              <li>• <strong>Automatically</strong>: Enable the <strong>Experience & Review</strong> automation trigger. It sends the message automatically 2–4 hours after every appointment completion.</li>
+              <li>• <strong>Module 1 — Manual quick send</strong>: Switch to <strong>WhatsApp Business</strong> (Module 1), select <strong>Google Review Request</strong> as the message type, enter the patient's number, and click Open in WhatsApp. You press Send in the app.</li>
+              <li>• <strong>Module 2 — Inbox button</strong>: Open a conversation in the Inbox → click the <strong>⭐ Rate Us</strong> button in the conversation header.</li>
+              <li>• <strong>Module 2 — Automated</strong>: Enable the <strong>Experience & Review</strong> trigger in the Automation tab. Sends automatically 2–4 hours after every appointment completion — no action needed.</li>
             </ul>
           </Q>
-          <Warn>The Rate Us button uses a free-text message (not a template), so it only works within the 24-hour window after the patient last messaged you. The automation trigger uses an approved template so it works anytime.</Warn>
+          <Q q="Where do I set the Google Review link?">
+            <p>Two places — both save to the same setting:</p>
+            <ul className="space-y-1 pl-3 mt-1">
+              <li>• <strong>In WhatsApp</strong>: Module 1 → select Google Review Request → the link field appears below the message preview. Or Module 2 → Automation tab → Experience & Review row has a link field.</li>
+              <li>• <strong>In Settings</strong>: Settings → Clinic Info → Google Review URL.</li>
+            </ul>
+          </Q>
+          <Warn>Module 1 uses a free-text message (not a template), so it opens WhatsApp for you to press Send manually. Module 2's automation trigger uses an approved Meta template so it sends itself anytime, no window restriction.</Warn>
         </Accordion>
 
         {/* ── PRICING ── */}
@@ -2263,13 +2323,24 @@ function GuidePanel({ onClose }: { onClose: () => void }) {
 // ── Module 1 — WhatsApp Business App ─────────────────────────────────────────
 function Module1Section() {
   const toast = useToast();
+  const qc = useQueryClient();
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
 
   // Manual quick-send state
   const [phone, setPhone] = useState('');
-  const [msgType, setMsgType] = useState<'appointment' | 'prescription' | 'lab' | 'bill' | 'custom'>('appointment');
+  const [msgType, setMsgType] = useState<'appointment' | 'prescription' | 'lab' | 'bill' | 'custom' | 'google_review'>('appointment');
   const [customMsg, setCustomMsg] = useState('');
+  const [editedMsg, setEditedMsg] = useState<string | null>(null);
   const [sentLog, setSentLog] = useState<{ phone: string; type: string; time: string }[]>([]);
+  const [reviewLinkDraft, setReviewLinkDraft] = useState<string | null>(null);
+
+  const reviewLink = reviewLinkDraft ?? settings?.google_review_url ?? '';
+
+  const saveReviewLink = useMutation({
+    mutationFn: (url: string) => window.electronAPI.settings.save({ google_review_url: url }),
+    onSuccess: () => { toast('Google Review link saved'); qc.invalidateQueries({ queryKey: ['settings'] }); setReviewLinkDraft(null); },
+    onError: () => toast('Could not save link', 'error'),
+  });
 
   const MESSAGE_TYPES = [
     { key: 'appointment', label: 'Appointment Reminder', icon: <Calendar className="w-4 h-4" />, color: 'emerald',
@@ -2280,12 +2351,15 @@ function Module1Section() {
       getText: (s: any) => `Hello 👋\n\nYour lab report is ready. Please collect it from *${s?.clinic_name || 'our clinic'}*.\n\nThank you,\n*${s?.clinic_name || 'The Clinic Team'}*` },
     { key: 'bill', label: 'Bill / Receipt', icon: <Receipt className="w-4 h-4" />, color: 'amber',
       getText: (s: any) => `Hello 👋\n\nThank you for visiting *${s?.clinic_name || 'us'}*. Please find your bill attached.\n\nFor any queries, contact us at ${s?.clinic_phone || ''}.\n\nThank you!` },
+    { key: 'google_review', label: 'Google Review Request', icon: <Star className="w-4 h-4" />, color: 'yellow',
+      getText: (s: any) => `Hello 👋\n\nThank you for visiting *${s?.clinic_name || 'our clinic'}*! We hope you had a wonderful experience.\n\nWe'd love to hear your feedback. Could you take a moment to leave us a Google review? It means a lot to us! 🙏\n\n⭐ ${reviewLink || '[Add your Google Review link below]'}\n\nThank you!\n*${s?.clinic_name || 'The Clinic Team'}*` },
     { key: 'custom', label: 'Custom Message', icon: <MessageSquare className="w-4 h-4" />, color: 'gray',
       getText: () => customMsg },
   ] as const;
 
   const currentType = MESSAGE_TYPES.find(t => t.key === msgType)!;
-  const message = msgType === 'custom' ? customMsg : currentType.getText(settings);
+  const templateText = msgType === 'custom' ? customMsg : currentType.getText(settings);
+  const message = editedMsg !== null ? editedMsg : templateText;
 
   const openWhatsApp = async () => {
     if (!phone.trim()) { toast('Enter a phone number', 'error'); return; }
@@ -2307,7 +2381,7 @@ function Module1Section() {
       <div className="rounded-xl p-4 flex gap-4 items-start" style={{ background: 'linear-gradient(135deg,#f0fdf4,#dcfce7)' }}>
         <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0" style={{ background: '#25D366' }}>📱</div>
         <div>
-          <p className="font-bold text-emerald-800 text-sm mb-1">Module 1 — WhatsApp Business App</p>
+          <p className="font-bold text-emerald-800 text-sm mb-1">Module 1 — WhatsApp Business</p>
           <p className="text-xs text-emerald-700 leading-relaxed">
             Uses the WhatsApp app already on your phone. CureDesk opens WhatsApp with the message pre-typed —
             you just press <strong>Send</strong>. No Meta credentials, no separate number, completely free.
@@ -2333,7 +2407,7 @@ function Module1Section() {
             <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2">Message Type</p>
             <div className="space-y-1.5">
               {MESSAGE_TYPES.map(t => (
-                <button key={t.key} onClick={() => setMsgType(t.key as any)}
+                <button key={t.key} onClick={() => { setMsgType(t.key as any); setEditedMsg(null); }}
                   className={cn(
                     'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-left transition-all text-sm font-medium',
                     msgType === t.key
@@ -2358,15 +2432,6 @@ function Module1Section() {
               onKeyDown={e => e.key === 'Enter' && openWhatsApp()} />
           </div>
 
-          {/* Custom message textarea */}
-          {msgType === 'custom' && (
-            <div>
-              <label className="label">Custom Message</label>
-              <textarea className="input w-full resize-none" rows={4} placeholder="Type your message here…"
-                value={customMsg} onChange={e => setCustomMsg(e.target.value)} />
-            </div>
-          )}
-
           <button onClick={openWhatsApp}
             disabled={!phone.trim() || !message.trim()}
             className="w-full py-2.5 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
@@ -2381,12 +2446,56 @@ function Module1Section() {
         <div className="space-y-4">
           {/* Message Preview */}
           <div className="card p-4">
-            <p className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-3">Message Preview</p>
-            <div className="rounded-xl rounded-tl-none p-3 text-sm leading-relaxed whitespace-pre-wrap" style={{ background: '#dcf8c6', color: '#111' }}>
-              {message || <span className="text-gray-400 italic">Select a message type above…</span>}
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide">Message Preview</p>
+              {editedMsg !== null && (
+                <button onClick={() => setEditedMsg(null)}
+                  className="text-[10px] text-emerald-600 hover:underline font-medium">Reset to template</button>
+              )}
             </div>
-            <p className="text-[10px] text-gray-400 mt-2">This is exactly what the patient will receive</p>
+            <textarea
+              className="w-full resize-none rounded-xl rounded-tl-none p-3 text-sm leading-relaxed outline-none border-0 focus:ring-2 focus:ring-emerald-400"
+              style={{ background: '#dcf8c6', color: '#111', minHeight: 140 }}
+              rows={6}
+              placeholder="Select a message type…"
+              value={message}
+              onChange={e => setEditedMsg(e.target.value)}
+            />
+            <p className="text-[10px] text-gray-400 mt-1">
+              {editedMsg !== null ? '✏️ Edited — this is what will be sent' : 'Edit the message above before sending'}
+            </p>
           </div>
+
+          {/* Google Review link editor — shown when google_review type is selected */}
+          {msgType === 'google_review' && (
+            <div className="card p-4 border-yellow-200 dark:border-yellow-800 bg-yellow-50/60 dark:bg-yellow-900/10">
+              <div className="flex items-center gap-2 mb-2">
+                <Star className="w-3.5 h-3.5 text-yellow-500" />
+                <p className="text-xs font-bold text-yellow-800 dark:text-yellow-300">Google Review Link</p>
+              </div>
+              <p className="text-[10px] text-yellow-700 dark:text-yellow-400 mb-2 leading-relaxed">
+                Paste your clinic's Google Review URL here. It will be included in the message automatically.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  className="input flex-1 text-xs"
+                  placeholder="https://g.page/r/your-clinic-review-link"
+                  value={reviewLinkDraft ?? (settings?.google_review_url ?? '')}
+                  onChange={e => { setReviewLinkDraft(e.target.value); setEditedMsg(null); }}
+                />
+                <button
+                  onClick={() => saveReviewLink.mutate(reviewLink)}
+                  disabled={saveReviewLink.isPending || !reviewLink.trim()}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-yellow-500 hover:bg-yellow-600 text-white disabled:opacity-40 transition-colors whitespace-nowrap"
+                >
+                  {saveReviewLink.isPending ? 'Saving…' : 'Save Link'}
+                </button>
+              </div>
+              {settings?.google_review_url && (
+                <p className="text-[10px] text-yellow-600 dark:text-yellow-500 mt-1.5">✓ Saved: {settings.google_review_url}</p>
+              )}
+            </div>
+          )}
 
           {/* Where M1 buttons live in the app */}
           <div className="card p-4">
@@ -2434,7 +2543,7 @@ function Module1Section() {
 
       {/* Supported message types */}
       <div className="card p-5">
-        <p className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-4">What You Can Send via WA Business App</p>
+        <p className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-4">What You Can Send — WhatsApp Business</p>
         <div className="grid grid-cols-3 gap-3">
           {[
             { icon: '📅', title: 'Appointment Confirmation', desc: 'Sent when booking is done' },
@@ -2479,7 +2588,7 @@ function Module2Section() {
         <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 bg-indigo-500">☁️</div>
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
-            <p className="font-bold text-indigo-800 text-sm">Module 2 — WhatsApp Cloud API</p>
+            <p className="font-bold text-indigo-800 text-sm">Module 2 — WhatsApp Automation</p>
             {isConnected
               ? <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-200 text-indigo-800 font-semibold">✓ Connected</span>
               : <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">⚠ Not set up</span>}
@@ -2492,7 +2601,7 @@ function Module2Section() {
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-200 text-indigo-800 font-semibold">✓ Fully automated</span>
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-200 text-indigo-800 font-semibold">✓ Inbox + replies</span>
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-200 text-indigo-800 font-semibold">✓ Read receipts</span>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-white text-indigo-700 font-semibold border border-indigo-300">Separate number needed</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-white text-indigo-700 font-semibold border border-indigo-300">May work with existing number</span>
           </div>
         </div>
         {!isConnected && (
@@ -2630,7 +2739,7 @@ function DashboardTab({ onNavigate }: { onNavigate: (t: Tab) => void }) {
               <div className="w-9 h-9 rounded-xl flex items-center justify-center text-lg shrink-0" style={{ background: '#25D366' }}>📱</div>
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
-                  <p className="text-sm font-semibold text-gray-800 dark:text-slate-100">WA Business App</p>
+                  <p className="text-sm font-semibold text-gray-800 dark:text-slate-100">WhatsApp Business</p>
                   <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 font-semibold">✓ Always On</span>
                 </div>
                 <p className="text-xs text-gray-500 dark:text-slate-400">One-click sends from patient profile — no setup needed. Works with your existing WhatsApp number.</p>
@@ -2644,7 +2753,7 @@ function DashboardTab({ onNavigate }: { onNavigate: (t: Tab) => void }) {
               <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center text-lg shrink-0', isConnected ? 'bg-indigo-500' : 'bg-gray-200 dark:bg-slate-700')}>☁️</div>
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
-                  <p className="text-sm font-semibold text-gray-800 dark:text-slate-100">Cloud API</p>
+                  <p className="text-sm font-semibold text-gray-800 dark:text-slate-100">WhatsApp Automation</p>
                   {isConnected
                     ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 font-semibold">✓ Connected</span>
                     : <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-slate-400 font-semibold">Not set up</span>}
@@ -2656,7 +2765,7 @@ function DashboardTab({ onNavigate }: { onNavigate: (t: Tab) => void }) {
                 </p>
                 {!isConnected && (
                   <button onClick={() => onNavigate('connect')} className="mt-2 text-xs text-indigo-600 dark:text-indigo-400 font-semibold hover:underline">
-                    Set up Cloud API →
+                    Set up WhatsApp Automation →
                   </button>
                 )}
               </div>
@@ -2667,8 +2776,8 @@ function DashboardTab({ onNavigate }: { onNavigate: (t: Tab) => void }) {
           <div className="card p-4 bg-blue-50/60 dark:bg-blue-900/10 border-blue-100 dark:border-blue-800">
             <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-2">💡 How it works</p>
             <ul className="text-xs text-blue-600 dark:text-blue-400 space-y-1">
-              <li>• <strong>WA Business App</strong> — send from patient profile with one click, you press Send in WhatsApp</li>
-              <li>• <strong>Cloud API</strong> — fully automated: reminders send themselves, inbox + read receipts</li>
+              <li>• <strong>WhatsApp Business</strong> — send from patient profile with one click, you press Send in WhatsApp</li>
+              <li>• <strong>WhatsApp Automation</strong> — fully automated: reminders send themselves, inbox + read receipts</li>
               <li>• Both modules share the same template library and patient history</li>
             </ul>
           </div>
@@ -2718,55 +2827,64 @@ export function WhatsApp() {
       {showGuide && <GuidePanel onClose={() => setShowGuide(false)} />}
 
       {/* ── Hero banner ── */}
-      <div className="px-6 pt-6 pb-5"
-        style={{ background: 'linear-gradient(135deg, #075E54 0%, #128C7E 55%, #25D366 100%)' }}>
-        <div className="flex items-start justify-between">
+      <div className="px-6 pt-6 pb-5 bg-slate-900 dark:bg-slate-950">
+        <div className="flex items-start justify-between mb-5">
           <div>
-            <div className="text-[10px] font-bold tracking-widest text-white/60 uppercase mb-1">CureDesk HMS</div>
+            <div className="text-[10px] font-bold tracking-widest text-slate-500 uppercase mb-1">CureDesk HMS</div>
             <h1 className="text-xl font-extrabold text-white flex items-center gap-2">
-              <MessageSquare className="w-5 h-5" /> Communication Center
+              <MessageSquare className="w-5 h-5 text-emerald-400" /> Communication Center
             </h1>
-            <p className="text-sm text-white/75 mt-1">
-              Two independent WhatsApp integration modes — choose the one that fits your clinic.
+            <p className="text-sm text-slate-400 mt-1">
+              Two independent WhatsApp modes — choose the one that fits your clinic.
             </p>
           </div>
           <button
             onClick={() => setShowGuide(v => !v)}
             className={cn(
               'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors shrink-0',
-              showGuide ? 'bg-white text-emerald-700' : 'bg-white/20 hover:bg-white/30 text-white border border-white/30',
+              showGuide
+                ? 'bg-emerald-500 text-white'
+                : 'bg-slate-700 hover:bg-slate-600 text-slate-300 border border-slate-600',
             )}>
             <BookOpen className="w-3.5 h-3.5" /> Help Guide
           </button>
         </div>
 
-        {/* ── Module switcher (inside banner) ── */}
-        <div className="grid grid-cols-2 gap-3 mt-5">
+        {/* ── Module switcher ── */}
+        <div className="grid grid-cols-2 gap-3">
           {/* Module 1 card */}
           <button onClick={() => setActiveModule('module1')}
             className={cn(
               'rounded-xl p-4 text-left transition-all border-2',
               activeModule === 'module1'
-                ? 'border-white bg-white/25 shadow-lg scale-[1.01]'
-                : 'border-white/20 bg-white/10 hover:bg-white/15',
+                ? 'border-emerald-500 bg-emerald-950/60 shadow-lg shadow-emerald-900/40'
+                : 'border-slate-700 bg-slate-800/60 hover:bg-slate-800 hover:border-slate-600',
             )}>
             <div className="flex items-center gap-2.5 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center text-base">📱</div>
+              <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center text-base',
+                activeModule === 'module1' ? 'bg-emerald-500/20' : 'bg-slate-700'
+              )}>📱</div>
               <div>
-                <p className="text-sm font-bold text-white">WA Business App</p>
-                <p className="text-[10px] text-white/70">Module 1</p>
+                <p className="text-sm font-bold text-white">WhatsApp Business</p>
+                <p className="text-[10px] text-slate-400">Module 1</p>
               </div>
               {activeModule === 'module1' && (
-                <CheckCircle2 className="w-4 h-4 text-white ml-auto shrink-0" />
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 ml-auto shrink-0" />
               )}
             </div>
-            <p className="text-[11px] text-white/80 leading-relaxed">
-              Zero setup · Use your existing number · You press Send manually in WhatsApp
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Zero setup · Use your existing number · You press Send manually
             </p>
-            <div className="flex gap-1.5 mt-2 flex-wrap">
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/20 text-white font-medium">✓ Free</span>
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/20 text-white font-medium">✓ No approval</span>
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/20 text-white font-medium">✓ Existing number</span>
+            <div className="flex gap-1.5 mt-2.5 flex-wrap">
+              <span className={cn('text-[9px] px-1.5 py-0.5 rounded font-medium',
+                activeModule === 'module1' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-700 text-slate-400'
+              )}>✓ Free</span>
+              <span className={cn('text-[9px] px-1.5 py-0.5 rounded font-medium',
+                activeModule === 'module1' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-700 text-slate-400'
+              )}>✓ No approval</span>
+              <span className={cn('text-[9px] px-1.5 py-0.5 rounded font-medium',
+                activeModule === 'module1' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-700 text-slate-400'
+              )}>✓ Existing number</span>
             </div>
           </button>
 
@@ -2775,26 +2893,34 @@ export function WhatsApp() {
             className={cn(
               'rounded-xl p-4 text-left transition-all border-2',
               activeModule === 'module2'
-                ? 'border-white bg-white/25 shadow-lg scale-[1.01]'
-                : 'border-white/20 bg-white/10 hover:bg-white/15',
+                ? 'border-indigo-500 bg-indigo-950/60 shadow-lg shadow-indigo-900/40'
+                : 'border-slate-700 bg-slate-800/60 hover:bg-slate-800 hover:border-slate-600',
             )}>
             <div className="flex items-center gap-2.5 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center text-base">☁️</div>
+              <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center text-base',
+                activeModule === 'module2' ? 'bg-indigo-500/20' : 'bg-slate-700'
+              )}>☁️</div>
               <div>
-                <p className="text-sm font-bold text-white">Cloud API</p>
-                <p className="text-[10px] text-white/70">Module 2</p>
+                <p className="text-sm font-bold text-white">WhatsApp Automation</p>
+                <p className="text-[10px] text-slate-400">Module 2</p>
               </div>
               {activeModule === 'module2' && (
-                <CheckCircle2 className="w-4 h-4 text-white ml-auto shrink-0" />
+                <CheckCircle2 className="w-4 h-4 text-indigo-400 ml-auto shrink-0" />
               )}
             </div>
-            <p className="text-[11px] text-white/80 leading-relaxed">
+            <p className="text-[11px] text-slate-400 leading-relaxed">
               Full automation · Inbox · Campaigns · Messages send themselves
             </p>
-            <div className="flex gap-1.5 mt-2 flex-wrap">
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/20 text-white font-medium">✓ Auto reminders</span>
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/20 text-white font-medium">✓ Inbox</span>
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/20 text-white font-medium">✓ Read receipts</span>
+            <div className="flex gap-1.5 mt-2.5 flex-wrap">
+              <span className={cn('text-[9px] px-1.5 py-0.5 rounded font-medium',
+                activeModule === 'module2' ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-700 text-slate-400'
+              )}>✓ Auto reminders</span>
+              <span className={cn('text-[9px] px-1.5 py-0.5 rounded font-medium',
+                activeModule === 'module2' ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-700 text-slate-400'
+              )}>✓ Inbox</span>
+              <span className={cn('text-[9px] px-1.5 py-0.5 rounded font-medium',
+                activeModule === 'module2' ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-700 text-slate-400'
+              )}>✓ Read receipts</span>
             </div>
           </button>
         </div>
