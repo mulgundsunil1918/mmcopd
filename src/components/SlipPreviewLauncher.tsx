@@ -6,15 +6,15 @@ import type { AppointmentWithJoins, Consultation, Doctor } from '../types';
 
 /**
  * Settings-side preview of the OPD slip with fake patient + visit data.
- * Lets the admin verify how the slip will print without registering a real patient.
+ * Doctor selector + template slot picker let admins verify any template.
  */
 export function SlipPreviewLauncher() {
   const [open, setOpen] = useState(false);
-  // Bumping this on every preview-open forces React to mount a fresh OpdSlip
-  // so any newly-saved settings / doctor data is visible immediately, even
-  // within the 5-second staleTime of the global query cache.
+  const [selectedDoctorId, setSelectedDoctorId] = useState<number | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<1 | 2 | 3>(1);
   const [previewNonce, setPreviewNonce] = useState(0);
   const qc = useQueryClient();
+
   const { data: settings } = useQuery({
     queryKey: ['settings'],
     queryFn: () => window.electronAPI.settings.get(),
@@ -26,9 +26,6 @@ export function SlipPreviewLauncher() {
     refetchOnMount: 'always',
   });
 
-  // Force-fresh fetch right before opening so the preview reflects whatever the
-  // user just edited in Clinic Info / Doctors / Templates above on this same
-  // Settings page. We invalidate every query the OpdSlip component depends on.
   const openPreview = async () => {
     await Promise.all([
       qc.invalidateQueries({ queryKey: ['settings'] }),
@@ -42,7 +39,8 @@ export function SlipPreviewLauncher() {
 
   if (!settings) return null;
 
-  const sampleDoctor: Doctor = doctors[0] || {
+  const activeDoctors = (doctors as Doctor[]).filter((d) => d.is_active);
+  const pickedDoctor: Doctor = activeDoctors.find((d) => d.id === selectedDoctorId) ?? activeDoctors[0] ?? {
     id: 1,
     name: 'Dr. Sunil Mulgund',
     specialty: 'General Physician',
@@ -57,12 +55,29 @@ export function SlipPreviewLauncher() {
     color: '#10b981',
   };
 
+  // Build a "preview doctor" with the selected slot's template_id swapped into template_id slot 1
+  const slotNames: string[] = (() => {
+    try { return JSON.parse(pickedDoctor.template_slot_names ?? '[]'); } catch { return []; }
+  })();
+  const templateIds: (number | null | undefined)[] = [
+    pickedDoctor.template_id ?? null,
+    pickedDoctor.template_id_2 ?? null,
+    pickedDoctor.template_id_3 ?? null,
+  ];
+  const availableSlots = templateIds.map((tid, i) => ({ slot: (i + 1) as 1 | 2 | 3, tid, name: slotNames[i] || `Template ${i + 1}` }))
+    .filter((s) => s.tid != null);
+
+  const previewDoctor: Doctor = {
+    ...pickedDoctor,
+    template_id: templateIds[selectedSlot - 1] ?? pickedDoctor.template_id,
+  };
+
   const today = new Date();
   const dobYears3 = new Date(today.getFullYear() - 3, today.getMonth(), today.getDate() - 12);
   const sampleAppointment: AppointmentWithJoins = {
     id: 9999,
     patient_id: 9999,
-    doctor_id: sampleDoctor.id,
+    doctor_id: pickedDoctor.id,
     appointment_date: today.toISOString().slice(0, 10),
     appointment_time: '10:30',
     token_number: 7,
@@ -77,16 +92,16 @@ export function SlipPreviewLauncher() {
     patient_phone: '9876543210',
     patient_blood_group: 'O+',
     patient_created_at: today.toISOString(),
-    doctor_name: sampleDoctor.name,
-    doctor_specialty: sampleDoctor.specialty,
-    doctor_room: sampleDoctor.room_number,
+    doctor_name: pickedDoctor.name,
+    doctor_specialty: pickedDoctor.specialty,
+    doctor_room: pickedDoctor.room_number,
   } as AppointmentWithJoins;
 
   const sampleConsultation: Consultation = {
     id: 9999,
     appointment_id: 9999,
     patient_id: 9999,
-    doctor_id: sampleDoctor.id,
+    doctor_id: pickedDoctor.id,
     history: 'Fever since 3 days, cough, body ache. No vomiting or loose stools. Eating reduced since yesterday.',
     examination: 'Throat congested, mild tonsillar enlargement. Chest clear. CVS — S1 S2 normal. P/A — soft, non-tender.',
     impression: 'Acute viral upper respiratory tract infection.',
@@ -114,16 +129,58 @@ export function SlipPreviewLauncher() {
           <Eye className="w-3.5 h-3.5" /> Preview Slip
         </button>
       </div>
+
+      {/* Doctor + slot picker */}
+      {activeDoctors.length > 0 && (
+        <div className="flex flex-wrap gap-3 mb-3">
+          <div className="flex-1 min-w-[180px]">
+            <label className="label !text-[11px]">Preview as doctor</label>
+            <select
+              className="input !py-1 !text-xs"
+              value={selectedDoctorId ?? pickedDoctor.id}
+              onChange={(e) => {
+                setSelectedDoctorId(Number(e.target.value));
+                setSelectedSlot(1);
+              }}
+            >
+              {activeDoctors.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+          </div>
+          {availableSlots.length > 1 && (
+            <div>
+              <label className="label !text-[11px]">Template slot</label>
+              <div className="flex gap-1">
+                {availableSlots.map(({ slot, name }) => (
+                  <button
+                    key={slot}
+                    onClick={() => setSelectedSlot(slot)}
+                    className={`px-2 py-1 text-xs rounded border transition-colors ${
+                      selectedSlot === slot
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-slate-300 hover:border-blue-400'
+                    }`}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <p className="text-[11px] text-gray-500 dark:text-slate-400">
-        See how a real OPD slip will look using your clinic's current logo, name, contact info, and the first
-        active doctor — with sample patient/visit data filled in. Once it looks right, you can hit
+        See how a real OPD slip will look using your clinic's current logo, name, contact info, and the selected
+        doctor's template — with sample patient/visit data filled in. Once it looks right, you can hit
         <Printer className="inline w-3 h-3 mx-1" /> in the preview to print a test page on your printer.
       </p>
       <ul className="text-[11px] text-gray-600 dark:text-slate-300 mt-2 list-disc pl-5 space-y-0.5">
         <li>Clinic branding pulls from <b>Clinic Info</b> above (logo, name, tagline, reg no, address, phone, email).</li>
-        <li>Doctor row pulls from the first active doctor in <b>Doctors</b>; their qualifications, color, signature show as configured.</li>
+        <li>Doctor row pulls from the selected doctor; their qualifications, color, signature show as configured.</li>
         <li>Patient block uses sample 3-year-old paediatric data — confirms age (Y/M/D), UHID and Visit ID layout work.</li>
-        <li>To change the visual layout, edit <code className="font-mono">src/components/OpdSlip.tsx</code> (or ask Claude to change it for you).</li>
+        <li>Pick a different doctor or slot above to compare templates side by side.</li>
       </ul>
 
       {open && (
@@ -131,7 +188,7 @@ export function SlipPreviewLauncher() {
           key={previewNonce}
           appointment={sampleAppointment}
           consultation={sampleConsultation}
-          doctor={sampleDoctor}
+          doctor={previewDoctor}
           settings={settings}
           rxItems={sampleRx}
           labOrders={[]}

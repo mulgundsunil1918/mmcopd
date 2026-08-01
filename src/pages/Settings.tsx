@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle, Trash2, User as UserIcon, IndianRupee, PenTool, Power, AlertCircle, ArrowUp, ArrowDown, MessageCircle, Eye, FileText, MapPin, Syringe, RefreshCw, Sparkles, HardDrive, Sun } from 'lucide-react';
+import { Building2, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle, Trash2, User as UserIcon, IndianRupee, PenTool, Power, AlertCircle, ArrowUp, ArrowDown, MessageCircle, Eye, FileText, MapPin, Syringe, RefreshCw, Sparkles, HardDrive, Sun, Copy } from 'lucide-react';
+import { DEFAULT_LAYOUT } from '../db/slip-templates';
+import type { SlipLayout } from '../db/slip-templates';
 import { format, parseISO } from 'date-fns';
 import { cn } from '../lib/utils';
 import { Check } from 'lucide-react';
@@ -2549,6 +2551,7 @@ function SlipTemplatesEditor() {
   const [draft, setDraft] = useState<any[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<'sections' | 'layout'>('sections');
 
   useEffect(() => {
     if (!templates) return;
@@ -2602,6 +2605,20 @@ function SlipTemplatesEditor() {
     setDraft(draft.map((t) => t.id === id ? { ...t, sections } : t));
   };
 
+  const duplicateTemplate = () => {
+    if (!active) return;
+    const id = Math.max(0, ...draft.map((t) => t.id)) + 1;
+    const copy = { ...JSON.parse(JSON.stringify(active)), id, name: `${active.name} (copy)` };
+    setDraft([...draft, copy]);
+    setActiveId(id);
+  };
+
+  const updateLayout = (patch: Record<string, any>) => {
+    if (!active) return;
+    const prevLayout = active.layout ?? {};
+    setDraft(draft.map((t) => t.id === active.id ? { ...t, layout: { ...prevLayout, ...patch } } : t));
+  };
+
   const addSection = () => {
     if (!active) return;
     const newKey = `field_${Date.now()}`;
@@ -2634,6 +2651,11 @@ function SlipTemplatesEditor() {
       <div className="flex items-center justify-between">
         <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Slip Body Templates</div>
         <div className="flex items-center gap-2">
+          {active && (
+            <button className="btn-secondary text-xs" onClick={duplicateTemplate} title="Duplicate selected template">
+              <Copy className="w-3.5 h-3.5" /> Duplicate
+            </button>
+          )}
           <button className="btn-secondary text-xs" onClick={addTemplate}>
             <Plus className="w-3.5 h-3.5" /> New template
           </button>
@@ -2685,74 +2707,224 @@ function SlipTemplatesEditor() {
             </div>
           </div>
 
-          {/* Section list */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-xs font-semibold text-gray-900 dark:text-slate-100">Sections (in print order)</div>
-              <button className="btn-secondary text-xs" onClick={addSection}><Plus className="w-3.5 h-3.5" /> Add section</button>
-            </div>
-            <ul className="space-y-2">
-              {active.sections.map((s: any, idx: number) => (
-                <li key={idx} className="rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/40 p-3">
-                  <div className="flex items-start gap-2">
-                    <div className="flex flex-col gap-0.5">
-                      <button onClick={() => moveSection(idx, -1)} disabled={idx === 0}
-                        className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-30" title="Move up">
-                        <ArrowUp className="w-3 h-3" />
-                      </button>
-                      <button onClick={() => moveSection(idx, 1)} disabled={idx === active.sections.length - 1}
-                        className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-30" title="Move down">
-                        <ArrowDown className="w-3 h-3" />
-                      </button>
-                    </div>
-                    <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-2">
-                      <div className="md:col-span-2">
-                        <label className="label !mb-0.5 !text-[10px]">Title</label>
-                        <input className="input !py-1 !text-xs" value={s.title} onChange={(e) => updateSection(idx, { title: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className="label !mb-0.5 !text-[10px]">Key</label>
-                        <input className="input !py-1 !text-xs font-mono" value={s.key} onChange={(e) => updateSection(idx, { key: e.target.value.replace(/[^a-z0-9_]/gi, '_').toLowerCase() })} />
-                      </div>
-                      <div>
-                        <label className="label !mb-0.5 !text-[10px]">Type</label>
-                        <select className="input !py-1 !text-xs" value={s.type} onChange={(e) => updateSection(idx, { type: e.target.value })}>
-                          <option value="textarea">Textarea (multi-line)</option>
-                          <option value="singleline">Single line</option>
-                          <option value="date">Date</option>
-                          <option value="number">Number</option>
-                          <option value="dropdown">Dropdown</option>
-                        </select>
-                      </div>
-                      {(s.type === 'textarea' || s.type === 'singleline') && (
-                        <div>
-                          <label className="label !mb-0.5 !text-[10px]">Print height (mm)</label>
-                          <input type="number" min={5} max={120} className="input !py-1 !text-xs" value={s.height_mm ?? 20} onChange={(e) => updateSection(idx, { height_mm: parseInt(e.target.value, 10) || 20 })} />
-                        </div>
-                      )}
-                      {s.type === 'dropdown' && (
-                        <div className="md:col-span-2">
-                          <label className="label !mb-0.5 !text-[10px]">Options (comma-separated)</label>
-                          <input className="input !py-1 !text-xs" value={(s.options || []).join(', ')} onChange={(e) => updateSection(idx, { options: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })} />
-                        </div>
-                      )}
-                      <div className="md:col-span-2">
-                        <label className="label !mb-0.5 !text-[10px]">Placeholder</label>
-                        <input className="input !py-1 !text-xs" value={s.placeholder || ''} onChange={(e) => updateSection(idx, { placeholder: e.target.value })} />
-                      </div>
-                      <label className="inline-flex items-center gap-1.5 text-[11px] mt-4 cursor-pointer">
-                        <input type="checkbox" checked={s.printed !== false} onChange={(e) => updateSection(idx, { printed: e.target.checked })} className="w-3.5 h-3.5 accent-blue-600" />
-                        <span>Print on slip</span>
-                      </label>
-                      <button onClick={() => removeSection(idx)} className="self-start mt-3 text-[11px] text-red-600 hover:text-red-700 inline-flex items-center gap-1">
-                        <Trash2 className="w-3 h-3" /> Remove
-                      </button>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
+          {/* Sections / Layout tab switcher */}
+          <div className="flex gap-1 border-b border-gray-200 dark:border-slate-700">
+            {(['sections', 'layout'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setActiveTab(t)}
+                className={cn(
+                  'px-3 py-1.5 text-xs font-medium capitalize rounded-t border-b-2 -mb-px transition-colors',
+                  activeTab === t
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400 bg-white dark:bg-slate-800'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200'
+                )}
+              >
+                {t === 'sections' ? 'Sections' : 'Layout & Print'}
+              </button>
+            ))}
           </div>
+
+          {activeTab === 'sections' && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs font-semibold text-gray-900 dark:text-slate-100">Sections (in print order)</div>
+                <button className="btn-secondary text-xs" onClick={addSection}><Plus className="w-3.5 h-3.5" /> Add section</button>
+              </div>
+              <ul className="space-y-2">
+                {active.sections.map((s: any, idx: number) => (
+                  <li key={idx} className="rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/40 p-3">
+                    <div className="flex items-start gap-2">
+                      <div className="flex flex-col gap-0.5">
+                        <button onClick={() => moveSection(idx, -1)} disabled={idx === 0}
+                          className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-30" title="Move up">
+                          <ArrowUp className="w-3 h-3" />
+                        </button>
+                        <button onClick={() => moveSection(idx, 1)} disabled={idx === active.sections.length - 1}
+                          className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-30" title="Move down">
+                          <ArrowDown className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-2">
+                        <div className="md:col-span-2">
+                          <label className="label !mb-0.5 !text-[10px]">Title</label>
+                          <input className="input !py-1 !text-xs" value={s.title} onChange={(e) => updateSection(idx, { title: e.target.value })} />
+                        </div>
+                        <div>
+                          <label className="label !mb-0.5 !text-[10px]">Key</label>
+                          <input className="input !py-1 !text-xs font-mono" value={s.key} onChange={(e) => updateSection(idx, { key: e.target.value.replace(/[^a-z0-9_]/gi, '_').toLowerCase() })} />
+                        </div>
+                        <div>
+                          <label className="label !mb-0.5 !text-[10px]">Type</label>
+                          <select className="input !py-1 !text-xs" value={s.type} onChange={(e) => updateSection(idx, { type: e.target.value })}>
+                            <option value="textarea">Textarea (multi-line)</option>
+                            <option value="singleline">Single line</option>
+                            <option value="date">Date</option>
+                            <option value="number">Number</option>
+                            <option value="dropdown">Dropdown</option>
+                          </select>
+                        </div>
+                        {(s.type === 'textarea' || s.type === 'singleline') && (
+                          <div>
+                            <label className="label !mb-0.5 !text-[10px]">Print height (mm)</label>
+                            <input type="number" min={5} max={120} className="input !py-1 !text-xs" value={s.height_mm ?? 20} onChange={(e) => updateSection(idx, { height_mm: parseInt(e.target.value, 10) || 20 })} />
+                          </div>
+                        )}
+                        {s.type === 'dropdown' && (
+                          <div className="md:col-span-2">
+                            <label className="label !mb-0.5 !text-[10px]">Options (comma-separated)</label>
+                            <input className="input !py-1 !text-xs" value={(s.options || []).join(', ')} onChange={(e) => updateSection(idx, { options: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })} />
+                          </div>
+                        )}
+                        <div className="md:col-span-2">
+                          <label className="label !mb-0.5 !text-[10px]">Placeholder</label>
+                          <input className="input !py-1 !text-xs" value={s.placeholder || ''} onChange={(e) => updateSection(idx, { placeholder: e.target.value })} />
+                        </div>
+                        <label className="inline-flex items-center gap-1.5 text-[11px] mt-4 cursor-pointer">
+                          <input type="checkbox" checked={s.printed !== false} onChange={(e) => updateSection(idx, { printed: e.target.checked })} className="w-3.5 h-3.5 accent-blue-600" />
+                          <span>Print on slip</span>
+                        </label>
+                        <button onClick={() => removeSection(idx)} className="self-start mt-3 text-[11px] text-red-600 hover:text-red-700 inline-flex items-center gap-1">
+                          <Trash2 className="w-3 h-3" /> Remove
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {activeTab === 'layout' && (() => {
+            const layout: SlipLayout = { ...DEFAULT_LAYOUT, ...(active.layout ?? {}) };
+            const allKeys = active.sections.map((s: any) => s.key as string);
+            const p1 = layout.page1Keys.length > 0 ? layout.page1Keys : allKeys.slice(0, Math.ceil(allKeys.length / 2));
+            const p2 = layout.page2Keys.length > 0 ? layout.page2Keys : allKeys.slice(Math.ceil(allKeys.length / 2));
+            const assignPage = (key: string, page: 1 | 2) => {
+              const newP1: string[] = page === 1 ? [...new Set<string>([...p1, key])] : p1.filter((k: string) => k !== key);
+              const newP2: string[] = page === 2 ? [...new Set<string>([...p2, key])] : p2.filter((k: string) => k !== key);
+              updateLayout({ page1Keys: newP1, page2Keys: newP2 });
+            };
+            return (
+              <div className="space-y-5">
+
+                {/* Pages */}
+                <div>
+                  <label className="label">Pages</label>
+                  <div className="flex gap-2">
+                    {([1, 2] as const).map((n) => (
+                      <button key={n} onClick={() => updateLayout({ pages: n })}
+                        className={cn('flex-1 py-2 text-xs rounded-lg border font-medium transition-colors',
+                          layout.pages === n
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-slate-300 hover:border-blue-400')}>
+                        {n === 1 ? '1 Page (single sheet)' : '2 Pages (front + back)'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Logo size */}
+                <div>
+                  <label className="label">Logo size</label>
+                  <div className="flex gap-2">
+                    {(['none', 'small', 'medium', 'large'] as const).map((sz) => (
+                      <button key={sz} onClick={() => updateLayout({ logoSize: sz })}
+                        className={cn('flex-1 py-1.5 text-xs rounded-lg border font-medium capitalize transition-colors',
+                          layout.logoSize === sz
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-slate-300 hover:border-blue-400')}>
+                        {sz}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Header style */}
+                <div>
+                  <label className="label">Header style</label>
+                  <div className="flex gap-2">
+                    {(['full', 'compact'] as const).map((hs) => (
+                      <button key={hs} onClick={() => updateLayout({ headerStyle: hs })}
+                        className={cn('flex-1 py-1.5 text-xs rounded-lg border font-medium capitalize transition-colors',
+                          layout.headerStyle === hs
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-slate-300 hover:border-blue-400')}>
+                        {hs === 'full' ? 'Full (name + qualifications + address)' : 'Compact (name only)'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Font size */}
+                <div>
+                  <label className="label">Font size — {layout.fontSize}px</label>
+                  <input type="range" min={10} max={16} step={1} value={layout.fontSize}
+                    onChange={(e) => updateLayout({ fontSize: parseInt(e.target.value, 10) })}
+                    className="w-full accent-blue-600" />
+                  <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
+                    <span>10 (tiny)</span><span>13 (default)</span><span>16 (large)</span>
+                  </div>
+                </div>
+
+                {/* Show/hide toggles */}
+                <div>
+                  <label className="label">Show / hide blocks</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {([
+                      ['showVitals',     'Vitals strip'],
+                      ['showRxTable',    'Rx table'],
+                      ['showSignature',  'Signature block'],
+                      ['showQrCodes',    'QR codes'],
+                      ['showFollowupBox','Follow-up box'],
+                    ] as [keyof SlipLayout, string][]).map(([field, label]) => (
+                      <label key={field} className="inline-flex items-center gap-2 text-xs cursor-pointer select-none p-2 rounded-lg border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/40">
+                        <input type="checkbox" checked={layout[field] as boolean}
+                          onChange={(e) => updateLayout({ [field]: e.target.checked })}
+                          className="w-3.5 h-3.5 accent-blue-600" />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Page split (only for 2-page mode) */}
+                {layout.pages === 2 && allKeys.length > 0 && (
+                  <div>
+                    <label className="label">Page split — assign sections to pages</label>
+                    <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-2">Click a page button to move a section. Leave blank for automatic split.</p>
+                    <div className="space-y-1.5">
+                      {allKeys.map((key: string) => {
+                        const inP1 = p1.includes(key);
+                        const inP2 = p2.includes(key);
+                        const sec = active.sections.find((s: any) => s.key === key);
+                        return (
+                          <div key={key} className="flex items-center gap-2 text-xs">
+                            <span className="flex-1 font-medium text-gray-700 dark:text-slate-300 truncate">{sec?.title || key}</span>
+                            <button onClick={() => assignPage(key, 1)}
+                              className={cn('px-2 py-0.5 rounded border text-[11px] transition-colors',
+                                inP1 ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 dark:border-slate-600 text-gray-500 hover:border-blue-400')}>
+                              Pg 1
+                            </button>
+                            <button onClick={() => assignPage(key, 2)}
+                              className={cn('px-2 py-0.5 rounded border text-[11px] transition-colors',
+                                inP2 ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 dark:border-slate-600 text-gray-500 hover:border-indigo-400')}>
+                              Pg 2
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <button onClick={() => updateLayout({ page1Keys: [], page2Keys: [] })}
+                      className="mt-2 text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-slate-300">
+                      Reset to auto-split
+                    </button>
+                  </div>
+                )}
+
+              </div>
+            );
+          })()}
 
           {draft.length > 1 && (
             <div className="border-t border-gray-200 dark:border-slate-700 pt-3">
@@ -3063,10 +3235,10 @@ function DoctorsManagement() {
                 </div>
               )}
 
-              {/* OPD Slip body template picker */}
-              <DoctorTemplatePicker
-                value={editing.template_id ?? null}
-                onChange={(id) => setEditing({ ...editing, template_id: id })}
+              {/* OPD Slip body template slots (up to 3 per doctor) */}
+              <DoctorTemplateSlotsEditor
+                doctor={editing}
+                onChange={(patch) => setEditing({ ...editing, ...patch })}
               />
 
               {/* Color picker */}
@@ -3312,29 +3484,62 @@ function DepRow({ label, count }: { label: string; count: number }) {
 }
 
 /** Inline picker so the doctor edit form can assign an OPD-slip body template. */
-function DoctorTemplatePicker({ value, onChange }: { value: number | null; onChange: (id: number | null) => void }) {
+function DoctorTemplateSlotsEditor({ doctor, onChange }: {
+  doctor: Partial<Doctor>;
+  onChange: (patch: Partial<Doctor>) => void;
+}) {
   const { data: templates = [] } = useQuery({
     queryKey: ['slip-templates'],
     queryFn: () => window.electronAPI.templates.list(),
   });
+
+  const slotNames: [string, string, string] = (() => {
+    try { return JSON.parse(doctor.template_slot_names || '[]').concat(['Template 1','Template 2','Template 3']).slice(0,3); }
+    catch { return ['Template 1','Template 2','Template 3']; }
+  })();
+
+  const templateIds = [doctor.template_id ?? null, doctor.template_id_2 ?? null, doctor.template_id_3 ?? null];
+
+  const setSlotName = (i: number, val: string) => {
+    const next: [string,string,string] = [...slotNames] as any;
+    next[i] = val;
+    onChange({ template_slot_names: JSON.stringify(next) });
+  };
+
+  const setSlotTemplate = (i: number, id: number | null) => {
+    if (i === 0) onChange({ template_id: id });
+    if (i === 1) onChange({ template_id_2: id });
+    if (i === 2) onChange({ template_id_3: id });
+  };
+
   return (
-    <div className="mt-4">
-      <label className="label">OPD Slip Body Template</label>
-      <select
-        className="input"
-        value={value ?? ''}
-        onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
-      >
-        <option value="">— Use General (default) —</option>
-        {templates.map((t) => (
-          <option key={t.id} value={t.id}>
-            {t.name}{t.specialty_hint ? ` · ${t.specialty_hint}` : ''}
-          </option>
-        ))}
-      </select>
-      <div className="text-[10px] text-gray-500 mt-1">
-        Drives the body sections shown on the doctor's consultation panel and printed slip. Edit templates in the <b>OPD Slip Body Templates</b> section above.
+    <div className="mt-4 space-y-3">
+      <div className="text-xs font-semibold text-gray-700 dark:text-slate-200">OPD Slip Template Slots</div>
+      <div className="text-[10px] text-gray-500 dark:text-slate-400 -mt-1">
+        Up to 3 templates per doctor — e.g. "New Patient", "Follow-up", "Procedure". Slot name is shown on the print picker.
       </div>
+      {([0, 1, 2] as const).map((i) => (
+        <div key={i} className="grid grid-cols-[120px_1fr] gap-2 items-center">
+          <input
+            className="input !py-1 !text-xs font-semibold"
+            value={slotNames[i]}
+            onChange={(e) => setSlotName(i, e.target.value)}
+            placeholder={`Slot ${i + 1} name`}
+          />
+          <select
+            className="input !py-1 !text-xs"
+            value={templateIds[i] ?? ''}
+            onChange={(e) => setSlotTemplate(i, e.target.value ? Number(e.target.value) : null)}
+          >
+            <option value="">{i === 0 ? '— General (default) —' : '— Not used —'}</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}{t.specialty_hint ? ` · ${t.specialty_hint}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      ))}
     </div>
   );
 }
