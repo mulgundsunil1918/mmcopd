@@ -3,7 +3,8 @@ import { Printer, X, MapPin, Phone, Mail, HeartPulse } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ageStringFull, fmt12h, fmtDateTime } from '../lib/utils';
-import type { AppointmentWithJoins, Consultation, Doctor, FollowupSummary, LabOrder, PrescriptionItem, Settings, SlipTemplate, SlipTemplateSection, Vitals } from '../types';
+import type { AppointmentWithJoins, Consultation, Doctor, FollowupSummary, LabOrder, PrescriptionItem, Settings, SlipLayout, SlipTemplate, SlipTemplateSection, Vitals } from '../types';
+import { DEFAULT_LAYOUT } from '../db/slip-templates';
 
 const RESERVED_KEYS = new Set(['history', 'examination', 'impression', 'advice']);
 
@@ -27,15 +28,31 @@ function formatValue(s: SlipTemplateSection, raw: string): string {
   return raw;
 }
 
-/** Split a template's sections at the 'impression' boundary so Page 1 holds the
- *  intake/exam fields and Page 2 holds the diagnostic + advice / Rx fields.
- *  Falls back to a midpoint split for templates that omit impression entirely. */
+function resolveLayout(template: SlipTemplate): SlipLayout {
+  return { ...DEFAULT_LAYOUT, ...(template.layout ?? {}) };
+}
+
+/** Auto-split at the 'impression' boundary; falls back to midpoint. */
 function splitSections(sections: SlipTemplateSection[]): [SlipTemplateSection[], SlipTemplateSection[]] {
   let idx = sections.findIndex((s) => s.key === 'impression');
   if (idx === -1) idx = sections.findIndex((s) => s.key === 'advice');
   if (idx === -1) idx = Math.max(1, Math.floor(sections.length / 2));
   return [sections.slice(0, idx), sections.slice(idx)];
 }
+
+/** Use explicit page1Keys / page2Keys when the user has pinned sections; otherwise auto-split. */
+function splitSectionsWithLayout(sections: SlipTemplateSection[], layout: SlipLayout): [SlipTemplateSection[], SlipTemplateSection[]] {
+  if (layout.page1Keys.length > 0 || layout.page2Keys.length > 0) {
+    const assigned = new Set([...layout.page1Keys, ...layout.page2Keys]);
+    const unassigned = sections.filter((s) => !assigned.has(s.key));
+    const p1 = [...sections.filter((s) => layout.page1Keys.includes(s.key)), ...unassigned];
+    const p2 = sections.filter((s) => layout.page2Keys.includes(s.key));
+    return [p1, p2];
+  }
+  return splitSections(sections);
+}
+
+const LOGO_SIZE: Record<SlipLayout['logoSize'], number> = { none: 0, small: 18, medium: 22, large: 28 };
 
 export function OpdSlip({
   appointment,
@@ -45,6 +62,7 @@ export function OpdSlip({
   rxItems = [],
   labOrders = [],
   onClose,
+  layoutOverride,
 }: {
   appointment: AppointmentWithJoins;
   consultation: Consultation | null;
@@ -53,6 +71,8 @@ export function OpdSlip({
   rxItems?: PrescriptionItem[];
   labOrders?: LabOrder[];
   onClose: () => void;
+  /** Override layout — e.g. from the template slot picker. Defaults to template.layout ?? DEFAULT_LAYOUT. */
+  layoutOverride?: Partial<SlipLayout>;
 }) {
   const v = consultation?.vitals ?? {};
 
@@ -94,29 +114,50 @@ export function OpdSlip({
     if (templates.length === 0) return FALLBACK_TEMPLATE;
     return templates.find((t) => t.id === doctor.template_id) || templates[0] || FALLBACK_TEMPLATE;
   }, [templates, doctor.template_id, FALLBACK_TEMPLATE]);
+
+  const layout = useMemo<SlipLayout>(() => {
+    return { ...resolveLayout(template), ...(layoutOverride ?? {}) };
+  }, [template, layoutOverride]);
+
   const [pageOneSections, pageTwoSections] = useMemo(() => {
     const printable = template.sections.filter((s) => s.printed !== false);
-    if (printable.length === 0) return splitSections(FALLBACK_TEMPLATE.sections);
-    return splitSections(printable);
-  }, [template, FALLBACK_TEMPLATE]);
+    const base = printable.length === 0 ? FALLBACK_TEMPLATE.sections : printable;
+    return splitSectionsWithLayout(base, layout);
+  }, [template, layout, FALLBACK_TEMPLATE]);
+
+  const totalPages = layout.pages;
+  const printLabel = totalPages === 1 ? 'Print' : 'Print Both Pages';
 
   return (
     <div className="fixed inset-0 z-[100] overflow-auto print-overlay" style={{ backgroundColor: '#94a3b8' }}>
       <div className="no-print sticky top-3 z-10 flex justify-center pointer-events-none">
         <div className="px-4 py-1.5 rounded-full text-xs font-semibold text-white shadow-lg" style={{ backgroundColor: '#1e293b' }}>
-          OPD Slip preview · Token #{appointment.token_number} · 2 pages
+          OPD Slip preview · Token #{appointment.token_number} · {totalPages} {totalPages === 1 ? 'page' : 'pages'}
         </div>
       </div>
 
       <div className="p-6 pb-28 flex flex-col items-center gap-4">
-        <Page>
-          <PageOne appointment={appointment} consultation={consultation} doctor={doctor} settings={settings} vitals={v} sections={pageOneSections} />
-          <PageFooter pageNum={1} totalPages={2} clinicName={settings.clinic_name} />
-        </Page>
-        <Page>
-          <PageTwo appointment={appointment} consultation={consultation} doctor={doctor} settings={settings} rxItems={rxItems} labOrders={labOrders} followup={followup} sections={pageTwoSections} />
-          <PageFooter pageNum={2} totalPages={2} clinicName={settings.clinic_name} />
-        </Page>
+        {totalPages === 1 ? (
+          <Page fontSize={layout.fontSize}>
+            <SinglePageContent
+              appointment={appointment} consultation={consultation} doctor={doctor}
+              settings={settings} vitals={v} rxItems={rxItems} labOrders={labOrders}
+              followup={followup} sections={[...pageOneSections, ...pageTwoSections]} layout={layout}
+            />
+            <PageFooter pageNum={1} totalPages={1} clinicName={settings.clinic_name} />
+          </Page>
+        ) : (
+          <>
+            <Page fontSize={layout.fontSize}>
+              <PageOne appointment={appointment} consultation={consultation} doctor={doctor} settings={settings} vitals={v} sections={pageOneSections} layout={layout} />
+              <PageFooter pageNum={1} totalPages={2} clinicName={settings.clinic_name} />
+            </Page>
+            <Page fontSize={layout.fontSize}>
+              <PageTwo appointment={appointment} consultation={consultation} doctor={doctor} settings={settings} rxItems={rxItems} labOrders={labOrders} followup={followup} sections={pageTwoSections} layout={layout} />
+              <PageFooter pageNum={2} totalPages={2} clinicName={settings.clinic_name} />
+            </Page>
+          </>
+        )}
       </div>
 
       <div
@@ -135,7 +176,7 @@ export function OpdSlip({
           className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold text-white"
           style={{ background: 'linear-gradient(135deg, #2563eb, #4f46e5)' }}
         >
-          <Printer className="w-4 h-4" /> Print Both Pages
+          <Printer className="w-4 h-4" /> {printLabel}
         </button>
       </div>
     </div>
@@ -143,7 +184,7 @@ export function OpdSlip({
 }
 
 /** A single A4 page sized container. Print CSS forces a sheet break between pages. */
-function Page({ children }: { children: React.ReactNode }) {
+function Page({ children, fontSize = 13 }: { children: React.ReactNode; fontSize?: number }) {
   return (
     <div
       className="print-area print-page bg-white shadow-2xl"
@@ -155,6 +196,7 @@ function Page({ children }: { children: React.ReactNode }) {
         color: '#0f172a',
         display: 'flex',
         flexDirection: 'column',
+        fontSize: `${fontSize}px`,
       }}
     >
       {children}
@@ -167,11 +209,13 @@ function Letterhead({
   doctor,
   settings,
   compact = false,
+  logoSize = 'large',
 }: {
   appointment: AppointmentWithJoins;
   doctor: Doctor;
   settings: Settings;
   compact?: boolean;
+  logoSize?: SlipLayout['logoSize'];
 }) {
   const slipDate = (() => {
     try {
@@ -230,39 +274,33 @@ function Letterhead({
         style={{ background: 'linear-gradient(180deg, #f0f7ff 0%, #ffffff 70%)' }}
       >
         <div className="flex items-center justify-between gap-4">
-          {/* === LOGO (large, in a soft white tile) === */}
-          <div className="flex-shrink-0">
-            {settings.clinic_logo ? (
-              <div
-                className="rounded-lg flex items-center justify-center"
-                style={{
-                  width: '28mm',
-                  height: '28mm',
-                  background: '#ffffff',
-                  border: '1px solid #e2e8f0',
-                  boxShadow: '0 1px 2px rgba(15,23,42,0.05)',
-                }}
-              >
-                <img
-                  src={settings.clinic_logo}
-                  alt="Clinic logo"
-                  className="object-contain"
-                  style={{ maxWidth: '24mm', maxHeight: '24mm' }}
-                />
+          {/* === LOGO (size controlled by logoSize prop) === */}
+          {logoSize !== 'none' && (() => {
+            const mm = LOGO_SIZE[logoSize];
+            const innerMm = mm - 4;
+            return (
+              <div className="flex-shrink-0">
+                {settings.clinic_logo ? (
+                  <div
+                    className="rounded-lg flex items-center justify-center"
+                    style={{
+                      width: `${mm}mm`, height: `${mm}mm`,
+                      background: '#ffffff', border: '1px solid #e2e8f0',
+                      boxShadow: '0 1px 2px rgba(15,23,42,0.05)',
+                    }}
+                  >
+                    <img src={settings.clinic_logo} alt="Clinic logo" className="object-contain"
+                      style={{ maxWidth: `${innerMm}mm`, maxHeight: `${innerMm}mm` }} />
+                  </div>
+                ) : (
+                  <div className="rounded-lg flex items-center justify-center text-white shadow"
+                    style={{ width: `${mm}mm`, height: `${mm}mm`, background: 'linear-gradient(135deg, #1d4ed8 0%, #4f46e5 100%)' }}>
+                    <HeartPulse className="w-10 h-10" />
+                  </div>
+                )}
               </div>
-            ) : (
-              <div
-                className="rounded-lg flex items-center justify-center text-white shadow"
-                style={{
-                  width: '28mm',
-                  height: '28mm',
-                  background: 'linear-gradient(135deg, #1d4ed8 0%, #4f46e5 100%)',
-                }}
-              >
-                <HeartPulse className="w-14 h-14" />
-              </div>
-            )}
-          </div>
+            );
+          })()}
 
           {/* === IDENTITY (clinic name, tagline, reg) — gets the big middle space === */}
           <div className="min-w-0 flex-1">
@@ -380,7 +418,7 @@ function Letterhead({
 }
 
 function PageOne({
-  appointment, consultation, doctor, settings, vitals, sections,
+  appointment, consultation, doctor, settings, vitals, sections, layout,
 }: {
   appointment: AppointmentWithJoins;
   consultation: Consultation | null;
@@ -388,56 +426,63 @@ function PageOne({
   settings: Settings;
   vitals: Vitals;
   sections: SlipTemplateSection[];
+  layout: SlipLayout;
 }) {
   const regDate = appointment.patient_created_at
     ? (() => { try { return fmtDateTime(appointment.patient_created_at); } catch { return appointment.patient_created_at; } })()
     : null;
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', fontSize: '13px', lineHeight: 1.35 }}>
-      <Letterhead appointment={appointment} doctor={doctor} settings={settings} />
-
-      {/* Doctor + Patient blocks */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="border border-gray-300 rounded p-2">
-          <div className="text-[13px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Consulting Doctor</div>
-          <div className="text-base font-bold mt-0.5" style={{ color: '#0f172a' }}>{doctor.name}</div>
-          {doctor.qualifications && <div className="text-[12px] font-medium" style={{ color: '#1e40af' }}>{doctor.qualifications}</div>}
-          <div className="text-[12px]" style={{ color: '#475569' }}>{doctor.specialty}{doctor.room_number ? ` · Room ${doctor.room_number}` : ''}</div>
-          {doctor.registration_no && <div className="text-[13px]" style={{ color: '#64748b' }}>Reg: {doctor.registration_no}</div>}
-        </div>
-        <div className="border border-gray-300 rounded p-2">
-          <div className="text-[13px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Patient</div>
-          <div className="flex flex-wrap gap-x-4 mt-0.5">
-            <div className="text-base font-bold" style={{ color: '#0f172a' }}>{appointment.patient_name}</div>
-          </div>
-          <div className="flex flex-wrap gap-x-4 text-[12px]" style={{ color: '#374151' }}>
-            <span><b>UHID:</b> {appointment.patient_uhid}</span>
-            <span><b>Age:</b> {ageStringFull(appointment.patient_dob)}</span>
-            <span><b>Sex:</b> {appointment.patient_gender}</span>
-            <span><b>Ph:</b> {appointment.patient_phone}</span>
-            {appointment.patient_blood_group && <span><b>BG:</b> {appointment.patient_blood_group}</span>}
-          </div>
-          {regDate && <div className="text-[13px] mt-0.5" style={{ color: '#64748b' }}>Registered: {regDate}</div>}
-        </div>
-      </div>
-
-      {/* Vitals strip — order: Temp, Pulse, RR, SpO2, BP, Weight, Height */}
-      <Section title="Vitals">
-        <div className="grid grid-cols-7 gap-2 mt-1 text-center">
-          <Vital label="Temp" unit="°F" value={vitals.temp} />
-          <Vital label="Pulse" unit="bpm" value={vitals.pulse} />
-          <Vital label="RR" unit="cpm" value={vitals.rr} />
-          <Vital label="SpO₂" unit="%" value={vitals.spo2} />
-          <Vital label="BP" unit="mmHg" value={vitals.bp} />
-          <Vital label="Weight" unit="kg" value={vitals.weight} />
-          <Vital label="Height" unit="cm" value={vitals.height} />
-        </div>
-      </Section>
-
-      {/* Template-driven body sections — Page 1 holds intake / examination fields. */}
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', lineHeight: 1.35 }}>
+      <Letterhead appointment={appointment} doctor={doctor} settings={settings} logoSize={layout.logoSize} />
+      <DoctorPatientBlocks appointment={appointment} doctor={doctor} regDate={regDate} />
+      {layout.showVitals && <VitalsStrip vitals={vitals} />}
       <DynamicSections sections={sections} consultation={consultation} growLast />
     </div>
+  );
+}
+
+function DoctorPatientBlocks({ appointment, doctor, regDate }: { appointment: AppointmentWithJoins; doctor: Doctor; regDate: string | null }) {
+  return (
+    <div className="grid grid-cols-2 gap-4">
+      <div className="border border-gray-300 rounded p-2">
+        <div className="text-[13px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Consulting Doctor</div>
+        <div className="text-base font-bold mt-0.5" style={{ color: '#0f172a' }}>{doctor.name}</div>
+        {doctor.qualifications && <div className="text-[12px] font-medium" style={{ color: '#1e40af' }}>{doctor.qualifications}</div>}
+        <div className="text-[12px]" style={{ color: '#475569' }}>{doctor.specialty}{doctor.room_number ? ` · Room ${doctor.room_number}` : ''}</div>
+        {doctor.registration_no && <div className="text-[13px]" style={{ color: '#64748b' }}>Reg: {doctor.registration_no}</div>}
+      </div>
+      <div className="border border-gray-300 rounded p-2">
+        <div className="text-[13px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Patient</div>
+        <div className="flex flex-wrap gap-x-4 mt-0.5">
+          <div className="text-base font-bold" style={{ color: '#0f172a' }}>{appointment.patient_name}</div>
+        </div>
+        <div className="flex flex-wrap gap-x-4 text-[12px]" style={{ color: '#374151' }}>
+          <span><b>UHID:</b> {appointment.patient_uhid}</span>
+          <span><b>Age:</b> {ageStringFull(appointment.patient_dob)}</span>
+          <span><b>Sex:</b> {appointment.patient_gender}</span>
+          <span><b>Ph:</b> {appointment.patient_phone}</span>
+          {appointment.patient_blood_group && <span><b>BG:</b> {appointment.patient_blood_group}</span>}
+        </div>
+        {regDate && <div className="text-[13px] mt-0.5" style={{ color: '#64748b' }}>Registered: {regDate}</div>}
+      </div>
+    </div>
+  );
+}
+
+function VitalsStrip({ vitals }: { vitals: Vitals }) {
+  return (
+    <Section title="Vitals">
+      <div className="grid grid-cols-7 gap-2 mt-1 text-center">
+        <Vital label="Temp" unit="°F" value={vitals.temp} />
+        <Vital label="Pulse" unit="bpm" value={vitals.pulse} />
+        <Vital label="RR" unit="cpm" value={vitals.rr} />
+        <Vital label="SpO₂" unit="%" value={vitals.spo2} />
+        <Vital label="BP" unit="mmHg" value={vitals.bp} />
+        <Vital label="Weight" unit="kg" value={vitals.weight} />
+        <Vital label="Height" unit="cm" value={vitals.height} />
+      </div>
+    </Section>
   );
 }
 
@@ -483,8 +528,58 @@ function DynamicSections({
   );
 }
 
+function RxTable({ rxItems }: { rxItems: PrescriptionItem[] }) {
+  if (rxItems.length === 0) return null;
+  return (
+    <table className="w-full mb-2" style={{ borderCollapse: 'collapse', fontSize: 'inherit' }}>
+      <thead>
+        <tr style={{ borderBottom: '1px solid #cbd5e1' }}>
+          <th style={{ textAlign: 'left', padding: '2px 4px' }}>Drug</th>
+          <th style={{ textAlign: 'left', padding: '2px 4px', width: 60 }}>Dose</th>
+          <th style={{ textAlign: 'left', padding: '2px 4px', width: 70 }}>Frequency</th>
+          <th style={{ textAlign: 'left', padding: '2px 4px', width: 70 }}>Duration</th>
+          <th style={{ textAlign: 'left', padding: '2px 4px' }}>Instructions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rxItems.map((r, idx) => (
+          <tr key={idx} style={{ borderBottom: '1px dotted #e2e8f0' }}>
+            <td style={{ padding: '3px 4px', fontWeight: 600 }}>{r.drug_name}</td>
+            <td style={{ padding: '3px 4px' }}>{r.dosage || ''}</td>
+            <td style={{ padding: '3px 4px' }}>{r.frequency || ''}</td>
+            <td style={{ padding: '3px 4px' }}>{r.duration || ''}</td>
+            <td style={{ padding: '3px 4px' }}>{r.instructions || ''}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function SignatureBlock({ doctor, appointment }: { doctor: Doctor; appointment: AppointmentWithJoins }) {
+  return (
+    <div className="grid grid-cols-2 gap-4 mt-3 pt-3" style={{ borderTop: '1px solid #cbd5e1' }}>
+      <div>
+        <div className="text-[13px] uppercase font-semibold" style={{ color: '#64748b' }}>Patient ID</div>
+        <div className="text-[12px] mt-0.5 font-mono" style={{ color: '#0f172a' }}>UHID: {appointment.patient_uhid}</div>
+        <div className="text-[12px] font-mono" style={{ color: '#0f172a' }}>Visit ID: {appointment.patient_uhid}/V{appointment.id}</div>
+      </div>
+      <div className="text-right">
+        <div className="inline-block text-center">
+          {doctor.signature
+            ? <img src={doctor.signature} alt="Signature" className="h-12 w-48 object-contain ml-auto" />
+            : <div className="border-b border-gray-900 h-12 w-48" />}
+          <div className="text-[12px] mt-1" style={{ color: '#475569' }}>
+            {doctor.name}{doctor.qualifications ? `, ${doctor.qualifications}` : ''} — Signature
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PageTwo({
-  appointment, consultation, doctor, settings, rxItems, labOrders, followup, sections,
+  appointment, consultation, doctor, settings, rxItems, labOrders, followup, sections, layout,
 }: {
   appointment: AppointmentWithJoins;
   consultation: Consultation | null;
@@ -494,23 +589,18 @@ function PageTwo({
   labOrders: LabOrder[];
   followup: FollowupSummary | null;
   sections: SlipTemplateSection[];
+  layout: SlipLayout;
 }) {
-  // Pull "advice" out of the dynamic flow so we can interleave the Rx table
-  // before/inside it. Everything else (impression, custom fields like ECG findings,
-  // heart sounds, etc.) renders sequentially via DynamicSections.
   const adviceIdx = sections.findIndex((s) => s.key === 'advice');
   const beforeAdvice = adviceIdx === -1 ? sections : sections.slice(0, adviceIdx);
   const adviceSection = adviceIdx === -1 ? null : sections[adviceIdx];
   const afterAdvice = adviceIdx === -1 ? [] : sections.slice(adviceIdx + 1);
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', fontSize: '13px', lineHeight: 1.35 }}>
-      <Letterhead appointment={appointment} doctor={doctor} settings={settings} compact />
-
-      {/* Pre-advice template sections (impression + any custom fields). */}
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', lineHeight: 1.35 }}>
+      <Letterhead appointment={appointment} doctor={doctor} settings={settings} compact logoSize={layout.logoSize} />
       <DynamicSections sections={beforeAdvice} consultation={consultation} />
 
-      {/* Investigations (if any) */}
       {labOrders.length > 0 && (
         <Section title="Investigations Ordered">
           <ul style={{ marginLeft: 14, listStyle: 'disc' }} className="text-[12px]">
@@ -523,81 +613,90 @@ function PageTwo({
         </Section>
       )}
 
-      {/* Advice / Prescription — Rx table comes first, then template advice text. */}
       <Section title={adviceSection?.title || 'Advice / Prescription (Rx)'} grow>
-        {rxItems.length > 0 && (
-          <table className="w-full text-[12px] mb-2" style={{ borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid #cbd5e1' }}>
-                <th style={{ textAlign: 'left', padding: '2px 4px' }}>Drug</th>
-                <th style={{ textAlign: 'left', padding: '2px 4px', width: 60 }}>Dose</th>
-                <th style={{ textAlign: 'left', padding: '2px 4px', width: 70 }}>Frequency</th>
-                <th style={{ textAlign: 'left', padding: '2px 4px', width: 70 }}>Duration</th>
-                <th style={{ textAlign: 'left', padding: '2px 4px' }}>Instructions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rxItems.map((r, idx) => (
-                <tr key={idx} style={{ borderBottom: '1px dotted #e2e8f0' }}>
-                  <td style={{ padding: '3px 4px', fontWeight: 600 }}>{r.drug_name}</td>
-                  <td style={{ padding: '3px 4px' }}>{r.dosage || ''}</td>
-                  <td style={{ padding: '3px 4px' }}>{r.frequency || ''}</td>
-                  <td style={{ padding: '3px 4px' }}>{r.duration || ''}</td>
-                  <td style={{ padding: '3px 4px' }}>{r.instructions || ''}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        {layout.showRxTable && <RxTable rxItems={rxItems} />}
         <BlankArea value={readSection(consultation, 'advice')} grow={afterAdvice.length === 0} />
       </Section>
 
-      {/* Any sections that come AFTER advice in the template (rare but supported). */}
       {afterAdvice.length > 0 && (
         <DynamicSections sections={afterAdvice} consultation={consultation} growLast />
       )}
 
-      {/* Footer with signature */}
-      <div className="grid grid-cols-2 gap-4 mt-3 pt-3" style={{ borderTop: '1px solid #cbd5e1' }}>
-        <div>
-          <div className="text-[13px] uppercase font-semibold" style={{ color: '#64748b' }}>Patient ID</div>
-          <div className="text-[12px] mt-0.5 font-mono" style={{ color: '#0f172a' }}>
-            UHID: {appointment.patient_uhid}
-          </div>
-          <div className="text-[12px] font-mono" style={{ color: '#0f172a' }}>
-            Visit ID: {appointment.patient_uhid}/V{appointment.id}
-          </div>
-        </div>
-        <div className="text-right">
-          <div className="inline-block text-center">
-            {doctor.signature ? (
-              <img src={doctor.signature} alt="Signature" className="h-12 w-48 object-contain ml-auto" />
-            ) : (
-              <div className="border-b border-gray-900 h-12 w-48" />
-            )}
-            <div className="text-[12px] mt-1" style={{ color: '#475569' }}>
-              {doctor.name}{doctor.qualifications ? `, ${doctor.qualifications}` : ''} — Signature
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* QR codes — rendered below follow-up box when configured in Settings */}
-      <QrRow settings={settings} />
-
-      {/* FOLLOW-UP / ಮರు ಭೇಟಿ box — Page 2 only, hidden when nothing to offer */}
-      <FollowUpBox followup={followup} />
+      {layout.showSignature && <SignatureBlock doctor={doctor} appointment={appointment} />}
+      {layout.showFollowupBox && <FollowUpBox followup={followup} settings={settings} showQr={layout.showQrCodes} />}
+      {layout.showQrCodes && !layout.showFollowupBox && <QrRow settings={settings} />}
     </div>
   );
 }
 
+/** Single-page layout — everything on one A4 sheet. */
+function SinglePageContent({
+  appointment, consultation, doctor, settings, vitals, rxItems, labOrders, followup, sections, layout,
+}: {
+  appointment: AppointmentWithJoins;
+  consultation: Consultation | null;
+  doctor: Doctor;
+  settings: Settings;
+  vitals: Vitals;
+  rxItems: PrescriptionItem[];
+  labOrders: LabOrder[];
+  followup: FollowupSummary | null;
+  sections: SlipTemplateSection[];
+  layout: SlipLayout;
+}) {
+  const regDate = appointment.patient_created_at
+    ? (() => { try { return fmtDateTime(appointment.patient_created_at); } catch { return appointment.patient_created_at; } })()
+    : null;
+
+  const adviceIdx = sections.findIndex((s) => s.key === 'advice');
+  const beforeAdvice = adviceIdx === -1 ? sections : sections.slice(0, adviceIdx);
+  const adviceSection = adviceIdx === -1 ? null : sections[adviceIdx];
+  const afterAdvice = adviceIdx === -1 ? [] : sections.slice(adviceIdx + 1);
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
+      <Letterhead appointment={appointment} doctor={doctor} settings={settings}
+        compact={layout.headerStyle === 'compact'} logoSize={layout.logoSize} />
+      <DoctorPatientBlocks appointment={appointment} doctor={doctor} regDate={regDate} />
+      {layout.showVitals && <VitalsStrip vitals={vitals} />}
+      <DynamicSections sections={beforeAdvice} consultation={consultation} />
+
+      {labOrders.length > 0 && (
+        <Section title="Investigations Ordered">
+          <ul style={{ marginLeft: 14, listStyle: 'disc', fontSize: '0.9em' }}>
+            {labOrders.map((o) => (
+              <li key={o.id}>
+                <span className="font-mono" style={{ color: '#1e40af' }}>{o.order_number}</span> ({o.status.replace('_', ' ')})
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      <Section title={adviceSection?.title || 'Advice / Prescription (Rx)'} grow>
+        {layout.showRxTable && <RxTable rxItems={rxItems} />}
+        <BlankArea value={readSection(consultation, 'advice')} grow={afterAdvice.length === 0} />
+      </Section>
+
+      {afterAdvice.length > 0 && (
+        <DynamicSections sections={afterAdvice} consultation={consultation} growLast />
+      )}
+
+      {layout.showSignature && <SignatureBlock doctor={doctor} appointment={appointment} />}
+      {layout.showFollowupBox && <FollowUpBox followup={followup} settings={settings} showQr={layout.showQrCodes} />}
+      {layout.showQrCodes && !layout.showFollowupBox && <QrRow settings={settings} />}
+    </div>
+  );
+}
+
+
 /** Single QR code rendered as an inline SVG data-URI img tag. */
-function QrBox({ img, label }: { img: string; label: string }) {
+function QrBox({ img, label, size = 72 }: { img: string; label: string; size?: number }) {
   if (!img) return null;
   return (
     <div className="flex flex-col items-center gap-1">
-      <img src={img} alt={label} style={{ width: 72, height: 72, display: 'block', objectFit: 'contain' }} />
-      <div className="text-[10px] font-medium text-center" style={{ color: '#475569', maxWidth: 80 }}>{label}</div>
+      <img src={img} alt={label} style={{ width: size, height: size, display: 'block', objectFit: 'contain' }} />
+      <div className="text-[10px] font-medium text-center" style={{ color: '#475569', maxWidth: size + 10 }}>{label}</div>
     </div>
   );
 }
@@ -619,8 +718,11 @@ function QrRow({ settings }: { settings: Settings }) {
 }
 
 /** Bilingual follow-up offer box. Hidden when the patient has no entitlement. */
-function FollowUpBox({ followup }: { followup: FollowupSummary | null }) {
-  if (!followup || !followup.enabled || followup.mode === 'hidden' || followup.free_remaining < 0) return null;
+function FollowUpBox({ followup, settings, showQr = true }: { followup: FollowupSummary | null; settings: Settings; showQr?: boolean }) {
+  const hasQr = showQr && !!(settings.qr1_img || settings.qr2_img);
+  if (!followup || !followup.enabled || followup.mode === 'hidden' || followup.free_remaining < 0) {
+    return hasQr ? <QrRow settings={settings} /> : null;
+  }
 
   const visitWord = followup.free_remaining === 1 ? 'visit' : 'visits';
   const dateLabel = (() => { try { return format(parseISO(followup.valid_till), 'do MMMM yyyy'); } catch { return followup.valid_till; } })();
@@ -641,6 +743,9 @@ function FollowUpBox({ followup }: { followup: FollowupSummary | null }) {
     return null;
   }
 
+  const qrCount = showQr ? (settings.qr1_img ? 1 : 0) + (settings.qr2_img ? 1 : 0) : 0;
+  const qrSize = qrCount === 2 ? 58 : 82;
+
   return (
     <div
       className="mt-3 rounded"
@@ -656,8 +761,23 @@ function FollowUpBox({ followup }: { followup: FollowupSummary | null }) {
       >
         FOLLOW-UP · ಮರು ಭೇಟಿ
       </div>
-      <div className="text-[12px] leading-snug text-center" style={{ color: '#064e3b' }}>{englishLine}</div>
-      <div className="text-[12px] leading-snug mt-1.5 text-center" style={{ color: '#064e3b' }}>{kannadaLine}</div>
+      <div className="flex items-center gap-3">
+        {/* Left: bilingual text */}
+        <div className={`flex-1 min-w-0 ${qrCount === 0 ? 'text-center' : ''}`}>
+          <div className="text-[12px] leading-snug" style={{ color: '#064e3b' }}>{englishLine}</div>
+          <div className="text-[12px] leading-snug mt-1.5" style={{ color: '#064e3b' }}>{kannadaLine}</div>
+        </div>
+        {/* Right: QR codes */}
+        {qrCount > 0 && (
+          <div
+            className="flex items-center justify-center gap-2 shrink-0"
+            style={{ borderLeft: '1px solid #a7f3d0', paddingLeft: '10px' }}
+          >
+            {settings.qr1_img && <QrBox img={settings.qr1_img} label={settings.qr1_label || 'QR Code'} size={qrSize} />}
+            {settings.qr2_img && <QrBox img={settings.qr2_img} label={settings.qr2_label || 'QR Code'} size={qrSize} />}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
