@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FileText, Printer, Save, Send, Plus, Trash2, FlaskConical } from 'lucide-react';
+import { FileText, Printer, Save, Send, Plus, Trash2, FlaskConical, Sparkles, X } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
 import { OpdSlip } from './OpdSlip';
 import { Modal } from './Modal';
@@ -30,6 +30,7 @@ export function ConsultationPanel({
   const toast = useToast();
   const [showSlip, setShowSlip] = useState(false);
   const [labPickerOpen, setLabPickerOpen] = useState(false);
+  const [tplPickerOpen, setTplPickerOpen] = useState(false);
 
   const { data: existing } = useQuery({
     queryKey: ['consultation', appointment.id],
@@ -75,6 +76,29 @@ export function ConsultationPanel({
     const byId = templates.find((t: any) => t.id === doctor.template_id);
     return byId || templates[0]; // Fall back to the first template (typically "General").
   }, [templates, doctor.template_id]);
+
+  const { data: clinicalTemplates = [] } = useQuery({
+    queryKey: ['clinical-templates'],
+    queryFn: () => window.electronAPI.clinicalTemplates.list(),
+  });
+
+  const applyQuickTemplate = (tpl: { fields: Record<string, string>; follow_up_days?: number }) => {
+    if (tpl.fields.history) setHistory((prev) => prev ? prev + '\n' + tpl.fields.history : tpl.fields.history);
+    if (tpl.fields.examination) setExamination((prev) => prev ? prev + '\n' + tpl.fields.examination : tpl.fields.examination);
+    if (tpl.fields.impression) setImpression((prev) => prev ? prev + '\n' + tpl.fields.impression : tpl.fields.impression);
+    if (tpl.fields.advice) setAdvice((prev) => prev ? prev + '\n' + tpl.fields.advice : tpl.fields.advice);
+    if (tpl.follow_up_days) {
+      const d = new Date(); d.setDate(d.getDate() + tpl.follow_up_days);
+      setFollowUp(d.toISOString().slice(0, 10));
+    }
+    // Extra section keys
+    const extra: Record<string, string> = {};
+    for (const [k, v] of Object.entries(tpl.fields)) {
+      if (!['history', 'examination', 'impression', 'advice'].includes(k)) extra[k] = v;
+    }
+    if (Object.keys(extra).length > 0) setExtraFields((prev) => ({ ...prev, ...extra }));
+    setTplPickerOpen(false);
+  };
 
   useEffect(() => {
     setHistory(existing?.history || '');
@@ -189,6 +213,11 @@ export function ConsultationPanel({
           Consultation
         </h3>
         <div className="flex gap-2 flex-wrap">
+          {clinicalTemplates.length > 0 && (
+            <button className="btn-secondary" onClick={() => setTplPickerOpen((v) => !v)} title="Quick-fill from specialty template">
+              <Sparkles className="w-4 h-4 text-amber-500" /> Quick Fill
+            </button>
+          )}
           <button className="btn-secondary" onClick={() => save.mutate()} disabled={save.isPending}>
             <Save className="w-4 h-4" /> {save.isPending ? 'Saving…' : 'Save'}
           </button>
@@ -205,6 +234,37 @@ export function ConsultationPanel({
           </button>
         </div>
       </div>
+
+      {/* Quick-fill template picker */}
+      {tplPickerOpen && (
+        <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" /> Specialty Quick-Fill Templates
+            </div>
+            <button onClick={() => setTplPickerOpen(false)} className="p-0.5 rounded hover:bg-amber-100 dark:hover:bg-amber-800/40">
+              <X className="w-3.5 h-3.5 text-amber-600" />
+            </button>
+          </div>
+          <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-2">Click a template to append its content into the consultation fields below.</p>
+          {(() => {
+            const categories = [...new Set(clinicalTemplates.map((t: any) => t.category))];
+            return categories.map((cat) => (
+              <div key={cat as string} className="mb-2">
+                <div className="text-[10px] uppercase tracking-wider font-semibold text-amber-600 dark:text-amber-500 mb-1">{cat as string}</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {clinicalTemplates.filter((t: any) => t.category === cat).map((t: any) => (
+                    <button key={t.id} onClick={() => applyQuickTemplate(t)}
+                      className="px-2.5 py-1 rounded-full text-xs border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-200 hover:border-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/30 transition-colors">
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ));
+          })()}
+        </div>
+      )}
 
       {/* Vitals */}
       <div>

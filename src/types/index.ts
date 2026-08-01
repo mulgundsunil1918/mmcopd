@@ -109,6 +109,8 @@ export interface Appointment {
   status: AppointmentStatus;
   notes: string | null;
   created_at: string;
+  patient_group: string | null;
+  procedure_tags: string | null;
 }
 
 export interface AppointmentWithJoins extends Appointment {
@@ -452,7 +454,35 @@ export interface IpAdmission {
   ward: string | null;
   admission_notes: string | null;
   discharge_summary: string | null;
+  discharge_diagnosis: string | null;
+  condition_at_discharge: string | null;
+  treatment_given: string | null;
+  investigation_findings: string | null;
+  operative_notes: string | null;
+  discharge_medications_json: string | null;
+  followup_plan: string | null;
+  discharge_doctor_id: number | null;
   status: AdmissionStatus;
+  patient_name?: string;
+  patient_uhid?: string;
+  patient_phone?: string;
+  doctor_name?: string;
+}
+
+export interface DischargeMedication {
+  drug_name: string;
+  dosage: string;
+  frequency: string;
+  duration: string;
+  instructions: string;
+}
+
+export interface ClinicalQuickTemplate {
+  id: string;
+  name: string;
+  category: string;
+  fields: Record<string, string>;
+  follow_up_days?: number;
 }
 
 export interface Settings {

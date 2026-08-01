@@ -531,8 +531,8 @@ export function registerIpc() {
 
     const info = db
       .prepare(
-        `INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, token_number, consultation_token, status, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, token_number, consultation_token, status, notes, patient_group, procedure_tags)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         payload.patient_id,
@@ -542,7 +542,9 @@ export function registerIpc() {
         token,
         visitId,
         payload.status ?? (getAllSettings(db).queue_flow_enabled ? 'Waiting' : 'Done'),
-        payload.notes ?? null
+        payload.notes ?? null,
+        (payload as any).patient_group ?? null,
+        (payload as any).procedure_tags ?? null
       );
 
     const created = db
@@ -2075,12 +2077,46 @@ export function registerIpc() {
     return db.prepare('SELECT * FROM ip_admissions WHERE id=?').get(info.lastInsertRowid);
   });
 
-  ipcMain.handle('ip:discharge', (_e, id: number, summary: string) => {
+  ipcMain.handle('ip:discharge', (_e, id: number, payload: {
+    discharge_diagnosis?: string;
+    condition_at_discharge?: string;
+    treatment_given?: string;
+    investigation_findings?: string;
+    operative_notes?: string;
+    discharge_medications_json?: string;
+    followup_plan?: string;
+    discharge_doctor_id?: number;
+    discharge_summary?: string;
+  } | string) => {
     const db = getDb();
-    db.prepare(
-      "UPDATE ip_admissions SET status='discharged', discharged_at=?, discharge_summary=? WHERE id=?"
-    ).run(new Date().toISOString(), summary, id);
-    return db.prepare('SELECT * FROM ip_admissions WHERE id=?').get(id);
+    const now = new Date().toISOString();
+    if (typeof payload === 'string') {
+      // Legacy plain-text path
+      db.prepare("UPDATE ip_admissions SET status='discharged', discharged_at=?, discharge_summary=? WHERE id=?")
+        .run(now, payload, id);
+    } else {
+      db.prepare(`UPDATE ip_admissions SET
+        status='discharged', discharged_at=?,
+        discharge_diagnosis=?, condition_at_discharge=?,
+        treatment_given=?, investigation_findings=?,
+        operative_notes=?, discharge_medications_json=?,
+        followup_plan=?, discharge_doctor_id=?,
+        discharge_summary=?
+        WHERE id=?`).run(
+        now,
+        payload.discharge_diagnosis ?? null,
+        payload.condition_at_discharge ?? null,
+        payload.treatment_given ?? null,
+        payload.investigation_findings ?? null,
+        payload.operative_notes ?? null,
+        payload.discharge_medications_json ?? null,
+        payload.followup_plan ?? null,
+        payload.discharge_doctor_id ?? null,
+        payload.discharge_summary ?? null,
+        id
+      );
+    }
+    return db.prepare('SELECT a.*, (p.first_name||" "||p.last_name) as patient_name, p.uhid as patient_uhid, d.name as doctor_name FROM ip_admissions a JOIN patients p ON p.id=a.patient_id LEFT JOIN doctors d ON d.id=a.admission_doctor_id WHERE a.id=?').get(id);
   });
 
   // ===== Notifications =====
@@ -2105,6 +2141,21 @@ export function registerIpc() {
   ipcMain.handle('settings:save', (_e, patch: Partial<Settings>) => {
     saveSettings(getDb(), patch);
     return getAllSettings(getDb());
+  });
+
+  // ===== Clinical Quick Templates =====
+  const CLINICAL_TPL_KEY = 'clinical_quick_templates';
+  ipcMain.handle('clinical-templates:list', () => {
+    const db = getDb();
+    const row = db.prepare("SELECT value FROM settings WHERE key=?").get(CLINICAL_TPL_KEY) as { value: string } | undefined;
+    try { return row ? JSON.parse(row.value) : []; } catch { return []; }
+  });
+  ipcMain.handle('clinical-templates:save', (_e, templates: unknown[]) => {
+    const db = getDb();
+    const json = JSON.stringify(templates);
+    db.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+      .run(CLINICAL_TPL_KEY, json);
+    return templates;
   });
 
   // ===== Patient Log =====

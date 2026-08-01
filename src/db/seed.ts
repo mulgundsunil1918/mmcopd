@@ -141,4 +141,112 @@ export function seedIfEmpty(db: Database.Database) {
     ];
     for (const t of tests) ins.run(...t);
   }
+
+  // Seed clinical quick-fill templates (stored as JSON in settings)
+  const ctplRow = db.prepare("SELECT value FROM settings WHERE key='clinical_quick_templates'").get() as { value: string } | undefined;
+  if (!ctplRow) {
+    const CLINICAL_TEMPLATES = [
+      {
+        id: 'dm2', name: 'Type 2 Diabetes', category: 'Endocrinology',
+        fields: {
+          history: 'Known case of Type 2 Diabetes Mellitus. Presenting for routine follow-up.\nCompliance with medications — good/poor. No hypoglycaemic episodes reported.',
+          examination: 'Vitals stable. No pallor, icterus, cyanosis, clubbing, lymphadenopathy, oedema. CVS — S1 S2 normal. RS — NVBS. P/A — soft, non-tender.',
+          impression: 'Diabetes Mellitus Type 2 (E11) — controlled/uncontrolled',
+          advice: 'Diabetic diet — avoid sugar, sweets, white rice, maida. Brisk walking 30 min daily.\nFasting & post-prandial blood sugar monthly. HbA1c every 3 months.\nFoot inspection daily. Ophthalmology review annually.',
+        },
+        follow_up_days: 30,
+      },
+      {
+        id: 'htn', name: 'Hypertension', category: 'Cardiology',
+        fields: {
+          history: 'Known hypertensive, on medications. Presenting for follow-up. No headache, giddiness, chest pain, or breathlessness at rest.',
+          examination: 'BP: /  mmHg (bilateral arms). Pulse — regular. No pedal oedema. CVS — S1 S2 heard, no murmurs. Fundus — not done today.',
+          impression: 'Essential Hypertension (I10) — controlled/uncontrolled',
+          advice: 'Low-sodium diet. Restrict pickles, processed foods. Avoid stress. Regular BP monitoring at home.\nComplete medication compliance — do not skip doses.',
+        },
+        follow_up_days: 30,
+      },
+      {
+        id: 'urti', name: 'Acute URTI', category: 'General Medicine',
+        fields: {
+          history: 'C/O fever since ___ days, sore throat, runny nose, body ache. No cough, no breathing difficulty. Appetite reduced.',
+          examination: 'Throat — congested, tonsils mildly enlarged. Bilateral nasal congestion. Chest clear. P/A — soft. Temperature — °F.',
+          impression: 'Acute Viral Upper Respiratory Tract Infection (J06.9)',
+          advice: 'Rest. Warm fluids. Steam inhalation twice daily. Saline nasal drops PRN.\nReturn immediately if fever > 5 days, difficulty breathing, or rash appears.',
+        },
+        follow_up_days: 5,
+      },
+      {
+        id: 'age', name: 'Acute Gastroenteritis', category: 'General Medicine',
+        fields: {
+          history: 'C/O loose stools ___ times since ___ hours, nausea, vomiting ___ times. No blood in stools. Mild abdominal cramps. Appetite poor.',
+          examination: 'Dehydration — mild/moderate. P/A — soft, mild diffuse tenderness, no guarding/rigidity. BS — present.',
+          impression: 'Acute Gastroenteritis (K52.9)',
+          advice: 'ORS after every loose stool. Small frequent meals — rice, curd, banana, khichdi. Avoid spicy/oily food.\nReturn if unable to tolerate orally, persistent vomiting, or blood in stools.',
+        },
+        follow_up_days: 3,
+      },
+      {
+        id: 'ped_fever', name: 'Paediatric Fever', category: 'Paediatrics',
+        fields: {
+          history: 'Child with fever since ___ days. Max recorded — °F. No rash, no fits. Feeding — adequate/reduced. Activity — playful/dull.',
+          examination: 'Temperature — °F. Alert & active. No rash. Throat — clear/congested. Chest — clear. P/A — soft. No signs of meningism.',
+          impression: 'Fever, likely viral aetiology (R50.9)',
+          advice: 'Paracetamol 15 mg/kg/dose 4-6 hourly if temp > 38°C. Sponging with lukewarm water.\nAdequate fluids. Light diet. Return if fits, rash, persistent vomiting, or no improvement in 72h.',
+        },
+        follow_up_days: 3,
+      },
+      {
+        id: 'hypothyroid', name: 'Hypothyroidism', category: 'Endocrinology',
+        fields: {
+          history: 'Known case of hypothyroidism on T4 replacement. C/O fatigue, weight gain, cold intolerance.',
+          examination: 'No goitre. No pedal oedema. Pulse — bradycardia/normal. Reflexes — delayed/normal.',
+          impression: 'Hypothyroidism (E03.9) — on replacement therapy',
+          advice: 'Take levothyroxine on empty stomach 30 min before food. Avoid calcium/iron supplements within 4h of dose.\nTSH every 6 months when stable.',
+        },
+        follow_up_days: 90,
+      },
+      {
+        id: 'asthma', name: 'Bronchial Asthma', category: 'Pulmonology',
+        fields: {
+          history: 'Known asthmatic. C/O wheeze, breathlessness since ___. Trigger — dust/cold/exercise/infection. Last attack — ___. Using reliever inhaler ___ times/day.',
+          examination: 'RR — /min. SpO2 — %. Air entry — bilateral, wheeze present/absent. No use of accessory muscles.',
+          impression: 'Bronchial Asthma (J45) — mild/moderate/severe exacerbation / well-controlled',
+          advice: 'Avoid triggers — dust, smoke, cold air. Use spacer with MDI. Peak flow monitoring.\nController inhaler must be used daily even when asymptomatic.',
+        },
+        follow_up_days: 14,
+      },
+      {
+        id: 'osteo', name: 'Osteoarthritis Knee', category: 'Orthopaedics',
+        fields: {
+          history: 'C/O bilateral/unilateral knee pain since ___ months. Pain on walking, climbing stairs. Morning stiffness < 30 min. No swelling/locking/giving way.',
+          examination: 'Joint line tenderness present. Crepitus +++. Range of motion — restricted. McMurray/Lachman — negative. No effusion.',
+          impression: 'Osteoarthritis, Knee (M17)',
+          advice: 'Quadriceps strengthening exercises. Weight reduction. Avoid squatting, sitting on floor.\nHot fomentation. Knee brace if needed.',
+        },
+        follow_up_days: 30,
+      },
+      {
+        id: 'lbp', name: 'Low Back Pain', category: 'Orthopaedics',
+        fields: {
+          history: 'C/O low back pain since ___ days/weeks. Radiates to ___. Aggravated by bending/lifting. No bladder/bowel involvement.',
+          examination: 'Lumbar spine — tenderness at L___. SLR — negative/positive at ___°. Muscle spasm present/absent. Neurological — intact.',
+          impression: 'Mechanical Low Back Pain (M54.5)',
+          advice: 'Bed rest 48h, then gradual mobilisation. Hot pack twice daily. Core strengthening exercises.\nAvoid lifting heavy weights, forward bending.',
+        },
+        follow_up_days: 7,
+      },
+      {
+        id: 'anxiety', name: 'Anxiety Disorder', category: 'Psychiatry',
+        fields: {
+          history: 'C/O excessive worry, restlessness, palpitations, sleep disturbance since ___ months. No suicidal ideation. No substance use.',
+          examination: 'Alert, oriented. No psychomotor agitation. Affect appropriate. Insight — present.',
+          impression: 'Generalised Anxiety Disorder (F41.1)',
+          advice: 'Breathing exercises, mindfulness, progressive muscle relaxation. Sleep hygiene.\nLimit caffeine and screen time. Follow up as scheduled.',
+        },
+        follow_up_days: 14,
+      },
+    ];
+    db.prepare("INSERT INTO settings(key,value) VALUES('clinical_quick_templates', ?)").run(JSON.stringify(CLINICAL_TEMPLATES));
+  }
 }

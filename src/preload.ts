@@ -335,7 +335,16 @@ const api = {
       ipcRenderer.invoke('ip:list', filter || {}) as Promise<(IpAdmission & { patient_name: string; patient_uhid: string; patient_phone: string; doctor_name: string | null })[]>,
     admit: (payload: { patient_id: number; admission_doctor_id?: number; bed_number?: string; ward?: string; admission_notes?: string }) =>
       ipcRenderer.invoke('ip:admit', payload) as Promise<IpAdmission>,
-    discharge: (id: number, summary: string) => ipcRenderer.invoke('ip:discharge', id, summary) as Promise<IpAdmission>,
+    discharge: (id: number, payload: {
+      discharge_diagnosis?: string; condition_at_discharge?: string;
+      treatment_given?: string; investigation_findings?: string;
+      operative_notes?: string; discharge_medications_json?: string;
+      followup_plan?: string; discharge_doctor_id?: number; discharge_summary?: string;
+    } | string) => ipcRenderer.invoke('ip:discharge', id, payload) as Promise<IpAdmission>,
+  },
+  clinicalTemplates: {
+    list: () => ipcRenderer.invoke('clinical-templates:list') as Promise<import('./types').ClinicalQuickTemplate[]>,
+    save: (tpls: import('./types').ClinicalQuickTemplate[]) => ipcRenderer.invoke('clinical-templates:save', tpls) as Promise<import('./types').ClinicalQuickTemplate[]>,
   },
   notifications: {
     list: (status?: string) => ipcRenderer.invoke('notifications:list', status) as Promise<NotificationLog[]>,

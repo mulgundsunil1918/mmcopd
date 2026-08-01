@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Plus, Calendar, Search, Clock4, Loader2, CheckCircle2, Printer, ArrowDownNarrowWide, ArrowUpNarrowWide } from 'lucide-react';
+import { Plus, Calendar, Search, Clock4, Loader2, CheckCircle2, Printer, ArrowDownNarrowWide, ArrowUpNarrowWide, Columns, List } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
@@ -43,6 +43,7 @@ export function Appointments() {
   const [bookOpen, setBookOpen] = useState(false);
   const [printAppt, setPrintAppt] = useState<AppointmentWithJoins | null>(null);
   const [sortOrder, setSortOrder] = useState<'oldest_first' | 'newest_first' | null>(null);
+  const [consultantView, setConsultantView] = useState(false);
   const toast = useToast();
   const qc = useQueryClient();
 
@@ -141,6 +142,18 @@ export function Appointments() {
             <option value="all">All Doctors</option>
             {doctors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
+          <div className="flex bg-gray-100 dark:bg-slate-700 p-1 rounded-lg">
+            <button
+              onClick={() => setConsultantView(false)}
+              title="List view"
+              className={cn('p-1.5 rounded-md transition-colors', !consultantView ? 'bg-white dark:bg-slate-800 shadow-sm' : 'text-gray-500 hover:text-gray-700')}
+            ><List className="w-4 h-4" /></button>
+            <button
+              onClick={() => setConsultantView(true)}
+              title="Consultant column view"
+              className={cn('p-1.5 rounded-md transition-colors', consultantView ? 'bg-white dark:bg-slate-800 shadow-sm' : 'text-gray-500 hover:text-gray-700')}
+            ><Columns className="w-4 h-4" /></button>
+          </div>
           <button className="btn-primary" onClick={() => setBookOpen(true)}>
             <Plus className="w-4 h-4" /> Book New
             <span className="ml-2 text-[10px] opacity-75 bg-white/20 rounded px-1.5 py-0.5">Ctrl+B</span>
@@ -253,8 +266,72 @@ export function Appointments() {
         </div>
       </div>
 
+      {/* Consultant column view */}
+      {consultantView && (
+        <div className="overflow-x-auto">
+          <div className="flex gap-3 min-w-max">
+            {visibleDoctors.map((doc) => {
+              const docAppts = (apptsByDoctor.get(doc.id) || []);
+              const q = searchQ.trim().toLowerCase();
+              const filtered = q
+                ? docAppts.filter((a) => a.patient_name?.toLowerCase().includes(q) || String(a.token_number).includes(q))
+                : docAppts;
+              const sorted = [...filtered].sort((a, b) =>
+                effectiveSort === 'newest_first' ? b.token_number - a.token_number : a.token_number - b.token_number
+              );
+              const docColor = colorForDoctor(doc);
+              return (
+                <div key={doc.id} className="w-64 shrink-0 flex flex-col rounded-xl border border-gray-200 dark:border-slate-700 overflow-hidden">
+                  {/* Column header */}
+                  <div className="px-3 py-2.5 text-xs font-semibold text-white flex items-center gap-2" style={{ background: docColor }}>
+                    <div className="flex-1 truncate">{doc.name}</div>
+                    <span className="bg-white/20 rounded-full px-1.5 py-0.5 text-[10px]">{sorted.length}</span>
+                  </div>
+                  {/* Cards */}
+                  <div className="flex-1 bg-gray-50 dark:bg-slate-800/60 divide-y divide-gray-100 dark:divide-slate-700 max-h-[65vh] overflow-y-auto">
+                    {sorted.length === 0 && (
+                      <div className="text-center text-xs text-gray-400 py-8">No appointments</div>
+                    )}
+                    {sorted.map((a) => (
+                      <div key={a.id} className="px-3 py-2 hover:bg-white dark:hover:bg-slate-700/50">
+                        <div className="flex items-center justify-between gap-1 mb-0.5">
+                          <span className="text-[10px] font-mono text-gray-400">#{a.token_number}</span>
+                          <StatusBadge status={a.status} />
+                        </div>
+                        <div className="text-xs font-medium text-gray-900 dark:text-slate-100 truncate">{a.patient_name}</div>
+                        {a.appointment_time && (
+                          <div className="text-[11px] text-gray-500 dark:text-slate-400">{fmt12h(a.appointment_time)}</div>
+                        )}
+                        {a.patient_group && (
+                          <span className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300">
+                            {a.patient_group}
+                          </span>
+                        )}
+                        {a.procedure_tags && (() => {
+                          try {
+                            const tags: string[] = JSON.parse(a.procedure_tags);
+                            return tags.map((t) => (
+                              <span key={t} className="inline-block mt-1 ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">{t}</span>
+                            ));
+                          } catch { return null; }
+                        })()}
+                      </div>
+                    ))}
+                  </div>
+                  {/* Column footer */}
+                  <div className="px-3 py-1.5 text-[10px] text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-700 flex justify-between">
+                    <span>{sorted.filter((a) => a.status === 'Waiting').length} waiting</span>
+                    <span>{sorted.filter((a) => a.status === 'Done').length} done</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Vertical patient list */}
-      <section className="card p-0 overflow-hidden">
+      <section className={cn('card p-0 overflow-hidden', consultantView && 'hidden')}>
         {(() => {
           const q = searchQ.trim().toLowerCase();
           const filtered = appts.filter((a) => {
@@ -309,6 +386,20 @@ export function Appointments() {
                         {a.doctor_name} · {a.doctor_specialty}{a.doctor_room ? ` · Room ${a.doctor_room}` : ''}
                       </div>
                       {a.notes && <div className="text-[11px] text-gray-600 dark:text-slate-300 italic truncate">"{a.notes}"</div>}
+                      {(a.patient_group || a.procedure_tags) && (
+                        <div className="flex flex-wrap gap-1 mt-0.5">
+                          {a.patient_group && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300">{a.patient_group}</span>
+                          )}
+                          {a.procedure_tags && (() => {
+                            try {
+                              return (JSON.parse(a.procedure_tags) as string[]).map((t) => (
+                                <span key={t} className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">{t}</span>
+                              ));
+                            } catch { return null; }
+                          })()}
+                        </div>
+                      )}
                     </div>
 
                     {/* Status */}
@@ -422,6 +513,8 @@ function BookAppointmentModal({
   const [apptDate, setApptDate] = useState(defaultDate);
   const [slot, setSlot] = useState<string>('');
   const [notes, setNotes] = useState('');
+  const [patientGroup, setPatientGroup] = useState('');
+  const [procedureTags, setProcedureTags] = useState('');
   const [feeMode, setFeeMode] = useState<'regular' | 'special' | 'custom' | 'free_followup' | 'relaxed_followup' | null>(null);
   const [customFee, setCustomFee] = useState<string>('');
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('Cash');
@@ -435,6 +528,8 @@ function BookAppointmentModal({
     setPatientQuery('');
     setSlot('');
     setNotes('');
+    setPatientGroup('');
+    setProcedureTags('');
     setFeeMode(null);
     setCustomFee('');
     setPaymentMode('Cash');
@@ -539,7 +634,11 @@ function BookAppointmentModal({
         appointment_date: apptDate,
         appointment_time: chosenTime,
         notes: notes || null,
-      });
+        patient_group: patientGroup || null,
+        procedure_tags: procedureTags
+          ? JSON.stringify(procedureTags.split(',').map((t) => t.trim()).filter(Boolean))
+          : null,
+      } as any);
 
       const feeLabel =
         feeMode === 'free_followup' ? 'OPD Consultation (Free Follow-up)'
@@ -918,6 +1017,22 @@ function BookAppointmentModal({
             placeholder="e.g. Fever since 3 days, sore throat, body ache"
           />
           <div className="text-[10px] text-gray-500 mt-0.5">Shown to the doctor and on the OPD slip.</div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">Patient Group <span className="text-gray-400 font-normal">(optional)</span></label>
+            <select className="input" value={patientGroup} onChange={(e) => setPatientGroup(e.target.value)}>
+              <option value="">— none —</option>
+              {['New', 'Follow-up', 'Emergency', 'Review', 'ANC', 'Paediatric', 'Geriatric', 'Corporate', 'Staff', 'VIP'].map((g) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Procedure Tags <span className="text-gray-400 font-normal">(comma-separated)</span></label>
+            <input className="input" value={procedureTags} onChange={(e) => setProcedureTags(e.target.value)} placeholder="e.g. Dressing, Injection, ECG" />
+          </div>
         </div>
 
         <div className="flex justify-end gap-2">

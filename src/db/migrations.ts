@@ -143,6 +143,20 @@ export function runMigrations(db: Database.Database) {
   addColumnIfMissing(db, 'pharmacy_sale_items', 'batch_id', 'INTEGER REFERENCES drug_stock_batches(id)');
   addColumnIfMissing(db, 'pharmacy_sale_items', 'gst_amount', 'REAL DEFAULT 0');
 
+  // IPD discharge — structured fields replacing the single free-text column
+  addColumnIfMissing(db, 'ip_admissions', 'discharge_diagnosis', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'condition_at_discharge', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'treatment_given', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'investigation_findings', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'operative_notes', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'discharge_medications_json', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'followup_plan', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'discharge_doctor_id', 'INTEGER REFERENCES doctors(id)');
+
+  // Appointment patient groups + procedure tags
+  addColumnIfMissing(db, 'appointments', 'patient_group', 'TEXT');
+  addColumnIfMissing(db, 'appointments', 'procedure_tags', 'TEXT');
+
   // One-time: clear the old hard-coded known_villages so the new bundled list (places.ts) takes over.
   try {
     const row = db.prepare("SELECT value FROM settings WHERE key='known_villages'").get() as { value: string } | undefined;
