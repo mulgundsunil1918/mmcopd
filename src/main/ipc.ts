@@ -1,6 +1,7 @@
 import { ipcMain, app, shell, dialog, BrowserWindow } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import * as XLSX from 'xlsx';
 import Database from 'better-sqlite3';
 import { getDb, closeDb } from '../db/db';
@@ -77,16 +78,69 @@ function generateBillNumber(): string {
   return `INV-${ymd}-${pad(row.c + 1, 4)}`;
 }
 
+// ── Admin password helpers (scrypt) ───────────────────────────────────────────
+function hashAdminPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const h = crypto.scryptSync(password, salt, 32).toString('hex');
+  return `$scrypt$${salt}$${h}`;
+}
+
+function verifyAdminPassword(input: string, stored: string): boolean {
+  if (stored.startsWith('$scrypt$')) {
+    const parts = stored.split('$');
+    if (parts.length !== 4) return false;
+    const [, , salt, storedHash] = parts;
+    try {
+      const calc = crypto.scryptSync(input, salt, 32).toString('hex');
+      return crypto.timingSafeEqual(Buffer.from(calc), Buffer.from(storedHash));
+    } catch { return false; }
+  }
+  // Legacy plaintext — constant-time compare
+  if (input.length !== stored.length) return false;
+  const a = Buffer.alloc(stored.length);
+  const b = Buffer.alloc(stored.length);
+  Buffer.from(input).copy(a);
+  Buffer.from(stored).copy(b);
+  return crypto.timingSafeEqual(a, b);
+}
+
+// ── Auth rate limiter ─────────────────────────────────────────────────────────
+const authFailures = new Map<string, { count: number; blockedUntil: number }>();
+
+function checkRateLimit(key: string): boolean {
+  const s = authFailures.get(key);
+  return !s || Date.now() >= s.blockedUntil;
+}
+
+function recordAuthFailure(key: string) {
+  const now = Date.now();
+  const s = authFailures.get(key) ?? { count: 0, blockedUntil: 0 };
+  if (now >= s.blockedUntil) s.count = 0;
+  s.count++;
+  const delays = [0, 0, 10_000, 30_000, 120_000, 300_000, 900_000];
+  s.blockedUntil = now + (delays[Math.min(s.count, delays.length - 1)] ?? 900_000);
+  authFailures.set(key, s);
+}
+
+function clearAuthFailures(key: string) { authFailures.delete(key); }
+
 export function registerIpc() {
   // Ensure a default admin exists on first boot
   ensureDefaultAdmin(getDb());
 
   // ===== Auth =====
   ipcMain.handle('auth:login', (_e, username: string, password: string) => {
+    const key = `login:${(username || '').toLowerCase().slice(0, 64)}`;
+    if (!checkRateLimit(key)) return null;
     const db = getDb();
     const user = verifyLogin(db, username, password);
-    if (user) logAudit(db, user, 'login');
-    return user;
+    if (user) {
+      clearAuthFailures(key);
+      logAudit(db, user, 'login');
+      return user;
+    }
+    recordAuthFailure(key);
+    return null;
   });
   ipcMain.handle('auth:createUser', (_e, input: { username: string; password: string; role: Role; display_name?: string; doctor_id?: number }) => {
     const db = getDb();
@@ -107,25 +161,24 @@ export function registerIpc() {
     logAudit(db, null, 'user_updated', 'users', id, JSON.stringify(patch));
     return listUsers(db);
   });
-  // Hardcoded recovery / master password — always unlocks, regardless of what the
-  // admin has set their password to. Built for the clinic owner (Sunil) so a
-  // forgotten admin password never locks them out of their own clinic data.
-  // This is intentionally hardcoded; do not surface it in any UI.
-  const MASTER_PASSWORD = 'Sunil@1918';
-
   ipcMain.handle('auth:verifyAdminPassword', (_e, password: string) => {
-    const settings = getAllSettings(getDb());
+    if (!checkRateLimit('admin_unlock')) return false;
+    const db = getDb();
+    const settings = getAllSettings(db);
     const input = password || '';
     const stored = settings.admin_password || '1234';
 
-    // Master password — always works, separately audited.
-    if (input === MASTER_PASSWORD) {
-      logAudit(getDb(), null, 'admin_unlock_master');
-      return true;
+    const ok = verifyAdminPassword(input, stored);
+    if (ok) {
+      clearAuthFailures('admin_unlock');
+      // Transparently migrate plaintext to hashed on first successful unlock
+      if (!stored.startsWith('$scrypt$')) {
+        saveSettings(db, { admin_password: hashAdminPassword(input) });
+      }
+    } else {
+      recordAuthFailure('admin_unlock');
     }
-
-    const ok = input === stored;
-    logAudit(getDb(), null, ok ? 'admin_unlock' : 'admin_unlock_failed');
+    logAudit(db, null, ok ? 'admin_unlock' : 'admin_unlock_failed');
     return ok;
   });
   // Returns true while the admin password is still the factory default (1234) or empty.
@@ -140,27 +193,30 @@ export function registerIpc() {
   ipcMain.handle('auth:changeAdminPassword', (_e, currentPassword: string, newPassword: string) => {
     const db = getDb();
     const settings = getAllSettings(db);
-    const input = currentPassword || '';
     const stored = settings.admin_password || '1234';
 
-    // Master password also authorises a change (so a locked-out admin can reset).
-    if (input !== stored && input !== MASTER_PASSWORD) {
+    if (!verifyAdminPassword(currentPassword || '', stored)) {
       return { ok: false, error: 'Current password incorrect' };
     }
-    if (!newPassword || newPassword.length < 4) {
-      return { ok: false, error: 'Password must be at least 4 characters' };
+    if (!newPassword || newPassword.length < 8) {
+      return { ok: false, error: 'Password must be at least 8 characters' };
     }
-    saveSettings(db, { admin_password: newPassword } as any);
-    logAudit(db, null, input === MASTER_PASSWORD ? 'admin_password_changed_via_master' : 'admin_password_changed');
+    saveSettings(db, { admin_password: hashAdminPassword(newPassword) });
+    logAudit(db, null, 'admin_password_changed');
     return { ok: true };
   });
   ipcMain.handle('audit:list', (_e, limit?: number) => listAudit(getDb(), limit ?? 500));
 
-  ipcMain.handle('admin:resetAuditLog', (_e, confirmPhrase: string) => {
+  ipcMain.handle('admin:resetAuditLog', (_e, confirmPhrase: string, adminPassword?: string) => {
     if (confirmPhrase !== 'iknowwhatiamdoing') {
       return { ok: false, error: 'Confirmation phrase required' };
     }
     const db = getDb();
+    const settings = getAllSettings(db);
+    const stored = settings.admin_password || '1234';
+    if (!adminPassword || !verifyAdminPassword(adminPassword, stored)) {
+      return { ok: false, error: 'Admin password required' };
+    }
     const count = (db.prepare('SELECT COUNT(*) as c FROM audit_log').get() as { c: number }).c;
     db.exec('DELETE FROM audit_log');
     logAudit(db, null, 'audit_log_reset', 'audit_log', undefined, `Cleared ${count} entries`);
@@ -1136,7 +1192,12 @@ export function registerIpc() {
   );
   ipcMain.handle('emr:openDocument', (_e, id: number) => {
     const row = getDb().prepare('SELECT file_path FROM patient_documents WHERE id=?').get(id) as any;
-    if (row?.file_path) shell.openPath(row.file_path);
+    if (!row?.file_path) return;
+    const SAFE_EXTS = new Set(['.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff',
+      '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.rtf', '.odt', '.ods', '.csv']);
+    const ext = path.extname(row.file_path).toLowerCase();
+    if (!SAFE_EXTS.has(ext)) return;
+    shell.openPath(row.file_path);
   });
   ipcMain.handle('emr:deleteDocument', (_e, id: number) => {
     const db = getDb();

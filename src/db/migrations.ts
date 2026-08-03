@@ -36,6 +36,7 @@ export function runMigrations(db: Database.Database) {
   // users.doctor_id was added to the schema after some installs already created the users
   // table — add it to existing DBs so doctor-linked logins (and FK ref counts) work.
   addColumnIfMissing(db, 'users', 'doctor_id', 'INTEGER REFERENCES doctors(id)');
+  addColumnIfMissing(db, 'users', 'must_change_password', 'INTEGER NOT NULL DEFAULT 0');
 
   // Free follow-up policy: every paid visit grants N free follow-up visits within X days
   // with the same doctor. We tag the bill with a flag + the paid "anchor" appointment so

@@ -51,8 +51,8 @@ const api = {
     isDefaultAdminPassword: () => ipcRenderer.invoke('auth:isDefaultAdminPassword') as Promise<boolean>,
     changePassword: (currentPassword: string, newPassword: string) =>
       ipcRenderer.invoke('auth:changeAdminPassword', currentPassword, newPassword) as Promise<{ ok: boolean; error?: string }>,
-    resetAuditLog: (confirmPhrase: string) =>
-      ipcRenderer.invoke('admin:resetAuditLog', confirmPhrase) as Promise<{ ok: boolean; error?: string; deleted?: number }>,
+    resetAuditLog: (confirmPhrase: string, adminPassword: string) =>
+      ipcRenderer.invoke('admin:resetAuditLog', confirmPhrase, adminPassword) as Promise<{ ok: boolean; error?: string; deleted?: number }>,
     resetNotificationLog: (confirmPhrase: string) =>
       ipcRenderer.invoke('admin:resetNotificationLog', confirmPhrase) as Promise<{ ok: boolean; error?: string; deleted?: number }>,
     deletePatient: (patientId: number) =>

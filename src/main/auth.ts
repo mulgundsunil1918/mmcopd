@@ -9,6 +9,7 @@ export interface SessionUser {
   role: Role;
   display_name: string | null;
   doctor_id: number | null;
+  must_change_password?: boolean;
 }
 
 function hash(password: string, salt: string) {
@@ -38,21 +39,28 @@ export function verifyLogin(db: Database.Database, username: string, password: s
   const calc = hash(password, row.salt);
   if (!crypto.timingSafeEqual(Buffer.from(calc), Buffer.from(row.password_hash))) return null;
   db.prepare('UPDATE users SET last_login_at = datetime("now") WHERE id=?').run(row.id);
-  return { id: row.id, username: row.username, role: row.role, display_name: row.display_name, doctor_id: row.doctor_id };
+  return {
+    id: row.id,
+    username: row.username,
+    role: row.role,
+    display_name: row.display_name,
+    doctor_id: row.doctor_id,
+    must_change_password: Boolean(row.must_change_password),
+  };
 }
 
 export function ensureDefaultAdmin(db: Database.Database) {
   const count = db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number };
   if (count.c === 0) {
-    // Default admin: admin / admin123 — prompt user to change after first login
-    createUser(db, { username: 'admin', password: 'admin123', role: 'admin', display_name: 'Administrator' });
+    const u = createUser(db, { username: 'admin', password: 'admin123', role: 'admin', display_name: 'Administrator' });
+    db.prepare('UPDATE users SET must_change_password=1 WHERE id=?').run(u.id);
   }
 }
 
 export function changePassword(db: Database.Database, userId: number, newPassword: string) {
   const salt = crypto.randomBytes(16).toString('hex');
   const password_hash = hash(newPassword, salt);
-  db.prepare('UPDATE users SET password_hash=?, salt=? WHERE id=?').run(password_hash, salt, userId);
+  db.prepare('UPDATE users SET password_hash=?, salt=?, must_change_password=0 WHERE id=?').run(password_hash, salt, userId);
 }
 
 export function listUsers(db: Database.Database) {

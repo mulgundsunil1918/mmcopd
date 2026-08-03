@@ -285,8 +285,9 @@ function DangerZoneModal({ onClose }: { onClose: () => void }) {
         <ConfirmBlock
           title="Reset entire audit log"
           desc="Permanently deletes every audit entry (logins, mutations, etc.). Fresh log starts from this action."
-          action={async (phrase) => {
-            const r = await window.electronAPI.admin.resetAuditLog(phrase);
+          requireAdminPass
+          action={async (phrase, adminPass) => {
+            const r = await window.electronAPI.admin.resetAuditLog(phrase, adminPass ?? '');
             if (r.ok) { toast(`Deleted ${r.deleted} audit entries`); qc.invalidateQueries({ queryKey: ['audit-log'] }); return true; }
             toast(r.error || 'Failed', 'error'); return false;
           }}
@@ -306,10 +307,21 @@ function DangerZoneModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function ConfirmBlock({ title, desc, action }: { title: string; desc: string; action: (phrase: string) => Promise<boolean> }) {
+function ConfirmBlock({
+  title, desc, action, requireAdminPass = false,
+}: {
+  title: string;
+  desc: string;
+  action: (phrase: string, adminPass?: string) => Promise<boolean>;
+  requireAdminPass?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [phrase, setPhrase] = useState('');
+  const [adminPass, setAdminPass] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const reset = () => { setOpen(false); setPhrase(''); setAdminPass(''); };
+  const canConfirm = phrase === 'iknowwhatiamdoing' && (!requireAdminPass || adminPass.length > 0);
 
   return (
     <div className="rounded-lg border-2 border-red-300 dark:border-red-800 p-4 bg-red-50/50 dark:bg-red-900/20">
@@ -321,29 +333,40 @@ function ConfirmBlock({ title, desc, action }: { title: string; desc: string; ac
         {!open ? (
           <button className="btn-danger text-xs" onClick={() => setOpen(true)}>Proceed</button>
         ) : (
-          <button className="btn-ghost text-xs" onClick={() => { setOpen(false); setPhrase(''); }}>Cancel</button>
+          <button className="btn-ghost text-xs" onClick={reset}>Cancel</button>
         )}
       </div>
       {open && (
-        <div className="mt-3 flex items-center gap-2">
-          <input
-            className="input flex-1 font-mono"
-            placeholder="Type iknowwhatiamdoing to confirm"
-            value={phrase}
-            onChange={(e) => setPhrase(e.target.value)}
-          />
-          <button
-            className="btn-danger"
-            disabled={busy || phrase !== 'iknowwhatiamdoing'}
-            onClick={async () => {
-              setBusy(true);
-              const ok = await action(phrase);
-              setBusy(false);
-              if (ok) { setOpen(false); setPhrase(''); }
-            }}
-          >
-            {busy ? 'Deleting…' : 'Confirm Delete'}
-          </button>
+        <div className="mt-3 space-y-2">
+          {requireAdminPass && (
+            <input
+              className="input w-full"
+              type="password"
+              placeholder="Admin password"
+              value={adminPass}
+              onChange={(e) => setAdminPass(e.target.value)}
+            />
+          )}
+          <div className="flex items-center gap-2">
+            <input
+              className="input flex-1 font-mono"
+              placeholder="Type iknowwhatiamdoing to confirm"
+              value={phrase}
+              onChange={(e) => setPhrase(e.target.value)}
+            />
+            <button
+              className="btn-danger"
+              disabled={busy || !canConfirm}
+              onClick={async () => {
+                setBusy(true);
+                const ok = await action(phrase, requireAdminPass ? adminPass : undefined);
+                setBusy(false);
+                if (ok) reset();
+              }}
+            >
+              {busy ? 'Deleting…' : 'Confirm Delete'}
+            </button>
+          </div>
         </div>
       )}
     </div>

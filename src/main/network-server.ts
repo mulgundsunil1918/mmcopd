@@ -22,6 +22,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import http from 'node:http';
 import dgram from 'node:dgram';
 import os from 'node:os';
+import crypto from 'node:crypto';
 import { ipcHandlers } from './ipc-registry';
 
 let httpServer: http.Server | null = null;
@@ -38,7 +39,7 @@ const JOIN_CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 function genJoinCode(): string {
   let s = '';
-  for (let i = 0; i < 6; i++) s += JOIN_CODE_CHARS[Math.floor(Math.random() * JOIN_CODE_CHARS.length)];
+  for (let i = 0; i < 6; i++) s += JOIN_CODE_CHARS[crypto.randomInt(JOIN_CODE_CHARS.length)];
   return s;
 }
 
@@ -109,9 +110,6 @@ function sendJson(res: http.ServerResponse, status: number, body: any) {
   res.writeHead(status, {
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(json),
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   });
   res.end(json);
 }
@@ -173,11 +171,7 @@ export async function startNetworkServer(port: number, secret: string, appVersio
 
       // CORS preflight.
       if (method === 'OPTIONS') {
-        res.writeHead(204, {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        });
+        res.writeHead(204);
         res.end();
         return;
       }

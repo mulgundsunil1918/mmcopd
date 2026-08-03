@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, Notification, Tray, Menu, nativeImage, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { registerIpc, runFullBackup, isBackupServiceReady } from './main/ipc';
 import { installIpcRegistry } from './main/ipc-registry';
 import { registerWhatsAppIpc, pollRelayServer, runScheduledCampaigns } from './main/whatsapp-ipc';
@@ -120,7 +121,7 @@ async function applyNetworkMode() {
     // Auto-generate a secret if the user enabled Server mode without typing one.
     let secret = s.network_secret || '';
     if (!secret) {
-      secret = Math.random().toString(36).slice(2, 14) + Math.random().toString(36).slice(2, 14);
+      secret = crypto.randomBytes(32).toString('hex');
       // Persist back so next launch keeps the same secret. Use the top-level
       // import (NOT a dynamic require — Vite bundles main.ts into a single
       // main.js so './db/settings' doesn't exist as a separate module at runtime).

@@ -7,6 +7,7 @@ export interface SessionUser {
   role: Role;
   display_name: string | null;
   doctor_id: number | null;
+  must_change_password?: boolean;
 }
 
 const SESSION_KEY = 'caredesk-session';
@@ -20,6 +21,7 @@ interface AuthCtx {
   logout: () => void;
   unlockAdmin: (password: string) => Promise<boolean>;
   lockAdmin: () => void;
+  clearMustChangePassword: () => void;
 }
 
 const AuthContext = createContext<AuthCtx>({
@@ -29,6 +31,7 @@ const AuthContext = createContext<AuthCtx>({
   logout: () => {},
   unlockAdmin: async () => false,
   lockAdmin: () => {},
+  clearMustChangePassword: () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -103,8 +106,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const lockAdmin = () => setAdminUnlocked(false);
 
+  const clearMustChangePassword = () => {
+    setUser((u) => u ? { ...u, must_change_password: false } : u);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, adminUnlocked, login, logout, unlockAdmin, lockAdmin }}>
+    <AuthContext.Provider value={{ user, adminUnlocked, login, logout, unlockAdmin, lockAdmin, clearMustChangePassword }}>
       {children}
     </AuthContext.Provider>
   );

@@ -130,9 +130,19 @@ export function normalizeIndianPhone(raw: string, countryCode = '91'): string | 
   return digits.length >= 10 ? digits : null;
 }
 
-/** Build a https://wa.me/<phone>?text=<encoded> URL ready for shell.openExternal. */
+/** Build a https://wa.me/<phone>?text=<encoded> URL ready for shell.openExternal.
+ *  Uses URL constructor + strict protocol/host check so a malformed input can
+ *  never produce a file:// or custom-protocol string that openExternal would execute.
+ */
 export function buildWhatsAppUrl(phone: string, message: string, countryCode = '91'): string | null {
   const norm = normalizeIndianPhone(phone, countryCode);
   if (!norm) return null;
-  return `https://wa.me/${norm}?text=${encodeURIComponent(message)}`;
+  try {
+    const url = new URL(`https://wa.me/${norm}`);
+    url.searchParams.set('text', message);
+    if (url.protocol !== 'https:' || url.hostname !== 'wa.me') return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
 }

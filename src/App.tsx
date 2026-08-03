@@ -20,6 +20,7 @@ import { Analytics } from './pages/Analytics';
 import { Miscellaneous } from './pages/Miscellaneous';
 import { WhatsApp } from './pages/WhatsApp';
 import { WelcomeWizard } from './components/WelcomeWizard';
+import { ForcePasswordChange } from './components/ForcePasswordChange';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from './hooks/useAuth';
@@ -90,6 +91,7 @@ export default function App() {
   const needsSetupBanner = !!settings && !settings.clinic_name && settings.network_mode === 'local';
 
   if (!user) return <>{wizardOverlay}<Login /></>;
+  if (user.must_change_password) return <ForcePasswordChange />;
 
   return (
     <>
