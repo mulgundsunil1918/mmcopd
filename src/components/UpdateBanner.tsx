@@ -20,14 +20,14 @@ export function UpdateBanner() {
   useEffect(() => {
     if (initial) {
       setState(initial.state as UpdateState);
-      setInfo({ version: initial.version, releaseNotes: initial.releaseNotes, error: initial.error });
+      setInfo({ version: initial.latestVersion, releaseNotes: initial.releaseNotes, error: initial.error });
     }
   }, [initial]);
 
   useEffect(() => {
     const off1 = window.electronAPI.updates.onState((s) => {
       setState(s.state as UpdateState);
-      setInfo({ version: s.version, releaseNotes: s.releaseNotes, error: s.error });
+      setInfo({ version: s.latestVersion, releaseNotes: s.releaseNotes, error: s.error });
       if (s.state === 'downloaded') setDismissed(false);
     });
     const off2 = window.electronAPI.updates.onPromptInstall(() => setDismissed(false));

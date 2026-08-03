@@ -128,7 +128,7 @@ function BackupSection() {
   });
   const now = useMutation({
     mutationFn: () => window.electronAPI.backup.now(),
-    onSuccess: (r) => toast(`Backup created — ${r.totalBackups} total`),
+    onSuccess: (r) => toast(`Backup created — ${r.totalBundles} total`),
     onError: (e: any) => toast(e.message || 'Backup failed', 'error'),
   });
   return (

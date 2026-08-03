@@ -35,15 +35,3 @@ export function colorForDoctor(d: Pick<Doctor, 'id' | 'color'> | undefined | nul
   if (c && /^#[0-9a-fA-F]{6}$/.test(c)) return c;
   return fallbackHex(d.id);
 }
-
-/** Convenience CSS bundle for a doctor — lets you spread it onto a single element. */
-export function doctorAccent(d: Pick<Doctor, 'id' | 'color'> | undefined | null) {
-  const hex = colorForDoctor(d);
-  return {
-    hex,
-    dot: { backgroundColor: hex } as React.CSSProperties,
-    soft: { backgroundColor: hex + '22', color: hex, borderColor: hex + '55' } as React.CSSProperties,
-    border: { borderColor: hex } as React.CSSProperties,
-    leftBar: { borderLeftColor: hex, borderLeftWidth: 4, borderLeftStyle: 'solid' } as React.CSSProperties,
-  };
-}

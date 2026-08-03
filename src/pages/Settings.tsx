@@ -1736,9 +1736,11 @@ function NetworkModeSettings() {
         </div>
       </div>
 
-      {/* BETA banner */}
-      <div className="rounded-lg border-2 border-amber-300 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/20 p-3 text-[12px] text-amber-900 dark:text-amber-200">
-        <b>⚠️ Beta — foundation only.</b> The Server / Client modes establish the connection and expose every IPC channel as an HTTP endpoint, but the renderer doesn't yet route through them automatically (coming next session). For now this is useful to verify the LAN topology and connectivity before the full sync ships.
+      {/* Setup guidance */}
+      <div className="rounded-lg border-2 border-blue-300 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/20 p-3 text-[12px] text-blue-900 dark:text-blue-200">
+        <b>Before you rely on this:</b> give the host PC a fixed address (a DHCP reservation in your router) and stop it from sleeping —
+        those two things prevent most connection problems. A wired connection is more reliable than Wi-Fi; if this PC has both,
+        pin the wired adapter below. If anything goes wrong, use <b>Run full diagnostics</b>.
       </div>
 
       {/* Station name (always editable) */}
@@ -2360,13 +2362,11 @@ function MigrationHelper() {
   const exportNow = async () => {
     setBusy(true);
     try {
-      const r = await window.electronAPI.backup.run();
-      if ((r as any).ok) {
-        setResult(`Backup written: ${(r as any).bundleDir}`);
-        toast('Backup ready — copy that folder to the server PC, then on the server use Settings → Backup → Restore');
-      } else {
-        toast((r as any).error || 'Backup failed', 'error');
-      }
+      // backup.now() resolves with the bundle details, or throws on failure —
+      // there is no `ok` flag on the result.
+      const r = await window.electronAPI.backup.now();
+      setResult(`Backup written: ${r.bundleDir}`);
+      toast('Backup ready — copy that folder to the server PC, then on the server use Settings → Backup → Restore');
     } catch (e: any) {
       toast(e?.message || 'Backup failed', 'error');
     } finally { setBusy(false); }

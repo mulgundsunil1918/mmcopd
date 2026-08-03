@@ -16,46 +16,6 @@ export const DEFAULT_WHATSAPP_TEMPLATE =
   'Please arrive 10 minutes early. For any change, simply reply to this message or call us.\n\n' +
   'Thank you,\n*{{clinic_name}}*';
 
-/** Pre-baked snippets the user can drop into the template with one click. */
-export const TEMPLATE_SNIPPETS: { id: string; label: string; description: string; insert: string }[] = [
-  {
-    id: 'patient-id-block',
-    label: 'Patient ID block',
-    description: 'UHID + Visit ID — useful so patient can quote it on phone',
-    insert: '\n🆔 *Patient ID (UHID):* {{uhid}}\n📋 *Visit ID:* {{visit_id}}\n',
-  },
-  {
-    id: 'clinic-contact-block',
-    label: 'Clinic contact block',
-    description: 'Address + phone — patient can navigate / call back',
-    insert: '\n📍 {{clinic_address}}\n☎️ {{clinic_phone}}\n',
-  },
-  {
-    id: 'doctor-block',
-    label: 'Doctor + Token + Room block',
-    description: 'Doctor name, room number, and token number',
-    insert: '\n👨‍⚕️ *Doctor:* {{doctor_name}}\n🚪 *Room:* {{room}}\n🎟️ *Token:* #{{token}}\n',
-  },
-  {
-    id: 'date-time-block',
-    label: 'Date & Time row',
-    description: 'Date and time on one line',
-    insert: '\n📅 *Date:* {{date}}    🕒 *Time:* {{time}}\n',
-  },
-  {
-    id: 'arrive-early',
-    label: '"Arrive 10 minutes early" line',
-    description: 'Standard polite request',
-    insert: '\nPlease arrive 10 minutes early. For any change, simply reply to this message or call us.\n',
-  },
-  {
-    id: 'thank-you-sig',
-    label: 'Thank-you sign-off',
-    description: 'Closes the message with the clinic name',
-    insert: '\nThank you,\n*{{clinic_name}}*',
-  },
-];
-
 /** Available placeholders for the WhatsApp template. */
 export const WHATSAPP_PLACEHOLDERS: { token: string; sample: string; help: string }[] = [
   { token: '{{patient_name}}', sample: 'Suresh Patil', help: "Patient's full name" },

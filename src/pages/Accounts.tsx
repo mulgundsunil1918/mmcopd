@@ -57,7 +57,7 @@ export function Accounts() {
       ['By Payment Mode', 'Mode', 'Bills', 'Total'],
       ...data.byMode.map((m: any) => ['', m.payment_mode, m.count, m.total]),
     ];
-    const csv = rows.map((r) => r.map((c) => `"${String(c).replaceAll('"', '""')}"`).join(',')).join('\n');
+    const csv = rows.map((r) => r.map((c: unknown) => `"${String(c).replaceAll('"', '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);

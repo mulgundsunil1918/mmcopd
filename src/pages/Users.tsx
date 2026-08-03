@@ -16,6 +16,16 @@ const ROLE_LABELS: Record<Role, string> = {
   pharmacist: 'Pharmacist',
 };
 
+/**
+ * Roles that can actually be assigned to a real account. 'staff' is a
+ * renderer-only pseudo-role for the default unauthenticated session — the
+ * backend's Role type has no such value — so it must not be offered when
+ * creating a user, even though ROLE_LABELS still renders it for display.
+ */
+type CreatableRole = Exclude<Role, 'staff'>;
+const CREATABLE_ROLES = (Object.keys(ROLE_LABELS) as Role[])
+  .filter((r): r is CreatableRole => r !== 'staff');
+
 export function UsersPage() {
   return (
     <AdminGate title="Users & Access — Administrator area">
@@ -129,7 +139,7 @@ function UsersInner() {
 function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<Role>('receptionist');
+  const [role, setRole] = useState<CreatableRole>('receptionist');
   const [displayName, setDisplayName] = useState('');
   const { data: doctors = [] } = useQuery({ queryKey: ['doctors'], queryFn: () => window.electronAPI.doctors.list(true) });
   const [doctorId, setDoctorId] = useState<number | ''>('');
@@ -149,8 +159,8 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
         <Row label="Temporary Password *"><input type="password" className="input" value={password} onChange={(e) => setPassword(e.target.value)} /></Row>
         <Row label="Display Name"><input className="input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></Row>
         <Row label="Role *">
-          <select className="input" value={role} onChange={(e) => setRole(e.target.value as Role)}>
-            {Object.entries(ROLE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          <select className="input" value={role} onChange={(e) => setRole(e.target.value as CreatableRole)}>
+            {CREATABLE_ROLES.map((v) => <option key={v} value={v}>{ROLE_LABELS[v]}</option>)}
           </select>
         </Row>
         {role === 'doctor' && (
