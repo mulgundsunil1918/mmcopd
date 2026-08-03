@@ -1,6 +1,35 @@
+import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { createSchema, SCHEMA_VERSION } from './schema';
 import { DEFAULT_SLIP_TEMPLATES } from './slip-templates';
+
+/** The factory password created by ensureDefaultAdmin() on a fresh install. */
+const FACTORY_PASSWORD = 'admin123';
+
+/**
+ * Flag every account still using the factory password so the forced-change
+ * screen fires on EXISTING installs too.
+ *
+ * ensureDefaultAdmin() only sets must_change_password on a brand-new database
+ * (user count === 0). Without this backfill, a clinic that has been running
+ * since before the flag existed keeps admin/admin123 forever and never sees
+ * the prompt. Re-running is harmless: once the password changes the hash stops
+ * matching and the account is left alone.
+ */
+function flagFactoryPasswordUsers(db: Database.Database) {
+  let rows: { id: number; salt: string; password_hash: string }[];
+  try {
+    rows = db.prepare('SELECT id, salt, password_hash FROM users').all() as any;
+  } catch { return; }
+  const upd = db.prepare('UPDATE users SET must_change_password=1 WHERE id=?');
+  for (const r of rows) {
+    if (!r.salt || !r.password_hash) continue;
+    try {
+      const calc = crypto.scryptSync(FACTORY_PASSWORD, r.salt, 32).toString('hex');
+      if (calc === r.password_hash) upd.run(r.id);
+    } catch { /* ignore a single malformed row */ }
+  }
+}
 
 function addColumnIfMissing(db: Database.Database, table: string, column: string, decl: string) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
@@ -37,6 +66,7 @@ export function runMigrations(db: Database.Database) {
   // table — add it to existing DBs so doctor-linked logins (and FK ref counts) work.
   addColumnIfMissing(db, 'users', 'doctor_id', 'INTEGER REFERENCES doctors(id)');
   addColumnIfMissing(db, 'users', 'must_change_password', 'INTEGER NOT NULL DEFAULT 0');
+  flagFactoryPasswordUsers(db);
 
   // Free follow-up policy: every paid visit grants N free follow-up visits within X days
   // with the same doctor. We tag the bill with a flag + the paid "anchor" appointment so
