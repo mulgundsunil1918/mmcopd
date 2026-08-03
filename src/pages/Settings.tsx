@@ -11,6 +11,7 @@ import { ImageUpload } from '../components/ImageUpload';
 import { WhatsAppMessaging } from '../components/WhatsAppMessaging';
 import { SlipPreviewLauncher } from '../components/SlipPreviewLauncher';
 import { AdminGate } from '../components/AdminGate';
+import { NetworkTroubleshoot } from '../components/NetworkTroubleshoot';
 import { useToast } from '../hooks/useToast';
 import { INDIAN_STATES } from '../lib/india';
 import { KARNATAKA_PLACES, ALL_NEARBY_PLACES } from '../lib/places';
@@ -27,6 +28,14 @@ export function SettingsPage() {
   });
   useEffect(() => { try { localStorage.setItem(SETTINGS_TAB_KEY, tab); } catch { /* ignore */ } }, [tab]);
 
+  // Pre-load settings at the page level so every sub-component's useQuery
+  // returns synchronously from cache — no blank-flash on any tab.
+  const { isLoading: settingsLoading, isError: settingsError } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => window.electronAPI.settings.get(),
+    staleTime: 30_000,
+  });
+
   return (
     <AdminGate title="Settings — Administrator area">
       <div className="p-6 max-w-5xl">
@@ -36,6 +45,12 @@ export function SettingsPage() {
             Pick a tab below to find what you need.
           </p>
         </div>
+
+        {settingsError && (
+          <div className="mb-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
+            ⚠️ Could not load settings from the database. Try closing and reopening the app.
+          </div>
+        )}
 
         {/* Tab bar */}
         <div className="flex flex-wrap gap-1 mb-6 p-1 rounded-lg bg-gray-100 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700 sticky top-0 z-10 backdrop-blur">
@@ -47,7 +62,22 @@ export function SettingsPage() {
           <SettingsTabBtn active={tab === 'comms'} onClick={() => setTab('comms')} icon={<MessageCircle className="w-3.5 h-3.5" />}>Communication</SettingsTabBtn>
         </div>
 
-        <div className="space-y-6">
+        {settingsLoading && (
+          <div className="space-y-6">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="space-y-2">
+                <div className="h-3 bg-gray-200 dark:bg-slate-700 rounded w-40 animate-pulse" />
+                <div className="card p-5 animate-pulse space-y-3">
+                  <div className="h-3 bg-gray-200 dark:bg-slate-700 rounded w-2/3" />
+                  <div className="h-3 bg-gray-200 dark:bg-slate-700 rounded w-1/2" />
+                  <div className="h-3 bg-gray-200 dark:bg-slate-700 rounded w-3/4" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className={cn('space-y-6', settingsLoading && 'hidden')}>
           {tab === 'clinic' && (
             <>
               <SettingsGroup title="Clinic Identity" subtitle="Name, logo, address, contact details printed on every OPD slip.">
@@ -1637,7 +1667,7 @@ function NetworkModeSettings() {
   const qc = useQueryClient();
   const toast = useToast();
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
-  const { draft, set, reset, dirty } = useSectionDraft(settings, ['network_mode', 'network_listen_port', 'network_server_url', 'network_secret', 'station_name']);
+  const { draft, set, reset, dirty } = useSectionDraft(settings, ['network_mode', 'network_listen_port', 'network_server_url', 'network_secret', 'network_bind_ip', 'station_name']);
   const { data: status, refetch: refetchStatus } = useQuery({
     queryKey: ['network-status'],
     queryFn: () => window.electronAPI.network.status(),
@@ -1771,6 +1801,9 @@ function NetworkModeSettings() {
           <MigrationHelper />
         </>
       )}
+
+      {/* Connection health, adapter picker, diagnostics, reconnect / forget */}
+      <NetworkTroubleshoot mode={mode as 'local' | 'server' | 'client'} />
 
       {/* Client-mode config — friendly join-code flow first, manual fields tucked away */}
       {mode === 'client' && (

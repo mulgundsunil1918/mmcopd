@@ -73,6 +73,8 @@ export function getAllSettings(db: Database.Database): Settings {
     network_listen_port: parseInt(map.network_listen_port || '4321', 10),
     network_server_url: map.network_server_url || '',
     network_secret: map.network_secret || '',
+    // Pinned adapter IP for Server mode. Empty = auto-pick (wired preferred).
+    network_bind_ip: map.network_bind_ip || '',
     station_name: map.station_name || '',
     qr1_img: map.qr1_img || '',
     qr1_label: map.qr1_label || 'Scan to Pay / Review',

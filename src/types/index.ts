@@ -545,6 +545,9 @@ export interface Settings {
   network_listen_port: number;
   network_server_url: string;
   network_secret: string;
+  /** Pinned adapter IP for Server mode — lets the host advertise its wired
+   *  address on a PC that also has Wi-Fi. Empty = auto-pick (wired preferred). */
+  network_bind_ip: string;
   /** Friendly name for THIS PC, e.g. "Reception Desk", "Cabin 1 — Dr. Patil". */
   station_name: string;
   // QR codes on prescription page 2 (near follow-up box)

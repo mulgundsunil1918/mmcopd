@@ -21,16 +21,20 @@
 import { WebSocketServer, type WebSocket } from 'ws';
 import http from 'node:http';
 import dgram from 'node:dgram';
-import os from 'node:os';
 import crypto from 'node:crypto';
 import { ipcHandlers } from './ipc-registry';
+import { listNetworkInterfaces, broadcastAddressFor } from './network-diagnostics';
 
 let httpServer: http.Server | null = null;
 let wss: WebSocketServer | null = null;
 let activePort = 0;
 let activeSecret = '';
 let activeVersion = '';
+/** Operator-pinned adapter IP (settings.network_bind_ip). Empty = auto-pick. */
+let preferredIp = '';
 const wsClients = new Set<WebSocket>();
+
+export function setPreferredIp(ip: string) { preferredIp = (ip || '').trim(); }
 
 // ===== Join code (short pairing code) =====
 let joinCode: { code: string; secret: string; port: number; expiresAt: number } | null = null;
@@ -60,17 +64,13 @@ const UDP_PORT = 4322;
 let udpSocket: dgram.Socket | null = null;
 let udpTimer: NodeJS.Timeout | null = null;
 
+/** The address other PCs should use to reach this host.
+ *  Honours the operator's pinned adapter first; otherwise picks the
+ *  highest-scoring interface (wired beats Wi-Fi — see network-diagnostics). */
 export function getLocalLanIP(): string | null {
-  const nets = os.networkInterfaces();
-  const candidates: string[] = [];
-  for (const [name, infos] of Object.entries(nets)) {
-    for (const info of infos || []) {
-      if (info.family !== 'IPv4' || info.internal) continue;
-      if (/(virtual|vmware|hyper|loopback|docker)/i.test(name)) continue;
-      candidates.push(info.address);
-    }
-  }
-  return candidates[0] || null;
+  const ifaces = listNetworkInterfaces();
+  if (preferredIp && ifaces.some((i) => i.address === preferredIp)) return preferredIp;
+  return ifaces[0]?.address || null;
 }
 
 function startUdpBroadcast() {
@@ -89,7 +89,18 @@ function startUdpBroadcast() {
           port: activePort,
           ts: Date.now(),
         });
-        try { sock.send(payload, UDP_PORT, '255.255.255.255'); } catch { /* ignore */ }
+        // Broadcast to EVERY adapter's own subnet, not just 255.255.255.255.
+        // A host with both a network cable and Wi-Fi only sends the global
+        // broadcast out the default-route interface, so cabins on the other
+        // subnet never discover it. Per-subnet broadcast covers both.
+        const targets = new Set<string>(['255.255.255.255']);
+        for (const iface of listNetworkInterfaces()) {
+          const b = broadcastAddressFor(iface.address, iface.netmask);
+          if (b) targets.add(b);
+        }
+        for (const t of targets) {
+          try { sock.send(payload, UDP_PORT, t); } catch { /* ignore */ }
+        }
       };
       send();
       udpTimer = setInterval(send, 5_000);

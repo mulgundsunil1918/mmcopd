@@ -94,6 +94,7 @@ export const DEMO_SETTINGS: Settings = {
   network_listen_port: 4321,
   network_server_url: '',
   network_secret: '',
+  network_bind_ip: '',
   station_name: '',
   qr1_img: '',
   qr1_label: 'Scan to Pay / Review',

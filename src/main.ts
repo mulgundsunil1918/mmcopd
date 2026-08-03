@@ -7,9 +7,10 @@ import { installIpcRegistry } from './main/ipc-registry';
 import { registerWhatsAppIpc, pollRelayServer, runScheduledCampaigns } from './main/whatsapp-ipc';
 import { processQueue } from './services/whatsapp/queue-worker';
 import { runAutomationScheduler } from './services/whatsapp/scheduler';
-import { startNetworkServer, stopNetworkServer, networkServerStatus, getJoinCode, regenerateJoinCode, getLocalLanIP, broadcastEvent } from './main/network-server';
+import { startNetworkServer, stopNetworkServer, networkServerStatus, getJoinCode, regenerateJoinCode, getLocalLanIP, broadcastEvent, setPreferredIp } from './main/network-server';
 import { discoverServers, pairWithCode, addWindowsFirewallRule } from './main/network-discovery';
-import { installNetworkClient, networkClientStatus } from './main/network-client';
+import { installNetworkClient, networkClientStatus, uninstallNetworkClient, reconnectNow, setClientStateListener } from './main/network-client';
+import { listNetworkInterfaces, runDiagnostics } from './main/network-diagnostics';
 // Vite's ?raw import bundles the splash HTML as a string at build time so the
 // main process can show it before the main BrowserWindow is ready.
 // @ts-ignore — Vite ?raw import has no built-in TS shim
@@ -116,7 +117,11 @@ function openDownloadPage() {
 async function applyNetworkMode() {
   // Lazy-import to avoid pulling DB before whenReady().
   const s = getAllSettings(getDb());
+  // Honour the operator's pinned adapter before anything reads getLocalLanIP().
+  setPreferredIp(s.network_bind_ip || '');
   if (s.network_mode === 'server') {
+    // Leaving Client mode — restore local handlers before starting the server.
+    uninstallNetworkClient();
     const port = s.network_listen_port || 4321;
     // Auto-generate a secret if the user enabled Server mode without typing one.
     let secret = s.network_secret || '';
@@ -148,6 +153,7 @@ async function applyNetworkMode() {
     }
   } else {
     await stopNetworkServer();
+    uninstallNetworkClient();
   }
 }
 
@@ -330,6 +336,13 @@ function createWindow() {
   });
   mainWindowRef = mainWindow;
 
+  // Push LAN connection-state changes to the renderer so the status pill and
+  // the troubleshooting panel update the moment the link drops or recovers,
+  // instead of waiting for the next poll.
+  setClientStateListener((s) => {
+    try { mainWindowRef?.webContents.send('network:state', s); } catch { /* ignore */ }
+  });
+
   // Auto-grant camera permission for in-app barcode scanning. The app is a
   // single-tenant local install, so there's no third-party site that could
   // ever request access — only our own renderer can ask.
@@ -506,6 +519,48 @@ function createWindow() {
   // renderer saves the result into settings and reloads in Client mode.
   ipcMain.handle('network:pair', async (_e, payload: { url: string; code: string }) => {
     return pairWithCode(payload.url, payload.code);
+  });
+
+  // ===== Troubleshooting =====
+  // Every network adapter on this PC, wired-first, so the host can pin itself
+  // to the Ethernet card instead of whichever one Node listed first.
+  ipcMain.handle('network:interfaces', () => ({
+    interfaces: listNetworkInterfaces(),
+    active: getLocalLanIP(),
+    pinned: getAllSettings(getDb()).network_bind_ip || '',
+  }));
+
+  // Staged connectivity check — tells the user which layer is broken and how to
+  // fix it, instead of a bare "failed to fetch".
+  ipcMain.handle('network:diagnose', async (_e, payload?: { url?: string; secret?: string }) => {
+    const s = getAllSettings(getDb());
+    const url = payload?.url ?? s.network_server_url ?? '';
+    const secret = payload?.secret ?? s.network_secret ?? '';
+    return runDiagnostics(url, secret);
+  });
+
+  // Force an immediate reconnect attempt (the "Reconnect now" button).
+  ipcMain.handle('network:reconnect', async () => {
+    const s = getAllSettings(getDb());
+    if (s.network_mode === 'client') return reconnectNow();
+    if (s.network_mode === 'server') {
+      await applyNetworkMode();
+      return { ok: networkServerStatus().running };
+    }
+    return { ok: false, error: 'Not in Server or Client mode' };
+  });
+
+  // Forget the paired host: tear down the proxy, clear the saved URL/secret,
+  // and drop back to Local so the PC is usable while the user re-pairs.
+  ipcMain.handle('network:forget', async () => {
+    uninstallNetworkClient();
+    saveSettings(getDb(), {
+      network_mode: 'local',
+      network_server_url: '',
+      network_secret: '',
+    });
+    await applyNetworkMode();
+    return { ok: true };
   });
 }
 

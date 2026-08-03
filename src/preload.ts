@@ -491,6 +491,15 @@ const api = {
       clients: number;
       ipcChannels: number;
       appVersion: string;
+      client: {
+        installed: boolean;
+        serverUrl: string;
+        state: 'idle' | 'connected' | 'degraded' | 'offline';
+        lastError: string | null;
+        lastSuccessAt: number | null;
+        latencyMs: number | null;
+        consecutiveFailures: number;
+      };
     }>,
     applyMode: () => ipcRenderer.invoke('network:applyMode') as Promise<{ ok: boolean; running: boolean; port: number; clients: number; ipcChannels: number }>,
     probe: (payload: { url: string; secret?: string }) =>
@@ -500,10 +509,28 @@ const api = {
     discover: (opts?: { timeoutMs?: number }) => ipcRenderer.invoke('network:discover', opts || {}) as Promise<{ ip: string; port: number; version: string; lastSeen: number }[]>,
     pair: (payload: { url: string; code: string }) =>
       ipcRenderer.invoke('network:pair', payload) as Promise<{ ok: true; secret: string; port: number; version: string } | { ok: false; error: string }>,
+    /** Every usable IPv4 adapter on this PC, wired-first. */
+    interfaces: () => ipcRenderer.invoke('network:interfaces') as Promise<{
+      interfaces: { name: string; address: string; netmask: string; cidr: string | null; kind: 'wired' | 'wireless' | 'other'; score: number }[];
+      active: string | null;
+      pinned: string;
+    }>,
+    /** Staged connectivity check with a plain-English fix per failing step. */
+    diagnose: (payload?: { url?: string; secret?: string }) =>
+      ipcRenderer.invoke('network:diagnose', payload || {}) as Promise<{
+        ok: boolean;
+        ranAt: string;
+        target: string;
+        steps: { id: string; label: string; ok: boolean; detail: string; hint?: string; ms?: number }[];
+        interfaces: { name: string; address: string; kind: string }[];
+      }>,
+    reconnect: () => ipcRenderer.invoke('network:reconnect') as Promise<{ ok: boolean; latencyMs?: number; error?: string }>,
+    forget: () => ipcRenderer.invoke('network:forget') as Promise<{ ok: boolean }>,
+    /** Live connection-state pushes from the main process (client mode). */
     onState: (cb: (s: any) => void) => {
       const handler = (_e: any, info: any) => cb(info);
-      ipcRenderer.on('updates:state', handler);
-      return () => ipcRenderer.removeListener('updates:state', handler);
+      ipcRenderer.on('network:state', handler);
+      return () => ipcRenderer.removeListener('network:state', handler);
     },
     onPromptInstall: (cb: (s: any) => void) => {
       const handler = (_e: any, info: any) => cb(info);
