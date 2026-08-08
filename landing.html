@@ -945,10 +945,48 @@
   // NOTE: this key ships inside the page and is readable by anyone who views
   // source. A CounterAPI key only touches counters, but someone could inflate
   // the number or burn the rate limit. Use a key scoped to this counter only.
-  const COUNTER = { workspace: '', name: 'visits', apiKey: '' };
+  //
+  // `baseline` is a starting offset added to the live count. It is a display
+  // number, not measured traffic — real visits accumulate on top of it once the
+  // API is configured. Set it to 0 to show only genuine traffic.
+  const COUNTER = { workspace: '', name: 'visits', apiKey: '', baseline: 36 };
 
   (async function initVisitorCounter() {
-    if (!COUNTER.workspace || !COUNTER.apiKey) return;   // not configured — stay hidden
+    const base = Number(COUNTER.baseline) || 0;
+
+    const show = (total) => {
+      const el = document.getElementById('visitorsCount');
+      const fmt = (n) => n.toLocaleString('en-IN');
+      document.getElementById('visitors').classList.add('is-live');
+
+      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (reduced || total <= 0) { el.textContent = fmt(total); return; }
+
+      // Brief count-up so the number reads as deliberate rather than static.
+      // requestAnimationFrame is paused in background tabs, so a plain rAF loop
+      // would leave the number stuck at 0 for anyone who opens the page in a
+      // background tab. A timer guarantees the final value lands regardless.
+      const DUR = 900;
+      const start = performance.now();
+      let done = false;
+      const finish = () => { if (done) return; done = true; el.textContent = fmt(total); };
+      const guard = setTimeout(finish, DUR + 300);
+      const step = (now) => {
+        if (done) return;
+        const p = Math.min((now - start) / DUR, 1);
+        if (p >= 1) { clearTimeout(guard); finish(); return; }
+        el.textContent = fmt(Math.round(total * (1 - Math.pow(1 - p, 3))));
+        requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    };
+
+    // Not wired to the API yet — show the baseline on its own so the section
+    // isn't blank. Once credentials are filled in, live visits add to it.
+    if (!COUNTER.workspace || !COUNTER.apiKey) {
+      if (base > 0) show(base);
+      return;
+    }
 
     // The v2 response shape isn't published, so pull the first plausible
     // count field rather than assuming one.
@@ -975,26 +1013,14 @@
       clearTimeout(timer);
       if (!res.ok) return;
 
-      const total = pickCount(await res.json());
-      if (total === null) return;
+      const live = pickCount(await res.json());
+      if (live === null) { if (base > 0) show(base); return; }
 
-      const el = document.getElementById('visitorsCount');
-      const fmt = (n) => n.toLocaleString('en-IN');
-      document.getElementById('visitors').classList.add('is-live');
-
-      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      if (reduced || total <= 0) { el.textContent = fmt(total); return; }
-
-      // Brief count-up so the number reads as deliberate rather than static.
-      const start = performance.now(), DUR = 900;
-      const step = (now) => {
-        const p = Math.min((now - start) / DUR, 1);
-        el.textContent = fmt(Math.round(total * (1 - Math.pow(1 - p, 3))));
-        if (p < 1) requestAnimationFrame(step);
-      };
-      requestAnimationFrame(step);
+      show(base + live);
     } catch (e) {
-      /* offline, blocked, or timed out — section stays hidden */
+      // Offline, blocked, or timed out — fall back to the baseline so the
+      // section still renders rather than vanishing.
+      if (base > 0) show(base);
     }
   })();
 </script>
