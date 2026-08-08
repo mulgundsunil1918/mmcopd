@@ -279,6 +279,39 @@
   }
   .demo-banner .btn-light:hover { transform: translateY(-2px); box-shadow: 0 18px 36px -10px rgba(255,255,255,0.3); }
 
+  /* ===== Contact ===== */
+  .contact-block {
+    margin: 0 auto 80px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 22px;
+    padding: 52px 48px;
+    text-align: center;
+    box-shadow: 0 20px 50px -30px rgba(15,23,42,0.25);
+  }
+  @media (max-width: 700px) {
+    .contact-block { padding: 36px 24px; margin-bottom: 56px; }
+    /* min-width: 280px would overflow a 375px phone once container + block
+       padding are subtracted — let the cards go full width instead. */
+    .contact-card { min-width: 0; width: 100%; }
+  }
+  .contact-block h2 { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 12px; color: #0f172a; }
+  .contact-block > p { font-size: 16px; color: #475569; max-width: 620px; margin: 0 auto 32px; line-height: 1.65; }
+  .contact-cards { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+  .contact-card {
+    display: flex; align-items: center; gap: 14px;
+    padding: 18px 24px;
+    border: 1px solid #e2e8f0; border-radius: 14px;
+    background: #f8fafc;
+    text-align: left; min-width: 280px;
+    transition: 0.18s;
+  }
+  .contact-card:hover { border-color: #4f46e5; background: #fff; transform: translateY(-2px); box-shadow: 0 14px 30px -14px rgba(79,70,229,0.4); }
+  .contact-card svg { width: 20px; height: 20px; color: #4f46e5; flex-shrink: 0; }
+  .contact-card .cc-label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: #64748b; margin-bottom: 3px; }
+  .contact-card .cc-value { display: block; font-size: 15px; font-weight: 700; color: #1e293b; word-break: break-all; }
+  .contact-note { margin-top: 26px; font-size: 13px; color: #64748b; }
+
   /* ===== Footer ===== */
   footer {
     background: #0a0f1c; color: #94a3b8;
@@ -340,6 +373,7 @@
       <a href="#features">Features</a>
       <a href="#modules">Modules</a>
       <a href="#demo">Demo</a>
+      <a href="#contact">Contact</a>
       <a href="demo.html" class="btn-secondary">Try Live Demo →</a>
       <a href="#download" class="btn-primary" onclick="event.preventDefault(); openDownload();">Download</a>
     </nav>
@@ -608,6 +642,34 @@
   </div>
 </div>
 
+<!-- ============== CONTACT ============== -->
+<div class="container" id="contact">
+  <div class="contact-block">
+    <h2>Want to know more? Get in touch.</h2>
+    <p>
+      Write to us for pricing, a walkthrough for your clinic, early access to the Windows installer,
+      or anything else you'd like to know about CureDesk. We read every message and usually reply the same day.
+    </p>
+    <div class="contact-cards">
+      <a class="contact-card" href="mailto:hello@bridgr.co.in?subject=CureDesk%20HMS%20enquiry">
+        <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+        <span>
+          <span class="cc-label">Sales &amp; general</span>
+          <span class="cc-value">hello@bridgr.co.in</span>
+        </span>
+      </a>
+      <a class="contact-card" href="mailto:mulgundsunil@gmail.com?subject=CureDesk%20HMS%20enquiry">
+        <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+        <span>
+          <span class="cc-label">Direct</span>
+          <span class="cc-value">mulgundsunil@gmail.com</span>
+        </span>
+      </a>
+    </div>
+    <p class="contact-note">Tell us your clinic name and city, and we'll tailor the walkthrough to how you actually work.</p>
+  </div>
+</div>
+
 <!-- ============== FOOTER ============== -->
 <footer>
   <div class="container">
@@ -636,8 +698,10 @@
       </div>
       <div>
         <h4>Get in touch</h4>
-        <a href="#download" onclick="event.preventDefault(); openDownload();">Request a Quote</a>
-        <a href="#download" onclick="event.preventDefault(); openDownload();">Schedule Demo Call</a>
+        <a href="mailto:hello@bridgr.co.in?subject=CureDesk%20HMS%20enquiry">hello@bridgr.co.in</a>
+        <a href="mailto:mulgundsunil@gmail.com?subject=CureDesk%20HMS%20enquiry">mulgundsunil@gmail.com</a>
+        <a href="mailto:hello@bridgr.co.in?subject=CureDesk%20HMS%20-%20Request%20a%20quote">Request a Quote</a>
+        <a href="mailto:hello@bridgr.co.in?subject=CureDesk%20HMS%20-%20Schedule%20a%20demo%20call">Schedule Demo Call</a>
       </div>
     </div>
     <div class="footer-bottom">
@@ -654,9 +718,13 @@
       <svg width="30" height="30" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M12 2v8"/><path d="m4.93 10.93 1.41 1.41"/><path d="M2 18h2"/><path d="M20 18h2"/><path d="m19.07 10.93-1.41 1.41"/><path d="M22 22H2"/><path d="m8 22 4-10 4 10"/></svg>
     </div>
     <h3>Coming Soon</h3>
-    <p>The downloadable Windows installer launches publicly soon. Drop us a note for early access — we'll send the Setup.exe directly when it's ready.</p>
+    <p>The downloadable Windows installer launches publicly soon. Email us for early access and we'll send the Setup.exe directly when it's ready.</p>
+    <p style="margin-top:-6px;">
+      <a href="mailto:hello@bridgr.co.in?subject=CureDesk%20HMS%20-%20Early%20access%20request" style="color:#4f46e5;font-weight:700;">hello@bridgr.co.in</a>
+    </p>
     <div class="modal-actions">
-      <a href="demo.html" class="btn-primary" style="font-size:14px;">Try Live Demo Instead</a>
+      <a href="mailto:hello@bridgr.co.in?subject=CureDesk%20HMS%20-%20Early%20access%20request" class="btn-primary" style="font-size:14px;">Email for Early Access</a>
+      <a href="demo.html" class="btn-secondary" style="border:1px solid #cbd5e1;background:#fff;font-size:14px;font-weight:600;padding:10px 18px;border-radius:10px;">Try Live Demo</a>
       <button class="btn-secondary" onclick="closeDownload();" style="border:1px solid #cbd5e1;background:#fff;cursor:pointer;font-size:14px;font-weight:600;padding:10px 18px;border-radius:10px;">Close</button>
     </div>
   </div>
