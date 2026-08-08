@@ -23,6 +23,42 @@
   img, svg { display: block; max-width: 100%; }
   .container { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
 
+  /* ===== Bridgr ecosystem strip =====
+     Sits ABOVE the sticky nav so it scrolls away on its own while the nav
+     keeps sticking to top: 0. */
+  .eco-bar {
+    display: block;
+    background: linear-gradient(90deg, #1e3a8a 0%, #4338ca 55%, #6d28d9 100%);
+    color: #fff;
+    text-decoration: none;
+    text-align: center;
+    padding: 28px 20px;
+    transition: filter 0.18s;
+  }
+  .eco-bar:hover { filter: brightness(1.12); }
+  .eco-inner {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 22px; flex-wrap: wrap;
+  }
+  .eco-text { font-size: 26px; font-weight: 600; color: #dbeafe; letter-spacing: -0.01em; }
+  .eco-brand { font-size: 32px; font-weight: 800; color: #fff; letter-spacing: -0.02em; }
+  .eco-cta {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,0.18);
+    border: 1px solid rgba(255,255,255,0.3);
+    padding: 12px 24px; border-radius: 999px;
+    font-size: 18px; font-weight: 700; color: #fff;
+    white-space: nowrap;
+  }
+  .eco-cta svg { width: 18px; height: 18px; }
+  @media (max-width: 700px) {
+    .eco-bar { padding: 20px 16px; }
+    .eco-inner { gap: 12px; }
+    .eco-text { font-size: 18px; }
+    .eco-brand { font-size: 22px; }
+    .eco-cta { font-size: 14px; padding: 9px 16px; }
+  }
+
   /* ===== Top nav ===== */
   .nav {
     position: sticky; top: 0; z-index: 50;
@@ -359,6 +395,21 @@
 </head>
 
 <body>
+
+<!-- ============== BRIDGR ECOSYSTEM STRIP ============== -->
+<a class="eco-bar" href="https://bridgr.co.in/" target="_blank" rel="noopener noreferrer">
+  <span class="eco-inner">
+    <span>
+      <span class="eco-text">Part of the</span>
+      <span class="eco-brand">Bridgr</span>
+      <span class="eco-text">ecosystem</span>
+    </span>
+    <span class="eco-cta">
+      Explore Bridgr
+      <svg fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+    </span>
+  </span>
+</a>
 
 <!-- ============== TOP NAV ============== -->
 <header class="nav">
