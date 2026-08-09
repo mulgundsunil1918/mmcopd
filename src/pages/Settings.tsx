@@ -17,6 +17,7 @@ import { NetworkTroubleshoot } from '../components/NetworkTroubleshoot';
 import { WardsBedsEditor } from '../components/settings/WardsBedsEditor';
 import { DischargeTemplateEditor } from '../components/settings/DischargeTemplateEditor';
 import { ClinicalTemplatesEditor } from '../components/settings/ClinicalTemplatesEditor';
+import { RoleAccessEditor } from '../components/settings/RoleAccessEditor';
 import { ModuleTutorialButton } from '../components/ModuleTutorial';
 import { BillingSettings } from '../components/settings/BillingSettings';
 import { useToast } from '../hooks/useToast';
@@ -145,6 +146,9 @@ export function SettingsPage() {
             <>
               <SettingsGroup title="Security & Login" subtitle="Require each person to sign in as themselves, and auto sign-out an idle station.">
                 <SecurityLoginSettings />
+              </SettingsGroup>
+              <SettingsGroup title="Role-Based Access" subtitle="Choose exactly which modules each staff role can open. Fully customisable — admin always sees everything.">
+                <RoleAccessEditor />
               </SettingsGroup>
               <SettingsGroup title="Startup & Background" subtitle="Auto-launch with Windows, minimize to tray, start hidden.">
                 <StartupBehavior />

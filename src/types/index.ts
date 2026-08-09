@@ -635,6 +635,12 @@ export interface Settings {
   // ===== Discharge Summary module (dedicated builder in the sidebar) =====
   discharge_summary_enabled: boolean;
 
+  // ===== Customisable role-based access =====
+  // JSON map of { [routePath]: Role[] } that OVERRIDES the built-in defaults for
+  // which roles may open each module. Empty = use built-in defaults. Admin always
+  // sees everything; Users & Settings stay admin-only regardless.
+  role_access_json: string;
+
   // ===== Access / login =====
   /** When true, everyone must sign in as themselves — no shared default session. */
   require_login: boolean;

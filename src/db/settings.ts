@@ -125,6 +125,7 @@ export function getAllSettings(db: Database.Database): Settings {
     // ===== IPD admission requests =====
     ipd_admission_requests_enabled: map.ipd_admission_requests_enabled !== 'false',
     discharge_summary_enabled: map.discharge_summary_enabled !== 'false',
+    role_access_json: map.role_access_json || '',
 
     // ===== Access / login =====
     // Default OFF so existing single-user installs keep working without setting

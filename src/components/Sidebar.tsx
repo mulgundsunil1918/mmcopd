@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { cn } from '../lib/utils';
 import { useTheme } from '../hooks/useTheme';
 import { useAuth, canAnyRole, type Role } from '../hooks/useAuth';
+import { parseRoleAccess, effectiveRoles } from '../lib/accessModules';
 import { BackupAndClose } from './BackupAndClose';
 import type { AppMode } from '../types';
 
@@ -77,6 +78,9 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     full: 'Full HMS',
   };
   const modeLabel = MODE_LABELS[currentMode] || currentMode;
+  // Admin-customised role → module access (from Settings). Empty = built-in defaults.
+  const accessOverrides = parseRoleAccess(settings?.role_access_json);
+
   const visibleNav = NAV.filter((n) => {
     if (!n.modes.has(currentMode)) return false;
     if (n.to === '/billing' && billingHidden) return false;
@@ -87,7 +91,10 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     if (n.to === '/tpa' && settings?.tpa_enabled !== true) return false;
     // Discharge Summary module — on by default, hide only if switched off in Settings.
     if (n.to === '/discharge-summary' && settings?.discharge_summary_enabled === false) return false;
-    return canAnyRole(user, n.roles, adminUnlocked);
+    // Users & Settings stay admin-only (never customisable — prevents lockout).
+    if (n.adminOnly) return canAnyRole(user, n.roles, adminUnlocked);
+    // Everything else honours the admin's Role-Based Access matrix (or the defaults).
+    return canAnyRole(user, effectiveRoles(n.to, n.roles, accessOverrides), adminUnlocked);
   });
 
   return (
