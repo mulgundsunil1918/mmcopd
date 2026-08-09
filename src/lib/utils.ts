@@ -75,13 +75,19 @@ export function dobFromAge(years: number, months: number, days: number): string 
  * cases — every plain user-facing date should go through fmtDate() with no
  * pattern so the whole app stays consistent.
  */
-export function fmtDate(d: string | Date, pattern = 'do MMMM yyyy') {
+// A missing or malformed date returns an em-dash instead of throwing
+// "Invalid time value", which would otherwise crash whatever screen renders it.
+export function fmtDate(d: string | Date | null | undefined, pattern = 'do MMMM yyyy') {
+  if (d === null || d === undefined || d === '') return '—';
   const date = typeof d === 'string' ? parseISO(d) : d;
+  if (!(date instanceof Date) || isNaN(date.getTime())) return '—';
   return format(date, pattern);
 }
 
-export function fmtDateTime(d: string | Date) {
+export function fmtDateTime(d: string | Date | null | undefined) {
+  if (d === null || d === undefined || d === '') return '—';
   const date = typeof d === 'string' ? parseISO(d) : d;
+  if (!(date instanceof Date) || isNaN(date.getTime())) return '—';
   return format(date, "do MMMM yyyy '·' hh:mm a");
 }
 

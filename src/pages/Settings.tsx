@@ -2619,11 +2619,14 @@ function SlipTemplatesEditor() {
   };
 
   const addTemplate = () => {
+    const name = (window.prompt('Name this template (e.g. "General OPD", "Pediatrics", "OBG"):', '') || '').trim();
+    if (!name) return;   // cancelled or empty — don't create a "Template N"
     const id = Math.max(0, ...draft.map((t) => t.id)) + 1;
     const next = [...draft, {
       id,
-      name: `Template ${id}`,
+      name,
       specialty_hint: '',
+      // Sensible starter sections a doctor can rename or remove — no blank slate.
       sections: [
         { key: 'history', title: 'Chief Complaints / History', type: 'textarea', height_mm: 50, printed: true },
         { key: 'examination', title: 'Examination', type: 'textarea', height_mm: 50, printed: true },
@@ -2666,9 +2669,11 @@ function SlipTemplatesEditor() {
 
   const addSection = () => {
     if (!active) return;
-    const newKey = `field_${Date.now()}`;
+    const title = (window.prompt('Section title (e.g. "Local Examination", "Investigations Advised"):', '') || '').trim();
+    if (!title) return;
+    const newKey = `field_${Date.now()}`;   // key is internal — auto-generated, never shown
     updateSections(active.id, [...active.sections, {
-      key: newKey, title: 'New Field', type: 'singleline', height_mm: 8, printed: true,
+      key: newKey, title, type: 'textarea', height_mm: 30, printed: true,
     }]);
   };
 
@@ -2795,10 +2800,8 @@ function SlipTemplatesEditor() {
                           <label className="label !mb-0.5 !text-[10px]">Title</label>
                           <input className="input !py-1 !text-xs" value={s.title} onChange={(e) => updateSection(idx, { title: e.target.value })} />
                         </div>
-                        <div>
-                          <label className="label !mb-0.5 !text-[10px]">Key</label>
-                          <input className="input !py-1 !text-xs font-mono" value={s.key} onChange={(e) => updateSection(idx, { key: e.target.value.replace(/[^a-z0-9_]/gi, '_').toLowerCase() })} />
-                        </div>
+                        {/* Key is an internal identifier — auto-generated, not shown, so a
+                            doctor never has to think about it. */}
                         <div>
                           <label className="label !mb-0.5 !text-[10px]">Type</label>
                           <select className="input !py-1 !text-xs" value={s.type} onChange={(e) => updateSection(idx, { type: e.target.value })}>

@@ -123,7 +123,7 @@ export function Accounts() {
         <section className="card p-5 lg:col-span-2">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">
-              Range · {fmtDate(data.range.from)} → {fmtDate(data.range.to)}
+              Range · {fmtDate(data.range?.from)} → {fmtDate(data.range?.to)}
             </h2>
           </div>
           <div className="grid grid-cols-3 gap-3">
