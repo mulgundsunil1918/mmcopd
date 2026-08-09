@@ -12,6 +12,7 @@ import { PatientOrigin } from './pages/PatientOrigin';
 import { Lab } from './pages/Lab';
 import { Pharmacy } from './pages/Pharmacy';
 import { IPD } from './pages/IPD';
+import { Guard } from './components/RouteGuard';
 import { DischargeSummary } from './pages/DischargeSummary';
 import { PrintJobs } from './pages/PrintJobs';
 import { Notifications } from './pages/Notifications';
@@ -119,28 +120,30 @@ export default function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route path="/" element={<Navigate to="/reception" replace />} />
-        <Route path="/reception" element={<Reception />} />
-        <Route path="/appointments" element={<Appointments />} />
-        <Route path="/doctor-select" element={<DoctorSelect />} />
-        <Route path="/doctor/:id" element={<DoctorDashboard />} />
-        <Route path="/billing" element={<Billing />} />
-        <Route path="/miscellaneous" element={<Miscellaneous />} />
-        <Route path="/accounts" element={<Accounts />} />
-        <Route path="/patient-log" element={<PatientLog />} />
-        <Route path="/origin" element={<PatientOrigin />} />
-        <Route path="/lab" element={<Lab />} />
-        <Route path="/pharmacy" element={<Pharmacy />} />
-        <Route path="/ipd" element={<IPD />} />
-        <Route path="/discharge-summary" element={<DischargeSummary />} />
-        <Route path="/print-jobs" element={<PrintJobs />} />
-        <Route path="/pediatrics" element={<Pediatrics />} />
-        <Route path="/tpa" element={<TPA />} />
-        <Route path="/notifications" element={<Notifications />} />
-        <Route path="/whatsapp" element={<WhatsApp />} />
+        <Route path="/reception" element={<Guard path="/reception"><Reception /></Guard>} />
+        <Route path="/appointments" element={<Guard path="/appointments"><Appointments /></Guard>} />
+        <Route path="/doctor-select" element={<Guard path="/doctor-select"><DoctorSelect /></Guard>} />
+        <Route path="/doctor/:id" element={<Guard path="/doctor-select"><DoctorDashboard /></Guard>} />
+        <Route path="/billing" element={<Guard path="/billing"><Billing /></Guard>} />
+        <Route path="/miscellaneous" element={<Guard path="/miscellaneous"><Miscellaneous /></Guard>} />
+        <Route path="/accounts" element={<Guard path="/accounts"><Accounts /></Guard>} />
+        <Route path="/patient-log" element={<Guard path="/patient-log"><PatientLog /></Guard>} />
+        <Route path="/origin" element={<Guard path="/origin"><PatientOrigin /></Guard>} />
+        <Route path="/lab" element={<Guard path="/lab"><Lab /></Guard>} />
+        <Route path="/pharmacy" element={<Guard path="/pharmacy"><Pharmacy /></Guard>} />
+        <Route path="/ipd" element={<Guard path="/ipd"><IPD /></Guard>} />
+        <Route path="/discharge-summary" element={<Guard path="/discharge-summary"><DischargeSummary /></Guard>} />
+        <Route path="/print-jobs" element={<Guard path="/print-jobs"><PrintJobs /></Guard>} />
+        <Route path="/pediatrics" element={<Guard path="/pediatrics"><Pediatrics /></Guard>} />
+        <Route path="/tpa" element={<Guard path="/tpa"><TPA /></Guard>} />
+        <Route path="/notifications" element={<Guard path="/notifications"><Notifications /></Guard>} />
+        <Route path="/whatsapp" element={<Guard path="/whatsapp"><WhatsApp /></Guard>} />
+        {/* Settings & Users self-gate with an admin-password unlock screen, so they
+            are intentionally NOT route-guarded (a redirect would hide that gate). */}
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/users" element={<UsersPage />} />
-        <Route path="/reports" element={<Reports />} />
-        <Route path="/analytics" element={<Analytics />} />
+        <Route path="/reports" element={<Guard path="/analytics"><Reports /></Guard>} />
+        <Route path="/analytics" element={<Guard path="/analytics"><Analytics /></Guard>} />
       </Route>
       <Route path="*" element={<Navigate to="/reception" replace />} />
     </Routes>
