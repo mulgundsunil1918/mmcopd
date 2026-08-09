@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill, ShieldCheck, UserCircle2, Lock, Unlock, Activity, Syringe, ChevronLeft, Wifi, Server, Heart, MessageSquare } from 'lucide-react';
+import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill, ShieldCheck, UserCircle2, Lock, Unlock, Activity, Syringe, ChevronLeft, Wifi, Server, Heart, MessageSquare, Baby } from 'lucide-react';
 
 const SUPPORT_URL = 'https://bridgr.co.in/support?from=curedesk';
 function openSupport() {
@@ -37,6 +37,7 @@ const NAV: NavItem2[] = [
   { to: '/lab', label: 'Laboratory', icon: FlaskConical, color: 'text-fuchsia-500', modes: LAB_MODES, roles: ['lab_tech', 'doctor', 'receptionist'] },
   { to: '/pharmacy', label: 'Pharmacy', icon: Pill, color: 'text-lime-500', modes: PHARMACY_MODES, roles: ['pharmacist', 'doctor', 'receptionist'] },
   { to: '/ipd', label: 'IPD', icon: BedDouble, color: 'text-red-500', modes: IPD_MODES, roles: ['doctor', 'receptionist', 'nurse', 'ward_incharge'] },
+  { to: '/pediatrics', label: 'Pediatrics', icon: Baby, color: 'text-pink-500', modes: ALL_MODES, roles: ['doctor', 'receptionist', 'nurse'] },
   { to: '/patient-log', label: 'Patient Log', icon: History, color: 'text-cyan-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
   { to: '/origin', label: 'Patient Origin', icon: MapPin, color: 'text-rose-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
   { to: '/billing', label: 'Billing', icon: Receipt, color: 'text-amber-500', modes: ALL_MODES, roles: ['receptionist'] },
@@ -77,6 +78,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     if (!n.modes.has(currentMode)) return false;
     if (n.to === '/billing' && billingHidden) return false;
     if (n.to === '/origin' && originHidden) return false;
+    // Pediatrics is an opt-in add-on — hidden unless enabled in Settings.
+    if (n.to === '/pediatrics' && settings?.peds_enabled !== true) return false;
     return canAnyRole(user, n.roles, adminUnlocked);
   });
 

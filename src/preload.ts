@@ -378,6 +378,13 @@ const api = {
   ipd: {
     admit: (input: any) =>
       ipcRenderer.invoke('ip:admitV2', input) as Promise<{ ok: true; id: number; admission_number: string } | { ok: false; error: string }>,
+    // Admission requests (doctor raises → reception approves)
+    requestAdmission: (input: any) =>
+      ipcRenderer.invoke('ip:requestAdmission', input) as Promise<{ ok: boolean; id?: number; error?: string }>,
+    admissionRequests: (status?: string) =>
+      ipcRenderer.invoke('ip:admissionRequests', status) as Promise<any[]>,
+    rejectAdmissionRequest: (id: number, reason?: string, by?: string) =>
+      ipcRenderer.invoke('ip:rejectAdmissionRequest', id, reason, by) as Promise<{ ok: boolean; error?: string }>,
     transfer: (admissionId: number, toBedId: number, reason?: string, by?: string) =>
       ipcRenderer.invoke('ip:transfer', admissionId, toBedId, reason, by) as Promise<{ ok: boolean; error?: string }>,
     discharge: (admissionId: number, input: any) =>
@@ -418,6 +425,16 @@ const api = {
       ipcRenderer.invoke('bill:previewById', billId) as Promise<any>,
     recent: (limit?: number) =>
       ipcRenderer.invoke('bill:recent', limit) as Promise<any[]>,
+  },
+  // ===== Pediatrics add-on =====
+  peds: {
+    growthList: (patientId: number) => ipcRenderer.invoke('peds:growthList', patientId) as Promise<any[]>,
+    growthAdd: (patientId: number, input: any) => ipcRenderer.invoke('peds:growthAdd', patientId, input) as Promise<{ ok: boolean; id?: number; error?: string }>,
+    growthDelete: (id: number) => ipcRenderer.invoke('peds:growthDelete', id) as Promise<{ ok: boolean; error?: string }>,
+    vaccineList: (patientId: number) => ipcRenderer.invoke('peds:vaccineList', patientId) as Promise<any[]>,
+    vaccineSeed: (patientId: number) => ipcRenderer.invoke('peds:vaccineSeed', patientId) as Promise<{ ok: boolean; added?: number; schedule?: string; error?: string }>,
+    vaccineUpdate: (recordId: number, patch: any) => ipcRenderer.invoke('peds:vaccineUpdate', recordId, patch) as Promise<{ ok: boolean; error?: string }>,
+    vaccineAddCustom: (patientId: number, input: any) => ipcRenderer.invoke('peds:vaccineAddCustom', patientId, input) as Promise<{ ok: boolean; id?: number; error?: string }>,
   },
   clinicalTemplates: {
     list: () => ipcRenderer.invoke('clinical-templates:list') as Promise<import('./types').ClinicalQuickTemplate[]>,

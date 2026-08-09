@@ -615,6 +615,17 @@ export interface Settings {
 
   // ===== TPA / Insurance =====
   tpa_enabled: boolean;
+
+  // ===== Pediatrics add-on =====
+  peds_enabled: boolean;
+  peds_growth_enabled: boolean;
+  peds_vaccines_enabled: boolean;
+  peds_calculators_enabled: boolean;
+  /** Which vaccine schedule the immunisation diary follows. */
+  peds_vaccine_schedule: 'iap' | 'nis';
+
+  // ===== IPD admission-request workflow =====
+  ipd_admission_requests_enabled: boolean;
 }
 
 /** Live state of a patient's free-follow-up entitlement with a given doctor, used at booking time. */

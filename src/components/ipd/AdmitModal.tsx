@@ -11,19 +11,22 @@ import { useAuth } from '../../hooks/useAuth';
  * optional advance and MLC, admit.
  */
 export function AdmitModal({
-  bed, onClose, onAdmitted,
+  bed, onClose, onAdmitted, presetPatient, presetDiagnosis, admissionRequestId,
 }: {
   bed: any;                       // the free bed chosen on the map
   onClose: () => void;
   onAdmitted: (admissionId: number) => void;
+  presetPatient?: any | null;     // when approving a doctor's admission request
+  presetDiagnosis?: string | null;
+  admissionRequestId?: number | null;
 }) {
   const toast = useToast();
   const { user } = useAuth();
   const [q, setQ] = useState('');
-  const [patient, setPatient] = useState<any | null>(null);
+  const [patient, setPatient] = useState<any | null>(presetPatient ?? null);
   const [doctorId, setDoctorId] = useState<number | ''>('');
   const [admissionType, setAdmissionType] = useState('planned');
-  const [diagnosis, setDiagnosis] = useState('');
+  const [diagnosis, setDiagnosis] = useState(presetDiagnosis ?? '');
   const [attendantName, setAttendantName] = useState('');
   const [attendantPhone, setAttendantPhone] = useState('');
   const [advance, setAdvance] = useState('');
@@ -56,6 +59,7 @@ export function AdmitModal({
         advance_mode: advanceMode,
         is_mlc: isMlc,
         mlc: isMlc ? mlc : undefined,
+        admission_request_id: admissionRequestId ?? null,   // closes the request on success
         performed_by: user?.username ?? null,
       });
       if (r.ok) {

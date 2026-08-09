@@ -19,6 +19,7 @@ import { Reports } from './pages/Reports';
 import { Analytics } from './pages/Analytics';
 import { Miscellaneous } from './pages/Miscellaneous';
 import { WhatsApp } from './pages/WhatsApp';
+import { Pediatrics } from './pages/Pediatrics';
 import { WelcomeWizard } from './components/WelcomeWizard';
 import { ForcePasswordChange } from './components/ForcePasswordChange';
 import { useEffect, useState } from 'react';
@@ -127,6 +128,7 @@ export default function App() {
         <Route path="/lab" element={<Lab />} />
         <Route path="/pharmacy" element={<Pharmacy />} />
         <Route path="/ipd" element={<IPD />} />
+        <Route path="/pediatrics" element={<Pediatrics />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/whatsapp" element={<WhatsApp />} />
         <Route path="/settings" element={<SettingsPage />} />

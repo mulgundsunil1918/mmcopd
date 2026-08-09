@@ -9,8 +9,9 @@ import type { DischargeMedication } from '../types';
 import { WardMap } from '../components/ipd/WardMap';
 import { AdmitModal as WardAdmitModal } from '../components/ipd/AdmitModal';
 import { AdmissionDetail } from '../components/ipd/AdmissionDetail';
+import { AdmissionRequestsPanel } from '../components/ipd/AdmissionRequests';
 
-type Tab = 'wardmap' | 'admitted' | 'discharged' | 'all';
+type Tab = 'wardmap' | 'requests' | 'admitted' | 'discharged' | 'all';
 
 export function IPD() {
   const [tab, setTab] = useState<Tab>('wardmap');
@@ -19,8 +20,19 @@ export function IPD() {
   const [dischargeTarget, setDischargeTarget] = useState<any | null>(null);
   const [viewTarget, setViewTarget] = useState<any | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null);   // ward-care + bill hub
+  // When approving a doctor's admission request, carry the patient/diagnosis
+  // into the ward-map bed pick so reception just chooses the bed.
+  const [approving, setApproving] = useState<any | null>(null);
   const qc = useQueryClient();
   const toast = useToast();
+
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { data: pendingReqs = [] } = useQuery({
+    queryKey: ['admission-requests'],
+    queryFn: () => window.electronAPI.ipd.admissionRequests('pending'),
+    refetchInterval: 20_000,
+    enabled: settings?.ipd_admission_requests_enabled !== false,
+  });
 
   const { data: admissions = [] } = useQuery({
     queryKey: ['ip-admissions', tab],
@@ -44,6 +56,11 @@ export function IPD() {
         <div className="flex gap-2 items-center">
           <div className="flex bg-gray-100 dark:bg-slate-700 p-1 rounded-lg">
             <TabBtn active={tab === 'wardmap'} onClick={() => setTab('wardmap')}>Ward Map</TabBtn>
+            {settings?.ipd_admission_requests_enabled !== false && (
+              <TabBtn active={tab === 'requests'} onClick={() => setTab('requests')}>
+                Requests{pendingReqs.length > 0 ? <span className="ml-1 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold">{pendingReqs.length}</span> : null}
+              </TabBtn>
+            )}
             <TabBtn active={tab === 'admitted'} onClick={() => setTab('admitted')}>Admitted</TabBtn>
             <TabBtn active={tab === 'discharged'} onClick={() => setTab('discharged')}>Discharged</TabBtn>
             <TabBtn active={tab === 'all'} onClick={() => setTab('all')}>All</TabBtn>
@@ -56,7 +73,17 @@ export function IPD() {
         </div>
       </div>
 
-      {tab === 'wardmap' ? (
+      {tab === 'requests' ? (
+        <>
+          {approving && (
+            <div className="rounded-lg border-2 border-blue-300 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/20 p-3 mb-3 text-[12px] text-blue-900 dark:text-blue-200">
+              Approving <b>{approving.patient_name}</b> — go to <b>Ward Map</b> and click a free bed to complete the admission.
+              <button className="btn-ghost text-xs ml-2" onClick={() => setApproving(null)}>Cancel</button>
+            </div>
+          )}
+          <AdmissionRequestsPanel onApprove={(req) => { setApproving(req); setTab('wardmap'); toast('Now pick a free bed on the ward map', 'info'); }} />
+        </>
+      ) : tab === 'wardmap' ? (
         <WardMap
           onAdmit={(bed) => setAdmitBed(bed)}
           onOpenAdmission={(id) => setDetailId(id)}
@@ -125,12 +152,17 @@ export function IPD() {
       {admitBed && (
         <WardAdmitModal
           bed={admitBed}
+          presetPatient={approving ? { id: approving.patient_id, first_name: approving.patient_name?.split(' ')[0], last_name: approving.patient_name?.split(' ').slice(1).join(' '), uhid: approving.patient_uhid, phone: approving.patient_phone, gender: approving.patient_gender, dob: approving.patient_dob } : null}
+          presetDiagnosis={approving?.provisional_diagnosis ?? null}
+          admissionRequestId={approving?.id ?? null}
           onClose={() => setAdmitBed(null)}
           onAdmitted={() => {
             qc.invalidateQueries({ queryKey: ['beds-map'] });
             qc.invalidateQueries({ queryKey: ['ip-admissions'] });
             qc.invalidateQueries({ queryKey: ['wards'] });
+            qc.invalidateQueries({ queryKey: ['admission-requests'] });
             setAdmitBed(null);
+            setApproving(null);
           }}
         />
       )}

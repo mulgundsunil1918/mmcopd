@@ -403,6 +403,14 @@ export function registerIpdBillingIpc() {
         }
 
         getOrCreateAdmissionBill(d, admissionId);
+
+        // If this admission came from a doctor's request, close the request out.
+        if (input.admission_request_id) {
+          d.prepare(
+            `UPDATE admission_requests SET status='approved', decided_at=datetime('now'), decided_by=?, admission_id=?
+             WHERE id=? AND status='pending'`
+          ).run(input.performed_by ?? null, admissionId, input.admission_request_id);
+        }
       });
 
       tx();
@@ -854,6 +862,65 @@ export function registerIpdBillingIpc() {
       return { ok: true };
     } catch (err: any) {
       return fail(`Could not record the payment: ${err?.message || String(err)}`);
+    }
+  });
+
+  // ---------- Admission requests (doctor → reception) ----------
+  ipcMain.handle('ip:requestAdmission', (_e, input: any) => {
+    const d = db();
+    try {
+      const patientId = requireId(input?.patient_id, 'Patient');
+      if (!d.prepare('SELECT id FROM patients WHERE id=?').get(patientId)) {
+        return fail(`Patient #${patientId} was not found.`);
+      }
+      // Block a duplicate open request for the same patient.
+      const existing = d.prepare(`SELECT id FROM admission_requests WHERE patient_id=? AND status='pending'`).get(patientId);
+      if (existing) return fail('There is already a pending admission request for this patient.');
+
+      const info = d.prepare(
+        `INSERT INTO admission_requests (patient_id, doctor_id, requested_by, provisional_diagnosis, suggested_ward_id, urgency, notes)
+         VALUES (?,?,?,?,?,?,?)`
+      ).run(
+        patientId, input.doctor_id ?? null, input.requested_by ?? null,
+        input.provisional_diagnosis ?? null, input.suggested_ward_id ?? null,
+        ['routine', 'urgent', 'emergency'].includes(input.urgency) ? input.urgency : 'routine',
+        input.notes ?? null
+      );
+      logAudit(d, null, 'admission_requested', 'admission_requests', Number(info.lastInsertRowid));
+      broadcastEvent('ip:admissionRequested', { id: Number(info.lastInsertRowid), patientId });
+      return { ok: true, id: Number(info.lastInsertRowid) };
+    } catch (err: any) {
+      return fail(`Could not raise the admission request: ${err?.message || String(err)}`);
+    }
+  });
+
+  ipcMain.handle('ip:admissionRequests', (_e, status = 'pending') => {
+    return db().prepare(
+      `SELECT r.*, (p.first_name || ' ' || p.last_name) AS patient_name, p.uhid AS patient_uhid, p.phone AS patient_phone,
+              p.dob AS patient_dob, p.gender AS patient_gender,
+              dr.name AS doctor_name, w.name AS suggested_ward_name
+       FROM admission_requests r
+       JOIN patients p ON p.id = r.patient_id
+       LEFT JOIN doctors dr ON dr.id = r.doctor_id
+       LEFT JOIN wards w ON w.id = r.suggested_ward_id
+       WHERE r.status = ? ORDER BY
+         CASE r.urgency WHEN 'emergency' THEN 0 WHEN 'urgent' THEN 1 ELSE 2 END, r.requested_at`
+    ).all(status);
+  });
+
+  ipcMain.handle('ip:rejectAdmissionRequest', (_e, requestId: number, reason?: string, by?: string) => {
+    const d = db();
+    try {
+      const id = requireId(requestId, 'Request');
+      const r = d.prepare('SELECT status FROM admission_requests WHERE id=?').get(id) as any;
+      if (!r) return fail(`Admission request #${id} was not found.`);
+      if (r.status !== 'pending') return fail(`This request is already ${r.status}.`);
+      d.prepare(`UPDATE admission_requests SET status='rejected', decided_at=datetime('now'), decided_by=?, decision_note=? WHERE id=?`)
+        .run(by ?? null, reason ?? null, id);
+      broadcastEvent('ip:admissionRequestDecided', { id, status: 'rejected' });
+      return { ok: true };
+    } catch (err: any) {
+      return fail(`Could not reject the request: ${err?.message || String(err)}`);
     }
   });
 

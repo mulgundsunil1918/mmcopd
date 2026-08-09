@@ -3833,7 +3833,8 @@ function BillingIpdTab() {
     'discount_caps_json', 'discount_require_reason',
     'ipd_auto_accrue_bed', 'ipd_auto_accrue_nursing', 'ipd_auto_accrue_doctor_visit',
     'ipd_doctor_visit_mode', 'ipd_transfer_charge_rule', 'ipd_accrual_time', 'ipd_advance_enabled',
-    'tpa_enabled',
+    'tpa_enabled', 'ipd_admission_requests_enabled',
+    'peds_enabled', 'peds_growth_enabled', 'peds_vaccines_enabled', 'peds_calculators_enabled', 'peds_vaccine_schedule',
   ]);
 
   if (!settings) return <div className="card p-8 text-center text-sm text-gray-500"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></div>;
@@ -3921,6 +3922,48 @@ function BillingIpdTab() {
         <AccrualToggle label="Handle insurance / TPA (cashless) admissions"
           help="Turns on the insurance module — insurer master, pre-authorisation tracking, and claim reconciliation. Leave off if you take only cash, UPI and card."
           value={draft.tpa_enabled ?? false} onChange={(v) => set('tpa_enabled', v)} />
+      </div>
+
+      {/* Admission requests */}
+      <div className="card p-5">
+        <AccrualToggle label="Let doctors request admissions from OPD"
+          help="A doctor seeing a patient can press “Request Admission”; it appears under IPD → Requests for reception to approve and assign a ward and bed. Turn off if reception admits directly."
+          value={draft.ipd_admission_requests_enabled ?? true} onChange={(v) => set('ipd_admission_requests_enabled', v)} />
+      </div>
+
+      {/* Pediatrics add-on */}
+      <div className="card p-5 space-y-4">
+        <div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Pediatrics Add-on</div>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
+            Growth centiles (WHO), an immunisation diary, and paediatric calculators, in a dedicated Pediatrics screen.
+            Off by default — turn it on only if your clinic sees children.
+          </div>
+        </div>
+        <AccrualToggle label="Enable the Pediatrics module"
+          help="Adds a Pediatrics item to the sidebar. Each tool below can be shown or hidden separately."
+          value={draft.peds_enabled ?? false} onChange={(v) => set('peds_enabled', v)} />
+        {draft.peds_enabled && (
+          <div className="pl-7 space-y-3 border-l-2 border-pink-200 dark:border-pink-900">
+            <AccrualToggle label="Growth &amp; centiles"
+              help="Enter weight, height and head circumference; get WHO percentiles and z-scores with a saved history."
+              value={draft.peds_growth_enabled ?? true} onChange={(v) => set('peds_growth_enabled', v)} />
+            <AccrualToggle label="Immunisation diary"
+              help="Per-child vaccine schedule with due dates from date of birth; mark doses as given."
+              value={draft.peds_vaccines_enabled ?? true} onChange={(v) => set('peds_vaccines_enabled', v)} />
+            <AccrualToggle label="Calculators"
+              help="Mid-parental (target) height and corrected age / postmenstrual age for premature babies."
+              value={draft.peds_calculators_enabled ?? true} onChange={(v) => set('peds_calculators_enabled', v)} />
+            <div>
+              <label className="label">Vaccine schedule</label>
+              <select className="input max-w-xs" value={draft.peds_vaccine_schedule ?? 'iap'} onChange={(e) => set('peds_vaccine_schedule', e.target.value as any)}>
+                <option value="iap">IAP (Indian Academy of Pediatrics)</option>
+                <option value="nis">NIS (National Immunization Schedule)</option>
+              </select>
+              <div className="text-[11px] text-gray-500 mt-1">Which schedule new immunisation diaries are built from.</div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -114,6 +114,16 @@ export function getAllSettings(db: Database.Database): Settings {
 
     // ===== TPA =====
     tpa_enabled: map.tpa_enabled === 'true',
+
+    // ===== Pediatrics add-on (off by default — a clinic opts in) =====
+    peds_enabled: map.peds_enabled === 'true',
+    peds_growth_enabled: map.peds_growth_enabled !== 'false',
+    peds_vaccines_enabled: map.peds_vaccines_enabled !== 'false',
+    peds_calculators_enabled: map.peds_calculators_enabled !== 'false',
+    peds_vaccine_schedule: (map.peds_vaccine_schedule as any) || 'iap',
+
+    // ===== IPD admission requests =====
+    ipd_admission_requests_enabled: map.ipd_admission_requests_enabled !== 'false',
   };
 }
 

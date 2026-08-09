@@ -762,6 +762,70 @@ export function createSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_tpa_claims_status ON tpa_claims(status);
     CREATE INDEX IF NOT EXISTS idx_tpa_claims_admission ON tpa_claims(admission_id);
 
+    -- Doctor raises an admission request from OPD; reception approves it and
+    -- picks the ward/bed. Keeps admission authority with reception while letting
+    -- the doctor initiate.
+    CREATE TABLE IF NOT EXISTS admission_requests (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id    INTEGER NOT NULL REFERENCES patients(id),
+      doctor_id     INTEGER REFERENCES doctors(id),
+      requested_by  TEXT,
+      provisional_diagnosis TEXT,
+      suggested_ward_id INTEGER REFERENCES wards(id),
+      urgency       TEXT NOT NULL DEFAULT 'routine' CHECK (urgency IN ('routine','urgent','emergency')),
+      notes         TEXT,
+      status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','cancelled')),
+      requested_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      decided_at    TEXT,
+      decided_by    TEXT,
+      decision_note TEXT,
+      admission_id  INTEGER REFERENCES ip_admissions(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_adm_req_status ON admission_requests(status, requested_at);
+
+    -- =====================================================================
+    -- PEDIATRICS
+    -- =====================================================================
+
+    -- One growth measurement occasion for a child. z-scores/centiles are stored
+    -- as recorded so a historic chart does not shift if the reference changes.
+    CREATE TABLE IF NOT EXISTS peds_growth_measurements (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id   INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+      measured_on  TEXT NOT NULL DEFAULT (date('now')),
+      age_days     INTEGER,
+      weight_kg    REAL,
+      height_cm    REAL,
+      head_circ_cm REAL,
+      bmi          REAL,
+      wfa_z REAL, lhfa_z REAL, hcfa_z REAL, bfa_z REAL,
+      wfa_c REAL, lhfa_c REAL, hcfa_c REAL, bfa_c REAL,
+      notes        TEXT,
+      recorded_by  TEXT,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_peds_growth_patient ON peds_growth_measurements(patient_id, measured_on);
+
+    -- Immunisation diary. One row per scheduled dose per child, updated when given.
+    CREATE TABLE IF NOT EXISTS peds_vaccine_records (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id   INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+      vaccine      TEXT NOT NULL,
+      schedule_age TEXT,
+      due_date     TEXT,
+      given_date   TEXT,
+      status       TEXT NOT NULL DEFAULT 'due' CHECK (status IN ('due','given','overdue','skipped')),
+      dose         TEXT,
+      route        TEXT,
+      site         TEXT,
+      brand        TEXT,
+      batch_no     TEXT,
+      notes        TEXT,
+      recorded_by  TEXT,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_peds_vax_patient ON peds_vaccine_records(patient_id, due_date);
+
     CREATE TABLE IF NOT EXISTS tpa_claim_events (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       claim_id   INTEGER NOT NULL REFERENCES tpa_claims(id) ON DELETE CASCADE,
