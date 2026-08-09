@@ -77,14 +77,14 @@ export function changePassword(db: Database.Database, userId: number, newPasswor
 
 export function listUsers(db: Database.Database) {
   return db
-    .prepare('SELECT id, username, role, display_name, doctor_id, is_active, last_login_at, created_at FROM users ORDER BY created_at DESC')
+    .prepare('SELECT id, username, role, display_name, doctor_id, is_active, must_change_password, last_login_at, created_at FROM users ORDER BY created_at DESC')
     .all();
 }
 
 export function updateUser(
   db: Database.Database,
   id: number,
-  patch: { role?: Role; display_name?: string; doctor_id?: number | null; is_active?: 0 | 1 }
+  patch: { role?: Role; display_name?: string; doctor_id?: number | null; is_active?: 0 | 1; must_change_password?: 0 | 1 }
 ) {
   const fields: string[] = [];
   const params: any[] = [];
@@ -92,6 +92,8 @@ export function updateUser(
   if (patch.display_name !== undefined) { fields.push('display_name=?'); params.push(patch.display_name); }
   if (patch.doctor_id !== undefined) { fields.push('doctor_id=?'); params.push(patch.doctor_id); }
   if (patch.is_active !== undefined) { fields.push('is_active=?'); params.push(patch.is_active); }
+  // Admin can force a user to set a new password at their next login.
+  if (patch.must_change_password !== undefined) { fields.push('must_change_password=?'); params.push(patch.must_change_password); }
   if (fields.length === 0) return;
   params.push(id);
   db.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id=?`).run(...params);

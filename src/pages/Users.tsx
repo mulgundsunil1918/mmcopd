@@ -40,6 +40,29 @@ type CreatableRole = Exclude<Role, 'staff'>;
 const CREATABLE_ROLES = (Object.keys(ROLE_LABELS) as Role[])
   .filter((r): r is CreatableRole => r !== 'staff');
 
+/** Colour per role for the badge — helps scan the user list at a glance. */
+const ROLE_COLOR: Record<Role, string> = {
+  admin: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
+  staff: 'bg-gray-100 text-gray-600',
+  receptionist: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+  doctor: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+  nurse: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
+  ward_incharge: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
+  lab_tech: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300',
+  pharmacist: 'bg-lime-100 text-lime-700 dark:bg-lime-900/40 dark:text-lime-300',
+};
+
+/** What each role can open — shown in the access reference so admins assign correctly. */
+const ROLE_ACCESS: { role: CreatableRole; screens: string }[] = [
+  { role: 'admin', screens: 'Everything — all modules, Settings, Users, Billing, Danger Zone.' },
+  { role: 'receptionist', screens: 'Reception, Appointments, Billing, Accounts, IPD admit, Patient Log, Analytics.' },
+  { role: 'doctor', screens: 'Appointments, Doctor console, IPD ward care, Lab orders, Pediatrics.' },
+  { role: 'nurse', screens: 'IPD ward care (vitals, medications, I/O, nursing notes), Pediatrics.' },
+  { role: 'ward_incharge', screens: 'Everything a nurse sees, plus countersign and authorise transfers.' },
+  { role: 'lab_tech', screens: 'Laboratory — accept orders, enter results.' },
+  { role: 'pharmacist', screens: 'Pharmacy — dispense, stock, batches, purchase invoices.' },
+];
+
 export function UsersPage() {
   return (
     <AdminGate title="Users & Access — Administrator area">
@@ -53,6 +76,7 @@ function UsersInner() {
   const toast = useToast();
   const [creating, setCreating] = useState(false);
   const [pwUser, setPwUser] = useState<any | null>(null);
+  const [editUser, setEditUser] = useState<any | null>(null);
   const [auditOpen, setAuditOpen] = useState(false);
   const [dangerOpen, setDangerOpen] = useState(false);
   const [adminPwOpen, setAdminPwOpen] = useState(false);
@@ -96,35 +120,57 @@ function UsersInner() {
           <tbody>
             {users.map((u: any) => (
               <tr key={u.id} className="border-b border-gray-100 dark:border-slate-800">
-                <td className="py-2 font-mono text-xs">{u.username}</td>
+                <td className="py-2 font-mono text-xs">
+                  {u.username}
+                  {u.must_change_password ? <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-700" title="Will be asked to set a new password at next login">reset pending</span> : null}
+                </td>
                 <td className="py-2 text-gray-700 dark:text-slate-200">{u.display_name || '—'}</td>
                 <td className="py-2">
                   <select
-                    className="input w-auto text-xs"
-                    value={u.role}
+                    className={cn('rounded-md text-xs font-semibold px-2 py-1 border-0 cursor-pointer', ROLE_COLOR[u.role as Role] || 'bg-gray-100 text-gray-600')}
+                    value={CREATABLE_ROLES.includes(u.role) ? u.role : 'receptionist'}
                     onChange={(e) => updateMut.mutate({ id: u.id, patch: { role: e.target.value } })}
+                    title="Change role"
                   >
-                    {Object.entries(ROLE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    {CREATABLE_ROLES.map((v) => <option key={v} value={v}>{ROLE_LABELS[v]}</option>)}
                   </select>
                 </td>
-                <td className="py-2 text-[11px] text-gray-500 dark:text-slate-400">{u.last_login_at ? fmtDateTime(u.last_login_at) : '—'}</td>
+                <td className="py-2 text-[11px] text-gray-500 dark:text-slate-400">{u.last_login_at ? fmtDateTime(u.last_login_at) : 'never'}</td>
                 <td className="py-2">
                   <button
                     onClick={() => updateMut.mutate({ id: u.id, patch: { is_active: u.is_active ? 0 : 1 } })}
                     className={u.is_active ? 'badge bg-green-100 text-green-700' : 'badge bg-gray-200 text-gray-600'}
+                    title="Click to toggle"
                   >
                     {u.is_active ? 'Active' : 'Inactive'}
                   </button>
                 </td>
-                <td className="py-2 text-right">
+                <td className="py-2 text-right whitespace-nowrap">
+                  <button className="btn-ghost text-xs" onClick={() => setEditUser(u)}>Edit</button>
                   <button className="btn-ghost text-xs" onClick={() => setPwUser(u)}>
-                    <Key className="w-3.5 h-3.5" /> Set Password
+                    <Key className="w-3.5 h-3.5" /> Password
                   </button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+      </section>
+
+      {/* Role access reference — what each role can open */}
+      <section className="card p-5">
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-1">What each role can access</div>
+        <div className="text-[11px] text-gray-500 dark:text-slate-400 mb-3">
+          Roles control which screens a user sees. Assign the closest fit; an admin can always do everything.
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          {ROLE_ACCESS.map((r) => (
+            <div key={r.role} className="flex items-start gap-2 rounded-lg border border-gray-200 dark:border-slate-700 p-2.5">
+              <span className={cn('shrink-0 text-[10px] font-bold px-2 py-0.5 rounded', ROLE_COLOR[r.role])}>{ROLE_LABELS[r.role]}</span>
+              <span className="text-[11px] text-gray-600 dark:text-slate-400">{r.screens}</span>
+            </div>
+          ))}
+        </div>
       </section>
 
       {/* Danger Zone */}
@@ -142,6 +188,7 @@ function UsersInner() {
       </section>
 
       {creating && <CreateUserModal onClose={() => setCreating(false)} onCreated={() => { qc.invalidateQueries({ queryKey: ['users'] }); setCreating(false); toast('User created'); }} />}
+      {editUser && <EditUserModal user={editUser} onClose={() => setEditUser(null)} onSaved={() => { qc.invalidateQueries({ queryKey: ['users'] }); setEditUser(null); toast('User updated'); }} />}
       {pwUser && <PasswordModal user={pwUser} onClose={() => setPwUser(null)} />}
       {auditOpen && <AuditModal onClose={() => setAuditOpen(false)} />}
       {adminPwOpen && <AdminPasswordModal onClose={() => setAdminPwOpen(false)} />}
@@ -191,6 +238,65 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
           <button className="btn-primary" onClick={() => create.mutate()} disabled={!username || !password || create.isPending}>
             {create.isPending ? 'Creating…' : 'Create User'}
           </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/** Edit an existing user: display name, doctor link, role, and force-reset. */
+function EditUserModal({ user, onClose, onSaved }: { user: any; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast();
+  const [displayName, setDisplayName] = useState(user.display_name || '');
+  const [role, setRole] = useState<CreatableRole>(CREATABLE_ROLES.includes(user.role) ? user.role : 'receptionist');
+  const [doctorId, setDoctorId] = useState<number | ''>(user.doctor_id ?? '');
+  const { data: doctors = [] } = useQuery({ queryKey: ['doctors'], queryFn: () => window.electronAPI.doctors.list(true) });
+
+  const save = useMutation({
+    mutationFn: () => window.electronAPI.auth.updateUser(user.id, {
+      display_name: displayName || null,
+      role,
+      doctor_id: role === 'doctor' ? (doctorId === '' ? null : Number(doctorId)) : null,
+    }),
+    onSuccess: onSaved,
+    onError: (e: any) => toast(e?.message || 'Could not update', 'error'),
+  });
+
+  const forceReset = useMutation({
+    mutationFn: () => window.electronAPI.auth.updateUser(user.id, { must_change_password: 1 } as any),
+    onSuccess: () => { toast(`${user.username} will be asked to set a new password at next login`, 'success'); onSaved(); },
+    onError: (e: any) => toast(e?.message || 'Could not update', 'error'),
+  });
+
+  return (
+    <Modal open onClose={onClose} title={`Edit — ${user.username}`} size="md">
+      <div className="space-y-3">
+        <Row label="Display Name"><input className="input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="e.g. Dr. Sunil / Reception 1" /></Row>
+        <Row label="Role">
+          <select className="input" value={role} onChange={(e) => setRole(e.target.value as CreatableRole)}>
+            {CREATABLE_ROLES.map((v) => <option key={v} value={v}>{ROLE_LABELS[v]}</option>)}
+          </select>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-1">{ROLE_HELP[role]}</div>
+        </Row>
+        {role === 'doctor' && (
+          <Row label="Link to Doctor">
+            <select className="input" value={doctorId} onChange={(e) => setDoctorId(e.target.value === '' ? '' : Number(e.target.value))}>
+              <option value="">—</option>
+              {doctors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+            <div className="text-[11px] text-gray-500 mt-1">Links this login to a doctor record so their appointments and consultations are attributed correctly.</div>
+          </Row>
+        )}
+        <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/20 p-3">
+          <div className="text-[12px] font-semibold text-amber-800 dark:text-amber-200">Force password reset</div>
+          <div className="text-[11px] text-amber-700 dark:text-amber-300 mt-0.5 mb-2">The user keeps their current password but must set a new one the next time they log in.</div>
+          <button className="btn-secondary text-xs" disabled={forceReset.isPending} onClick={() => forceReset.mutate()}>
+            {forceReset.isPending ? 'Applying…' : 'Require reset at next login'}
+          </button>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? 'Saving…' : 'Save changes'}</button>
         </div>
       </div>
     </Modal>
