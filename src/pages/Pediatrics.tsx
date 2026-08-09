@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Baby, Search, Ruler, Syringe, Calculator, Loader2, Plus, Check, TrendingUp } from 'lucide-react';
+import { Baby, Search, Ruler, Syringe, Calculator, Loader2, Plus, Check, TrendingUp, Printer, Send } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
 import { cn, fmtDate } from '../lib/utils';
@@ -9,6 +9,9 @@ import {
   type GrowthChart, type Sex,
 } from '../lib/peds/growth';
 import { GrowthChart as GrowthChartPlot } from '../components/peds/GrowthChart';
+import { IapGrowthChart } from '../components/peds/IapGrowthChart';
+import { GrowthChartPrint } from '../components/peds/GrowthChartPrint';
+import { iapMetricForWhoChart } from '../lib/peds/iap';
 
 /**
  * Pediatrics add-on. Growth centiles (WHO), the immunisation diary, and the
@@ -192,7 +195,7 @@ function GrowthSection({ patient }: { patient: any }) {
       </div>
 
       {/* Visual chart */}
-      {history.length > 0 && <GrowthChartPanel history={history} sex={sex} />}
+      {history.length > 0 && <GrowthChartPanel history={history} sex={sex} patient={patient} />}
 
       {/* History */}
       {history.length > 0 && (
@@ -223,27 +226,115 @@ function GrowthSection({ patient }: { patient: any }) {
 
 const CHART_SHORT: Record<GrowthChart, string> = { wfa: 'Weight-for-age', lhfa: 'Height-for-age', hcfa: 'Head circ.', bfa: 'BMI-for-age' };
 
-/** Chart-type toggle + the plotted WHO curve for the child's history. */
-function GrowthChartPanel({ history, sex }: { history: any[]; sex: Sex }) {
+/** Chart-type toggle + WHO (0–5y) or IAP (5–18y) reference for the child's history. */
+function GrowthChartPanel({ history, sex, patient }: { history: any[]; sex: Sex; patient?: any }) {
+  const toast = useToast();
+  const { user } = useAuth();
+  const [standard, setStandard] = useState<'who' | 'iap'>('who');
   const [chart, setChart] = useState<GrowthChart>('wfa');
+  const [printing, setPrinting] = useState(false);
+
+  // Head circumference exists only on WHO — fall back to weight if IAP is picked.
+  const chartsForStd: GrowthChart[] = standard === 'who' ? ['wfa', 'lhfa', 'hcfa', 'bfa'] : ['wfa', 'lhfa', 'bfa'];
+  const activeChart = chartsForStd.includes(chart) ? chart : 'wfa';
+
   const field: Record<GrowthChart, string> = { wfa: 'weight_kg', lhfa: 'height_cm', hcfa: 'head_circ_cm', bfa: 'bmi' };
   const points = history
-    .filter((m) => m.age_days != null && m[field[chart]] != null)
-    .map((m) => ({ ageDays: m.age_days, value: Number(m[field[chart]]) }));
+    .filter((m) => m.age_days != null && m[field[activeChart]] != null)
+    .map((m) => ({ ageDays: m.age_days, value: Number(m[field[activeChart]]) }));
+
+  const iapMetric = iapMetricForWhoChart(activeChart);
+
+  // Which points actually land inside this chart's age window — drives the note
+  // that explains a missing "this child" dot (e.g. an adult or an under-5 on IAP).
+  const inWindow = points.filter((p) => standard === 'who'
+    ? p.ageDays <= 5 * 365.25 + 30
+    : p.ageDays >= 5 * 365.25 - 30 && p.ageDays <= 18 * 365.25 + 30);
+  const outOfRange = points.length > 0 && inWindow.length === 0;
+
+  const chartEl = points.length === 0
+    ? <div className="card p-4 text-center text-[12px] text-gray-400">No {CHART_SHORT[activeChart]} measurements yet.</div>
+    : (standard === 'iap' && iapMetric
+        ? <IapGrowthChart metric={iapMetric} sex={sex} points={points} />
+        : <GrowthChartPlot chart={activeChart} sex={sex} points={points} />);
+
+  const subtitle = `${CHART_SHORT[activeChart]} · ${sex === 'M' ? 'Boys' : 'Girls'} · ${standard === 'who' ? 'WHO 0–5y' : 'IAP 2015 · 5–18y'}`;
+
+  const sendToReception = async () => {
+    const r = await window.electronAPI.printJobs.create({
+      kind: 'growth',
+      title: `Growth chart — ${subtitle}`,
+      patient_id: patient?.id ?? null,
+      patient_name: patient ? `${patient.first_name} ${patient.last_name}` : '',
+      created_by: user?.username,
+      payload: {
+        patient: { name: patient ? `${patient.first_name} ${patient.last_name}` : '', uhid: patient?.uhid, dob: patient?.dob, gender: patient?.gender },
+        subtitle, standard, chart: activeChart, iapMetric, points,
+      },
+    });
+    if (r.ok) toast('Sent to reception to print', 'success');
+    else toast(r.error || 'Could not send', 'error');
+  };
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap gap-1 p-1 rounded-lg bg-gray-100 dark:bg-slate-800/60 w-fit">
-        {(['wfa', 'lhfa', 'hcfa', 'bfa'] as GrowthChart[]).map((c) => (
-          <button key={c} onClick={() => setChart(c)}
-            className={cn('px-2.5 py-1 rounded-md text-[11px] font-semibold transition',
-              chart === c ? 'bg-white dark:bg-slate-900 text-pink-700 dark:text-pink-300 shadow-sm' : 'text-gray-600 dark:text-slate-400')}>
-            {CHART_SHORT[c]}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Standard: WHO vs IAP */}
+        <div className="flex gap-1 p-1 rounded-lg bg-gray-100 dark:bg-slate-800/60 w-fit">
+          <button onClick={() => setStandard('who')}
+            className={cn('px-2.5 py-1 rounded-md text-[11px] font-bold transition',
+              standard === 'who' ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-300 shadow-sm' : 'text-gray-600 dark:text-slate-400')}>
+            WHO · 0–5y
           </button>
-        ))}
+          <button onClick={() => setStandard('iap')}
+            className={cn('px-2.5 py-1 rounded-md text-[11px] font-bold transition',
+              standard === 'iap' ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 shadow-sm' : 'text-gray-600 dark:text-slate-400')}>
+            IAP · 5–18y
+          </button>
+        </div>
+        {/* Chart type */}
+        <div className="flex flex-wrap gap-1 p-1 rounded-lg bg-gray-100 dark:bg-slate-800/60 w-fit">
+          {chartsForStd.map((c) => (
+            <button key={c} onClick={() => setChart(c)}
+              className={cn('px-2.5 py-1 rounded-md text-[11px] font-semibold transition',
+                activeChart === c ? 'bg-white dark:bg-slate-900 text-pink-700 dark:text-pink-300 shadow-sm' : 'text-gray-600 dark:text-slate-400')}>
+              {CHART_SHORT[c]}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1" />
+        {points.length > 0 && (
+          <>
+            <button onClick={sendToReception} className="btn-secondary text-xs"><Send className="w-3.5 h-3.5" /> Send to reception</button>
+            <button onClick={() => setPrinting(true)} className="btn-secondary text-xs"><Printer className="w-3.5 h-3.5" /> Print chart</button>
+          </>
+        )}
       </div>
-      {points.length > 0 ? <GrowthChartPlot chart={chart} sex={sex} points={points} />
-        : <div className="card p-4 text-center text-[12px] text-gray-400">No {CHART_SHORT[chart]} measurements yet.</div>}
+
+      {chartEl}
+
+      {outOfRange && (
+        <div className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 rounded-md px-2.5 py-1.5">
+          This patient’s measurements fall outside this chart’s age range, so the “this child” dot isn’t plotted.
+          {standard === 'who' ? ' Try the IAP · 5–18y chart for older children.' : ' Try the WHO · 0–5y chart for younger children.'}
+        </div>
+      )}
+
+      <div className="text-[10px] text-gray-400 px-1">
+        {standard === 'who'
+          ? 'WHO Child Growth Standards — best for 0–5 years. Points beyond 5y sit off the top of this chart.'
+          : 'IAP 2015 reference — for 5–18 years. Younger points fall before the chart start; use WHO for under-5s.'}
+      </div>
+
+      {printing && (
+        <GrowthChartPrint
+          patient={{ name: patient ? `${patient.first_name} ${patient.last_name}` : '', uhid: patient?.uhid, dob: patient?.dob, gender: patient?.gender }}
+          subtitle={subtitle}
+          onClose={() => setPrinting(false)}
+        >
+          {chartEl}
+        </GrowthChartPrint>
+      )}
     </div>
   );
 }
@@ -269,9 +360,18 @@ function VaccineSection({ patient }: { patient: any }) {
     finally { setBusy(false); }
   };
 
-  const markGiven = async (rec: any) => {
-    const r = await window.electronAPI.peds.vaccineUpdate(rec.id, { status: 'given', recorded_by: user?.username });
+  const markGiven = async (rec: any, givenDate?: string) => {
+    const r = await window.electronAPI.peds.vaccineUpdate(rec.id, { status: 'given', given_date: givenDate || new Date().toISOString().slice(0, 10), recorded_by: user?.username });
     if (r.ok) qc.invalidateQueries({ queryKey: ['peds-vax', patient.id] });
+    else toast(r.error || 'Could not update', 'error');
+  };
+
+  // Un-mark a dose given (mistaken tap) — revert to due/overdue by its due date and clear the date.
+  const undoGiven = async (rec: any) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const revert = rec.due_date && rec.due_date < today ? 'overdue' : 'due';
+    const r = await window.electronAPI.peds.vaccineUpdate(rec.id, { status: revert, given_date: null });
+    if (r.ok) { toast('Marked not given', 'info'); qc.invalidateQueries({ queryKey: ['peds-vax', patient.id] }); }
     else toast(r.error || 'Could not update', 'error');
   };
 
@@ -310,8 +410,10 @@ function VaccineSection({ patient }: { patient: any }) {
                       </span>
                     </td>
                     <td className="p-2 text-right">
-                      {r.status !== 'given' && (
-                        <button className="btn-ghost text-xs" onClick={() => markGiven(r)}><Check className="w-3.5 h-3.5" /> Given</button>
+                      {r.status === 'given' ? (
+                        <button className="btn-ghost text-xs text-gray-500 hover:text-red-600" title="Mistake? Un-mark this dose" onClick={() => undoGiven(r)}>Undo</button>
+                      ) : (
+                        <button className="btn-primary text-xs !py-1" onClick={() => markGiven(r)}><Check className="w-3.5 h-3.5" /> Given</button>
                       )}
                     </td>
                   </tr>

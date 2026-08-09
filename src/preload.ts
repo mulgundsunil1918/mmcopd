@@ -245,6 +245,7 @@ const api = {
   lab: {
     listTests: (activeOnly = true) => ipcRenderer.invoke('lab:listTests', activeOnly) as Promise<LabTest[]>,
     upsertTest: (test: Partial<LabTest>) => ipcRenderer.invoke('lab:upsertTest', test) as Promise<LabTest>,
+    loadStandardCatalog: () => ipcRenderer.invoke('lab:loadStandardCatalog') as Promise<{ ok: boolean; added: number; total: number }>,
     createOrder: (payload: {
       appointment_id: number | null;
       patient_id: number;
@@ -361,13 +362,24 @@ const api = {
     remove: (wardId: number) =>
       ipcRenderer.invoke('wards:delete', wardId) as Promise<{ ok: boolean; error?: string }>,
   },
+  printJobs: {
+    create: (input: any) => ipcRenderer.invoke('printJobs:create', input) as Promise<{ ok: boolean; id?: number; error?: string }>,
+    list: (status?: string) => ipcRenderer.invoke('printJobs:list', status) as Promise<any[]>,
+    pendingCount: () => ipcRenderer.invoke('printJobs:pendingCount') as Promise<number>,
+    markPrinted: (id: number, by?: string) => ipcRenderer.invoke('printJobs:markPrinted', id, by) as Promise<{ ok: boolean; error?: string }>,
+    cancel: (id: number) => ipcRenderer.invoke('printJobs:cancel', id) as Promise<{ ok: boolean; error?: string }>,
+  },
   beds: {
     /** Every bed with its ward and current occupant — drives the colour-coded map. */
     map: () => ipcRenderer.invoke('beds:map') as Promise<any[]>,
+    /** Every bed in one ward, with its live occupant — for the ward's bed list. */
+    list: (wardId: number) => ipcRenderer.invoke('beds:list', wardId) as Promise<any[]>,
     save: (input: any) =>
       ipcRenderer.invoke('beds:save', input) as Promise<{ ok: true; id: number } | { ok: false; error: string }>,
     setStatus: (bedId: number, status: string) =>
       ipcRenderer.invoke('beds:setStatus', bedId, status) as Promise<{ ok: boolean; error?: string }>,
+    remove: (bedId: number) =>
+      ipcRenderer.invoke('beds:remove', bedId) as Promise<{ ok: boolean; error?: string; soft?: boolean }>,
   },
   chargeHeads: {
     list: (appliesTo?: 'opd' | 'ipd') =>
@@ -396,6 +408,8 @@ const api = {
       ipcRenderer.invoke('ip:transfer', admissionId, toBedId, reason, by) as Promise<{ ok: boolean; error?: string }>,
     discharge: (admissionId: number, input: any) =>
       ipcRenderer.invoke('ip:dischargeV2', admissionId, input) as Promise<{ ok: boolean; outcome?: string; error?: string }>,
+    saveDischargeSummary: (admissionId: number, payload: any) =>
+      ipcRenderer.invoke('ip:saveDischargeSummary', admissionId, payload) as Promise<{ ok: boolean; error?: string }>,
     vitalsList: (admissionId: number) => ipcRenderer.invoke('ip:vitals:list', admissionId) as Promise<any[]>,
     vitalsAdd: (admissionId: number, input: any) => ipcRenderer.invoke('ip:vitals:add', admissionId, input) as Promise<any>,
     notesList: (admissionId: number) => ipcRenderer.invoke('ip:progressNote:list', admissionId) as Promise<any[]>,

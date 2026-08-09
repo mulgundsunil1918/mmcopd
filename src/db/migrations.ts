@@ -418,6 +418,16 @@ export function runMigrations(db: Database.Database) {
   addColumnIfMissing(db, 'patients', 'state', 'TEXT');
   addColumnIfMissing(db, 'appointments', 'consultation_token', 'TEXT');
   addColumnIfMissing(db, 'patients', 'profession', 'TEXT');
+  // Rich, re-editable discharge summary (structured fields + named sections) held as
+  // JSON alongside the plain-text discharge_summary the print/legacy flows read.
+  addColumnIfMissing(db, 'ip_admissions', 'discharge_summary_json', 'TEXT');
+  // Manufacture date on every stock batch (drug strips print MFG + EXP). Stored as
+  // YYYY-MM. Expiry was already captured; manufacture completes the compliance pair.
+  addColumnIfMissing(db, 'drug_stock_batches', 'manufacture_date', 'TEXT');
+  addColumnIfMissing(db, 'purchase_invoice_items', 'manufacture_date', 'TEXT');
+  // Lab tests get a category (pathology / radiology) so the catalog can be grouped
+  // and filtered; existing rows default to pathology.
+  addColumnIfMissing(db, 'lab_tests', 'category', "TEXT NOT NULL DEFAULT 'pathology'");
 
   // users.doctor_id was added to the schema after some installs already created the users
   // table — add it to existing DBs so doctor-linked logins (and FK ref counts) work.

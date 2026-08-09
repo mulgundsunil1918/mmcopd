@@ -36,17 +36,28 @@ export function promptDialog(message: string, options: PromptOptions = {}): Prom
 function PromptModal({ message, options, onDone }: { message: string; options: PromptOptions; onDone: (v: string | null) => void }) {
   const [value, setValue] = useState(options.defaultValue ?? '');
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+  // Keep the latest value in a ref so the keydown handler can read it without
+  // re-subscribing (and re-selecting) on every keystroke.
+  const valueRef = useRef(value);
+  valueRef.current = value;
 
+  // Focus + select ONCE on mount. Doing this on every value change would
+  // re-select the text after each keystroke, so the next key would overwrite it
+  // and the field would never hold more than one character.
   useEffect(() => {
     inputRef.current?.focus();
     (inputRef.current as HTMLInputElement)?.select?.();
+  }, []);
+
+  // Enter to confirm, Esc to cancel — subscribed once, reads value from the ref.
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onDone(null);
-      if (e.key === 'Enter' && !options.multiline) { e.preventDefault(); onDone(value); }
+      if (e.key === 'Enter' && !options.multiline) { e.preventDefault(); onDone(valueRef.current); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [value, options.multiline, onDone]);
+  }, [options.multiline, onDone]);
 
   return (
     <div className="fixed inset-0 z-[300] bg-black/50 flex items-center justify-center p-4" onClick={() => onDone(null)}>

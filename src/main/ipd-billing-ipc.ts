@@ -290,6 +290,49 @@ export function registerIpdBillingIpc() {
     }
   });
 
+  /** Every bed in one ward, with its live occupant (if any) — for the ward's bed list. */
+  ipcMain.handle('beds:list', (_e, wardId: number) => {
+    const id = requireId(wardId, 'Ward');
+    return db()
+      .prepare(
+        `SELECT b.id, b.ward_id, b.bed_number, b.status, b.notes, b.is_active,
+                a.id AS admission_id, a.admission_number,
+                (p.first_name || ' ' || p.last_name) AS patient_name, p.uhid AS patient_uhid
+         FROM beds b
+         LEFT JOIN ip_admissions a ON a.bed_id = b.id AND a.status='admitted'
+         LEFT JOIN patients p ON p.id = a.patient_id
+         WHERE b.ward_id=?
+         ORDER BY b.is_active DESC, b.bed_number`
+      )
+      .all(id);
+  });
+
+  /**
+   * Remove a bed. Refuses if a patient currently occupies it. A bed that was ever
+   * used (has admission history) is soft-removed to preserve that history; a bed
+   * that has never been used is deleted outright, so typos vanish cleanly.
+   */
+  ipcMain.handle('beds:remove', (_e, bedId: number) => {
+    try {
+      const id = requireId(bedId, 'Bed id');
+      const d = db();
+      const bed: any = d.prepare('SELECT id, bed_number FROM beds WHERE id=?').get(id);
+      if (!bed) return fail('That bed no longer exists.');
+      const occupied = d.prepare(`SELECT id FROM ip_admissions WHERE bed_id=? AND status='admitted'`).get(id);
+      if (occupied) return fail(`Bed "${bed.bed_number}" has a patient in it. Discharge or transfer the patient before removing the bed.`);
+      const everUsed = d.prepare('SELECT 1 FROM ip_admissions WHERE bed_id=? LIMIT 1').get(id);
+      if (everUsed) {
+        d.prepare('UPDATE beds SET is_active=0, status=\'blocked\' WHERE id=?').run(id);
+      } else {
+        d.prepare('DELETE FROM beds WHERE id=?').run(id);
+      }
+      broadcastEvent('ip:bedStatus', { bedId: id, status: 'removed' });
+      return { ok: true, soft: !!everUsed };
+    } catch (err: any) {
+      return fail(`Could not remove the bed: ${err?.message || String(err)}`);
+    }
+  });
+
   // ---------- Charge heads ----------
   ipcMain.handle('chargeHeads:list', (_e, appliesTo?: 'opd' | 'ipd') => {
     const where = appliesTo ? `WHERE is_active=1 AND applies_to IN (?, 'both')` : 'WHERE is_active=1';
@@ -404,13 +447,14 @@ export function registerIpdBillingIpc() {
 
         getOrCreateAdmissionBill(d, admissionId);
 
-        // If this admission came from a doctor's request, close the request out.
-        if (input.admission_request_id) {
-          d.prepare(
-            `UPDATE admission_requests SET status='approved', decided_at=datetime('now'), decided_by=?, admission_id=?
-             WHERE id=? AND status='pending'`
-          ).run(input.performed_by ?? null, admissionId, input.admission_request_id);
-        }
+        // The patient is now admitted, so ANY pending admission request for them is
+        // fulfilled — whether reception approved a request or admitted directly. This
+        // stops a stale request lingering (and re-asking for a bed) after a manual admit.
+        d.prepare(
+          `UPDATE admission_requests SET status='approved', decided_at=datetime('now'),
+                  decided_by=COALESCE(?, decided_by), admission_id=?
+           WHERE patient_id=? AND status='pending'`
+        ).run(input.performed_by ?? null, admissionId, patientId);
       });
 
       tx();
@@ -1123,16 +1167,24 @@ export function registerIpdBillingIpc() {
 
   // ---------- Discharge-summary templates ----------
   ipcMain.handle('dischargeTemplates:list', (_e, filter: any = {}) => {
-    const d = db();
-    const where: string[] = ['is_active=1'];
-    const params: any[] = [];
-    if (filter?.department) { where.push('(department IS NULL OR department=?)'); params.push(filter.department); }
-    if (filter?.doctor_id) { where.push('(doctor_id IS NULL OR doctor_id=?)'); params.push(filter.doctor_id); }
-    return d.prepare(
-      `SELECT t.*, dr.name AS doctor_name FROM discharge_templates t
-       LEFT JOIN doctors dr ON dr.id = t.doctor_id
-       WHERE ${where.join(' AND ')} ORDER BY t.sort_order, t.name`
-    ).all(...params);
+    try {
+      const d = db();
+      // Every column is table-qualified: discharge_templates and doctors BOTH have
+      // an is_active column, so a bare `is_active` is ambiguous once they're joined.
+      const where: string[] = ['t.is_active=1'];
+      const params: any[] = [];
+      if (filter?.department) { where.push('(t.department IS NULL OR t.department=?)'); params.push(filter.department); }
+      if (filter?.doctor_id) { where.push('(t.doctor_id IS NULL OR t.doctor_id=?)'); params.push(filter.doctor_id); }
+      return d.prepare(
+        `SELECT t.*, dr.name AS doctor_name FROM discharge_templates t
+         LEFT JOIN doctors dr ON dr.id = t.doctor_id
+         WHERE ${where.join(' AND ')} ORDER BY t.sort_order, t.name`
+      ).all(...params);
+    } catch (err: any) {
+      // Re-throw (not return) so the renderer's query lands in its error state and
+      // shows the message — this list must resolve to an array on success.
+      throw new Error(`Could not load discharge templates: ${err?.message || String(err)}`);
+    }
   });
 
   ipcMain.handle('dischargeTemplates:save', (_e, input: any) => {
@@ -1195,7 +1247,87 @@ export function registerIpdBillingIpc() {
     }
   });
 
+  /**
+   * Save (or update) a rich discharge summary WITHOUT discharging the patient — for
+   * the dedicated Discharge Summary builder. Stores the structured JSON plus a
+   * composed plain-text copy in discharge_summary so print/legacy flows keep working.
+   */
+  ipcMain.handle('ip:saveDischargeSummary', (_e, admissionId: number, payload: any) => {
+    try {
+      const id = requireId(admissionId, 'Admission');
+      const d = db();
+      if (!d.prepare('SELECT id FROM ip_admissions WHERE id=?').get(id)) return fail('That admission was not found.');
+      const sections = Array.isArray(payload?.sections)
+        ? payload.sections.filter((s: any) => s && (s.label || s.body)).map((s: any) => ({ label: String(s.label ?? ''), body: String(s.body ?? '') }))
+        : [];
+      const json = JSON.stringify({
+        diagnosis: payload?.diagnosis ?? '', condition: payload?.condition ?? '',
+        followup: payload?.followup ?? '', doctor_id: payload?.doctor_id ?? null, sections,
+      });
+      // Compose a readable plain-text version for the existing discharge_summary column.
+      const lines: string[] = [];
+      if (payload?.diagnosis) lines.push(`Discharge Diagnosis:\n${payload.diagnosis}`);
+      if (payload?.condition) lines.push(`Condition at Discharge:\n${payload.condition}`);
+      for (const s of sections) if (s.body.trim()) lines.push(`${s.label}:\n${s.body}`);
+      if (payload?.followup) lines.push(`Follow-up / Advice:\n${payload.followup}`);
+      const plain = lines.join('\n\n');
+      d.prepare('UPDATE ip_admissions SET discharge_summary=?, discharge_summary_json=? WHERE id=?').run(plain, json, id);
+      return { ok: true };
+    } catch (err: any) {
+      return fail(`Could not save the discharge summary: ${err?.message || String(err)}`);
+    }
+  });
+
+  // ---------- Print Jobs inbox (doctor → reception to print) ----------
+  ipcMain.handle('printJobs:create', (_e, input: any) => {
+    try {
+      const kind = requireText(input?.kind, 'Kind', 40);
+      const title = requireText(input?.title, 'Title', 200);
+      const d = db();
+      const info = d.prepare(
+        `INSERT INTO print_jobs (kind, title, patient_id, patient_name, payload_json, created_by)
+         VALUES (?,?,?,?,?,?)`
+      ).run(kind, title, input?.patient_id ?? null, input?.patient_name ?? null,
+            JSON.stringify(input?.payload ?? {}), input?.created_by ?? null);
+      broadcastEvent('printJobs:changed', {});
+      return { ok: true, id: Number(info.lastInsertRowid) };
+    } catch (err: any) {
+      return fail(`Could not send to reception: ${err?.message || String(err)}`);
+    }
+  });
+
+  ipcMain.handle('printJobs:list', (_e, status = 'pending') => {
+    return db().prepare(`SELECT * FROM print_jobs WHERE status=? ORDER BY created_at DESC`).all(status);
+  });
+
+  ipcMain.handle('printJobs:pendingCount', () => {
+    const r = db().prepare(`SELECT COUNT(*) AS c FROM print_jobs WHERE status='pending'`).get() as { c: number };
+    return r.c;
+  });
+
+  ipcMain.handle('printJobs:markPrinted', (_e, id: number, by?: string) => {
+    try {
+      db().prepare(`UPDATE print_jobs SET status='printed', printed_by=?, printed_at=datetime('now') WHERE id=?`)
+        .run(by ?? null, requireId(id, 'Print job'));
+      broadcastEvent('printJobs:changed', {});
+      return { ok: true };
+    } catch (err: any) { return fail(`Could not update: ${err?.message || String(err)}`); }
+  });
+
+  ipcMain.handle('printJobs:cancel', (_e, id: number) => {
+    try {
+      db().prepare(`UPDATE print_jobs SET status='cancelled' WHERE id=?`).run(requireId(id, 'Print job'));
+      broadcastEvent('printJobs:changed', {});
+      return { ok: true };
+    } catch (err: any) { return fail(`Could not cancel: ${err?.message || String(err)}`); }
+  });
+
   ipcMain.handle('ip:admissionRequests', (_e, status = 'pending') => {
+    // When listing PENDING requests, hide any whose patient is already admitted — a
+    // request that's been fulfilled by a manual admit should not linger in the queue.
+    const hideAdmitted = status === 'pending'
+      ? `AND NOT EXISTS (SELECT 1 FROM ip_admissions a WHERE a.patient_id = r.patient_id AND a.status='admitted')`
+      : '';
     return db().prepare(
       `SELECT r.*, (p.first_name || ' ' || p.last_name) AS patient_name, p.uhid AS patient_uhid, p.phone AS patient_phone,
               p.dob AS patient_dob, p.gender AS patient_gender,
@@ -1204,7 +1336,7 @@ export function registerIpdBillingIpc() {
        JOIN patients p ON p.id = r.patient_id
        LEFT JOIN doctors dr ON dr.id = r.doctor_id
        LEFT JOIN wards w ON w.id = r.suggested_ward_id
-       WHERE r.status = ? ORDER BY
+       WHERE r.status = ? ${hideAdmitted} ORDER BY
          CASE r.urgency WHEN 'emergency' THEN 0 WHEN 'urgent' THEN 1 ELSE 2 END, r.requested_at`
     ).all(status);
   });
@@ -1339,6 +1471,30 @@ export function registerIpdBillingIpc() {
          GROUP BY ch.category ORDER BY total DESC`
       ).all(...range) as any[];
 
+      // Patient advances / deposits — money held on account, net of what's been
+      // adjusted into bills or refunded, so it reads as a real liability.
+      const adv = d.prepare(
+        `SELECT COALESCE(SUM(amount), 0) AS collected,
+                COALESCE(SUM(adjusted_amount), 0) AS adjusted,
+                COALESCE(SUM(refunded_amount), 0) AS refunded
+         FROM advances`
+      ).get() as any;
+
+      // TPA / insurance claims — the cashless pipeline by value and how much is
+      // still outstanding with insurers (submitted-but-not-yet-settled).
+      const tpaTotals = d.prepare(
+        `SELECT COALESCE(SUM(claimed_amount), 0) AS claimed,
+                COALESCE(SUM(approved_amount), 0) AS approved,
+                COALESCE(SUM(settled_amount), 0) AS settled,
+                COALESCE(SUM(CASE WHEN status IN ('submitted','queried','approved','preauth_approved','preauth_sent')
+                                  THEN claimed_amount ELSE 0 END), 0) AS in_pipeline
+         FROM tpa_claims WHERE status != 'rejected'`
+      ).get() as any;
+      const tpaByStatus = d.prepare(
+        `SELECT status, COUNT(*) AS count, COALESCE(SUM(claimed_amount), 0) AS total
+         FROM tpa_claims GROUP BY status ORDER BY total DESC`
+      ).all() as any[];
+
       return {
         ok: true,
         collections,
@@ -1346,6 +1502,15 @@ export function registerIpdBillingIpc() {
         outstanding: money(outstanding.due),
         gst: { cgst: money(gst.cgst), sgst: money(gst.sgst), total: money(gst.cgst + gst.sgst), taxable: money(gst.taxable), exempt: money(gst.exempt) },
         bySection,
+        advances: {
+          held: money((adv.collected || 0) - (adv.adjusted || 0) - (adv.refunded || 0)),
+          collected: money(adv.collected), adjusted: money(adv.adjusted), refunded: money(adv.refunded),
+        },
+        tpa: {
+          claimed: money(tpaTotals.claimed), approved: money(tpaTotals.approved),
+          settled: money(tpaTotals.settled), inPipeline: money(tpaTotals.in_pipeline),
+          byStatus: tpaByStatus,
+        },
       };
     } catch (err: any) {
       return fail(`Could not build billing analytics: ${err?.message || String(err)}`);

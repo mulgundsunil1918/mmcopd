@@ -778,6 +778,23 @@ export function createSchema(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_discharge_tpl_dept ON discharge_templates(department, doctor_id);
 
+    -- Print Jobs inbox: a doctor sends a document (growth chart, etc.) to reception,
+    -- who opens and prints it. payload_json holds everything needed to re-render it.
+    CREATE TABLE IF NOT EXISTS print_jobs (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind         TEXT NOT NULL,
+      title        TEXT NOT NULL,
+      patient_id   INTEGER REFERENCES patients(id) ON DELETE SET NULL,
+      patient_name TEXT,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','printed','cancelled')),
+      created_by   TEXT,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      printed_by   TEXT,
+      printed_at   TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_print_jobs_status ON print_jobs(status, created_at);
+
     -- Doctor raises an admission request from OPD; reception approves it and
     -- picks the ward/bed. Keeps admission authority with reception while letting
     -- the doctor initiate.

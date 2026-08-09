@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BedDouble, Plus, Trash2, Loader2, Pencil, X } from 'lucide-react';
+import { BedDouble, Plus, Trash2, Loader2, Pencil, X, Check } from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
 import { cn } from '../../lib/utils';
+import { NumberInput } from '../NumberInput';
 
 /** Ward types offered in the picker, with the rate hint each usually carries. */
 const WARD_TYPES: { value: string; label: string; hint: string }[] = [
@@ -137,18 +138,18 @@ export function WardsBedsEditor() {
             </div>
             <div>
               <label className="label">Bed charge per day (₹)</label>
-              <input className="input" type="number" min={0} value={editing.per_day_rate ?? 0}
-                onChange={(e) => setEditing({ ...editing, per_day_rate: Number(e.target.value) })} />
+              <NumberInput className="input" min={0} value={editing.per_day_rate}
+                onChange={(n) => setEditing({ ...editing, per_day_rate: n })} />
               <div className="text-[10px] text-gray-500 mt-1">
-                Added to the patient's bill once every day they occupy a bed here. Set 0 if you don't charge for beds.
+                Added to the patient's bill once every day they occupy a bed here. Leave blank (0) if you don't charge for beds.
               </div>
             </div>
             <div>
               <label className="label">Nursing charge per day (₹)</label>
-              <input className="input" type="number" min={0} value={editing.nursing_per_day ?? 0}
-                onChange={(e) => setEditing({ ...editing, nursing_per_day: Number(e.target.value) })} />
+              <NumberInput className="input" min={0} value={editing.nursing_per_day}
+                onChange={(n) => setEditing({ ...editing, nursing_per_day: n })} />
               <div className="text-[10px] text-gray-500 mt-1">
-                Charged separately from the bed. Leave 0 if nursing is included in your bed rate.
+                Charged separately from the bed. Leave blank (0) if nursing is included in your bed rate.
               </div>
             </div>
           </div>
@@ -204,24 +205,138 @@ export function WardsBedsEditor() {
             </div>
 
             {addingBedTo === w.id && (
-              <div className="mt-3 pt-3 border-t border-gray-200 dark:border-slate-700">
-                <label className="label">Bed numbers</label>
-                <div className="flex gap-2">
-                  <input className="input flex-1" value={bedNumbers} placeholder="G-01, G-02, G-03   or a range like  G-01..G-10"
-                    onChange={(e) => setBedNumbers(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') addBeds(w.id); }} />
-                  <button className="btn-primary text-xs" disabled={busy} onClick={() => addBeds(w.id)}>
-                    {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Add'}
-                  </button>
-                </div>
-                <div className="text-[10px] text-gray-500 mt-1">
-                  Type a comma-separated list, or a range such as <code>G-01..G-10</code> to create ten beds at once.
-                  Bed numbers must be unique within a ward.
+              <div className="mt-3 pt-3 border-t border-gray-200 dark:border-slate-700 space-y-3">
+                {/* Existing beds — view, rename, remove */}
+                <BedList wardId={w.id} onChanged={reload} />
+
+                <div>
+                  <label className="label">Add beds</label>
+                  <div className="flex gap-2">
+                    <input className="input flex-1" value={bedNumbers} placeholder="G-01, G-02, G-03   or a range like  G-01..G-10"
+                      onChange={(e) => setBedNumbers(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') addBeds(w.id); }} />
+                    <button className="btn-primary text-xs" disabled={busy} onClick={() => addBeds(w.id)}>
+                      {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Add'}
+                    </button>
+                  </div>
+                  <div className="text-[10px] text-gray-500 mt-1">
+                    Type a comma-separated list, or a range such as <code>G-01..G-10</code> to create ten beds at once.
+                    Bed numbers must be unique within a ward.
+                  </div>
                 </div>
               </div>
             )}
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/** Small coloured label for each bed's live status on the map. */
+const BED_STATUS: Record<string, { label: string; dot: string; cls: string }> = {
+  free:     { label: 'Free',     dot: 'bg-emerald-500', cls: 'text-emerald-700 dark:text-emerald-300' },
+  occupied: { label: 'Occupied', dot: 'bg-blue-500',    cls: 'text-blue-700 dark:text-blue-300' },
+  reserved: { label: 'Reserved', dot: 'bg-amber-500',   cls: 'text-amber-700 dark:text-amber-300' },
+  cleaning: { label: 'Cleaning', dot: 'bg-violet-500',  cls: 'text-violet-700 dark:text-violet-300' },
+  blocked:  { label: 'Blocked',  dot: 'bg-gray-400',    cls: 'text-gray-500' },
+};
+
+/**
+ * The beds that already exist in a ward. Each row shows the bed number, its status,
+ * and its occupant (if any). Beds can be renamed inline or removed — an occupied bed
+ * is protected, and removal uses a two-step in-row confirm (Electron has no confirm()).
+ */
+function BedList({ wardId, onChanged }: { wardId: number; onChanged: () => void }) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameText, setRenameText] = useState('');
+  const [confirmId, setConfirmId] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const { data: beds = [], isLoading } = useQuery({
+    queryKey: ['beds-list', wardId],
+    queryFn: () => window.electronAPI.beds.list(wardId),
+  });
+
+  const refresh = () => qc.invalidateQueries({ queryKey: ['beds-list', wardId] });
+
+  const rename = async (bed: any) => {
+    const name = renameText.trim();
+    if (!name) { toast('Bed number cannot be empty', 'error'); return; }
+    if (name === bed.bed_number) { setRenamingId(null); return; }
+    setBusy(true);
+    try {
+      const r = await window.electronAPI.beds.save({ id: bed.id, ward_id: wardId, bed_number: name, notes: bed.notes });
+      if (r.ok) { toast('Bed renamed', 'success'); setRenamingId(null); refresh(); onChanged(); }
+      else toast(r.error || 'Could not rename the bed', 'error');
+    } finally { setBusy(false); }
+  };
+
+  const remove = async (bed: any) => {
+    setBusy(true);
+    try {
+      const r = await window.electronAPI.beds.remove(bed.id);
+      if (r.ok) { toast(`Bed "${bed.bed_number}" removed`, 'success'); setConfirmId(null); refresh(); onChanged(); }
+      else toast(r.error || 'Could not remove the bed', 'error');
+    } finally { setBusy(false); }
+  };
+
+  if (isLoading) return <div className="py-3 text-center"><Loader2 className="w-4 h-4 animate-spin mx-auto text-gray-400" /></div>;
+
+  const active = beds.filter((b: any) => b.is_active);
+  if (active.length === 0) {
+    return <div className="text-[11px] text-gray-500 dark:text-slate-400 italic">No beds in this ward yet — add some below.</div>;
+  }
+
+  return (
+    <div>
+      <div className="label mb-1">Beds in this ward ({active.length})</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+        {active.map((b: any) => {
+          const st = BED_STATUS[b.status] || BED_STATUS.free;
+          const isOccupied = b.status === 'occupied' || !!b.admission_id;
+          return (
+            <div key={b.id} className="flex items-center gap-2 rounded-md border border-gray-200 dark:border-slate-700 px-2.5 py-1.5 bg-white dark:bg-slate-900/40">
+              {renamingId === b.id ? (
+                <>
+                  <input autoFocus className="input flex-1 !py-1 !text-[12px]" value={renameText}
+                    onChange={(e) => setRenameText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') rename(b); if (e.key === 'Escape') setRenamingId(null); }} />
+                  <button className="btn-primary !px-2 !py-1 text-xs" disabled={busy} onClick={() => rename(b)} title="Save"><Check className="w-3.5 h-3.5" /></button>
+                  <button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => setRenamingId(null)} title="Cancel"><X className="w-3.5 h-3.5" /></button>
+                </>
+              ) : confirmId === b.id ? (
+                <>
+                  <span className="flex-1 text-[12px] text-red-600 dark:text-red-400">Remove "{b.bed_number}"?</span>
+                  <button className="btn-ghost !px-2 !py-1 text-xs text-red-600" disabled={busy} onClick={() => remove(b)}>Yes, remove</button>
+                  <button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => setConfirmId(null)}>Cancel</button>
+                </>
+              ) : (
+                <>
+                  <span className={cn('w-2 h-2 rounded-full shrink-0', st.dot)} />
+                  <span className="text-[13px] font-semibold text-gray-900 dark:text-slate-100 shrink-0">{b.bed_number}</span>
+                  <span className={cn('text-[10px] font-medium shrink-0', st.cls)}>{st.label}</span>
+                  {isOccupied && b.patient_name && (
+                    <span className="text-[10px] text-gray-500 truncate">· {b.patient_name}</span>
+                  )}
+                  <span className="flex-1" />
+                  <button className="btn-ghost !px-1.5 !py-1 text-xs" title="Rename bed"
+                    onClick={() => { setRenamingId(b.id); setRenameText(b.bed_number); setConfirmId(null); }}>
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button className="btn-ghost !px-1.5 !py-1 text-xs text-red-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                    title={isOccupied ? 'A patient is in this bed — discharge or transfer first' : 'Remove bed'}
+                    disabled={isOccupied}
+                    onClick={() => { setConfirmId(b.id); setRenamingId(null); }}>
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

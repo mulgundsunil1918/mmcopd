@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx';
 import Database from 'better-sqlite3';
 import { getDb, closeDb } from '../db/db';
 import { nextUHID, nextBillNumber, nextIpNumber, nextVisitNumber, formatVisitId } from '../db/ids';
+import { LAB_CATALOG } from '../data/lab-catalog';
 import { enqueueWaEvent } from '../services/whatsapp/wa-trigger';
 
 /**
@@ -1352,14 +1353,35 @@ export function registerIpc() {
     const db = getDb();
     if (test.id) {
       db.prepare(
-        'UPDATE lab_tests SET name=?, price=?, sample_type=?, ref_range=?, unit=?, is_active=? WHERE id=?'
-      ).run(test.name, test.price ?? 0, test.sample_type ?? null, test.ref_range ?? null, test.unit ?? null, test.is_active ?? 1, test.id);
+        'UPDATE lab_tests SET name=?, price=?, sample_type=?, ref_range=?, unit=?, category=?, is_active=? WHERE id=?'
+      ).run(test.name, test.price ?? 0, test.sample_type ?? null, test.ref_range ?? null, test.unit ?? null, test.category ?? 'pathology', test.is_active ?? 1, test.id);
       return db.prepare('SELECT * FROM lab_tests WHERE id=?').get(test.id);
     }
     const info = db
-      .prepare('INSERT INTO lab_tests (name, price, sample_type, ref_range, unit, is_active) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(test.name, test.price ?? 0, test.sample_type ?? null, test.ref_range ?? null, test.unit ?? null, test.is_active ?? 1);
+      .prepare('INSERT INTO lab_tests (name, price, sample_type, ref_range, unit, category, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(test.name, test.price ?? 0, test.sample_type ?? null, test.ref_range ?? null, test.unit ?? null, test.category ?? 'pathology', test.is_active ?? 1);
     return db.prepare('SELECT * FROM lab_tests WHERE id=?').get(info.lastInsertRowid);
+  });
+
+  /**
+   * Bulk-load the standard Indian investigation catalog. Only adds tests whose
+   * name isn't already present (case-insensitive), so it's safe to run repeatedly.
+   * Prices default to 0 — the clinic sets its own afterwards.
+   */
+  ipcMain.handle('lab:loadStandardCatalog', (_e) => {
+    const db = getDb();
+    const existing = new Set((db.prepare('SELECT LOWER(name) AS n FROM lab_tests').all() as any[]).map((r) => r.n));
+    const ins = db.prepare('INSERT INTO lab_tests (name, price, sample_type, ref_range, unit, category, is_active) VALUES (?, 0, ?, ?, ?, ?, 1)');
+    let added = 0;
+    const tx = db.transaction((rows: any[]) => {
+      for (const t of rows) {
+        if (existing.has(t.name.toLowerCase())) continue;
+        ins.run(t.name, t.sample_type ?? null, t.ref_range ?? null, t.unit ?? null, t.category ?? 'pathology');
+        added++;
+      }
+    });
+    tx(LAB_CATALOG);
+    return { ok: true, added, total: LAB_CATALOG.length };
   });
 
   ipcMain.handle(
@@ -1542,11 +1564,11 @@ export function registerIpc() {
     if (batch.id) {
       db.prepare(`
         UPDATE drug_stock_batches SET
-          batch_no=?, expiry=?, qty_received=?, qty_remaining=?, purchase_price=?,
+          batch_no=?, expiry=?, manufacture_date=?, qty_received=?, qty_remaining=?, purchase_price=?,
           mrp=?, manufacturer_license_no=?, is_active=?
         WHERE id=?
       `).run(
-        batch.batch_no, batch.expiry, batch.qty_received, batch.qty_remaining,
+        batch.batch_no, batch.expiry, batch.manufacture_date ?? null, batch.qty_received, batch.qty_remaining,
         batch.purchase_price ?? null, batch.mrp ?? 0,
         batch.manufacturer_license_no ?? null, batch.is_active ?? 1, batch.id
       );
@@ -1554,16 +1576,17 @@ export function registerIpc() {
     }
     const info = db.prepare(`
       INSERT INTO drug_stock_batches
-        (drug_master_id, batch_no, expiry, qty_received, qty_remaining,
+        (drug_master_id, batch_no, expiry, manufacture_date, qty_received, qty_remaining,
          purchase_price, mrp, manufacturer_license_no, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(drug_master_id, batch_no) DO UPDATE SET
         expiry=excluded.expiry,
+        manufacture_date=excluded.manufacture_date,
         qty_received=qty_received + excluded.qty_received,
         qty_remaining=qty_remaining + excluded.qty_remaining,
         mrp=excluded.mrp
     `).run(
-      batch.drug_master_id, batch.batch_no, batch.expiry,
+      batch.drug_master_id, batch.batch_no, batch.expiry, batch.manufacture_date ?? null,
       batch.qty_received, batch.qty_remaining ?? batch.qty_received,
       batch.purchase_price ?? null, batch.mrp ?? 0,
       batch.manufacturer_license_no ?? null, batch.is_active ?? 1
@@ -1975,17 +1998,18 @@ export function registerIpc() {
 
       const insLine = db.prepare(`
         INSERT INTO purchase_invoice_items
-          (invoice_id, drug_master_id, batch_no, expiry, qty_received, pack_qty,
+          (invoice_id, drug_master_id, batch_no, expiry, manufacture_date, qty_received, pack_qty,
            free_qty, purchase_price, mrp, gst_rate, manufacturer_license_no, line_total)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const upsertBatch = db.prepare(`
         INSERT INTO drug_stock_batches
-          (drug_master_id, purchase_item_id, batch_no, expiry, qty_received, qty_remaining,
+          (drug_master_id, purchase_item_id, batch_no, expiry, manufacture_date, qty_received, qty_remaining,
            purchase_price, mrp, manufacturer_license_no, received_at, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, date('now'), 1)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, date('now'), 1)
         ON CONFLICT(drug_master_id, batch_no) DO UPDATE SET
           expiry=excluded.expiry,
+          manufacture_date=excluded.manufacture_date,
           qty_received=qty_received + excluded.qty_received,
           qty_remaining=qty_remaining + excluded.qty_received,
           mrp=excluded.mrp,
@@ -1997,7 +2021,7 @@ export function registerIpc() {
       for (const it of (payload.items || [])) {
         const lineTotal = Number(it.line_total ?? Number(it.qty_received) * Number(it.purchase_price ?? 0));
         const lineInfo = insLine.run(
-          invoiceId, it.drug_master_id, it.batch_no, it.expiry,
+          invoiceId, it.drug_master_id, it.batch_no, it.expiry, (it as any).manufacture_date ?? null,
           Number(it.qty_received), it.pack_qty ?? null, Number(it.free_qty ?? 0),
           Number(it.purchase_price), Number(it.mrp), Number(it.gst_rate ?? 12),
           it.manufacturer_license_no ?? null, lineTotal
@@ -2005,7 +2029,7 @@ export function registerIpc() {
         const lineId = Number(lineInfo.lastInsertRowid);
         const totalUnits = Number(it.qty_received) + Number(it.free_qty ?? 0);
         upsertBatch.run(
-          it.drug_master_id, lineId, it.batch_no, it.expiry,
+          it.drug_master_id, lineId, it.batch_no, it.expiry, (it as any).manufacture_date ?? null,
           totalUnits, totalUnits,
           it.purchase_price ?? null, it.mrp ?? 0,
           it.manufacturer_license_no ?? null
@@ -2107,7 +2131,8 @@ export function registerIpc() {
     const params = filter.status ? [filter.status] : [];
     return db
       .prepare(
-        `SELECT a.*, (p.first_name || ' ' || p.last_name) as patient_name, p.uhid as patient_uhid, p.phone as patient_phone, d.name as doctor_name
+        `SELECT a.*, (p.first_name || ' ' || p.last_name) as patient_name, p.uhid as patient_uhid, p.phone as patient_phone,
+                p.dob as patient_dob, p.gender as patient_gender, d.name as doctor_name
          FROM ip_admissions a
          JOIN patients p ON p.id=a.patient_id
          LEFT JOIN doctors d ON d.id=a.admission_doctor_id
@@ -2567,6 +2592,31 @@ export function registerIpc() {
         JOIN patients p ON p.id = a.patient_id
         LEFT JOIN doctors d ON d.id = a.admission_doctor_id
         ORDER BY a.admitted_at DESC` },
+      // ── IPD, billing, insurance, pediatrics — every new table, so the Excel is
+      // as complete as the .sqlite backup. SELECT * keeps each sheet self-describing
+      // and immune to column renames.
+      { sheet: 'Wards', sql: `SELECT * FROM wards ORDER BY sort_order, name` },
+      { sheet: 'Beds', sql: `SELECT b.*, w.name AS ward_name FROM beds b LEFT JOIN wards w ON w.id=b.ward_id ORDER BY w.name, b.bed_number` },
+      { sheet: 'Bed Transfers', sql: `SELECT * FROM bed_transfers ORDER BY transferred_at DESC` },
+      { sheet: 'IP Vitals', sql: `SELECT * FROM ip_vitals ORDER BY recorded_at DESC` },
+      { sheet: 'IP Medication Orders', sql: `SELECT * FROM ip_medication_orders ORDER BY id DESC` },
+      { sheet: 'IP Medication Admin (MAR)', sql: `SELECT * FROM ip_medication_admin ORDER BY administered_at DESC` },
+      { sheet: 'IP Progress Notes', sql: `SELECT * FROM ip_progress_notes ORDER BY noted_at DESC` },
+      { sheet: 'IP Nursing Notes', sql: `SELECT * FROM ip_nursing_notes ORDER BY noted_at DESC` },
+      { sheet: 'IP Intake Output', sql: `SELECT * FROM ip_intake_output ORDER BY recorded_at DESC` },
+      { sheet: 'IP Diet Orders', sql: `SELECT * FROM ip_diet_orders ORDER BY id DESC` },
+      { sheet: 'IP Cross Consultations', sql: `SELECT * FROM ip_cross_consultations ORDER BY requested_at DESC` },
+      { sheet: 'MLC Register', sql: `SELECT * FROM mlc_register ORDER BY id DESC` },
+      { sheet: 'Admission Requests', sql: `SELECT * FROM admission_requests ORDER BY requested_at DESC` },
+      { sheet: 'Bill Items', sql: `SELECT bi.*, b.bill_number FROM bill_items bi LEFT JOIN bills b ON b.id=bi.bill_id ORDER BY bi.bill_id DESC, bi.id` },
+      { sheet: 'Bill Payments', sql: `SELECT bp.*, b.bill_number FROM bill_payments bp LEFT JOIN bills b ON b.id=bp.bill_id ORDER BY bp.received_at DESC` },
+      { sheet: 'Advances', sql: `SELECT a.*, p.uhid AS patient_uhid, (p.first_name || ' ' || p.last_name) AS patient_name FROM advances a LEFT JOIN patients p ON p.id=a.patient_id ORDER BY a.received_at DESC` },
+      { sheet: 'Charge Heads', sql: `SELECT * FROM charge_heads ORDER BY sort_order, name` },
+      { sheet: 'TPA Insurers', sql: `SELECT * FROM tpa_master ORDER BY name` },
+      { sheet: 'TPA Claims', sql: `SELECT c.*, t.name AS insurer_name_master, p.uhid AS patient_uhid, (p.first_name || ' ' || p.last_name) AS patient_name FROM tpa_claims c LEFT JOIN tpa_master t ON t.id=c.tpa_id LEFT JOIN patients p ON p.id=c.patient_id ORDER BY c.created_at DESC` },
+      { sheet: 'Discharge Templates', sql: `SELECT * FROM discharge_templates ORDER BY name` },
+      { sheet: 'Peds Growth', sql: `SELECT g.*, p.uhid AS patient_uhid, (p.first_name || ' ' || p.last_name) AS patient_name FROM peds_growth_measurements g LEFT JOIN patients p ON p.id=g.patient_id ORDER BY g.measured_on DESC` },
+      { sheet: 'Peds Vaccines', sql: `SELECT v.*, p.uhid AS patient_uhid, (p.first_name || ' ' || p.last_name) AS patient_name FROM peds_vaccine_records v LEFT JOIN patients p ON p.id=v.patient_id ORDER BY v.id DESC` },
       { sheet: 'EMR Allergies', sql: `
         SELECT a.id, p.uhid, (p.first_name || ' ' || p.last_name) as patient_name,
                a.allergen, a.reaction, a.severity, a.noted_at

@@ -1042,7 +1042,7 @@ function StockBatchesTab() {
                   className="btn-ghost text-xs"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setEditing({ drug_master_id: d.id, drug_name: d.name, batch_no: '', expiry: '', qty_received: 0, qty_remaining: 0, mrp: d.default_mrp, is_active: 1 });
+                    setEditing({ drug_master_id: d.id, drug_name: d.name, batch_no: '', expiry: '', manufacture_date: '', qty_received: 0, qty_remaining: 0, mrp: d.default_mrp, is_active: 1 });
                   }}
                 >
                   <Plus className="w-3.5 h-3.5" /> Batch
@@ -1059,6 +1059,8 @@ function StockBatchesTab() {
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <Field label="Batch No *"><input className="input font-mono" value={editing.batch_no || ''} onChange={(e) => setEditing({ ...editing, batch_no: e.target.value })} /></Field>
+              <div />
+              <Field label="Mfg date *"><input type="month" className="input" value={editing.manufacture_date || ''} onChange={(e) => setEditing({ ...editing, manufacture_date: e.target.value })} /></Field>
               <Field label="Expiry *"><input type="date" className="input" value={editing.expiry || ''} onChange={(e) => setEditing({ ...editing, expiry: e.target.value })} /></Field>
               <Field label="Qty Received *"><input type="number" className="input" value={editing.qty_received ?? 0} onChange={(e) => setEditing({ ...editing, qty_received: Number(e.target.value) })} /></Field>
               <Field label="Qty Remaining"><input type="number" className="input" value={editing.qty_remaining ?? editing.qty_received ?? 0} onChange={(e) => setEditing({ ...editing, qty_remaining: Number(e.target.value) })} /></Field>
@@ -1073,7 +1075,7 @@ function StockBatchesTab() {
             </div>
             <div className="flex justify-end gap-2 pt-3">
               <button className="btn-secondary" onClick={() => setEditing(null)}>Cancel</button>
-              <button className="btn-primary" onClick={() => save.mutate(editing as DrugStockBatch)} disabled={save.isPending || !editing.batch_no || !editing.expiry}>
+              <button className="btn-primary" onClick={() => save.mutate(editing as DrugStockBatch)} disabled={save.isPending || !editing.batch_no || !editing.expiry || !editing.manufacture_date}>
                 {save.isPending ? 'Saving…' : 'Save Batch'}
               </button>
             </div>
@@ -1238,6 +1240,7 @@ function NewPurchaseModal({ onClose }: { onClose: () => void }) {
     drug_name?: string;
     batch_no: string;
     expiry: string;
+    manufacture_date: string;
     qty_received: number;
     pack_qty?: number | null;
     free_qty: number;
@@ -1248,7 +1251,7 @@ function NewPurchaseModal({ onClose }: { onClose: () => void }) {
     line_total: number;
   };
   const [lines, setLines] = useState<Line[]>([{
-    drug_master_id: null, batch_no: '', expiry: '', qty_received: 0, pack_qty: null,
+    drug_master_id: null, batch_no: '', expiry: '', manufacture_date: '', qty_received: 0, pack_qty: null,
     free_qty: 0, purchase_price: 0, mrp: 0, gst_rate: 12, line_total: 0,
   }]);
 
@@ -1280,10 +1283,11 @@ function NewPurchaseModal({ onClose }: { onClose: () => void }) {
         payment_mode: header.payment_mode,
         payment_status: header.payment_status as any,
         notes: header.notes,
-        items: lines.filter((l) => l.drug_master_id != null && l.batch_no && l.expiry && l.qty_received > 0).map((l) => ({
+        items: lines.filter((l) => l.drug_master_id != null && l.batch_no && l.expiry && l.manufacture_date && l.qty_received > 0).map((l) => ({
           drug_master_id: l.drug_master_id!,
           batch_no: l.batch_no,
           expiry: l.expiry,
+          manufacture_date: l.manufacture_date,
           qty_received: l.qty_received,
           pack_qty: l.pack_qty ?? null,
           free_qty: l.free_qty,
@@ -1333,7 +1337,7 @@ function NewPurchaseModal({ onClose }: { onClose: () => void }) {
         <div>
           <div className="flex items-center justify-between mb-1">
             <div className="label mb-0">Line Items (each becomes a stock batch)</div>
-            <button className="btn-ghost text-xs" onClick={() => setLines([...lines, { drug_master_id: null, batch_no: '', expiry: '', qty_received: 0, pack_qty: null, free_qty: 0, purchase_price: 0, mrp: 0, gst_rate: 12, line_total: 0 }])}>
+            <button className="btn-ghost text-xs" onClick={() => setLines([...lines, { drug_master_id: null, batch_no: '', expiry: '', manufacture_date: '', qty_received: 0, pack_qty: null, free_qty: 0, purchase_price: 0, mrp: 0, gst_rate: 12, line_total: 0 }])}>
               <Plus className="w-3.5 h-3.5" /> Add line
             </button>
           </div>
@@ -1343,7 +1347,8 @@ function NewPurchaseModal({ onClose }: { onClose: () => void }) {
                 <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
                   <th className="py-2 min-w-[180px]">Drug</th>
                   <th className="py-2 min-w-[100px]">Batch</th>
-                  <th className="py-2 min-w-[120px]">Expiry</th>
+                  <th className="py-2 min-w-[110px]">Mfg *</th>
+                  <th className="py-2 min-w-[120px]">Expiry *</th>
                   <th className="py-2 w-16 text-right">Qty</th>
                   <th className="py-2 w-16 text-right">Free</th>
                   <th className="py-2 w-24 text-right">Buy ₹</th>
@@ -1372,6 +1377,7 @@ function NewPurchaseModal({ onClose }: { onClose: () => void }) {
                       </select>
                     </td>
                     <td className="py-1 px-1"><input className="input font-mono" value={l.batch_no} onChange={(e) => setLine(idx, { batch_no: e.target.value })} /></td>
+                    <td className="py-1 px-1"><input type="month" className="input" value={l.manufacture_date} onChange={(e) => setLine(idx, { manufacture_date: e.target.value })} /></td>
                     <td className="py-1 px-1"><input type="date" className="input" value={l.expiry} onChange={(e) => setLine(idx, { expiry: e.target.value })} /></td>
                     <td className="py-1 px-1"><input type="number" className="input text-right" value={l.qty_received} onChange={(e) => setLine(idx, { qty_received: Number(e.target.value) })} /></td>
                     <td className="py-1 px-1"><input type="number" className="input text-right" value={l.free_qty} onChange={(e) => setLine(idx, { free_qty: Number(e.target.value) })} /></td>

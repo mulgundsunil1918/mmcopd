@@ -67,7 +67,7 @@ export interface Doctor {
   template_slot_names?: string | null;
 }
 
-export type SlipSectionType = 'textarea' | 'singleline' | 'date' | 'number' | 'dropdown';
+export type SlipSectionType = 'textarea' | 'singleline' | 'date' | 'number' | 'dropdown' | 'growth';
 export interface SlipTemplateSection {
   key: string;
   title: string;
@@ -239,6 +239,7 @@ export interface LabTest {
   sample_type: string | null;
   ref_range: string | null;
   unit: string | null;
+  category?: string;
   is_active: number;
 }
 
@@ -317,6 +318,7 @@ export interface DrugStockBatch {
   purchase_item_id: number | null;
   batch_no: string;
   expiry: string;
+  manufacture_date?: string | null;
   qty_received: number;
   qty_remaining: number;
   purchase_price: number | null;
@@ -373,6 +375,7 @@ export interface PurchaseInvoiceItem {
   drug_master_id: number;
   batch_no: string;
   expiry: string;
+  manufacture_date?: string | null;
   qty_received: number;
   pack_qty: number | null;
   free_qty: number;
@@ -504,6 +507,8 @@ export interface ClinicalQuickTemplate {
   category: string;
   fields: Record<string, string>;
   follow_up_days?: number;
+  /** Owner. null/undefined = shared with every doctor; a doctor id = that doctor's own. */
+  doctor_id?: number | null;
 }
 
 export interface Settings {
@@ -626,6 +631,9 @@ export interface Settings {
 
   // ===== IPD admission-request workflow =====
   ipd_admission_requests_enabled: boolean;
+
+  // ===== Discharge Summary module (dedicated builder in the sidebar) =====
+  discharge_summary_enabled: boolean;
 
   // ===== Access / login =====
   /** When true, everyone must sign in as themselves — no shared default session. */

@@ -16,6 +16,7 @@ import { AdminGate } from '../components/AdminGate';
 import { NetworkTroubleshoot } from '../components/NetworkTroubleshoot';
 import { WardsBedsEditor } from '../components/settings/WardsBedsEditor';
 import { DischargeTemplateEditor } from '../components/settings/DischargeTemplateEditor';
+import { ClinicalTemplatesEditor } from '../components/settings/ClinicalTemplatesEditor';
 import { ModuleTutorialButton } from '../components/ModuleTutorial';
 import { BillingSettings } from '../components/settings/BillingSettings';
 import { useToast } from '../hooks/useToast';
@@ -107,6 +108,9 @@ export function SettingsPage() {
               <SettingsGroup title="OPD Slip Body Templates" subtitle="Per-specialty sections for the consultation panel and printed slip. Edit a template, then hit Preview to see exactly how it prints — right there.">
                 <SlipTemplatesEditor />
               </SettingsGroup>
+              <SettingsGroup title="Consultation Quick-Fill Templates" subtitle="One-tap clinical text for a consultation. Shared for the clinic, or saved under a doctor’s name so only that doctor sees it.">
+                <ClinicalTemplatesEditor />
+              </SettingsGroup>
             </>
           )}
 
@@ -155,9 +159,9 @@ export function SettingsPage() {
               <SettingsGroup title="Backup, Restore & Updates" subtitle="Where backups go, daily auto-backup, weekly USB reminder, restore, and app updates.">
                 <BackupSettings />
               </SettingsGroup>
-              <SettingsGroup title="Reset all clinic data" subtitle="Nuclear option — wipes everything in %APPDATA%\CureDesk HMS\ and restarts the app. Use this for a truly fresh install without uninstalling.">
-                <HardResetPanel />
-              </SettingsGroup>
+              {/* "Reset all clinic data" (HardResetPanel) is intentionally hidden — too
+                  destructive to expose in normal clinic Settings. Restore this block if a
+                  supervised factory-reset is ever needed. */}
             </>
           )}
 
@@ -2682,6 +2686,16 @@ function SlipTemplatesEditor() {
     }]);
   };
 
+  /** Add a special pediatric growth section — computes centiles live in the consult
+      (shown only to a pediatrician when the Pediatrics module is on). */
+  const addGrowthSection = () => {
+    if (!active) return;
+    if (active.sections.some((s: any) => s.type === 'growth')) return;
+    updateSections(active.id, [...active.sections, {
+      key: `growth_${Date.now()}`, title: 'Growth & Centiles', type: 'growth', height_mm: 24, printed: true,
+    }]);
+  };
+
   const removeSection = (idx: number) => {
     if (!active) return;
     updateSections(active.id, active.sections.filter((_: any, i: number) => i !== idx));
@@ -2793,7 +2807,14 @@ function SlipTemplatesEditor() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <div className="text-xs font-semibold text-gray-900 dark:text-slate-100">Sections (in print order)</div>
-                <button className="btn-secondary text-xs" onClick={addSection}><Plus className="w-3.5 h-3.5" /> Add section</button>
+                <div className="flex gap-1.5">
+                  {!active.sections.some((s: any) => s.type === 'growth') && (
+                    <button className="btn-secondary text-xs" onClick={addGrowthSection} title="Pediatric growth — live centiles for a pediatrician when Pediatrics is on">
+                      <Plus className="w-3.5 h-3.5" /> Pediatric growth
+                    </button>
+                  )}
+                  <button className="btn-secondary text-xs" onClick={addSection}><Plus className="w-3.5 h-3.5" /> Add section</button>
+                </div>
               </div>
               <ul className="space-y-2">
                 {active.sections.map((s: any, idx: number) => (
@@ -3865,7 +3886,7 @@ function BillingIpdTab() {
     'discount_caps_json', 'discount_require_reason',
     'ipd_auto_accrue_bed', 'ipd_auto_accrue_nursing', 'ipd_auto_accrue_doctor_visit',
     'ipd_doctor_visit_mode', 'ipd_transfer_charge_rule', 'ipd_accrual_time', 'ipd_advance_enabled',
-    'tpa_enabled', 'ipd_admission_requests_enabled',
+    'tpa_enabled', 'ipd_admission_requests_enabled', 'discharge_summary_enabled',
     'peds_enabled', 'peds_growth_enabled', 'peds_vaccines_enabled', 'peds_calculators_enabled', 'peds_vaccine_schedule',
   ]);
 
@@ -3956,6 +3977,13 @@ function BillingIpdTab() {
           value={draft.tpa_enabled ?? false} onChange={(v) => set('tpa_enabled', v)} />
       </div>
 
+      {/* Discharge Summary module */}
+      <div className="card p-5">
+        <AccrualToggle label="Discharge Summary builder (sidebar)"
+          help="Adds a dedicated “Discharge Summary” screen to the sidebar to build, save, preview and print full discharge summaries from your templates — on the clinic letterhead. Turn off to hide it."
+          value={draft.discharge_summary_enabled ?? true} onChange={(v) => set('discharge_summary_enabled', v)} />
+      </div>
+
       <DischargeTemplateEditor />
 
       {/* Admission requests */}
@@ -3970,8 +3998,8 @@ function BillingIpdTab() {
         <div>
           <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Pediatrics Add-on</div>
           <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
-            Growth centiles (WHO), an immunisation diary, and paediatric calculators, in a dedicated Pediatrics screen.
-            Off by default — turn it on only if your clinic sees children.
+            Growth centiles (WHO 0–5y &amp; IAP 5–18y), an immunisation diary, and paediatric calculators, in a dedicated
+            Pediatrics screen. Off by default — turn it on only if your clinic sees children.
           </div>
         </div>
         <AccrualToggle label="Enable the Pediatrics module"
@@ -3980,7 +4008,7 @@ function BillingIpdTab() {
         {draft.peds_enabled && (
           <div className="pl-7 space-y-3 border-l-2 border-pink-200 dark:border-pink-900">
             <AccrualToggle label="Growth &amp; centiles"
-              help="Enter weight, height and head circumference; get WHO percentiles and z-scores with a saved history."
+              help="Enter weight, height and head circumference; get centiles and z-scores with a saved history. Chart toggles between WHO (0–5y) and IAP 2015 (5–18y)."
               value={draft.peds_growth_enabled ?? true} onChange={(v) => set('peds_growth_enabled', v)} />
             <AccrualToggle label="Immunisation diary"
               help="Per-child vaccine schedule with due dates from date of birth; mark doses as given."

@@ -113,6 +113,68 @@ export function IpdAnalyticsTab({ from, to }: { from: string; to: string }) {
         </div>
       </div>
 
+      {/* Revenue by section + deposits & insurance */}
+      {billing?.ok && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Section-wise revenue */}
+          <div className="card p-4">
+            <div className="text-[13px] font-bold text-gray-900 dark:text-slate-100 mb-3">Revenue by section</div>
+            {(billing.bySection || []).length === 0 ? (
+              <div className="text-[12px] text-gray-400 text-center py-4">No billed items in this period.</div>
+            ) : (() => {
+              const maxV = Math.max(...billing.bySection.map((s: any) => s.total), 1);
+              return (
+                <div className="space-y-2">
+                  {billing.bySection.map((s: any) => (
+                    <div key={s.category}>
+                      <div className="flex justify-between text-[11px] mb-0.5">
+                        <span className="capitalize text-gray-700 dark:text-slate-300">{String(s.category).replace('_', ' ')}</span>
+                        <span className="tabular-nums text-gray-600 dark:text-slate-400 font-medium">{inr(s.total)}</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-gray-100 dark:bg-slate-800 overflow-hidden">
+                        <div className="h-full rounded-full bg-teal-500" style={{ width: `${Math.round((s.total / maxV) * 100)}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Deposits + insurance */}
+          <div className="card p-4">
+            <div className="text-[13px] font-bold text-gray-900 dark:text-slate-100 mb-3">Deposits &amp; insurance</div>
+            <div className="space-y-2 text-[12px]">
+              <div className="flex justify-between">
+                <span className="text-gray-600 dark:text-slate-400">Advance deposits held</span>
+                <span className="tabular-nums font-bold text-indigo-600">{inr(billing.advances?.held || 0)}</span>
+              </div>
+              <div className="flex justify-between text-[11px] text-gray-400">
+                <span>collected {inr(billing.advances?.collected || 0)} · adjusted {inr(billing.advances?.adjusted || 0)} · refunded {inr(billing.advances?.refunded || 0)}</span>
+              </div>
+              {(billing.tpa?.claimed || 0) > 0 ? (
+                <>
+                  <div className="flex justify-between pt-2 mt-1 border-t dark:border-slate-700">
+                    <span className="text-gray-600 dark:text-slate-400">TPA claimed</span>
+                    <span className="tabular-nums font-medium">{inr(billing.tpa.claimed)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-slate-400">Settled by insurers</span>
+                    <span className="tabular-nums font-medium text-emerald-600">{inr(billing.tpa.settled)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-slate-400">Awaiting settlement</span>
+                    <span className="tabular-nums font-bold text-amber-600">{inr(billing.tpa.inPipeline)}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="text-[11px] text-gray-400 pt-2 mt-1 border-t dark:border-slate-700">No insurance / TPA claims in the system yet.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Doctor + ward breakdowns */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <BreakdownTable title="By doctor" rows={ipd.byDoctor} cols={[

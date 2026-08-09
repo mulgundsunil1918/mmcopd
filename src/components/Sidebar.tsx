@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill, ShieldCheck, UserCircle2, Lock, Unlock, Activity, Syringe, ChevronLeft, Wifi, Server, Heart, MessageSquare, Baby } from 'lucide-react';
+import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill, ShieldCheck, UserCircle2, Lock, Unlock, Activity, Syringe, ChevronLeft, Wifi, Server, Heart, MessageSquare, Baby, FileText, Printer } from 'lucide-react';
 
 const SUPPORT_URL = 'https://bridgr.co.in/support?from=curedesk';
 function openSupport() {
@@ -37,7 +37,9 @@ const NAV: NavItem2[] = [
   { to: '/lab', label: 'Laboratory', icon: FlaskConical, color: 'text-fuchsia-500', modes: LAB_MODES, roles: ['lab_tech', 'doctor', 'receptionist'] },
   { to: '/pharmacy', label: 'Pharmacy', icon: Pill, color: 'text-lime-500', modes: PHARMACY_MODES, roles: ['pharmacist', 'doctor', 'receptionist'] },
   { to: '/ipd', label: 'IPD', icon: BedDouble, color: 'text-red-500', modes: IPD_MODES, roles: ['doctor', 'receptionist', 'nurse', 'ward_incharge'] },
+  { to: '/discharge-summary', label: 'Discharge Summary', icon: FileText, color: 'text-sky-500', modes: IPD_MODES, roles: ['doctor', 'receptionist', 'nurse'] },
   { to: '/pediatrics', label: 'Pediatrics', icon: Baby, color: 'text-pink-500', modes: ALL_MODES, roles: ['doctor', 'receptionist', 'nurse'] },
+  { to: '/print-jobs', label: 'Print Jobs', icon: Printer, color: 'text-blue-500', modes: ALL_MODES, roles: ['receptionist', 'doctor', 'nurse'] },
   { to: '/tpa', label: 'Insurance / TPA', icon: ShieldCheck, color: 'text-teal-500', modes: ALL_MODES, roles: ['receptionist'] },
   { to: '/patient-log', label: 'Patient Log', icon: History, color: 'text-cyan-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
   { to: '/origin', label: 'Patient Origin', icon: MapPin, color: 'text-rose-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
@@ -83,6 +85,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     if (n.to === '/pediatrics' && settings?.peds_enabled !== true) return false;
     // TPA is opt-in too.
     if (n.to === '/tpa' && settings?.tpa_enabled !== true) return false;
+    // Discharge Summary module — on by default, hide only if switched off in Settings.
+    if (n.to === '/discharge-summary' && settings?.discharge_summary_enabled === false) return false;
     return canAnyRole(user, n.roles, adminUnlocked);
   });
 

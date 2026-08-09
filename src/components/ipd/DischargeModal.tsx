@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, LogOut, HeartPulse, AlertTriangle, Ambulance, Skull, UserX } from 'lucide-react';
+import { Loader2, LogOut, HeartPulse, AlertTriangle, Ambulance, Skull, UserX, Printer } from 'lucide-react';
 import { Modal } from '../Modal';
 import { useToast } from '../../hooks/useToast';
 import { useAuth } from '../../hooks/useAuth';
 import { BillPreview } from '../billing/BillPreview';
+import { DischargeSummaryPrint } from './DischargeSummaryPrint';
 import { cn } from '../../lib/utils';
 
 /**
@@ -31,6 +32,7 @@ export function DischargeModal({ admission, onClose, onDischarged }: {
   const [outcome, setOutcome] = useState('discharged');
   const [f, setF] = useState<any>({});
   const [busy, setBusy] = useState(false);
+  const [showPrint, setShowPrint] = useState(false);
 
   const { data: doctors = [] } = useQuery({ queryKey: ['doctors'], queryFn: () => window.electronAPI.doctors.list(true) });
   // Saved discharge-summary templates, filtered to this admission's doctor.
@@ -41,18 +43,39 @@ export function DischargeModal({ admission, onClose, onDischarged }: {
     ),
   });
 
-  /** Merge a template's saved fields into the form (only filling blanks). */
+  /**
+   * Load a template. New templates carry their own named sections (content.sections);
+   * we drop those into the editable summary. Legacy flat templates still fill the
+   * matching structured fields, so old data keeps working.
+   */
   const applyTemplate = (tpl: any) => {
     let content: any = {};
     try { content = JSON.parse(tpl.content_json || '{}'); } catch { content = {}; }
-    setF((prev: any) => {
-      const next = { ...prev };
-      for (const [k, v] of Object.entries(content)) {
-        if (v && (next[k] === undefined || next[k] === '' || next[k] === null)) next[k] = v;
-      }
-      return next;
-    });
+    if (Array.isArray(content.sections)) {
+      const sections = content.sections
+        .filter((s: any) => s && typeof s === 'object')
+        .map((s: any) => ({ label: String(s.label ?? ''), body: String(s.body ?? '') }));
+      setF((prev: any) => ({ ...prev, _sections: sections }));
+    } else {
+      setF((prev: any) => {
+        const next = { ...prev };
+        for (const [k, v] of Object.entries(content)) {
+          if (v && (next[k] === undefined || next[k] === '' || next[k] === null)) next[k] = v;
+        }
+        return next;
+      });
+    }
     toast(`Applied template “${tpl.name}”`, 'success');
+  };
+
+  const setSectionBody = (i: number, body: string) =>
+    setF((prev: any) => ({ ...prev, _sections: (prev._sections || []).map((s: any, idx: number) => (idx === i ? { ...s, body } : s)) }));
+
+  /** Compose the named sections into the printable free-text summary. */
+  const composeSummary = (): string | null => {
+    const secs = (f._sections || []).filter((s: any) => (s.body || '').trim());
+    if (secs.length === 0) return f.discharge_summary || null;
+    return secs.map((s: any) => `${s.label}:\n${(s.body || '').trim()}`).join('\n\n');
   };
 
   const submit = async () => {
@@ -70,7 +93,7 @@ export function DischargeModal({ admission, onClose, onDischarged }: {
         treatment_given: f.treatment_given || null,
         followup_plan: f.followup_plan || null,
         discharge_doctor_id: f.discharge_doctor_id ? Number(f.discharge_doctor_id) : null,
-        discharge_summary: f.discharge_summary || null,
+        discharge_summary: composeSummary(),
       });
       if (r.ok) { toast(`Recorded — ${outcome}`, 'success'); onDischarged(); }
       else toast(r.error || 'Discharge failed', 'error');   // backend message verbatim
@@ -171,10 +194,24 @@ export function DischargeModal({ admission, onClose, onDischarged }: {
             <textarea className="input" rows={2} value={f.followup_plan || ''} onChange={(e) => setF({ ...f, followup_plan: e.target.value })} />
           </div>
 
+          {/* Template sections — the doctor's own headings, loaded from a template */}
+          {Array.isArray(f._sections) && f._sections.length > 0 && (
+            <div className="rounded-lg border border-blue-200 dark:border-blue-800 p-3 space-y-2">
+              <div className="text-[10px] uppercase tracking-wide font-semibold text-blue-700 dark:text-blue-300">Summary sections</div>
+              {f._sections.map((s: any, i: number) => (
+                <div key={i}>
+                  <label className="label">{s.label || `Section ${i + 1}`}</label>
+                  <textarea className="input" rows={2} value={s.body || ''} onChange={(e) => setSectionBody(i, e.target.value)} />
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="flex gap-2">
             <button className={cn('btn-primary', sel.id === 'death' && 'bg-slate-700')} disabled={busy} onClick={submit}>
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />} Confirm {sel.label}
             </button>
+            <button className="btn-secondary" onClick={() => setShowPrint(true)}><Printer className="w-4 h-4" /> Preview / Print summary</button>
             <button className="btn-ghost" onClick={onClose}>Cancel</button>
           </div>
         </div>
@@ -185,6 +222,27 @@ export function DischargeModal({ admission, onClose, onDischarged }: {
           <BillPreview admissionId={admission.id} />
         </div>
       </div>
+
+      {showPrint && (
+        <DischargeSummaryPrint
+          doc={{
+            patient: {
+              name: admission.patient_name, uhid: admission.patient_uhid,
+              dob: admission.patient_dob, gender: admission.patient_gender,
+              phone: admission.patient_phone, address: admission.patient_address,
+            },
+            admission: {
+              number: admission.admission_number, ward: admission.ward_name || admission.ward, bed: admission.bed_number,
+              admittedAt: admission.admitted_at, dischargedAt: new Date().toISOString(),
+            },
+            outcome,
+            diagnosis: f.discharge_diagnosis, condition: f.condition_at_discharge, followup: f.followup_plan,
+            sections: f._sections || [],
+            doctorName: doctors.find((d: any) => String(d.id) === String(f.discharge_doctor_id))?.name || admission.doctor_name || null,
+          }}
+          onClose={() => setShowPrint(false)}
+        />
+      )}
     </Modal>
   );
 }

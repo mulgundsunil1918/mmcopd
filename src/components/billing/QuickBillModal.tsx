@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2, Search, Plus, Trash2, Receipt, Eye, X } from 'lucide-react';
 import { Modal } from '../Modal';
@@ -50,6 +50,13 @@ export function QuickBillModal({
 
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   const { data: heads = [] } = useQuery({ queryKey: ['charge-heads-quick'], queryFn: () => window.electronAPI.chargeHeads.list() });
+  const [labSearch, setLabSearch] = useState('');
+  const { data: labTests = [] } = useQuery({ queryKey: ['lab-tests-quick'], queryFn: () => window.electronAPI.lab.listTests(true), enabled: billType === 'lab' });
+  const addLabTest = (t: any) => setLines((ls) => {
+    const line: Line = { description: t.name, qty: 1, rate: t.price || 0, is_taxable: false };
+    const blank = ls.findIndex((l) => !l.description && !l.rate);
+    return blank >= 0 ? ls.map((l, i) => (i === blank ? line : l)) : [...ls, line];
+  });
   const { data: results = [] } = useQuery({
     queryKey: ['patient-search-bill', q],
     queryFn: () => window.electronAPI.patients.search(q),
@@ -57,6 +64,15 @@ export function QuickBillModal({
   });
 
   const gstOn = !!settings?.gst_enabled;
+
+  // On the Consultation tab, pre-fill "Consultation" in the first blank line so the
+  // most common bill is one click. Never overwrites something the user has typed.
+  useEffect(() => {
+    if (billType !== 'opd_consult') return;
+    setLines((ls) => (ls.length === 1 && !ls[0].description.trim() && !ls[0].rate && !ls[0].charge_head_id)
+      ? [{ ...ls[0], description: 'Consultation' }]
+      : ls);
+  }, [billType]);
 
   const setLine = (i: number, patch: Partial<Line>) => setLines((ls) => ls.map((l, idx) => idx === i ? { ...l, ...patch } : l));
   const addLine = () => setLines((ls) => [...ls, { description: '', qty: 1, rate: 0 }]);
@@ -187,6 +203,27 @@ export function QuickBillModal({
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Lab-test picker — only on the Laboratory tab, pulls from the catalog with prices */}
+        {billType === 'lab' && (
+          <div className="rounded-lg border border-fuchsia-200 dark:border-fuchsia-900/50 bg-fuchsia-50/40 dark:bg-fuchsia-900/10 p-2.5">
+            <input className="input !py-1.5 !text-sm" placeholder="Search lab / radiology tests to add…" value={labSearch} onChange={(e) => setLabSearch(e.target.value)} />
+            {labSearch.trim() && (
+              <div className="mt-1.5 max-h-44 overflow-y-auto rounded border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+                {labTests.filter((t: any) => t.name.toLowerCase().includes(labSearch.toLowerCase())).slice(0, 30).map((t: any) => (
+                  <button key={t.id} onClick={() => { addLabTest(t); setLabSearch(''); }}
+                    className="w-full text-left px-3 py-1.5 text-[12px] border-b last:border-0 border-gray-100 dark:border-slate-800 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-900/20 flex justify-between">
+                    <span>{t.name} <span className="text-[10px] text-gray-400">{t.category || ''}</span></span>
+                    <span className="tabular-nums text-gray-500">₹{t.price}</span>
+                  </button>
+                ))}
+                {labTests.filter((t: any) => t.name.toLowerCase().includes(labSearch.toLowerCase())).length === 0 && (
+                  <div className="px-3 py-2 text-[11px] text-gray-400">No matching test. Add it in Laboratory → Test Catalog (or load the standard catalog).</div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

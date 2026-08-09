@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FlaskConical, Plus, Pencil, FileText, Beaker, Clipboard, CheckCircle2 } from 'lucide-react';
+import { FlaskConical, Plus, Pencil, FileText, Beaker, Clipboard, CheckCircle2, Loader2 } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
 import { useToast } from '../hooks/useToast';
@@ -221,6 +221,8 @@ function CatalogView() {
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState<Partial<LabTest> | null>(null);
+  const [filter, setFilter] = useState<'all' | 'pathology' | 'radiology'>('all');
+  const [search, setSearch] = useState('');
 
   const { data: tests = [] } = useQuery({
     queryKey: ['lab-tests', false],
@@ -231,49 +233,80 @@ function CatalogView() {
     mutationFn: (t: Partial<LabTest>) => window.electronAPI.lab.upsertTest(t),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['lab-tests', false] }); toast('Test saved'); setEditing(null); },
   });
+  // Quick inline edits (price / active) — don't close the modal, just persist.
+  const quick = useMutation({
+    mutationFn: (t: Partial<LabTest>) => window.electronAPI.lab.upsertTest(t),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['lab-tests', false] }),
+  });
+  const loadCatalog = useMutation({
+    mutationFn: () => window.electronAPI.lab.loadStandardCatalog(),
+    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ['lab-tests', false] }); toast(r.added > 0 ? `Added ${r.added} tests — set your prices below` : 'Catalog already loaded', 'success'); },
+  });
+
+  const shown = tests.filter((t) =>
+    (filter === 'all' || (t.category || 'pathology') === filter) &&
+    (!search.trim() || t.name.toLowerCase().includes(search.toLowerCase())));
 
   return (
-    <section className="card p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="text-xs font-semibold text-gray-600 dark:text-slate-300 uppercase tracking-wide">{tests.length} tests</div>
-        <button className="btn-primary" onClick={() => setEditing({ is_active: 1, price: 0 })}>
-          <Plus className="w-4 h-4" /> Add Test
-        </button>
+    <section className="card p-4 space-y-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1 p-1 rounded-lg bg-gray-100 dark:bg-slate-800/60 text-[11px] font-semibold">
+            {(['all', 'pathology', 'radiology'] as const).map((f) => (
+              <button key={f} onClick={() => setFilter(f)} className={cn('px-2.5 py-1 rounded-md capitalize', filter === f ? 'bg-white dark:bg-slate-900 text-fuchsia-700 shadow-sm' : 'text-gray-500')}>{f}</button>
+            ))}
+          </div>
+          <input className="input !py-1.5 !text-sm w-48" placeholder="Search tests…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <div className="flex gap-2">
+          <button className="btn-secondary" disabled={loadCatalog.isPending} onClick={() => loadCatalog.mutate()} title="Add the ~160 standard Indian lab + radiology tests (skips ones you already have)">
+            {loadCatalog.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Load standard catalog
+          </button>
+          <button className="btn-primary" onClick={() => setEditing({ is_active: 1, price: 0, category: filter === 'radiology' ? 'radiology' : 'pathology' })}>
+            <Plus className="w-4 h-4" /> Add Test
+          </button>
+        </div>
       </div>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
-            <th className="py-2">Test Name</th>
-            <th className="py-2">Sample</th>
-            <th className="py-2">Ref Range</th>
-            <th className="py-2">Unit</th>
-            <th className="py-2 text-right">Price</th>
-            <th className="py-2">Status</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {tests.map((t) => (
-            <tr key={t.id} className="border-b border-gray-100 dark:border-slate-800">
-              <td className="py-2 font-medium text-gray-900 dark:text-slate-100">{t.name}</td>
-              <td className="py-2 text-gray-600 dark:text-slate-300">{t.sample_type || '—'}</td>
-              <td className="py-2 text-xs text-gray-600 dark:text-slate-300">{t.ref_range || '—'}</td>
-              <td className="py-2 text-xs text-gray-600 dark:text-slate-300">{t.unit || '—'}</td>
-              <td className="py-2 text-right">{formatINR(t.price)}</td>
-              <td className="py-2">
-                <span className={t.is_active ? 'badge bg-green-100 text-green-700' : 'badge bg-gray-200 text-gray-600'}>
-                  {t.is_active ? 'Active' : 'Inactive'}
-                </span>
-              </td>
-              <td className="py-2 text-right">
-                <button className="btn-ghost text-xs" onClick={() => setEditing(t)}>
-                  <Pencil className="w-3.5 h-3.5" /> Edit
-                </button>
-              </td>
+      <div className="text-[11px] text-gray-500">{shown.length} of {tests.length} tests · set the <b>price</b> inline and untick <b>Active</b> to hide tests you don't offer.</div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
+              <th className="py-2">Test Name</th>
+              <th className="py-2">Category</th>
+              <th className="py-2">Sample</th>
+              <th className="py-2 text-right w-28">Price ₹</th>
+              <th className="py-2 text-center w-20">Active</th>
+              <th></th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {shown.map((t) => (
+              <tr key={t.id} className="border-b border-gray-100 dark:border-slate-800">
+                <td className="py-1.5 font-medium text-gray-900 dark:text-slate-100">{t.name}{t.unit ? <span className="text-[10px] text-gray-400"> · {t.unit}</span> : null}</td>
+                <td className="py-1.5"><span className={cn('badge text-[10px]', (t.category || 'pathology') === 'radiology' ? 'bg-violet-100 text-violet-700' : 'bg-cyan-100 text-cyan-700')}>{t.category || 'pathology'}</span></td>
+                <td className="py-1.5 text-gray-600 dark:text-slate-300 text-xs">{t.sample_type || '—'}</td>
+                <td className="py-1.5 text-right">
+                  <input type="number" className="input !py-1 !text-sm w-24 text-right" defaultValue={t.price}
+                    onBlur={(e) => { const v = Number(e.target.value) || 0; if (v !== t.price) quick.mutate({ ...t, price: v }); }} />
+                </td>
+                <td className="py-1.5 text-center">
+                  <input type="checkbox" className="w-4 h-4 accent-fuchsia-600" checked={t.is_active === 1} onChange={(e) => quick.mutate({ ...t, is_active: e.target.checked ? 1 : 0 })} />
+                </td>
+                <td className="py-1.5 text-right">
+                  <button className="btn-ghost text-xs" onClick={() => setEditing(t)}><Pencil className="w-3.5 h-3.5" /></button>
+                </td>
+              </tr>
+            ))}
+            {shown.length === 0 && (
+              <tr><td colSpan={6} className="py-8 text-center text-gray-400 text-[12px]">
+                No tests{search ? ' match your search' : ''}. Click <b>Load standard catalog</b> to add the common Indian investigations.
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
 
       <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? 'Edit Test' : 'Add Test'}>
         {editing && (
@@ -282,6 +315,12 @@ function CatalogView() {
               <input className="input" value={editing.name || ''} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
             </Row>
             <div className="grid grid-cols-2 gap-3">
+              <Row label="Category">
+                <select className="input" value={editing.category || 'pathology'} onChange={(e) => setEditing({ ...editing, category: e.target.value })}>
+                  <option value="pathology">Pathology / Lab</option>
+                  <option value="radiology">Radiology / Imaging</option>
+                </select>
+              </Row>
               <Row label="Price (₹)">
                 <input type="number" className="input" value={editing.price ?? 0} onChange={(e) => setEditing({ ...editing, price: Number(e.target.value) })} />
               </Row>
@@ -297,7 +336,7 @@ function CatalogView() {
             </div>
             <label className="flex items-center gap-2 text-sm pt-1">
               <input type="checkbox" checked={editing.is_active === 1} onChange={(e) => setEditing({ ...editing, is_active: e.target.checked ? 1 : 0 })} />
-              <span>Active</span>
+              <span>Active (offered by this clinic)</span>
             </label>
             <div className="flex justify-end gap-2 pt-3">
               <button className="btn-secondary" onClick={() => setEditing(null)}>Cancel</button>

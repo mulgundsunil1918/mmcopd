@@ -1,14 +1,31 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { HeartPulse, Phone, MapPin, Clock, CloudUpload, AlertTriangle, Receipt } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { HeartPulse, Phone, MapPin, Clock, CloudUpload, AlertTriangle, Receipt, BedDouble, Printer } from 'lucide-react';
 import { format } from 'date-fns';
 import { QuickBillModal } from './billing/QuickBillModal';
 
 export function TopBar() {
   const [billOpen, setBillOpen] = useState(false);
+  const navigate = useNavigate();
   const { data: settings } = useQuery({
     queryKey: ['settings'],
     queryFn: () => window.electronAPI.settings.get(),
+  });
+
+  // Global admission-request alert — reception sees pending requests from anywhere.
+  const { data: pendingReqs = [] } = useQuery({
+    queryKey: ['admission-requests'],
+    queryFn: () => window.electronAPI.ipd.admissionRequests('pending'),
+    refetchInterval: 30_000,
+    enabled: settings?.ipd_admission_requests_enabled !== false,
+  });
+
+  // Global print-job alert — documents doctors sent to reception to print.
+  const { data: pendingPrints = 0 } = useQuery({
+    queryKey: ['print-jobs-count'],
+    queryFn: () => window.electronAPI.printJobs.pendingCount(),
+    refetchInterval: 30_000,
   });
 
   const [now, setNow] = useState(new Date());
@@ -83,6 +100,30 @@ export function TopBar() {
         {backedUpToday ? <CloudUpload className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
         {backupLabel}
       </div>
+
+      {/* Global admission-request bell — jumps reception to IPD → Requests */}
+      {settings?.ipd_admission_requests_enabled !== false && pendingReqs.length > 0 && (
+        <button
+          onClick={() => navigate('/ipd?view=requests')}
+          className="relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-200 transition active:scale-95"
+          title={`${pendingReqs.length} admission request${pendingReqs.length === 1 ? '' : 's'} waiting for reception`}
+        >
+          <BedDouble className="w-3.5 h-3.5" /> Admission requests
+          <span className="ml-0.5 min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold tabular-nums">{pendingReqs.length}</span>
+        </button>
+      )}
+
+      {/* Global print-jobs bell — jumps reception to the Print Jobs inbox */}
+      {pendingPrints > 0 && (
+        <button
+          onClick={() => navigate('/print-jobs')}
+          className="relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold border border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-200 transition active:scale-95"
+          title={`${pendingPrints} document${pendingPrints === 1 ? '' : 's'} waiting to print`}
+        >
+          <Printer className="w-3.5 h-3.5" /> Print
+          <span className="ml-0.5 min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold tabular-nums">{pendingPrints}</span>
+        </button>
+      )}
 
       {/* Global New Bill — available from every screen */}
       <button

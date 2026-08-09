@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Loader2, Info } from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
 import { cn } from '../../lib/utils';
+import { NumberInput } from '../NumberInput';
 import type { Settings } from '../../types';
 
 /**
@@ -210,8 +211,8 @@ function ChargeHeadsEditor() {
             </div>
             <div>
               <label className="label">Default rate (₹)</label>
-              <input className="input" type="number" min={0} value={editing.default_rate ?? 0}
-                onChange={(e) => setEditing({ ...editing, default_rate: Number(e.target.value) })} />
+              <NumberInput className="input" min={0} allowDecimal value={editing.default_rate}
+                onChange={(n) => setEditing({ ...editing, default_rate: n })} />
             </div>
             <div>
               <label className="label">Applies to</label>
@@ -312,8 +313,8 @@ function DiscountSettings({
         {DISCOUNT_ROLES.map((role) => (
           <div key={role} className="flex items-center gap-3">
             <div className="w-40 text-[13px] text-gray-900 dark:text-slate-100 capitalize">{role.replace('_', ' ')}</div>
-            <input type="number" min={0} max={100} className="input w-24" value={caps[role] ?? 0}
-              onChange={(e) => setCap(role, Number(e.target.value))} />
+            <NumberInput min={0} max={100} className="input w-24" value={caps[role]}
+              onChange={(n) => setCap(role, n)} />
             <span className="text-[12px] text-gray-500">% maximum</span>
           </div>
         ))}

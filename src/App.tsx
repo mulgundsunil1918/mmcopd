@@ -12,6 +12,8 @@ import { PatientOrigin } from './pages/PatientOrigin';
 import { Lab } from './pages/Lab';
 import { Pharmacy } from './pages/Pharmacy';
 import { IPD } from './pages/IPD';
+import { DischargeSummary } from './pages/DischargeSummary';
+import { PrintJobs } from './pages/PrintJobs';
 import { Notifications } from './pages/Notifications';
 import { SettingsPage } from './pages/Settings';
 import { UsersPage } from './pages/Users';
@@ -129,6 +131,8 @@ export default function App() {
         <Route path="/lab" element={<Lab />} />
         <Route path="/pharmacy" element={<Pharmacy />} />
         <Route path="/ipd" element={<IPD />} />
+        <Route path="/discharge-summary" element={<DischargeSummary />} />
+        <Route path="/print-jobs" element={<PrintJobs />} />
         <Route path="/pediatrics" element={<Pediatrics />} />
         <Route path="/tpa" element={<TPA />} />
         <Route path="/notifications" element={<Notifications />} />

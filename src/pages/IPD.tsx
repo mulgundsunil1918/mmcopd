@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BedDouble, UserPlus, Search, LogOut, User, Plus, Trash2, Eye, LayoutGrid } from 'lucide-react';
 import { Modal } from '../components/Modal';
@@ -14,7 +15,9 @@ import { AdmissionRequestsPanel } from '../components/ipd/AdmissionRequests';
 type Tab = 'wardmap' | 'requests' | 'admitted' | 'discharged' | 'all';
 
 export function IPD() {
-  const [tab, setTab] = useState<Tab>('wardmap');
+  // Open straight to Requests when arrived here from the global admission bell (/ipd?view=requests).
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState<Tab>(searchParams.get('view') === 'requests' ? 'requests' : 'wardmap');
   const [admitOpen, setAdmitOpen] = useState(false);
   const [admitBed, setAdmitBed] = useState<any | null>(null);   // bed chosen on the ward map
   const [dischargeTarget, setDischargeTarget] = useState<any | null>(null);

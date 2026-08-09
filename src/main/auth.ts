@@ -50,7 +50,7 @@ export function verifyLogin(db: Database.Database, username: string, password: s
   if (!row) return null;
   const calc = hash(password, row.salt);
   if (!crypto.timingSafeEqual(Buffer.from(calc), Buffer.from(row.password_hash))) return null;
-  db.prepare('UPDATE users SET last_login_at = datetime("now") WHERE id=?').run(row.id);
+  db.prepare("UPDATE users SET last_login_at = datetime('now') WHERE id=?").run(row.id);
   return {
     id: row.id,
     username: row.username,

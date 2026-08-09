@@ -121,6 +121,7 @@ export const DEMO_SETTINGS: Settings = {
   peds_calculators_enabled: true,
   peds_vaccine_schedule: 'iap',
   ipd_admission_requests_enabled: true,
+  discharge_summary_enabled: true,
   require_login: false,
   session_timeout_minutes: 0,
   qr1_img: '',

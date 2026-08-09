@@ -4,6 +4,9 @@ import { FileText, Printer, Save, Send, Plus, Trash2, FlaskConical, Sparkles, X 
 import { useToast } from '../hooks/useToast';
 import { OpdSlip } from './OpdSlip';
 import { Modal } from './Modal';
+import { RequestAdmissionButton } from './ipd/AdmissionRequests';
+import { PedsGrowthField } from './peds/PedsGrowthField';
+import { PedsVaccineInline } from './peds/PedsVaccineInline';
 import type { AppointmentWithJoins, Consultation, Doctor, PrescriptionItem, Vitals } from '../types';
 
 type RxRow = {
@@ -77,10 +80,15 @@ export function ConsultationPanel({
     return byId || templates[0]; // Fall back to the first template (typically "General").
   }, [templates, doctor.template_id]);
 
-  const { data: clinicalTemplates = [] } = useQuery({
+  const { data: allClinicalTemplates = [] } = useQuery({
     queryKey: ['clinical-templates'],
     queryFn: () => window.electronAPI.clinicalTemplates.list(),
   });
+  // Show templates shared with everyone plus the ones this doctor saved under their name.
+  const clinicalTemplates = useMemo(
+    () => allClinicalTemplates.filter((t: any) => !t.doctor_id || t.doctor_id === doctor.id),
+    [allClinicalTemplates, doctor.id],
+  );
 
   const applyQuickTemplate = (tpl: { fields: Record<string, string>; follow_up_days?: number }) => {
     if (tpl.fields.history) setHistory((prev) => prev ? prev + '\n' + tpl.fields.history : tpl.fields.history);
@@ -232,6 +240,12 @@ export function ConsultationPanel({
           >
             <Send className="w-4 h-4" /> {sendToReception.isPending ? 'Sending…' : 'Send to Reception'}
           </button>
+          {settings?.ipd_admission_requests_enabled && (
+            <RequestAdmissionButton
+              patient={{ id: appointment.patient_id, first_name: appointment.patient_name, last_name: '' }}
+              doctorId={doctor.id}
+            />
+          )}
         </div>
       </div>
 
@@ -307,6 +321,12 @@ export function ConsultationPanel({
             else setExtraFields((prev) => ({ ...prev, [s.key]: v }));
           };
           const rows = Math.max(1, Math.round(((s.height_mm ?? 18) - 4) / 6));
+          // Pediatric growth section — only for a pediatrician when the module is on.
+          if (s.type === 'growth') {
+            const pedsAllowed = settings?.peds_enabled && /pa?ediatr/i.test(doctor.specialty || '');
+            if (!pedsAllowed) return null;
+            return <PedsGrowthField key={s.key} value={extraFields[s.key] || ''} onChange={setter} dob={appointment.patient_dob} gender={appointment.patient_gender} />;
+          }
           if (s.type === 'textarea') {
             return <TextBlock key={s.key} label={s.title} value={reader} onChange={setter} rows={rows} />;
           }
@@ -332,6 +352,11 @@ export function ConsultationPanel({
           );
         })}
       </div>
+
+      {/* Immunisation — pediatrician only, when the module is on */}
+      {settings?.peds_enabled && /pa?ediatr/i.test(doctor.specialty || '') && (
+        <div className="mt-4"><PedsVaccineInline patientId={appointment.patient_id} /></div>
+      )}
 
       {/* Rx / Prescription */}
       <div className="mt-6 pt-5 border-t border-gray-200 dark:border-slate-700">
