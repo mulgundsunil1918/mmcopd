@@ -4,6 +4,7 @@ import { Activity, Stethoscope, ClipboardList, Droplets, UtensilsCrossed, Loader
 import { useToast } from '../../hooks/useToast';
 import { useAuth } from '../../hooks/useAuth';
 import { cn, fmtDateTime } from '../../lib/utils';
+import { promptDialog } from '../../lib/promptDialog';
 
 type Section = 'vitals' | 'meds' | 'notes' | 'nursing' | 'io' | 'diet' | 'xconsult';
 
@@ -82,7 +83,7 @@ function MedsSection({ admissionId }: { admissionId: number }) {
   };
 
   const give = async (order: any) => {
-    const qtyStr = window.prompt(`Quantity of "${order.drug_name}" given? (0 = record without touching pharmacy stock)`, order.drug_master_id ? '1' : '0');
+    const qtyStr = await promptDialog(`Quantity of "${order.drug_name}" given?\n(0 = record without touching pharmacy stock)`, { type: 'number', defaultValue: order.drug_master_id ? '1' : '0', confirmLabel: 'Give' });
     if (qtyStr === null) return;
     const r = await window.electronAPI.ipd.medAdminGive(order.id, { status: 'given', qty: Number(qtyStr) || 0, administered_by: user?.username });
     if (r.ok) { toast(r.billed ? 'Given — stock reduced and billed' : 'Recorded as given', 'success'); qc.invalidateQueries({ queryKey: ['ip-meds', admissionId] }); qc.invalidateQueries({ queryKey: ['bill-preview', admissionId] }); }
@@ -169,7 +170,7 @@ function XConsultSection({ admissionId }: { admissionId: number }) {
   };
 
   const respond = async (c: any) => {
-    const opinion = window.prompt(`Opinion from Dr. ${c.doctor_name}:`) ?? '';
+    const opinion = (await promptDialog(`Opinion from Dr. ${c.doctor_name}:`, { multiline: true, confirmLabel: 'Save' })) ?? '';
     if (!opinion) return;
     const r = await window.electronAPI.ipd.xconsultRespond(c.id, opinion);
     if (r.ok) qc.invalidateQueries({ queryKey: ['ip-xconsult', admissionId] });

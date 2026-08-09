@@ -5,6 +5,7 @@ import { Modal } from '../Modal';
 import { useToast } from '../../hooks/useToast';
 import { useAuth } from '../../hooks/useAuth';
 import { cn, fmtDateTime } from '../../lib/utils';
+import { promptDialog } from '../../lib/promptDialog';
 
 /**
  * Doctor raises an admission request; reception approves it and picks the bed.
@@ -100,7 +101,7 @@ export function AdmissionRequestsPanel({ onApprove }: { onApprove: (req: any) =>
   });
 
   const reject = async (id: number) => {
-    const reason = window.prompt('Reason for rejecting this admission request?') ?? '';
+    const reason = (await promptDialog('Reason for rejecting this admission request?', { multiline: true, confirmLabel: 'Reject' })) ?? '';
     const r = await window.electronAPI.ipd.rejectAdmissionRequest(id, reason, user?.username);
     if (r.ok) { toast('Request rejected', 'info'); qc.invalidateQueries({ queryKey: ['admission-requests'] }); }
     else toast(r.error || 'Could not reject', 'error');

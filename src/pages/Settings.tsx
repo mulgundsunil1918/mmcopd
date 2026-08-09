@@ -11,6 +11,7 @@ import { ImageUpload } from '../components/ImageUpload';
 import { WhatsAppMessaging } from '../components/WhatsAppMessaging';
 import { SlipPreviewLauncher } from '../components/SlipPreviewLauncher';
 import { OpdSlip } from '../components/OpdSlip';
+import { promptDialog } from '../lib/promptDialog';
 import { AdminGate } from '../components/AdminGate';
 import { NetworkTroubleshoot } from '../components/NetworkTroubleshoot';
 import { WardsBedsEditor } from '../components/settings/WardsBedsEditor';
@@ -103,11 +104,8 @@ export function SettingsPage() {
               <SettingsGroup title="Doctors" subtitle="Add doctors, set their fees, signature, color tag, and slip template.">
                 <DoctorsManagement />
               </SettingsGroup>
-              <SettingsGroup title="OPD Slip Body Templates" subtitle="Per-specialty body sections for the consultation panel and printed slip. Header / vitals / signature / follow-up box stay the same.">
+              <SettingsGroup title="OPD Slip Body Templates" subtitle="Per-specialty sections for the consultation panel and printed slip. Edit a template, then hit Preview to see exactly how it prints — right there.">
                 <SlipTemplatesEditor />
-              </SettingsGroup>
-              <SettingsGroup title="OPD Slip Preview" subtitle="See exactly how the printed slip looks with sample data.">
-                <SlipPreviewLauncher />
               </SettingsGroup>
             </>
           )}
@@ -2623,8 +2621,9 @@ function SlipTemplatesEditor() {
     finally { setSaving(false); }
   };
 
-  const addTemplate = () => {
-    const name = (window.prompt('Name this template (e.g. "General OPD", "Pediatrics", "OBG"):', '') || '').trim();
+  const addTemplate = async () => {
+    const entered = await promptDialog('Name this template', { placeholder: 'e.g. General OPD, Pediatrics, OBG', confirmLabel: 'Create' });
+    const name = (entered || '').trim();
     if (!name) return;   // cancelled or empty — don't create a "Template N"
     const id = Math.max(0, ...draft.map((t) => t.id)) + 1;
     const next = [...draft, {
@@ -2672,9 +2671,10 @@ function SlipTemplatesEditor() {
     setDraft(draft.map((t) => t.id === active.id ? { ...t, layout: { ...prevLayout, ...patch } } : t));
   };
 
-  const addSection = () => {
+  const addSection = async () => {
     if (!active) return;
-    const title = (window.prompt('Section title (e.g. "Local Examination", "Investigations Advised"):', '') || '').trim();
+    const entered = await promptDialog('Section title', { placeholder: 'e.g. Local Examination, Investigations Advised', confirmLabel: 'Add' });
+    const title = (entered || '').trim();
     if (!title) return;
     const newKey = `field_${Date.now()}`;   // key is internal — auto-generated, never shown
     updateSections(active.id, [...active.sections, {

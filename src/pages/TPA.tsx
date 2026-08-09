@@ -4,6 +4,7 @@ import { ShieldPlus, Plus, Building2, FileText, Loader2, X, Search } from 'lucid
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
 import { cn, fmtDate } from '../lib/utils';
+import { promptDialog } from '../lib/promptDialog';
 
 /**
  * TPA / insurance (cashless) — insurer master and the claim lifecycle.
@@ -84,7 +85,7 @@ function ClaimsTab() {
   const advance = async (c: any, status: string) => {
     let amount: number | undefined;
     if (status === 'approved' || status === 'settled') {
-      const v = window.prompt(`${status === 'approved' ? 'Approved' : 'Settled'} amount (₹)?`, String(c.claimed_amount || ''));
+      const v = await promptDialog(`${status === 'approved' ? 'Approved' : 'Settled'} amount (₹)?`, { type: 'number', defaultValue: String(c.claimed_amount || ''), confirmLabel: 'Save' });
       if (v === null) return; amount = Number(v) || 0;
     }
     const r = await window.electronAPI.billing.tpaClaimStatus(c.id, status, amount, undefined, user?.username);
