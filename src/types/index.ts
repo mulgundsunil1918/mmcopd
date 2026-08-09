@@ -106,6 +106,10 @@ export interface Appointment {
   appointment_time: string;
   token_number: number;
   consultation_token: string | null;
+  /** This patient's nth OPD visit — 1, 2, 3... Scoped per patient, not global. */
+  visit_number: number | null;
+  /** Printable visit identifier, UHID/V{visit_number}. The single definition. */
+  visit_id: string | null;
   status: AppointmentStatus;
   notes: string | null;
   created_at: string;

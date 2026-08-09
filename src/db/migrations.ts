@@ -38,6 +38,173 @@ function addColumnIfMissing(db: Database.Database, table: string, column: string
   }
 }
 
+/**
+ * Give every existing appointment its per-patient visit number and printable
+ * visit id, in chronological order.
+ *
+ * Only fills rows where visit_number is NULL, so it is safe to re-run and never
+ * renumbers a visit that already has one (renumbering would change an
+ * identifier a patient may already be holding on a printed slip).
+ */
+function backfillVisitNumbers(db: Database.Database) {
+  let pending = 0;
+  try {
+    pending = (db.prepare('SELECT COUNT(*) AS c FROM appointments WHERE visit_number IS NULL').get() as { c: number }).c;
+  } catch (err: any) {
+    throw new Error(`Visit-number backfill could not read appointments: ${err?.message || String(err)}`);
+  }
+  if (pending === 0) return;
+
+  // Only unnumbered rows. Renumbering an appointment that already has a visit
+  // id would change an identifier the patient may be holding on a printed slip
+  // or in a WhatsApp message.
+  const rows = db
+    .prepare(
+      `SELECT a.id, a.patient_id, p.uhid
+       FROM appointments a
+       LEFT JOIN patients p ON p.id = a.patient_id
+       WHERE a.visit_number IS NULL
+       ORDER BY a.patient_id, a.appointment_date, a.appointment_time, a.id`
+    )
+    .all() as { id: number; patient_id: number; uhid: string | null }[];
+
+  // Continue each patient's sequence after their highest existing number, so a
+  // partial backfill (e.g. rows merged in from an older backup) appends rather
+  // than colliding with numbers already issued.
+  const perPatient = new Map<number, number>();
+  for (const r of db
+    .prepare(
+      `SELECT patient_id, COALESCE(MAX(visit_number), 0) AS mx
+       FROM appointments WHERE visit_number IS NOT NULL GROUP BY patient_id`
+    )
+    .all() as { patient_id: number; mx: number }[]) {
+    perPatient.set(r.patient_id, r.mx);
+  }
+
+  const upd = db.prepare('UPDATE appointments SET visit_number=?, visit_id=? WHERE id=?');
+
+  const tx = db.transaction(() => {
+    for (const r of rows) {
+      const n = (perPatient.get(r.patient_id) ?? 0) + 1;
+      perPatient.set(r.patient_id, n);
+      upd.run(n, r.uhid ? `${r.uhid}/V${n}` : null, r.id);
+    }
+  });
+
+  try {
+    tx();
+  } catch (err: any) {
+    throw new Error(
+      `Visit-number backfill failed while numbering ${rows.length} appointments: ${err?.message || String(err)}. ` +
+      `No changes were applied (the backfill runs in a transaction).`
+    );
+  }
+}
+
+/**
+ * Seed the counters table from identifiers that already exist.
+ *
+ * Runs before any new ID is allocated. Each counter is set to the HIGHEST
+ * number already present in that series, so the next allocation continues past
+ * live records instead of colliding with them.
+ *
+ * Uses MAX of the numeric suffix, never COUNT — a clinic that has deleted
+ * records has fewer rows than its highest number, and seeding from COUNT would
+ * immediately reissue an existing identifier.
+ *
+ * Idempotent: re-running only ever raises a counter, never lowers it, so a
+ * counter that has already advanced past the stored data is left alone.
+ */
+function seedCountersFromExistingData(db: Database.Database) {
+  const raise = db.prepare(
+    `INSERT INTO counters (scope, next_value, updated_at)
+     VALUES (?, ?, datetime('now'))
+     ON CONFLICT(scope) DO UPDATE SET
+       next_value = MAX(next_value, excluded.next_value),
+       updated_at = datetime('now')`
+  );
+
+  /** Highest integer found in `col` after stripping everything but the trailing digits. */
+  const maxSuffix = (table: string, col: string, like: string): number => {
+    try {
+      const row = db
+        .prepare(
+          `SELECT MAX(CAST(replace(substr(${col}, length(${col}) - 3), '-', '') AS INTEGER)) AS mx
+           FROM ${table} WHERE ${col} LIKE ?`
+        )
+        .get(like) as { mx: number | null } | undefined;
+      return row?.mx ?? 0;
+    } catch {
+      // Table may not exist yet on a brand-new database — nothing to seed.
+      return 0;
+    }
+  };
+
+  // --- UHID: PT-YYYYMMDD-NNNN, one counter per day ---
+  try {
+    const days = db
+      .prepare(`SELECT DISTINCT substr(uhid, 4, 8) AS day FROM patients WHERE uhid LIKE 'PT-%'`)
+      .all() as { day: string }[];
+    for (const { day } of days) {
+      if (!/^\d{8}$/.test(day)) continue;
+      raise.run(`uhid:${day}`, maxSuffix('patients', 'uhid', `PT-${day}-%`));
+    }
+  } catch { /* patients table absent on a fresh DB */ }
+
+  // --- Legacy date-based bill and admission numbers ---
+  // Old format was INV-YYYYMMDD-NNNN / IP-YYYYMMDD-NNNN. Those series are
+  // retired in favour of the financial-year series, but their counters are
+  // still seeded so that if a clinic's settings keep the old format, numbering
+  // resumes correctly rather than restarting at 1.
+  try {
+    const days = db
+      .prepare(`SELECT DISTINCT substr(bill_number, 5, 8) AS day FROM bills WHERE bill_number LIKE 'INV-%'`)
+      .all() as { day: string }[];
+    for (const { day } of days) {
+      if (!/^\d{8}$/.test(day)) continue;
+      raise.run(`bill-legacy:${day}`, maxSuffix('bills', 'bill_number', `INV-${day}-%`));
+    }
+  } catch { /* bills table absent */ }
+
+  try {
+    const days = db
+      .prepare(`SELECT DISTINCT substr(admission_number, 4, 8) AS day FROM ip_admissions WHERE admission_number LIKE 'IP-%'`)
+      .all() as { day: string }[];
+    for (const { day } of days) {
+      if (!/^\d{8}$/.test(day)) continue;
+      raise.run(`ip-legacy:${day}`, maxSuffix('ip_admissions', 'admission_number', `IP-${day}-%`));
+    }
+  } catch { /* ip_admissions table absent */ }
+
+  // --- Financial-year series already in use (re-runs of this migration) ---
+  const seedFySeries = (table: string, col: string, prefix: string, scopePrefix: string) => {
+    try {
+      const rows = db
+        .prepare(`SELECT ${col} AS v FROM ${table} WHERE ${col} LIKE '${prefix}/%'`)
+        .all() as { v: string }[];
+      const best = new Map<string, number>();
+      for (const { v } of rows) {
+        const m = /^([A-Za-z]+)\/(\d{4}-\d{2})\/(\d+)$/.exec(v);
+        if (!m) continue;
+        const scope = `${scopePrefix}:${m[1]}:${m[2]}`;
+        const n = parseInt(m[3], 10);
+        if (Number.isFinite(n)) best.set(scope, Math.max(best.get(scope) ?? 0, n));
+      }
+      for (const [scope, n] of best) raise.run(scope, n);
+    } catch { /* table absent */ }
+  };
+  seedFySeries('bills', 'bill_number', 'INV', 'bill');
+  seedFySeries('ip_admissions', 'admission_number', 'IP', 'ip');
+
+  // --- Per-patient visit numbers ---
+  try {
+    const rows = db
+      .prepare(`SELECT patient_id, COUNT(*) AS c FROM appointments GROUP BY patient_id`)
+      .all() as { patient_id: number; c: number }[];
+    for (const r of rows) raise.run(`visit:${r.patient_id}`, r.c);
+  } catch { /* appointments table absent */ }
+}
+
 /** Fill a setting only if it is currently missing OR empty. Never overwrites a user's value. */
 function setSettingIfEmpty(db: Database.Database, key: string, value: string) {
   const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key) as { value: string } | undefined;
@@ -67,6 +234,17 @@ export function runMigrations(db: Database.Database) {
   addColumnIfMissing(db, 'users', 'doctor_id', 'INTEGER REFERENCES doctors(id)');
   addColumnIfMissing(db, 'users', 'must_change_password', 'INTEGER NOT NULL DEFAULT 0');
   flagFactoryPasswordUsers(db);
+
+  // ===== Identifiers =====
+  // visit_number is that patient's nth OPD visit (1, 2, 3...). visit_id is the
+  // printable form, UHID/V{n}. The old code had two conflicting "Visit ID"s:
+  // consultation_token held a non-unique label (3 letters of the name + 2 phone
+  // digits + day of month) while the WhatsApp message showed UHID/V{global row
+  // id}. A patient quoting one could not be matched against the other.
+  addColumnIfMissing(db, 'appointments', 'visit_number', 'INTEGER');
+  addColumnIfMissing(db, 'appointments', 'visit_id', 'TEXT');
+  backfillVisitNumbers(db);
+  seedCountersFromExistingData(db);
 
   // Free follow-up policy: every paid visit grants N free follow-up visits within X days
   // with the same doctor. We tag the bill with a flag + the paid "anchor" appointment so

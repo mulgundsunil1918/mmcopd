@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import * as XLSX from 'xlsx';
 import Database from 'better-sqlite3';
 import { getDb, closeDb } from '../db/db';
+import { nextUHID, nextBillNumber, nextIpNumber, nextVisitNumber, formatVisitId } from '../db/ids';
 import { enqueueWaEvent } from '../services/whatsapp/wa-trigger';
 
 /**
@@ -50,32 +51,15 @@ function pad(n: number, w: number) {
   return String(n).padStart(w, '0');
 }
 
+// Identifier generation lives in db/ids.ts. The old COUNT(*)+1 generators that
+// used to sit here reissued a number after any record was deleted, which then
+// failed on the UNIQUE constraint — see the comment at the top of that file.
 function generateUHID(): string {
-  const d = new Date();
-  const ymd = `${d.getFullYear()}${pad(d.getMonth() + 1, 2)}${pad(d.getDate(), 2)}`;
-  const db = getDb();
-  const row = db.prepare(
-    "SELECT COUNT(*) as c FROM patients WHERE uhid LIKE ?"
-  ).get(`PT-${ymd}-%`) as { c: number };
-  return `PT-${ymd}-${pad(row.c + 1, 4)}`;
-}
-
-function generateVisitId(firstName: string, phone: string, dateISO: string): string {
-  const name = (firstName || '').replace(/[^A-Za-z]/g, '').toUpperCase().padEnd(3, 'X').slice(0, 3);
-  const phoneDigits = (phone || '').replace(/\D/g, '');
-  const phonePrefix = phoneDigits.slice(0, 2).padEnd(2, '0');
-  const day = (dateISO || '').slice(8, 10) || '00';
-  return `${name}${phonePrefix}${day}`;
+  return nextUHID(getDb());
 }
 
 function generateBillNumber(): string {
-  const d = new Date();
-  const ymd = `${d.getFullYear()}${pad(d.getMonth() + 1, 2)}${pad(d.getDate(), 2)}`;
-  const db = getDb();
-  const row = db.prepare(
-    "SELECT COUNT(*) as c FROM bills WHERE bill_number LIKE ?"
-  ).get(`INV-${ymd}-%`) as { c: number };
-  return `INV-${ymd}-${pad(row.c + 1, 4)}`;
+  return nextBillNumber(getDb());
 }
 
 // ── Admin password helpers (scrypt) ───────────────────────────────────────────
@@ -581,14 +565,21 @@ export function registerIpc() {
       .get(payload.appointment_date) as { mx: number };
     const token = tokenRow.mx + 1;
 
-    // 7-char Visit ID: first 3 of firstname + last 2 of phone + day of month
-    const patient = db.prepare('SELECT first_name, phone FROM patients WHERE id=?').get(payload.patient_id) as { first_name: string; phone: string } | undefined;
-    const visitId = patient ? generateVisitId(patient.first_name, patient.phone, payload.appointment_date) : '';
+    // Visit ID — the patient's nth visit, printed as UHID/V{n}.
+    // Single definition, stored on the row, so the slip, the WhatsApp message
+    // and patient search all quote the same identifier. Previously the slip
+    // showed a non-unique label while WhatsApp showed UHID/V{global row id}.
+    const patient = db.prepare('SELECT uhid FROM patients WHERE id=?').get(payload.patient_id) as { uhid: string } | undefined;
+    if (!patient) {
+      throw new Error(`Cannot book appointment: patient id ${payload.patient_id} was not found. The patient may have been deleted.`);
+    }
+    const visitNumber = nextVisitNumber(db, payload.patient_id);
+    const visitId = formatVisitId(patient.uhid, visitNumber);
 
     const info = db
       .prepare(
-        `INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, token_number, consultation_token, status, notes, patient_group, procedure_tags)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, token_number, consultation_token, visit_number, visit_id, status, notes, patient_group, procedure_tags)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         payload.patient_id,
@@ -596,6 +587,8 @@ export function registerIpc() {
         payload.appointment_date,
         payload.appointment_time,
         token,
+        visitId,
+        visitNumber,
         visitId,
         payload.status ?? (getAllSettings(db).queue_flow_enabled ? 'Waiting' : 'Done'),
         payload.notes ?? null,
@@ -2126,10 +2119,8 @@ export function registerIpc() {
 
   ipcMain.handle('ip:admit', (_e, payload: { patient_id: number; admission_doctor_id?: number; bed_number?: string; ward?: string; admission_notes?: string }) => {
     const db = getDb();
-    const d = new Date();
-    const ymd = `${d.getFullYear()}${pad(d.getMonth() + 1, 2)}${pad(d.getDate(), 2)}`;
-    const row = db.prepare("SELECT COUNT(*) as c FROM ip_admissions WHERE admission_number LIKE ?").get(`IP-${ymd}-%`) as { c: number };
-    const num = `IP-${ymd}-${pad(row.c + 1, 4)}`;
+    // Financial-year series (IP/2026-27/0007), separate from the patient's UHID.
+    const num = nextIpNumber(db);
     const info = db
       .prepare(
         'INSERT INTO ip_admissions (admission_number, patient_id, admission_doctor_id, bed_number, ward, admission_notes) VALUES (?, ?, ?, ?, ?, ?)'

@@ -69,7 +69,13 @@ export function buildContext(appointment: AppointmentWithJoins, settings: Settin
     time: fmt12h(appointment.appointment_time),
     token: String(appointment.token_number ?? ''),
     room: appointment.doctor_room || '',
-    visit_id: `${appointment.patient_uhid}/V${appointment.id}`,
+    // Use the stored visit id so the WhatsApp message, the printed slip and
+    // patient search all quote the same thing. This previously built its own
+    // string from the global appointment row id, so "V42" meant the clinic's
+    // 42nd appointment ever rather than the patient's 42nd visit — and it
+    // never matched the different Visit ID printed on the slip.
+    visit_id: appointment.visit_id
+      || (appointment.visit_number ? `${appointment.patient_uhid}/V${appointment.visit_number}` : appointment.patient_uhid || ''),
     uhid: appointment.patient_uhid || '',
     clinic_name: settings.clinic_name || '',
     clinic_phone: settings.clinic_phone || '',

@@ -9,6 +9,18 @@ export function createSchema(db: Database.Database) {
       value TEXT NOT NULL
     );
 
+    -- Monotonic counters backing every generated identifier (UHID, invoice
+    -- number, admission number, per-patient visit number).
+    --
+    -- Replaces the old COUNT(*)+1 scheme, which reused a number after any
+    -- record was deleted and then failed on the UNIQUE constraint. A counter
+    -- never decrements, so numbers are never reused. Gaps are intentional.
+    CREATE TABLE IF NOT EXISTS counters (
+      scope      TEXT PRIMARY KEY,
+      next_value INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS patients (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       uhid TEXT NOT NULL UNIQUE,
