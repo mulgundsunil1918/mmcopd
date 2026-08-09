@@ -407,6 +407,10 @@ const api = {
       ipcRenderer.invoke('bill:pay', billId, amount, mode, by) as Promise<{ ok: boolean; error?: string }>,
     refundAdvance: (advanceId: number, amount: number, reason: string, by?: string) =>
       ipcRenderer.invoke('advances:refund', advanceId, amount, reason, by) as Promise<any>,
+    ipdAnalytics: (from: string, to: string) =>
+      ipcRenderer.invoke('analytics:ipd', from, to) as Promise<any>,
+    billingAnalytics: (from: string, to: string) =>
+      ipcRenderer.invoke('analytics:billing', from, to) as Promise<any>,
   },
   clinicalTemplates: {
     list: () => ipcRenderer.invoke('clinical-templates:list') as Promise<import('./types').ClinicalQuickTemplate[]>,

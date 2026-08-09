@@ -705,6 +705,133 @@ export function registerIpdBillingIpc() {
     }
   });
 
+  // ---------- Analytics ----------
+  /**
+   * IPD and billing metrics for a date range. IPD had zero analytics before;
+   * this powers the new dashboard section.
+   */
+  ipcMain.handle('analytics:ipd', (_e, from: string, to: string) => {
+    const d = db();
+    try {
+      const range = [from, to];
+
+      const occupancy = d.prepare(
+        `SELECT
+           (SELECT COUNT(*) FROM beds WHERE is_active=1) AS total_beds,
+           (SELECT COUNT(*) FROM beds WHERE is_active=1 AND status='occupied') AS occupied_beds`
+      ).get() as { total_beds: number; occupied_beds: number };
+
+      const admissions = d.prepare(
+        `SELECT COUNT(*) AS c FROM ip_admissions WHERE date(admitted_at) BETWEEN ? AND ?`
+      ).get(...range) as { c: number };
+
+      const discharges = d.prepare(
+        `SELECT COUNT(*) AS c FROM ip_admissions WHERE discharged_at IS NOT NULL AND date(discharged_at) BETWEEN ? AND ?`
+      ).get(...range) as { c: number };
+
+      // Average length of stay for admissions discharged in range, in days.
+      const alos = d.prepare(
+        `SELECT AVG(julianday(discharged_at) - julianday(admitted_at)) AS d
+         FROM ip_admissions WHERE discharged_at IS NOT NULL AND date(discharged_at) BETWEEN ? AND ?`
+      ).get(...range) as { d: number | null };
+
+      // Outcome mix — the LAMA/DAMA/death breakdown for quality indicators.
+      const outcomes = d.prepare(
+        `SELECT COALESCE(outcome, 'in_progress') AS outcome, COUNT(*) AS count
+         FROM ip_admissions
+         WHERE (discharged_at IS NOT NULL AND date(discharged_at) BETWEEN ? AND ?)
+            OR (discharged_at IS NULL AND date(admitted_at) BETWEEN ? AND ?)
+         GROUP BY outcome`
+      ).all(from, to, from, to) as { outcome: string; count: number }[];
+
+      const totalClosed = outcomes.filter((o) => o.outcome !== 'in_progress').reduce((s, o) => s + o.count, 0);
+      const deaths = outcomes.find((o) => o.outcome === 'death')?.count ?? 0;
+      const lamas = (outcomes.find((o) => o.outcome === 'lama')?.count ?? 0) + (outcomes.find((o) => o.outcome === 'dama')?.count ?? 0);
+
+      const byDoctor = d.prepare(
+        `SELECT COALESCE(dr.name, 'Unassigned') AS doctor, COUNT(*) AS admissions,
+                AVG(CASE WHEN a.discharged_at IS NOT NULL THEN julianday(a.discharged_at) - julianday(a.admitted_at) END) AS alos
+         FROM ip_admissions a LEFT JOIN doctors dr ON dr.id = a.admission_doctor_id
+         WHERE date(a.admitted_at) BETWEEN ? AND ?
+         GROUP BY a.admission_doctor_id ORDER BY admissions DESC`
+      ).all(...range) as any[];
+
+      const byWard = d.prepare(
+        `SELECT COALESCE(w.name, a.ward, 'Unknown') AS ward, COUNT(*) AS admissions
+         FROM ip_admissions a LEFT JOIN wards w ON w.id = a.ward_id
+         WHERE date(a.admitted_at) BETWEEN ? AND ?
+         GROUP BY ward ORDER BY admissions DESC`
+      ).all(...range) as any[];
+
+      const revenue = d.prepare(
+        `SELECT COALESCE(SUM(total), 0) AS total FROM bills
+         WHERE bill_type='ipd' AND status != 'cancelled' AND date(created_at) BETWEEN ? AND ?`
+      ).get(...range) as { total: number };
+
+      return {
+        ok: true,
+        occupancyPct: occupancy.total_beds ? Math.round((occupancy.occupied_beds / occupancy.total_beds) * 100) : 0,
+        totalBeds: occupancy.total_beds,
+        occupiedBeds: occupancy.occupied_beds,
+        admissions: admissions.c,
+        discharges: discharges.c,
+        alosDays: alos.d ? Math.round(alos.d * 10) / 10 : 0,
+        outcomes,
+        mortalityRate: totalClosed ? Math.round((deaths / totalClosed) * 1000) / 10 : 0,
+        lamaRate: totalClosed ? Math.round((lamas / totalClosed) * 1000) / 10 : 0,
+        byDoctor,
+        byWard,
+        ipdRevenue: money(revenue.total),
+      };
+    } catch (err: any) {
+      return fail(`Could not build IPD analytics: ${err?.message || String(err)}`);
+    }
+  });
+
+  ipcMain.handle('analytics:billing', (_e, from: string, to: string) => {
+    const d = db();
+    try {
+      const range = [from, to];
+
+      const collections = d.prepare(
+        `SELECT payment_mode, COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total
+         FROM bill_payments WHERE date(received_at) BETWEEN ? AND ? GROUP BY payment_mode`
+      ).all(...range) as any[];
+
+      const outstanding = d.prepare(
+        `SELECT COALESCE(SUM(total - amount_paid - advance_adjusted), 0) AS due
+         FROM bills WHERE status IN ('open','part_paid','finalised') AND status != 'cancelled'`
+      ).get() as { due: number };
+
+      const gst = d.prepare(
+        `SELECT COALESCE(SUM(cgst_total), 0) AS cgst, COALESCE(SUM(sgst_total), 0) AS sgst,
+                COALESCE(SUM(taxable_total), 0) AS taxable, COALESCE(SUM(exempt_total), 0) AS exempt
+         FROM bills WHERE is_tax_invoice=1 AND status != 'cancelled' AND date(created_at) BETWEEN ? AND ?`
+      ).get(...range) as any;
+
+      // Section-wise revenue from the charge-head category on each line.
+      const bySection = d.prepare(
+        `SELECT COALESCE(ch.category, 'other') AS category, COALESCE(SUM(bi.amount), 0) AS total
+         FROM bill_items bi
+         JOIN bills b ON b.id = bi.bill_id
+         LEFT JOIN charge_heads ch ON ch.id = bi.charge_head_id
+         WHERE b.status != 'cancelled' AND date(b.created_at) BETWEEN ? AND ?
+         GROUP BY ch.category ORDER BY total DESC`
+      ).all(...range) as any[];
+
+      return {
+        ok: true,
+        collections,
+        totalCollected: money(collections.reduce((s, c) => s + c.total, 0)),
+        outstanding: money(outstanding.due),
+        gst: { cgst: money(gst.cgst), sgst: money(gst.sgst), total: money(gst.cgst + gst.sgst), taxable: money(gst.taxable), exempt: money(gst.exempt) },
+        bySection,
+      };
+    } catch (err: any) {
+      return fail(`Could not build billing analytics: ${err?.message || String(err)}`);
+    }
+  });
+
   // ---------- Advances ----------
   ipcMain.handle('advances:refund', (_e, advanceId: number, amount: number, reason: string, by?: string) => {
     const d = db();

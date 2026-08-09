@@ -8,6 +8,7 @@ import { cn, fmtDate, fmtDateTime } from '../lib/utils';
 import type { DischargeMedication } from '../types';
 import { WardMap } from '../components/ipd/WardMap';
 import { AdmitModal as WardAdmitModal } from '../components/ipd/AdmitModal';
+import { AdmissionDetail } from '../components/ipd/AdmissionDetail';
 
 type Tab = 'wardmap' | 'admitted' | 'discharged' | 'all';
 
@@ -17,6 +18,7 @@ export function IPD() {
   const [admitBed, setAdmitBed] = useState<any | null>(null);   // bed chosen on the ward map
   const [dischargeTarget, setDischargeTarget] = useState<any | null>(null);
   const [viewTarget, setViewTarget] = useState<any | null>(null);
+  const [detailId, setDetailId] = useState<number | null>(null);   // ward-care + bill hub
   const qc = useQueryClient();
   const toast = useToast();
 
@@ -57,7 +59,7 @@ export function IPD() {
       {tab === 'wardmap' ? (
         <WardMap
           onAdmit={(bed) => setAdmitBed(bed)}
-          onOpenAdmission={(id) => { setTab('admitted'); setViewTarget({ id }); }}
+          onOpenAdmission={(id) => setDetailId(id)}
         />
       ) : (
       <div className="card p-4">
@@ -100,8 +102,8 @@ export function IPD() {
                   <td className="py-2 text-right">
                     <div className="flex gap-1.5 justify-end">
                       {a.status === 'admitted' && (
-                        <button className="btn-secondary text-xs" onClick={() => setDischargeTarget(a)}>
-                          <LogOut className="w-3.5 h-3.5" /> Discharge
+                        <button className="btn-primary text-xs" onClick={() => setDetailId(a.id)}>
+                          <Eye className="w-3.5 h-3.5" /> Open
                         </button>
                       )}
                       {a.status === 'discharged' && (
@@ -131,6 +133,11 @@ export function IPD() {
             setAdmitBed(null);
           }}
         />
+      )}
+
+      {/* Ward-care + running-bill hub for one admitted patient */}
+      {detailId !== null && (
+        <AdmissionDetail admissionId={detailId} onClose={() => { setDetailId(null); qc.invalidateQueries({ queryKey: ['ip-admissions'] }); qc.invalidateQueries({ queryKey: ['beds-map'] }); }} />
       )}
 
       <AdmitModal open={admitOpen} onClose={() => setAdmitOpen(false)} onAdmitted={() => { qc.invalidateQueries({ queryKey: ['ip-admissions'] }); toast('Patient admitted'); setAdmitOpen(false); }} />

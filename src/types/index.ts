@@ -467,6 +467,23 @@ export interface IpAdmission {
   followup_plan: string | null;
   discharge_doctor_id: number | null;
   status: AdmissionStatus;
+  // Added with the ward/bed and outcome model.
+  bed_id?: number | null;
+  ward_id?: number | null;
+  admission_type?: string | null;
+  provisional_diagnosis?: string | null;
+  attendant_name?: string | null;
+  attendant_phone?: string | null;
+  attendant_relation?: string | null;
+  is_mlc?: number | boolean;
+  /** How the stay ended: discharged | lama | dama | death | referred | absconded. */
+  outcome?: string | null;
+  outcome_notes?: string | null;
+  death_at?: string | null;
+  death_cause?: string | null;
+  referred_to?: string | null;
+  risk_explained_by?: string | null;
+  bill_id?: number | null;
   patient_name?: string;
   patient_uhid?: string;
   patient_phone?: string;

@@ -5,14 +5,15 @@ import {
   BarChart3, Wallet, MapPin, FileText, Users as UsersIcon, Pill,
   TrendingUp, AlertTriangle, Calendar, Activity, RefreshCw,
   Download, Database, FolderOpen, HardDriveDownload, Syringe,
-  MessageSquare,
+  MessageSquare, BedDouble,
 } from 'lucide-react';
+import { IpdAnalyticsTab } from '../components/analytics/IpdAnalyticsTab';
 import { cn, fmt12h, fmtDate, fmtDateTime, formatINR, todayISO } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import { colorForDoctor } from '../lib/doctor-colors';
 import type { Doctor } from '../types';
 
-type Tab = 'overview' | 'finance' | 'demographics' | 'origin' | 'pharmacy' | 'services' | 'operations' | 'whatsapp';
+type Tab = 'overview' | 'finance' | 'ipd' | 'demographics' | 'origin' | 'pharmacy' | 'services' | 'operations' | 'whatsapp';
 
 /**
  * Unified Analytics page — consolidates the metrics that previously lived in
@@ -55,6 +56,7 @@ export function Analytics() {
       <div className="flex gap-1 bg-gray-100 dark:bg-slate-700 p-1 rounded-lg flex-wrap">
         <TabBtn active={tab === 'overview'} onClick={() => setTab('overview')} icon={<Activity className="w-3.5 h-3.5" />}>Overview</TabBtn>
         <TabBtn active={tab === 'finance'} onClick={() => setTab('finance')} icon={<Wallet className="w-3.5 h-3.5" />}>Finance</TabBtn>
+        <TabBtn active={tab === 'ipd'} onClick={() => setTab('ipd')} icon={<BedDouble className="w-3.5 h-3.5" />}>IPD</TabBtn>
         <TabBtn active={tab === 'demographics'} onClick={() => setTab('demographics')} icon={<UsersIcon className="w-3.5 h-3.5" />}>Demographics</TabBtn>
         <TabBtn active={tab === 'origin'} onClick={() => setTab('origin')} icon={<MapPin className="w-3.5 h-3.5" />}>Patient Origin</TabBtn>
         <TabBtn active={tab === 'pharmacy'} onClick={() => setTab('pharmacy')} icon={<Pill className="w-3.5 h-3.5" />}>Pharmacy</TabBtn>
@@ -65,6 +67,7 @@ export function Analytics() {
 
       {tab === 'overview' && <OverviewTab />}
       {tab === 'finance' && <FinanceTab from={from} to={to} />}
+      {tab === 'ipd' && <IpdAnalyticsTab from={from} to={to} />}
       {tab === 'demographics' && <DemographicsTab />}
       {tab === 'origin' && <OriginTab from={from} to={to} />}
       {tab === 'pharmacy' && <PharmacyTab from={from} to={to} />}
