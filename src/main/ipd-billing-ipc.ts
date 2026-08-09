@@ -865,6 +865,51 @@ export function registerIpdBillingIpc() {
     }
   });
 
+  // ---------- Discharge-summary templates ----------
+  ipcMain.handle('dischargeTemplates:list', (_e, filter: any = {}) => {
+    const d = db();
+    const where: string[] = ['is_active=1'];
+    const params: any[] = [];
+    if (filter?.department) { where.push('(department IS NULL OR department=?)'); params.push(filter.department); }
+    if (filter?.doctor_id) { where.push('(doctor_id IS NULL OR doctor_id=?)'); params.push(filter.doctor_id); }
+    return d.prepare(
+      `SELECT t.*, dr.name AS doctor_name FROM discharge_templates t
+       LEFT JOIN doctors dr ON dr.id = t.doctor_id
+       WHERE ${where.join(' AND ')} ORDER BY t.sort_order, t.name`
+    ).all(...params);
+  });
+
+  ipcMain.handle('dischargeTemplates:save', (_e, input: any) => {
+    const d = db();
+    try {
+      const name = requireText(input?.name, 'Template name', 80);
+      let content = '{}';
+      try { content = JSON.stringify(input?.content ?? {}); } catch { return fail('The template content could not be saved (invalid data).'); }
+      if (input?.id) {
+        const id = requireId(input.id, 'Template id');
+        d.prepare(
+          `UPDATE discharge_templates SET name=?, department=?, doctor_id=?, content_json=?, sort_order=?, is_active=?, updated_at=datetime('now') WHERE id=?`
+        ).run(name, input.department ?? null, input.doctor_id ?? null, content, Number(input.sort_order ?? 0), input.is_active === false ? 0 : 1, id);
+        return { ok: true, id };
+      }
+      const info = d.prepare(
+        `INSERT INTO discharge_templates (name, department, doctor_id, content_json, sort_order) VALUES (?,?,?,?,?)`
+      ).run(name, input.department ?? null, input.doctor_id ?? null, content, Number(input.sort_order ?? 0));
+      return { ok: true, id: Number(info.lastInsertRowid) };
+    } catch (err: any) {
+      return fail(`Could not save the template: ${err?.message || String(err)}`);
+    }
+  });
+
+  ipcMain.handle('dischargeTemplates:delete', (_e, id: number) => {
+    try {
+      db().prepare('UPDATE discharge_templates SET is_active=0 WHERE id=?').run(requireId(id, 'Template id'));
+      return { ok: true };
+    } catch (err: any) {
+      return fail(`Could not delete the template: ${err?.message || String(err)}`);
+    }
+  });
+
   // ---------- Admission requests (doctor → reception) ----------
   ipcMain.handle('ip:requestAdmission', (_e, input: any) => {
     const d = db();

@@ -762,6 +762,22 @@ export function createSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_tpa_claims_status ON tpa_claims(status);
     CREATE INDEX IF NOT EXISTS idx_tpa_claims_admission ON tpa_claims(admission_id);
 
+    -- Saveable discharge-summary templates, scoped to a department and/or a
+    -- doctor, so a summary is one click. content_json holds the prefilled
+    -- fields (diagnosis, treatment, advice, …); the discharge form merges them.
+    CREATE TABLE IF NOT EXISTS discharge_templates (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      name         TEXT NOT NULL,
+      department   TEXT,
+      doctor_id    INTEGER REFERENCES doctors(id) ON DELETE SET NULL,
+      content_json TEXT NOT NULL DEFAULT '{}',
+      is_active    INTEGER NOT NULL DEFAULT 1,
+      sort_order   INTEGER NOT NULL DEFAULT 0,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_discharge_tpl_dept ON discharge_templates(department, doctor_id);
+
     -- Doctor raises an admission request from OPD; reception approves it and
     -- picks the ward/bed. Keeps admission authority with reception while letting
     -- the doctor initiate.

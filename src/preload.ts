@@ -385,6 +385,13 @@ const api = {
       ipcRenderer.invoke('ip:admissionRequests', status) as Promise<any[]>,
     rejectAdmissionRequest: (id: number, reason?: string, by?: string) =>
       ipcRenderer.invoke('ip:rejectAdmissionRequest', id, reason, by) as Promise<{ ok: boolean; error?: string }>,
+    // Discharge-summary templates (department / doctor-wise)
+    dischargeTemplatesList: (filter?: { department?: string; doctor_id?: number }) =>
+      ipcRenderer.invoke('dischargeTemplates:list', filter || {}) as Promise<any[]>,
+    dischargeTemplateSave: (input: any) =>
+      ipcRenderer.invoke('dischargeTemplates:save', input) as Promise<{ ok: boolean; id?: number; error?: string }>,
+    dischargeTemplateDelete: (id: number) =>
+      ipcRenderer.invoke('dischargeTemplates:delete', id) as Promise<{ ok: boolean; error?: string }>,
     transfer: (admissionId: number, toBedId: number, reason?: string, by?: string) =>
       ipcRenderer.invoke('ip:transfer', admissionId, toBedId, reason, by) as Promise<{ ok: boolean; error?: string }>,
     discharge: (admissionId: number, input: any) =>

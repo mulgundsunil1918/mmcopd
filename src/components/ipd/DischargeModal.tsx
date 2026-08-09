@@ -33,6 +33,27 @@ export function DischargeModal({ admission, onClose, onDischarged }: {
   const [busy, setBusy] = useState(false);
 
   const { data: doctors = [] } = useQuery({ queryKey: ['doctors'], queryFn: () => window.electronAPI.doctors.list(true) });
+  // Saved discharge-summary templates, filtered to this admission's doctor.
+  const { data: templates = [] } = useQuery({
+    queryKey: ['discharge-templates', admission.admission_doctor_id],
+    queryFn: () => window.electronAPI.ipd.dischargeTemplatesList(
+      admission.admission_doctor_id ? { doctor_id: admission.admission_doctor_id } : {}
+    ),
+  });
+
+  /** Merge a template's saved fields into the form (only filling blanks). */
+  const applyTemplate = (tpl: any) => {
+    let content: any = {};
+    try { content = JSON.parse(tpl.content_json || '{}'); } catch { content = {}; }
+    setF((prev: any) => {
+      const next = { ...prev };
+      for (const [k, v] of Object.entries(content)) {
+        if (v && (next[k] === undefined || next[k] === '' || next[k] === null)) next[k] = v;
+      }
+      return next;
+    });
+    toast(`Applied template “${tpl.name}”`, 'success');
+  };
 
   const submit = async () => {
     setBusy(true);
@@ -64,6 +85,21 @@ export function DischargeModal({ admission, onClose, onDischarged }: {
     <Modal open onClose={onClose} title={`Discharge — ${admission.patient_name} (${admission.admission_number})`} size="xl">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="space-y-4">
+          {/* Template quick-fill */}
+          {templates.length > 0 && (
+            <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20 p-2.5">
+              <div className="text-[10px] uppercase tracking-wide font-semibold text-blue-700 dark:text-blue-300 mb-1.5">Start from a template</div>
+              <div className="flex flex-wrap gap-1.5">
+                {templates.map((t: any) => (
+                  <button key={t.id} type="button" onClick={() => applyTemplate(t)}
+                    className="inline-flex items-center gap-1 rounded-full border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-[11px] font-medium hover:border-blue-500">
+                    {t.name}{t.department ? <span className="text-gray-400"> · {t.department}</span> : null}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Outcome picker */}
           <div>
             <label className="label">Outcome *</label>

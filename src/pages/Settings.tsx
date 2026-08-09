@@ -13,6 +13,8 @@ import { SlipPreviewLauncher } from '../components/SlipPreviewLauncher';
 import { AdminGate } from '../components/AdminGate';
 import { NetworkTroubleshoot } from '../components/NetworkTroubleshoot';
 import { WardsBedsEditor } from '../components/settings/WardsBedsEditor';
+import { DischargeTemplateEditor } from '../components/settings/DischargeTemplateEditor';
+import { ModuleTutorialButton } from '../components/ModuleTutorial';
 import { BillingSettings } from '../components/settings/BillingSettings';
 import { useToast } from '../hooks/useToast';
 import { INDIAN_STATES } from '../lib/india';
@@ -295,8 +297,8 @@ function AppModeSelector() {
           const active = current === m.value;
           const pending = save.isPending && (save.variables as any)?.app_mode === m.value;
           return (
+            <div key={m.value} className="flex flex-col gap-1.5">
             <button
-              key={m.value}
               type="button"
               disabled={save.isPending}
               onClick={() => {
@@ -361,6 +363,11 @@ function AppModeSelector() {
                 {m.includes.map((i) => <li key={i}>{i}</li>)}
               </ul>
             </button>
+            {/* "Learn about this setup" tutorial, just below each module option */}
+            <div className="px-1">
+              <ModuleTutorialButton mode={m.value} />
+            </div>
+            </div>
           );
         })}
       </div>
@@ -3923,6 +3930,8 @@ function BillingIpdTab() {
           help="Turns on the insurance module — insurer master, pre-authorisation tracking, and claim reconciliation. Leave off if you take only cash, UPI and card."
           value={draft.tpa_enabled ?? false} onChange={(v) => set('tpa_enabled', v)} />
       </div>
+
+      <DischargeTemplateEditor />
 
       {/* Admission requests */}
       <div className="card p-5">
