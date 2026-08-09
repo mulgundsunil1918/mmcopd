@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { registerIpc, runFullBackup, isBackupServiceReady } from './main/ipc';
+import { registerIpdBillingIpc } from './main/ipd-billing-ipc';
 import { installIpcRegistry } from './main/ipc-registry';
 import { registerWhatsAppIpc, pollRelayServer, runScheduledCampaigns } from './main/whatsapp-ipc';
 import { processQueue } from './services/whatsapp/queue-worker';
@@ -756,6 +757,8 @@ app.whenReady().then(async () => {
   // ipcHandlers (network-server.ts reads from there to expose POST /ipc/:channel).
   installIpcRegistry();
   registerIpc();
+  // IPD + billing live in their own module rather than growing ipc.ts further.
+  registerIpdBillingIpc();
   registerWhatsAppIpc();
   // Boot the network server if Settings says we're in 'server' mode.
   await applyNetworkMode().catch((e) => console.warn('Network server boot failed:', e));

@@ -82,6 +82,38 @@ export function getAllSettings(db: Database.Database): Settings {
     qr2_label: map.qr2_label || 'Scan to Pay / Review',
     anthropic_api_key: map.anthropic_api_key || '',
     google_review_url: map.google_review_url || '',
+
+    // ===== GST & Invoicing =====
+    // Default OFF. A clinic below the registration threshold must not have tax
+    // columns on its bills, and switching this on is a deliberate act.
+    gst_enabled: map.gst_enabled === 'true',
+    gst_registration_type: (map.gst_registration_type as any) || 'unregistered',
+    clinic_gstin: map.clinic_gstin || '',
+    clinic_legal_name: map.clinic_legal_name || '',
+    clinic_state_code: map.clinic_state_code || '',
+    // Clinical services are exempt in India (Notification 12/2017). Defaulting
+    // this true stops a clinic accidentally charging tax on consultations.
+    healthcare_gst_exempt: map.healthcare_gst_exempt !== 'false',
+    invoice_prefix: map.invoice_prefix || 'INV',
+    ip_number_prefix: map.ip_number_prefix || 'IP',
+    bill_round_off: map.bill_round_off !== 'false',
+
+    // ===== IPD =====
+    ipd_auto_accrue_bed: map.ipd_auto_accrue_bed !== 'false',
+    ipd_auto_accrue_nursing: map.ipd_auto_accrue_nursing !== 'false',
+    ipd_auto_accrue_doctor_visit: map.ipd_auto_accrue_doctor_visit !== 'false',
+    ipd_doctor_visit_mode: (map.ipd_doctor_visit_mode as any) || 'per_consultant',
+    ipd_transfer_charge_rule: (map.ipd_transfer_charge_rule as any) || 'higher',
+    ipd_accrual_time: map.ipd_accrual_time || '00:05',
+    ipd_advance_enabled: map.ipd_advance_enabled !== 'false',
+
+    // ===== Discounts =====
+    // Empty = no one may discount until the clinic sets caps deliberately.
+    discount_caps_json: map.discount_caps_json || '{"admin":100}',
+    discount_require_reason: map.discount_require_reason !== 'false',
+
+    // ===== TPA =====
+    tpa_enabled: map.tpa_enabled === 'true',
   };
 }
 

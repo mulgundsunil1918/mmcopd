@@ -561,6 +561,43 @@ export interface Settings {
   qr2_label: string;
   anthropic_api_key: string;
   google_review_url: string;
+
+  // ===== GST & Invoicing =====
+  /** Master switch. Off = plain receipts with no tax columns anywhere. */
+  gst_enabled: boolean;
+  /** unregistered | regular | composition — drives which document is printed. */
+  gst_registration_type: 'unregistered' | 'regular' | 'composition';
+  clinic_gstin: string;
+  /** Legal entity name as registered on the GSTIN, if different from clinic_name. */
+  clinic_legal_name: string;
+  /** Two-digit GST state code, e.g. 29 for Karnataka. Decides CGST+SGST vs IGST. */
+  clinic_state_code: string;
+  /** Healthcare services are GST-exempt in India; medicines are not. */
+  healthcare_gst_exempt: boolean;
+  invoice_prefix: string;
+  ip_number_prefix: string;
+  /** Round bill totals to the nearest rupee and record the difference. */
+  bill_round_off: boolean;
+
+  // ===== IPD =====
+  ipd_auto_accrue_bed: boolean;
+  ipd_auto_accrue_nursing: boolean;
+  ipd_auto_accrue_doctor_visit: boolean;
+  /** Which doctors get a visit fee posted each day. */
+  ipd_doctor_visit_mode: 'per_consultant' | 'primary_only' | 'manual';
+  /** How a same-day ward change is charged. */
+  ipd_transfer_charge_rule: 'higher' | 'prorata' | 'both';
+  /** Local time the nightly accrual runs, HH:MM. */
+  ipd_accrual_time: string;
+  ipd_advance_enabled: boolean;
+
+  // ===== Discounts =====
+  /** JSON map of role -> maximum discount percent, e.g. {"receptionist":5}. */
+  discount_caps_json: string;
+  discount_require_reason: boolean;
+
+  // ===== TPA / Insurance =====
+  tpa_enabled: boolean;
 }
 
 /** Live state of a patient's free-follow-up entitlement with a given doctor, used at booking time. */
