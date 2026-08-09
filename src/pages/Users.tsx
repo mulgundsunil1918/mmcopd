@@ -12,8 +12,22 @@ const ROLE_LABELS: Record<Role, string> = {
   staff: 'Staff (Reception + Doctor)',
   receptionist: 'Receptionist',
   doctor: 'Doctor',
+  nurse: 'Nurse',
+  ward_incharge: 'Ward In-charge',
   lab_tech: 'Lab Tech',
   pharmacist: 'Pharmacist',
+};
+
+/** What each role is for — shown under the picker so clinics assign correctly. */
+const ROLE_HELP: Record<Role, string> = {
+  admin: 'Full access including settings, users, billing and danger-zone actions.',
+  staff: 'Default combined reception + doctor access. Not assignable to a real account.',
+  receptionist: 'Register patients, book appointments, admit to a ward, take payments and raise bills.',
+  doctor: 'Consultations, prescriptions, ward rounds, progress notes and discharge summaries.',
+  nurse: 'Record vitals, give medicines, intake/output and nursing notes for admitted patients.',
+  ward_incharge: 'Everything a nurse can do, plus countersign entries, correct errors and authorise bed transfers.',
+  lab_tech: 'Accept lab orders and enter results.',
+  pharmacist: 'Dispense medicines, manage stock, batches and purchase invoices.',
 };
 
 /**
@@ -162,6 +176,7 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
           <select className="input" value={role} onChange={(e) => setRole(e.target.value as CreatableRole)}>
             {CREATABLE_ROLES.map((v) => <option key={v} value={v}>{ROLE_LABELS[v]}</option>)}
           </select>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-1">{ROLE_HELP[role]}</div>
         </Row>
         {role === 'doctor' && (
           <Row label="Link to Doctor">

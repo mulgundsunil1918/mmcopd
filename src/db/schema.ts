@@ -425,5 +425,350 @@ export function createSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_disp_date ON dispensing_register(dispensed_at);
     CREATE INDEX IF NOT EXISTS idx_disp_schedule ON dispensing_register(schedule, dispensed_at);
     CREATE INDEX IF NOT EXISTS idx_disp_patient ON dispensing_register(patient_id);
+
+    -- =====================================================================
+    -- IN-PATIENT (IPD)
+    -- =====================================================================
+
+    -- Wards are configured per clinic in Settings. Rates drive the daily
+    -- auto-accrual of bed and nursing charges onto the running IPD bill.
+    CREATE TABLE IF NOT EXISTS wards (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      name            TEXT NOT NULL UNIQUE,
+      ward_type       TEXT NOT NULL DEFAULT 'general',
+      per_day_rate    REAL NOT NULL DEFAULT 0,
+      nursing_per_day REAL NOT NULL DEFAULT 0,
+      colour          TEXT,
+      sort_order      INTEGER NOT NULL DEFAULT 0,
+      is_active       INTEGER NOT NULL DEFAULT 1,
+      created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- status drives the colour-coded bed map.
+    CREATE TABLE IF NOT EXISTS beds (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      ward_id     INTEGER NOT NULL REFERENCES wards(id) ON DELETE CASCADE,
+      bed_number  TEXT NOT NULL,
+      status      TEXT NOT NULL DEFAULT 'free'
+                    CHECK (status IN ('free','occupied','reserved','cleaning','blocked')),
+      notes       TEXT,
+      is_active   INTEGER NOT NULL DEFAULT 1,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (ward_id, bed_number)
+    );
+    CREATE INDEX IF NOT EXISTS idx_beds_ward ON beds(ward_id, status);
+
+    -- Every bed move. A same-day move is billed at the higher of the two ward
+    -- rates (clinic-configurable), so the history is needed to compute charges.
+    CREATE TABLE IF NOT EXISTS bed_transfers (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      admission_id  INTEGER NOT NULL REFERENCES ip_admissions(id) ON DELETE CASCADE,
+      from_bed_id   INTEGER REFERENCES beds(id),
+      to_bed_id     INTEGER NOT NULL REFERENCES beds(id),
+      reason        TEXT,
+      transferred_at TEXT NOT NULL DEFAULT (datetime('now')),
+      transferred_by TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_bed_transfers_adm ON bed_transfers(admission_id, transferred_at);
+
+    -- Doctor round notes.
+    CREATE TABLE IF NOT EXISTS ip_progress_notes (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      admission_id INTEGER NOT NULL REFERENCES ip_admissions(id) ON DELETE CASCADE,
+      doctor_id    INTEGER REFERENCES doctors(id),
+      note         TEXT NOT NULL,
+      noted_at     TEXT NOT NULL DEFAULT (datetime('now')),
+      recorded_by  TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_ip_notes_adm ON ip_progress_notes(admission_id, noted_at);
+
+    -- Observation chart. Nulls allowed so a nurse can record only what was taken.
+    CREATE TABLE IF NOT EXISTS ip_vitals (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      admission_id INTEGER NOT NULL REFERENCES ip_admissions(id) ON DELETE CASCADE,
+      temperature  REAL,
+      pulse        INTEGER,
+      respiration  INTEGER,
+      bp_systolic  INTEGER,
+      bp_diastolic INTEGER,
+      spo2         INTEGER,
+      pain_score   INTEGER,
+      notes        TEXT,
+      recorded_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      recorded_by  TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_ip_vitals_adm ON ip_vitals(admission_id, recorded_at);
+
+    -- What the doctor prescribed for the stay.
+    CREATE TABLE IF NOT EXISTS ip_medication_orders (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      admission_id   INTEGER NOT NULL REFERENCES ip_admissions(id) ON DELETE CASCADE,
+      drug_master_id INTEGER REFERENCES drug_master(id),
+      drug_name      TEXT NOT NULL,
+      dose           TEXT,
+      route          TEXT,
+      frequency      TEXT,
+      instructions   TEXT,
+      start_at       TEXT NOT NULL DEFAULT (datetime('now')),
+      stop_at        TEXT,
+      status         TEXT NOT NULL DEFAULT 'active'
+                       CHECK (status IN ('active','stopped','completed')),
+      ordered_by_doctor_id INTEGER REFERENCES doctors(id),
+      created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_ip_medord_adm ON ip_medication_orders(admission_id, status);
+
+    -- Medication administration record. A 'given' row depletes pharmacy stock
+    -- from the FEFO batch and posts the charge, all in one transaction.
+    CREATE TABLE IF NOT EXISTS ip_medication_admin (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id      INTEGER NOT NULL REFERENCES ip_medication_orders(id) ON DELETE CASCADE,
+      admission_id  INTEGER NOT NULL REFERENCES ip_admissions(id) ON DELETE CASCADE,
+      status        TEXT NOT NULL DEFAULT 'given'
+                      CHECK (status IN ('given','refused','omitted','held')),
+      reason        TEXT,
+      qty           REAL NOT NULL DEFAULT 0,
+      batch_id      INTEGER REFERENCES drug_stock_batches(id),
+      bill_item_id  INTEGER,
+      administered_at TEXT NOT NULL DEFAULT (datetime('now')),
+      administered_by TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_ip_medadmin_adm ON ip_medication_admin(admission_id, administered_at);
+
+    CREATE TABLE IF NOT EXISTS ip_intake_output (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      admission_id INTEGER NOT NULL REFERENCES ip_admissions(id) ON DELETE CASCADE,
+      kind         TEXT NOT NULL CHECK (kind IN ('intake','output')),
+      route        TEXT,
+      volume_ml    REAL NOT NULL DEFAULT 0,
+      notes        TEXT,
+      recorded_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      recorded_by  TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_ip_io_adm ON ip_intake_output(admission_id, recorded_at);
+
+    CREATE TABLE IF NOT EXISTS ip_nursing_notes (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      admission_id INTEGER NOT NULL REFERENCES ip_admissions(id) ON DELETE CASCADE,
+      note         TEXT NOT NULL,
+      shift        TEXT,
+      noted_at     TEXT NOT NULL DEFAULT (datetime('now')),
+      recorded_by  TEXT,
+      countersigned_by TEXT,
+      countersigned_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_ip_nursing_adm ON ip_nursing_notes(admission_id, noted_at);
+
+    CREATE TABLE IF NOT EXISTS ip_diet_orders (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      admission_id INTEGER NOT NULL REFERENCES ip_admissions(id) ON DELETE CASCADE,
+      diet_type    TEXT NOT NULL,
+      instructions TEXT,
+      start_at     TEXT NOT NULL DEFAULT (datetime('now')),
+      stop_at      TEXT,
+      ordered_by   TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_ip_diet_adm ON ip_diet_orders(admission_id);
+
+    -- Referral to another consultant during the stay. Their visit fee bills
+    -- against their own doctor rate.
+    CREATE TABLE IF NOT EXISTS ip_cross_consultations (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      admission_id INTEGER NOT NULL REFERENCES ip_admissions(id) ON DELETE CASCADE,
+      doctor_id    INTEGER NOT NULL REFERENCES doctors(id),
+      reason       TEXT,
+      status       TEXT NOT NULL DEFAULT 'requested'
+                     CHECK (status IN ('requested','seen','declined')),
+      opinion      TEXT,
+      requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+      responded_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_ip_xconsult_adm ON ip_cross_consultations(admission_id, status);
+
+    -- =====================================================================
+    -- MEDICO-LEGAL REGISTER
+    -- =====================================================================
+    CREATE TABLE IF NOT EXISTS mlc_register (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      admission_id    INTEGER REFERENCES ip_admissions(id) ON DELETE SET NULL,
+      patient_id      INTEGER NOT NULL REFERENCES patients(id),
+      mlc_number      TEXT,
+      police_station  TEXT,
+      intimated_at    TEXT,
+      intimated_by    TEXT,
+      brought_by      TEXT,
+      brought_by_phone TEXT,
+      incident_type   TEXT,
+      incident_at     TEXT,
+      incident_place  TEXT,
+      injury_description TEXT,
+      notes           TEXT,
+      created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_mlc_admission ON mlc_register(admission_id);
+
+    CREATE TABLE IF NOT EXISTS mlc_correspondence (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      mlc_id      INTEGER NOT NULL REFERENCES mlc_register(id) ON DELETE CASCADE,
+      direction   TEXT NOT NULL CHECK (direction IN ('sent','received')),
+      summary     TEXT NOT NULL,
+      reference_no TEXT,
+      occurred_at TEXT NOT NULL DEFAULT (datetime('now')),
+      recorded_by TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_mlc_corr ON mlc_correspondence(mlc_id, occurred_at);
+
+    CREATE TABLE IF NOT EXISTS body_release (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      admission_id  INTEGER NOT NULL REFERENCES ip_admissions(id) ON DELETE CASCADE,
+      released_to   TEXT NOT NULL,
+      relation      TEXT,
+      id_proof_type TEXT,
+      id_proof_no   TEXT,
+      contact_phone TEXT,
+      released_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      released_by   TEXT,
+      notes         TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_body_release_adm ON body_release(admission_id);
+
+    -- =====================================================================
+    -- BILLING
+    -- =====================================================================
+
+    -- Chargeable items a clinic can bill. Fully configurable per clinic, with a
+    -- colour used on the bill preview so staff can see where money is going.
+    CREATE TABLE IF NOT EXISTS charge_heads (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      name         TEXT NOT NULL,
+      category     TEXT NOT NULL DEFAULT 'other',
+      colour       TEXT,
+      default_rate REAL NOT NULL DEFAULT 0,
+      hsn_sac      TEXT,
+      gst_rate     REAL NOT NULL DEFAULT 0,
+      is_taxable   INTEGER NOT NULL DEFAULT 0,
+      applies_to   TEXT NOT NULL DEFAULT 'both'
+                     CHECK (applies_to IN ('opd','ipd','both')),
+      sort_order   INTEGER NOT NULL DEFAULT 0,
+      is_active    INTEGER NOT NULL DEFAULT 1,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (name, category)
+    );
+
+    -- Real line-item rows, replacing bills.items_json. GST returns need
+    -- line-level HSN and tax, which a JSON blob cannot be reported on.
+    CREATE TABLE IF NOT EXISTS bill_items (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      bill_id        INTEGER NOT NULL REFERENCES bills(id) ON DELETE CASCADE,
+      charge_head_id INTEGER REFERENCES charge_heads(id),
+      description    TEXT NOT NULL,
+      qty            REAL NOT NULL DEFAULT 1,
+      rate           REAL NOT NULL DEFAULT 0,
+      amount         REAL NOT NULL DEFAULT 0,
+      hsn_sac        TEXT,
+      gst_rate       REAL NOT NULL DEFAULT 0,
+      is_taxable     INTEGER NOT NULL DEFAULT 0,
+      cgst           REAL NOT NULL DEFAULT 0,
+      sgst           REAL NOT NULL DEFAULT 0,
+      -- Where the line came from, so a charge can be traced back and so
+      -- auto-accrual does not post the same day's bed charge twice.
+      source         TEXT NOT NULL DEFAULT 'manual',
+      source_ref_id  INTEGER,
+      accrual_date   TEXT,
+      created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+      created_by     TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_bill_items_bill ON bill_items(bill_id);
+    -- Stops a restarted scheduler from double-posting the same day's accrual.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_bill_items_accrual_once
+      ON bill_items(bill_id, source, source_ref_id, accrual_date)
+      WHERE accrual_date IS NOT NULL;
+
+    -- Money received against a bill. Supports part payments.
+    CREATE TABLE IF NOT EXISTS bill_payments (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      bill_id      INTEGER NOT NULL REFERENCES bills(id) ON DELETE CASCADE,
+      amount       REAL NOT NULL,
+      payment_mode TEXT NOT NULL,
+      reference    TEXT,
+      received_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      received_by  TEXT,
+      notes        TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_bill_payments_bill ON bill_payments(bill_id);
+
+    -- Deposits taken at admission, adjusted against the final bill. Refunds
+    -- matter most on LAMA and death, where money is usually owed back.
+    CREATE TABLE IF NOT EXISTS advances (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id    INTEGER NOT NULL REFERENCES patients(id),
+      admission_id  INTEGER REFERENCES ip_admissions(id) ON DELETE SET NULL,
+      receipt_no    TEXT,
+      amount        REAL NOT NULL,
+      payment_mode  TEXT NOT NULL,
+      received_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      received_by   TEXT,
+      adjusted_amount REAL NOT NULL DEFAULT 0,
+      refunded_amount REAL NOT NULL DEFAULT 0,
+      refunded_at   TEXT,
+      refunded_by   TEXT,
+      refund_reason TEXT,
+      notes         TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_advances_patient ON advances(patient_id);
+    CREATE INDEX IF NOT EXISTS idx_advances_admission ON advances(admission_id);
+
+    -- =====================================================================
+    -- TPA / INSURANCE
+    -- =====================================================================
+    CREATE TABLE IF NOT EXISTS tpa_master (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      name          TEXT NOT NULL UNIQUE,
+      code          TEXT,
+      contact_person TEXT,
+      phone         TEXT,
+      email         TEXT,
+      address       TEXT,
+      notes         TEXT,
+      is_active     INTEGER NOT NULL DEFAULT 1,
+      created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS tpa_claims (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      tpa_id         INTEGER NOT NULL REFERENCES tpa_master(id),
+      patient_id     INTEGER NOT NULL REFERENCES patients(id),
+      admission_id   INTEGER REFERENCES ip_admissions(id) ON DELETE SET NULL,
+      bill_id        INTEGER REFERENCES bills(id) ON DELETE SET NULL,
+      policy_no      TEXT,
+      insurer_name   TEXT,
+      preauth_no     TEXT,
+      preauth_amount REAL NOT NULL DEFAULT 0,
+      preauth_status TEXT NOT NULL DEFAULT 'pending'
+                       CHECK (preauth_status IN ('pending','approved','rejected','not_required')),
+      claimed_amount REAL NOT NULL DEFAULT 0,
+      approved_amount REAL NOT NULL DEFAULT 0,
+      settled_amount REAL NOT NULL DEFAULT 0,
+      copay_amount   REAL NOT NULL DEFAULT 0,
+      status         TEXT NOT NULL DEFAULT 'draft'
+                       CHECK (status IN ('draft','preauth_sent','preauth_approved','submitted','queried','approved','settled','rejected','closed')),
+      submitted_at   TEXT,
+      settled_at     TEXT,
+      notes          TEXT,
+      created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_tpa_claims_status ON tpa_claims(status);
+    CREATE INDEX IF NOT EXISTS idx_tpa_claims_admission ON tpa_claims(admission_id);
+
+    CREATE TABLE IF NOT EXISTS tpa_claim_events (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      claim_id   INTEGER NOT NULL REFERENCES tpa_claims(id) ON DELETE CASCADE,
+      event      TEXT NOT NULL,
+      detail     TEXT,
+      amount     REAL,
+      occurred_at TEXT NOT NULL DEFAULT (datetime('now')),
+      recorded_by TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_tpa_events_claim ON tpa_claim_events(claim_id, occurred_at);
   `);
 }

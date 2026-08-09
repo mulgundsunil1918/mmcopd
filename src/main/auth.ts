@@ -1,7 +1,19 @@
 import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
 
-export type Role = 'admin' | 'receptionist' | 'doctor' | 'lab_tech' | 'pharmacist';
+/**
+ * Backend roles — these are the values that may be stored on a user account.
+ * Keep in sync with the renderer's Role in hooks/useAuth.tsx, which additionally
+ * carries the 'staff' pseudo-role used for the default unauthenticated session.
+ */
+export type Role =
+  | 'admin'
+  | 'receptionist'
+  | 'doctor'
+  | 'nurse'
+  | 'ward_incharge'
+  | 'lab_tech'
+  | 'pharmacist';
 
 export interface SessionUser {
   id: number;

@@ -29,7 +29,17 @@ import type {
   Wholesaler,
 } from './types';
 
-type Role = 'admin' | 'receptionist' | 'doctor' | 'lab_tech' | 'pharmacist';
+/**
+ * Assignable account roles. Must stay identical to Role in main/auth.ts.
+ * (The renderer's Role in hooks/useAuth.tsx is this list plus the 'staff'
+ * pseudo-role used for the default unauthenticated session, which is never
+ * stored on an account.)
+ *
+ * Preload cannot import from main, so this is a deliberate duplicate — three
+ * copies of this union previously drifted apart, which is what made the user
+ * form offer a 'staff' role the backend rejected.
+ */
+type Role = 'admin' | 'receptionist' | 'doctor' | 'nurse' | 'ward_incharge' | 'lab_tech' | 'pharmacist';
 type SessionUser = { id: number; username: string; role: Role; display_name: string | null; doctor_id: number | null };
 
 const api = {

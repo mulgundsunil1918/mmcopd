@@ -1,6 +1,16 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 
-export type Role = 'admin' | 'staff' | 'receptionist' | 'doctor' | 'lab_tech' | 'pharmacist';
+/** Mirrors the backend Role in main/auth.ts, plus the renderer-only 'staff'
+ *  pseudo-role used for the default unauthenticated session. */
+export type Role =
+  | 'admin'
+  | 'staff'
+  | 'receptionist'
+  | 'doctor'
+  | 'nurse'
+  | 'ward_incharge'
+  | 'lab_tech'
+  | 'pharmacist';
 export interface SessionUser {
   id: number;
   username: string;

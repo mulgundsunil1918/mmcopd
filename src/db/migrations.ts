@@ -39,6 +39,127 @@ function addColumnIfMissing(db: Database.Database, table: string, column: string
 }
 
 /**
+ * Copy existing bills.items_json into real bill_items rows.
+ *
+ * items_json stays untouched as a fallback, so this migration is non-destructive
+ * and can be re-run. Only bills that have no rows yet are converted, so a bill
+ * whose lines have since been edited is never overwritten.
+ *
+ * Historic lines are marked exempt with no tax: they were raised before GST
+ * support existed, and inventing tax on a bill already given to a patient would
+ * misstate what was actually charged.
+ */
+function migrateBillItemsFromJson(db: Database.Database) {
+  let bills: { id: number; items_json: string }[];
+  try {
+    bills = db
+      .prepare(
+        `SELECT b.id, b.items_json FROM bills b
+         WHERE b.items_json IS NOT NULL AND b.items_json != ''
+           AND NOT EXISTS (SELECT 1 FROM bill_items bi WHERE bi.bill_id = b.id)`
+      )
+      .all() as any;
+  } catch (err: any) {
+    throw new Error(`Bill-item migration could not read bills: ${err?.message || String(err)}`);
+  }
+  if (bills.length === 0) return;
+
+  const ins = db.prepare(
+    `INSERT INTO bill_items (bill_id, description, qty, rate, amount, is_taxable, gst_rate, source)
+     VALUES (?, ?, ?, ?, ?, 0, 0, 'migrated')`
+  );
+
+  let converted = 0;
+  const skipped: number[] = [];
+  const tx = db.transaction(() => {
+    for (const b of bills) {
+      let items: any[];
+      try {
+        const parsed = JSON.parse(b.items_json);
+        if (!Array.isArray(parsed)) { skipped.push(b.id); continue; }
+        items = parsed;
+      } catch {
+        // Malformed JSON — leave items_json in place and carry on rather than
+        // aborting the whole migration for one bad row.
+        skipped.push(b.id);
+        continue;
+      }
+      for (const it of items) {
+        const amount = Number(it?.amount ?? 0) || 0;
+        const qty = Number(it?.qty ?? 1) || 1;
+        ins.run(
+          b.id,
+          String(it?.label ?? it?.description ?? it?.name ?? 'Item'),
+          qty,
+          Number(it?.rate ?? (qty ? amount / qty : amount)) || 0,
+          amount
+        );
+      }
+      converted++;
+    }
+  });
+
+  try {
+    tx();
+  } catch (err: any) {
+    throw new Error(
+      `Bill-item migration failed after converting ${converted} of ${bills.length} bills: ${err?.message || String(err)}. ` +
+      `No changes were applied; bills.items_json is untouched.`
+    );
+  }
+  if (skipped.length > 0) {
+    console.warn(
+      `[migration] ${skipped.length} bill(s) had unreadable items_json and were left as-is: ids ${skipped.join(', ')}`
+    );
+  }
+}
+
+/**
+ * Seed a starting set of charge heads so a new clinic has something to bill
+ * against on day one. Every field is editable in Settings, and nothing is
+ * re-inserted once a clinic has its own — this only runs on an empty table.
+ *
+ * Defaults are GST-exempt because clinical services are exempt in India;
+ * medicines are the taxable case and carry their own rate from the drug master.
+ */
+function seedDefaultChargeHeads(db: Database.Database) {
+  let count = 0;
+  try {
+    count = (db.prepare('SELECT COUNT(*) AS c FROM charge_heads').get() as { c: number }).c;
+  } catch (err: any) {
+    throw new Error(`Could not read charge_heads: ${err?.message || String(err)}`);
+  }
+  if (count > 0) return;
+
+  const rows: [string, string, string, number, string][] = [
+    // name, category, colour, applies_to, ...
+    ['Consultation',        'doctor',    '#7c3aed', 0, 'both'],
+    ['Follow-up Visit',     'doctor',    '#8b5cf6', 0, 'both'],
+    ['Daily Visit Charge',  'doctor',    '#a78bfa', 0, 'ipd'],
+    ['Bed Charge',          'bed',       '#2563eb', 0, 'ipd'],
+    ['Nursing Charge',      'nursing',   '#0d9488', 0, 'ipd'],
+    ['Procedure',           'procedure', '#db2777', 0, 'both'],
+    ['Laboratory',          'lab',       '#d97706', 0, 'both'],
+    ['Pharmacy',            'pharmacy',  '#059669', 0, 'both'],
+    ['Oxygen',              'other',     '#0891b2', 0, 'ipd'],
+    ['Registration Fee',    'other',     '#64748b', 0, 'opd'],
+    ['Admission Charge',    'other',     '#475569', 0, 'ipd'],
+  ];
+  const ins = db.prepare(
+    `INSERT INTO charge_heads (name, category, colour, default_rate, is_taxable, gst_rate, applies_to, sort_order)
+     VALUES (?, ?, ?, ?, 0, 0, ?, ?)`
+  );
+  const tx = db.transaction(() => {
+    rows.forEach((r, i) => ins.run(r[0], r[1], r[2], r[3], r[4], i));
+  });
+  try {
+    tx();
+  } catch (err: any) {
+    throw new Error(`Could not seed default charge heads: ${err?.message || String(err)}`);
+  }
+}
+
+/**
  * Give every existing appointment its per-patient visit number and printable
  * visit id, in chronological order.
  *
@@ -245,6 +366,72 @@ export function runMigrations(db: Database.Database) {
   addColumnIfMissing(db, 'appointments', 'visit_id', 'TEXT');
   backfillVisitNumbers(db);
   seedCountersFromExistingData(db);
+
+  // ===== IPD =====
+  // bed_id replaces the old free-text bed_number/ward, which could not stop two
+  // patients being placed in the same bed. bed_number/ward are left in place so
+  // existing records stay readable.
+  addColumnIfMissing(db, 'ip_admissions', 'bed_id', 'INTEGER REFERENCES beds(id)');
+  addColumnIfMissing(db, 'ip_admissions', 'ward_id', 'INTEGER REFERENCES wards(id)');
+  addColumnIfMissing(db, 'ip_admissions', 'admission_type', "TEXT NOT NULL DEFAULT 'planned'");
+  addColumnIfMissing(db, 'ip_admissions', 'provisional_diagnosis', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'attendant_name', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'attendant_phone', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'attendant_relation', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'is_mlc', 'INTEGER NOT NULL DEFAULT 0');
+  // Outcome is separate from status so analytics can group by how a stay ended
+  // (discharged / lama / dama / death / referred / absconded) while status stays
+  // the simple admitted-or-not flag the existing screens rely on.
+  addColumnIfMissing(db, 'ip_admissions', 'outcome', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'outcome_notes', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'death_at', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'death_cause', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'referred_to', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'risk_explained_by', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'bill_id', 'INTEGER REFERENCES bills(id)');
+
+  // Existing rows were only ever 'admitted' or 'discharged'; give the finished
+  // ones the matching outcome so analytics has no blank bucket.
+  try {
+    db.prepare("UPDATE ip_admissions SET outcome='discharged' WHERE outcome IS NULL AND status='discharged'").run();
+  } catch (err: any) {
+    throw new Error(`Failed to backfill IPD outcomes: ${err?.message || String(err)}`);
+  }
+
+  // THE occupancy guarantee: one bed can hold at most one live admission.
+  // Enforced by the database, not the UI, so two stations admitting at the same
+  // moment cannot both take the same bed.
+  try {
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_bed_single_active_admission
+             ON ip_admissions(bed_id) WHERE bed_id IS NOT NULL AND status='admitted'`);
+  } catch (err: any) {
+    throw new Error(
+      `Could not create the bed-occupancy constraint: ${err?.message || String(err)}. ` +
+      `This usually means two live admissions already share a bed_id — resolve those rows, then restart.`
+    );
+  }
+
+  // ===== Billing =====
+  addColumnIfMissing(db, 'bills', 'admission_id', 'INTEGER REFERENCES ip_admissions(id)');
+  addColumnIfMissing(db, 'bills', 'status', "TEXT NOT NULL DEFAULT 'paid'");
+  addColumnIfMissing(db, 'bills', 'bill_type', "TEXT NOT NULL DEFAULT 'opd_consult'");
+  addColumnIfMissing(db, 'bills', 'taxable_total', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'bills', 'exempt_total', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'bills', 'cgst_total', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'bills', 'sgst_total', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'bills', 'round_off', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'bills', 'amount_paid', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'bills', 'advance_adjusted', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'bills', 'discount_reason', 'TEXT');
+  addColumnIfMissing(db, 'bills', 'discount_by', 'TEXT');
+  addColumnIfMissing(db, 'bills', 'cancelled_at', 'TEXT');
+  addColumnIfMissing(db, 'bills', 'cancelled_by', 'TEXT');
+  addColumnIfMissing(db, 'bills', 'cancel_reason', 'TEXT');
+  addColumnIfMissing(db, 'bills', 'is_tax_invoice', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'bills', 'tpa_claim_id', 'INTEGER REFERENCES tpa_claims(id)');
+
+  migrateBillItemsFromJson(db);
+  seedDefaultChargeHeads(db);
 
   // Free follow-up policy: every paid visit grants N free follow-up visits within X days
   // with the same doctor. We tag the bill with a flag + the paid "anchor" appointment so
