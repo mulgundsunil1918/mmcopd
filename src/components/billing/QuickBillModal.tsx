@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, Search, Plus, Trash2, Receipt, UserPlus, X } from 'lucide-react';
+import { Loader2, Search, Plus, Trash2, Receipt, Eye, X } from 'lucide-react';
 import { Modal } from '../Modal';
 import { BillPrint } from './BillPrint';
 import { useToast } from '../../hooks/useToast';
@@ -46,6 +46,7 @@ export function QuickBillModal({
   const [paidNow, setPaidNow] = useState(true);
   const [busy, setBusy] = useState(false);
   const [printBillId, setPrintBillId] = useState<number | null>(null);
+  const [preview, setPreview] = useState(false);   // pre-save on-screen preview
 
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   const { data: heads = [] } = useQuery({ queryKey: ['charge-heads-quick'], queryFn: () => window.electronAPI.chargeHeads.list() });
@@ -255,10 +256,81 @@ export function QuickBillModal({
           <button className="btn-primary" disabled={busy} onClick={() => save(true)}>
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Receipt className="w-4 h-4" />} Save &amp; Print
           </button>
+          <button className="btn-secondary" disabled={busy} onClick={() => setPreview(true)}>
+            <Eye className="w-4 h-4" /> Preview
+          </button>
           <button className="btn-secondary" disabled={busy} onClick={() => save(false)}>Save only</button>
           <button className="btn-ghost" onClick={onClose}>Cancel</button>
         </div>
       </div>
+
+      {preview && (
+        <PreviewOverlay
+          clinic={settings}
+          payerName={patient ? `${patient.first_name} ${patient.last_name}` : customName}
+          payerSub={patient ? `${patient.uhid} · ${patient.phone}` : 'Walk-in'}
+          lines={lines.filter((l) => l.description.trim())}
+          gstOn={gstOn}
+          money={money}
+          onClose={() => setPreview(false)}
+        />
+      )}
     </Modal>
   );
 }
+
+/** On-screen bill preview BEFORE saving — computed client-side, no DB write. */
+function PreviewOverlay({ clinic, payerName, payerSub, lines, gstOn, money, onClose }: {
+  clinic: any; payerName: string; payerSub: string; lines: Line[]; gstOn: boolean; money: (n: number) => string; onClose: () => void;
+}) {
+  const rows = lines.map((l) => {
+    const amt = (Number(l.qty) || 1) * (Number(l.rate) || 0);
+    const gst = gstOn && l.is_taxable && l.gst_rate ? (amt * l.gst_rate) / 100 : 0;
+    return { ...l, amt, gst };
+  });
+  const subtotal = rows.reduce((s, r) => s + r.amt, 0);
+  const gstTotal = rows.reduce((s, r) => s + r.gst, 0);
+  const isTax = gstOn && gstTotal > 0;
+
+  return (
+    <div className="fixed inset-0 z-[210] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white text-slate-900 rounded-lg shadow-2xl w-full max-w-lg p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b-2 pb-2" style={{ borderColor: '#1e3a8a' }}>
+          <div className="font-extrabold uppercase" style={{ color: '#1e3a8a', fontSize: 18 }}>{clinic?.clinic_name || 'CureDesk HMS'}</div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="text-center my-2">
+          <span className="inline-block px-3 py-0.5 rounded font-bold text-[12px]" style={{ background: '#eff6ff', color: '#1e3a8a' }}>
+            {!gstOn ? 'RECEIPT (DRAFT)' : isTax ? 'TAX INVOICE (DRAFT)' : 'BILL OF SUPPLY (DRAFT)'}
+          </span>
+        </div>
+        <div className="text-[12px] mb-2"><b>Bill to:</b> {payerName || '—'} <span className="text-slate-500">· {payerSub}</span></div>
+        <table className="w-full text-[12px]" style={{ borderCollapse: 'collapse' }}>
+          <thead><tr style={{ background: '#f1f5f9' }}>
+            <th style={cell}>Item</th><th style={cell}>Qty</th><th style={cell}>Rate</th>
+            {isTax && <th style={cell}>GST</th>}<th style={{ ...cell, textAlign: 'right' }}>Amount</th>
+          </tr></thead>
+          <tbody>
+            {rows.length === 0 && <tr><td colSpan={isTax ? 5 : 4} style={{ ...cell, color: '#94a3b8' }}>No lines yet.</td></tr>}
+            {rows.map((r, i) => (
+              <tr key={i}>
+                <td style={{ ...cell, textAlign: 'left' }}>{r.description}</td>
+                <td style={cell}>{r.qty}</td><td style={cell}>{money(r.rate)}</td>
+                {isTax && <td style={cell}>{r.gst ? money(r.gst) : '—'}</td>}
+                <td style={{ ...cell, textAlign: 'right' }}>{money(r.amt)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="mt-2 text-[13px] flex flex-col items-end gap-0.5">
+          <div className="flex justify-between w-40"><span className="text-slate-500">Subtotal</span><span>{money(subtotal)}</span></div>
+          {isTax && <div className="flex justify-between w-40"><span className="text-slate-500">GST</span><span>{money(gstTotal)}</span></div>}
+          <div className="flex justify-between w-40 font-bold border-t pt-0.5"><span>Total</span><span>{money(subtotal + gstTotal)}</span></div>
+        </div>
+        <div className="text-[10px] text-slate-400 mt-3 text-center">This is a draft preview. Use “Save &amp; Print” to finalise and print the bill.</div>
+      </div>
+    </div>
+  );
+}
+
+const cell: React.CSSProperties = { border: '1px solid #e2e8f0', padding: '3px 6px', textAlign: 'center' };

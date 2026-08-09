@@ -8,6 +8,7 @@ import {
   assessGrowth, ageInDays, bmi as calcBmi, midParentalHeight, correctedAge,
   type GrowthChart, type Sex,
 } from '../lib/peds/growth';
+import { GrowthChart as GrowthChartPlot } from '../components/peds/GrowthChart';
 
 /**
  * Pediatrics add-on. Growth centiles (WHO), the immunisation diary, and the
@@ -190,6 +191,9 @@ function GrowthSection({ patient }: { patient: any }) {
         </button>
       </div>
 
+      {/* Visual chart */}
+      {history.length > 0 && <GrowthChartPanel history={history} sex={sex} />}
+
       {/* History */}
       {history.length > 0 && (
         <div className="card p-0 overflow-x-auto">
@@ -218,6 +222,31 @@ function GrowthSection({ patient }: { patient: any }) {
 }
 
 const CHART_SHORT: Record<GrowthChart, string> = { wfa: 'Weight-for-age', lhfa: 'Height-for-age', hcfa: 'Head circ.', bfa: 'BMI-for-age' };
+
+/** Chart-type toggle + the plotted WHO curve for the child's history. */
+function GrowthChartPanel({ history, sex }: { history: any[]; sex: Sex }) {
+  const [chart, setChart] = useState<GrowthChart>('wfa');
+  const field: Record<GrowthChart, string> = { wfa: 'weight_kg', lhfa: 'height_cm', hcfa: 'head_circ_cm', bfa: 'bmi' };
+  const points = history
+    .filter((m) => m.age_days != null && m[field[chart]] != null)
+    .map((m) => ({ ageDays: m.age_days, value: Number(m[field[chart]]) }));
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1 p-1 rounded-lg bg-gray-100 dark:bg-slate-800/60 w-fit">
+        {(['wfa', 'lhfa', 'hcfa', 'bfa'] as GrowthChart[]).map((c) => (
+          <button key={c} onClick={() => setChart(c)}
+            className={cn('px-2.5 py-1 rounded-md text-[11px] font-semibold transition',
+              chart === c ? 'bg-white dark:bg-slate-900 text-pink-700 dark:text-pink-300 shadow-sm' : 'text-gray-600 dark:text-slate-400')}>
+            {CHART_SHORT[c]}
+          </button>
+        ))}
+      </div>
+      {points.length > 0 ? <GrowthChartPlot chart={chart} sex={sex} points={points} />
+        : <div className="card p-4 text-center text-[12px] text-gray-400">No {CHART_SHORT[chart]} measurements yet.</div>}
+    </div>
+  );
+}
 
 // ===================================================================
 function VaccineSection({ patient }: { patient: any }) {

@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, Stethoscope, ClipboardList, Droplets, UtensilsCrossed, Loader2, Plus } from 'lucide-react';
+import { Activity, Stethoscope, ClipboardList, Droplets, UtensilsCrossed, Loader2, Plus, Pill, Users, Check, X } from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
 import { useAuth } from '../../hooks/useAuth';
 import { cn, fmtDateTime } from '../../lib/utils';
 
-type Section = 'vitals' | 'notes' | 'nursing' | 'io' | 'diet';
+type Section = 'vitals' | 'meds' | 'notes' | 'nursing' | 'io' | 'diet' | 'xconsult';
 
 /**
  * The in-ward clinical record for one admission: vitals, doctor progress notes,
@@ -18,10 +18,12 @@ export function WardCare({ admissionId }: { admissionId: number }) {
 
   const tabs: { id: Section; label: string; icon: any }[] = [
     { id: 'vitals', label: 'Vitals', icon: Activity },
+    { id: 'meds', label: 'Medications', icon: Pill },
     { id: 'notes', label: 'Doctor Notes', icon: Stethoscope },
     { id: 'nursing', label: 'Nursing', icon: ClipboardList },
     { id: 'io', label: 'Intake / Output', icon: Droplets },
     { id: 'diet', label: 'Diet', icon: UtensilsCrossed },
+    { id: 'xconsult', label: 'Consults', icon: Users },
   ];
 
   return (
@@ -38,10 +40,170 @@ export function WardCare({ admissionId }: { admissionId: number }) {
       </div>
 
       {section === 'vitals' && <VitalsSection admissionId={admissionId} />}
+      {section === 'meds' && <MedsSection admissionId={admissionId} />}
       {section === 'notes' && <NotesSection admissionId={admissionId} />}
       {section === 'nursing' && <NursingSection admissionId={admissionId} />}
       {section === 'io' && <IoSection admissionId={admissionId} />}
       {section === 'diet' && <DietSection admissionId={admissionId} />}
+      {section === 'xconsult' && <XConsultSection admissionId={admissionId} />}
+    </div>
+  );
+}
+
+// ===================================================================
+// Medication Administration Record (MAR)
+function MedsSection({ admissionId }: { admissionId: number }) {
+  const { user } = useAuth();
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [drug, setDrug] = useState('');
+  const [dose, setDose] = useState('');
+  const [route, setRoute] = useState('IV');
+  const [freq, setFreq] = useState('');
+  const [drugMasterId, setDrugMasterId] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const { data: orders = [] } = useQuery({ queryKey: ['ip-meds', admissionId], queryFn: () => window.electronAPI.ipd.medOrders(admissionId) });
+  const { data: drugMatches = [] } = useQuery({
+    queryKey: ['drug-search-mar', drug],
+    queryFn: () => window.electronAPI.pharmacy.listDrugs({ q: drug, activeOnly: true }),
+    enabled: drug.trim().length >= 2 && drugMasterId === null,
+  });
+
+  const addOrder = async () => {
+    if (!drug.trim()) return;
+    setBusy(true);
+    try {
+      const r = await window.electronAPI.ipd.medOrderAdd(admissionId, { drug_name: drug, drug_master_id: drugMasterId, dose, route, frequency: freq });
+      if (r.ok) { toast('Medication ordered', 'success'); setDrug(''); setDose(''); setFreq(''); setDrugMasterId(null); qc.invalidateQueries({ queryKey: ['ip-meds', admissionId] }); }
+      else toast(r.error || 'Could not add', 'error');
+    } catch (e: any) { toast(e?.message || 'Could not add', 'error'); }
+    finally { setBusy(false); }
+  };
+
+  const give = async (order: any) => {
+    const qtyStr = window.prompt(`Quantity of "${order.drug_name}" given? (0 = record without touching pharmacy stock)`, order.drug_master_id ? '1' : '0');
+    if (qtyStr === null) return;
+    const r = await window.electronAPI.ipd.medAdminGive(order.id, { status: 'given', qty: Number(qtyStr) || 0, administered_by: user?.username });
+    if (r.ok) { toast(r.billed ? 'Given — stock reduced and billed' : 'Recorded as given', 'success'); qc.invalidateQueries({ queryKey: ['ip-meds', admissionId] }); qc.invalidateQueries({ queryKey: ['bill-preview', admissionId] }); }
+    else toast(r.error || 'Could not record', 'error');   // e.g. insufficient stock message
+  };
+
+  const stop = async (order: any) => {
+    const r = await window.electronAPI.ipd.medOrderStop(order.id);
+    if (r.ok) qc.invalidateQueries({ queryKey: ['ip-meds', admissionId] });
+    else toast(r.error || 'Could not stop', 'error');
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="card p-4 space-y-2">
+        <div className="relative">
+          <input className="input" placeholder="Drug name (type to match pharmacy stock)" value={drug}
+            onChange={(e) => { setDrug(e.target.value); setDrugMasterId(null); }} />
+          {drug.trim().length >= 2 && drugMasterId === null && drugMatches.length > 0 && (
+            <div className="absolute z-10 left-0 right-0 mt-1 max-h-40 overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow">
+              {drugMatches.slice(0, 8).map((dm: any) => (
+                <button key={dm.id} className="w-full text-left px-3 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-[12px] border-b last:border-0 border-gray-100 dark:border-slate-800"
+                  onClick={() => { setDrug(dm.name); setDrugMasterId(dm.id); }}>
+                  {dm.name} <span className="text-[10px] text-gray-400">· stock {dm.stock ?? dm.total_stock ?? '?'}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {drugMasterId && <span className="text-[10px] text-emerald-600">✓ linked to pharmacy stock — administering will deplete stock and bill</span>}
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <input className="input" placeholder="Dose (e.g. 500mg)" value={dose} onChange={(e) => setDose(e.target.value)} />
+          <select className="input" value={route} onChange={(e) => setRoute(e.target.value)}>
+            <option>IV</option><option>IM</option><option>Oral</option><option>SC</option><option>Topical</option><option>Nebulised</option>
+          </select>
+          <input className="input" placeholder="Frequency (e.g. BD, TDS)" value={freq} onChange={(e) => setFreq(e.target.value)} />
+          <button className="btn-primary text-xs" disabled={busy || !drug.trim()} onClick={addOrder}>
+            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Order
+          </button>
+        </div>
+      </div>
+
+      {orders.length === 0 ? <Empty label="No medications ordered" /> : (
+        <div className="space-y-2">
+          {orders.map((o: any) => (
+            <div key={o.id} className={cn('card p-3', o.status !== 'active' && 'opacity-60')}>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">
+                    {o.drug_name} {o.dose && <span className="text-gray-500 font-normal">{o.dose}</span>}
+                    {o.drug_master_id ? <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-emerald-100 text-emerald-700">stocked</span> : null}
+                  </div>
+                  <div className="text-[11px] text-gray-500">{o.route} · {o.frequency || '—'} · given {o.given_count}× · {o.status}</div>
+                </div>
+                {o.status === 'active' && (
+                  <div className="flex gap-1.5">
+                    <button className="btn-primary text-xs" onClick={() => give(o)}><Check className="w-3.5 h-3.5" /> Give dose</button>
+                    <button className="btn-ghost text-xs text-red-600" onClick={() => stop(o)} title="Stop order"><X className="w-3.5 h-3.5" /></button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===================================================================
+function XConsultSection({ admissionId }: { admissionId: number }) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [doctorId, setDoctorId] = useState<number | ''>('');
+  const [reason, setReason] = useState('');
+  const { data: consults = [] } = useQuery({ queryKey: ['ip-xconsult', admissionId], queryFn: () => window.electronAPI.ipd.xconsults(admissionId) });
+  const { data: doctors = [] } = useQuery({ queryKey: ['doctors'], queryFn: () => window.electronAPI.doctors.list(true) });
+
+  const request = async () => {
+    if (!doctorId) { toast('Pick a doctor', 'error'); return; }
+    const r = await window.electronAPI.ipd.xconsultAdd(admissionId, Number(doctorId), reason);
+    if (r.ok) { toast('Consultation requested', 'success'); setReason(''); setDoctorId(''); qc.invalidateQueries({ queryKey: ['ip-xconsult', admissionId] }); }
+    else toast(r.error || 'Could not request', 'error');
+  };
+
+  const respond = async (c: any) => {
+    const opinion = window.prompt(`Opinion from Dr. ${c.doctor_name}:`) ?? '';
+    if (!opinion) return;
+    const r = await window.electronAPI.ipd.xconsultRespond(c.id, opinion);
+    if (r.ok) qc.invalidateQueries({ queryKey: ['ip-xconsult', admissionId] });
+    else toast(r.error || 'Could not save', 'error');
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="card p-4 flex flex-wrap gap-2 items-end">
+        <div className="flex-1 min-w-[160px]">
+          <label className="label">Refer to</label>
+          <select className="input" value={doctorId} onChange={(e) => setDoctorId(e.target.value ? Number(e.target.value) : '')}>
+            <option value="">— doctor —</option>
+            {doctors.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+        </div>
+        <input className="input flex-[2] min-w-[200px]" placeholder="Reason for consultation" value={reason} onChange={(e) => setReason(e.target.value)} />
+        <button className="btn-primary text-xs" onClick={request}><Plus className="w-3.5 h-3.5" /> Request</button>
+      </div>
+      {consults.length === 0 ? <Empty label="No cross-consultations" /> : (
+        <div className="space-y-2">
+          {consults.map((c: any) => (
+            <div key={c.id} className="card p-3">
+              <div className="flex items-center justify-between">
+                <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">Dr. {c.doctor_name}</div>
+                <span className={cn('px-1.5 py-0.5 rounded text-[10px]', c.status === 'seen' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700')}>{c.status}</span>
+              </div>
+              {c.reason && <div className="text-[12px] text-gray-600 dark:text-slate-400 mt-0.5">{c.reason}</div>}
+              {c.opinion ? <div className="text-[12px] text-gray-800 dark:text-slate-200 mt-1 bg-gray-50 dark:bg-slate-800 rounded p-2">{c.opinion}</div>
+                : <button className="btn-ghost text-xs mt-1" onClick={() => respond(c)}>Add opinion</button>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

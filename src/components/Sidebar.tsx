@@ -38,6 +38,7 @@ const NAV: NavItem2[] = [
   { to: '/pharmacy', label: 'Pharmacy', icon: Pill, color: 'text-lime-500', modes: PHARMACY_MODES, roles: ['pharmacist', 'doctor', 'receptionist'] },
   { to: '/ipd', label: 'IPD', icon: BedDouble, color: 'text-red-500', modes: IPD_MODES, roles: ['doctor', 'receptionist', 'nurse', 'ward_incharge'] },
   { to: '/pediatrics', label: 'Pediatrics', icon: Baby, color: 'text-pink-500', modes: ALL_MODES, roles: ['doctor', 'receptionist', 'nurse'] },
+  { to: '/tpa', label: 'Insurance / TPA', icon: ShieldCheck, color: 'text-teal-500', modes: ALL_MODES, roles: ['receptionist'] },
   { to: '/patient-log', label: 'Patient Log', icon: History, color: 'text-cyan-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
   { to: '/origin', label: 'Patient Origin', icon: MapPin, color: 'text-rose-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
   { to: '/billing', label: 'Billing', icon: Receipt, color: 'text-amber-500', modes: ALL_MODES, roles: ['receptionist'] },
@@ -80,6 +81,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     if (n.to === '/origin' && originHidden) return false;
     // Pediatrics is an opt-in add-on — hidden unless enabled in Settings.
     if (n.to === '/pediatrics' && settings?.peds_enabled !== true) return false;
+    // TPA is opt-in too.
+    if (n.to === '/tpa' && settings?.tpa_enabled !== true) return false;
     return canAnyRole(user, n.roles, adminUnlocked);
   });
 

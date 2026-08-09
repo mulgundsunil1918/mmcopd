@@ -865,6 +865,262 @@ export function registerIpdBillingIpc() {
     }
   });
 
+  // ---------- TPA / Insurance ----------
+  ipcMain.handle('tpa:insurers', (_e, includeInactive = false) => {
+    const where = includeInactive ? '' : 'WHERE is_active=1';
+    return db().prepare(`SELECT * FROM tpa_master ${where} ORDER BY name`).all();
+  });
+
+  ipcMain.handle('tpa:insurerSave', (_e, input: any) => {
+    const d = db();
+    try {
+      const name = requireText(input?.name, 'Insurer name', 100);
+      if (input?.id) {
+        const id = requireId(input.id, 'Insurer id');
+        d.prepare('UPDATE tpa_master SET name=?, code=?, contact_person=?, phone=?, email=?, address=?, is_active=? WHERE id=?')
+          .run(name, input.code ?? null, input.contact_person ?? null, input.phone ?? null, input.email ?? null, input.address ?? null, input.is_active === false ? 0 : 1, id);
+        return { ok: true, id };
+      }
+      const info = d.prepare('INSERT INTO tpa_master (name, code, contact_person, phone, email, address) VALUES (?,?,?,?,?,?)')
+        .run(name, input.code ?? null, input.contact_person ?? null, input.phone ?? null, input.email ?? null, input.address ?? null);
+      return { ok: true, id: Number(info.lastInsertRowid) };
+    } catch (err: any) {
+      const msg = String(err?.message || err);
+      if (msg.includes('UNIQUE')) return fail(`An insurer named "${input?.name}" already exists.`);
+      return fail(`Could not save the insurer: ${msg}`);
+    }
+  });
+
+  ipcMain.handle('tpa:claims', (_e, status?: string) => {
+    const where = status ? 'WHERE c.status=?' : '';
+    const params = status ? [status] : [];
+    return db().prepare(
+      `SELECT c.*, t.name AS insurer_name_master, (p.first_name || ' ' || p.last_name) AS patient_name, p.uhid AS patient_uhid,
+              a.admission_number, b.bill_number
+       FROM tpa_claims c
+       JOIN tpa_master t ON t.id=c.tpa_id
+       JOIN patients p ON p.id=c.patient_id
+       LEFT JOIN ip_admissions a ON a.id=c.admission_id
+       LEFT JOIN bills b ON b.id=c.bill_id
+       ${where} ORDER BY c.created_at DESC`
+    ).all(...params);
+  });
+
+  ipcMain.handle('tpa:claimSave', (_e, input: any) => {
+    const d = db();
+    try {
+      const tpaId = requireId(input?.tpa_id, 'Insurer');
+      const patientId = requireId(input?.patient_id, 'Patient');
+      if (input?.id) {
+        const id = requireId(input.id, 'Claim id');
+        d.prepare(
+          `UPDATE tpa_claims SET tpa_id=?, policy_no=?, preauth_no=?, preauth_amount=?, claimed_amount=?, approved_amount=?, settled_amount=?, copay_amount=?, admission_id=?, bill_id=?, notes=? WHERE id=?`
+        ).run(tpaId, input.policy_no ?? null, input.preauth_no ?? null, Number(input.preauth_amount ?? 0),
+              Number(input.claimed_amount ?? 0), Number(input.approved_amount ?? 0), Number(input.settled_amount ?? 0),
+              Number(input.copay_amount ?? 0), input.admission_id ?? null, input.bill_id ?? null, input.notes ?? null, id);
+        return { ok: true, id };
+      }
+      const info = d.prepare(
+        `INSERT INTO tpa_claims (tpa_id, patient_id, admission_id, bill_id, policy_no, preauth_no, preauth_amount, claimed_amount, notes)
+         VALUES (?,?,?,?,?,?,?,?,?)`
+      ).run(tpaId, patientId, input.admission_id ?? null, input.bill_id ?? null, input.policy_no ?? null,
+            input.preauth_no ?? null, Number(input.preauth_amount ?? 0), Number(input.claimed_amount ?? 0), input.notes ?? null);
+      const cid = Number(info.lastInsertRowid);
+      d.prepare('INSERT INTO tpa_claim_events (claim_id, event, detail) VALUES (?,?,?)').run(cid, 'created', 'Claim opened');
+      return { ok: true, id: cid };
+    } catch (err: any) {
+      return fail(`Could not save the claim: ${err?.message || String(err)}`);
+    }
+  });
+
+  ipcMain.handle('tpa:claimStatus', (_e, claimId: number, status: string, amount?: number, note?: string, by?: string) => {
+    const d = db();
+    const ALLOWED = ['draft', 'preauth_sent', 'preauth_approved', 'submitted', 'queried', 'approved', 'settled', 'rejected', 'closed'];
+    try {
+      const id = requireId(claimId, 'Claim');
+      if (!ALLOWED.includes(status)) return fail(`"${status}" is not a valid claim status.`);
+      const c = d.prepare('SELECT id FROM tpa_claims WHERE id=?').get(id);
+      if (!c) return fail(`Claim #${id} was not found.`);
+      const tx = d.transaction(() => {
+        d.prepare('UPDATE tpa_claims SET status=?, submitted_at=CASE WHEN ?=\'submitted\' THEN datetime(\'now\') ELSE submitted_at END, settled_at=CASE WHEN ?=\'settled\' THEN datetime(\'now\') ELSE settled_at END WHERE id=?')
+          .run(status, status, status, id);
+        if (status === 'approved' && amount != null) d.prepare('UPDATE tpa_claims SET approved_amount=? WHERE id=?').run(Number(amount), id);
+        if (status === 'settled' && amount != null) d.prepare('UPDATE tpa_claims SET settled_amount=? WHERE id=?').run(Number(amount), id);
+        d.prepare('INSERT INTO tpa_claim_events (claim_id, event, detail, amount, recorded_by) VALUES (?,?,?,?,?)')
+          .run(id, status, note ?? null, amount != null ? Number(amount) : null, by ?? null);
+      });
+      tx();
+      return { ok: true };
+    } catch (err: any) {
+      return fail(`Could not update the claim: ${err?.message || String(err)}`);
+    }
+  });
+
+  // ---------- Medication orders + administration (MAR) ----------
+  ipcMain.handle('ip:medOrders', (_e, admissionId: number) => {
+    const id = requireId(admissionId, 'Admission');
+    return db().prepare(
+      `SELECT o.*, dr.name AS ordered_by_name,
+              (SELECT COUNT(*) FROM ip_medication_admin a WHERE a.order_id=o.id AND a.status='given') AS given_count
+       FROM ip_medication_orders o LEFT JOIN doctors dr ON dr.id=o.ordered_by_doctor_id
+       WHERE o.admission_id=? ORDER BY o.status='active' DESC, o.id DESC`
+    ).all(id);
+  });
+
+  ipcMain.handle('ip:medOrderAdd', (_e, admissionId: number, input: any) => {
+    const d = db();
+    try {
+      const aid = requireId(admissionId, 'Admission');
+      const adm = d.prepare('SELECT status FROM ip_admissions WHERE id=?').get(aid) as any;
+      if (!adm) return fail(`Admission #${aid} was not found.`);
+      if (adm.status !== 'admitted') return fail('Medication orders can only be added while the patient is admitted.');
+      const drugName = requireText(input?.drug_name, 'Drug name', 120);
+      const info = d.prepare(
+        `INSERT INTO ip_medication_orders (admission_id, drug_master_id, drug_name, dose, route, frequency, instructions, ordered_by_doctor_id)
+         VALUES (?,?,?,?,?,?,?,?)`
+      ).run(aid, input.drug_master_id ?? null, drugName, input.dose ?? null, input.route ?? null,
+            input.frequency ?? null, input.instructions ?? null, input.ordered_by_doctor_id ?? null);
+      broadcastEvent('ip:medUpdated', { admissionId: aid });
+      return { ok: true, id: Number(info.lastInsertRowid) };
+    } catch (err: any) {
+      return fail(`Could not add the medication order: ${err?.message || String(err)}`);
+    }
+  });
+
+  ipcMain.handle('ip:medOrderStop', (_e, orderId: number) => {
+    try {
+      db().prepare("UPDATE ip_medication_orders SET status='stopped', stop_at=datetime('now') WHERE id=?").run(requireId(orderId, 'Order'));
+      return { ok: true };
+    } catch (err: any) { return fail(`Could not stop the order: ${err?.message || String(err)}`); }
+  });
+
+  ipcMain.handle('ip:medAdminList', (_e, admissionId: number) => {
+    const id = requireId(admissionId, 'Admission');
+    return db().prepare(
+      `SELECT a.*, o.drug_name, o.dose, o.route FROM ip_medication_admin a
+       JOIN ip_medication_orders o ON o.id=a.order_id
+       WHERE a.admission_id=? ORDER BY a.administered_at DESC LIMIT 500`
+    ).all(id);
+  });
+
+  /**
+   * Record an administration. A 'given' dose, when the drug is a stocked item
+   * and a quantity is supplied, pulls from the FEFO batch, reduces pharmacy
+   * stock, writes the Schedule-H dispensing register, and posts the charge to
+   * the running IPD bill — all in one transaction. Refused/omitted/held record
+   * only the event.
+   */
+  ipcMain.handle('ip:medAdminGive', (_e, orderId: number, input: any) => {
+    const d = db();
+    try {
+      const oid = requireId(orderId, 'Order');
+      const order = d.prepare('SELECT * FROM ip_medication_orders WHERE id=?').get(oid) as any;
+      if (!order) return fail(`Medication order #${oid} was not found.`);
+      const status = ['given', 'refused', 'omitted', 'held'].includes(input?.status) ? input.status : 'given';
+      const qty = Number(input?.qty ?? 0);
+
+      let batchId: number | null = null;
+      let billItemId: number | null = null;
+
+      const tx = d.transaction(() => {
+        // Stock depletion + billing only for a 'given' dose of a stocked drug.
+        if (status === 'given' && order.drug_master_id && qty > 0) {
+          const batches = d.prepare(
+            `SELECT b.id, b.batch_no, b.expiry, b.qty_remaining, b.mrp, m.schedule, m.gst_rate
+             FROM drug_stock_batches b JOIN drug_master m ON m.id=b.drug_master_id
+             WHERE b.drug_master_id=? AND b.is_active=1 AND b.qty_remaining>0
+             ORDER BY date(b.expiry) ASC, b.received_at ASC`
+          ).all(order.drug_master_id) as any[];
+          const total = batches.reduce((s, b) => s + b.qty_remaining, 0);
+          if (total < qty) {
+            throw new Error(`Only ${total} unit(s) of ${order.drug_name} in stock, but ${qty} requested. Add stock in Pharmacy, or record without stock by leaving quantity 0.`);
+          }
+          const rate = batches[0]?.mrp ?? 0;
+          const patientId = (d.prepare('SELECT patient_id FROM ip_admissions WHERE id=?').get(order.admission_id) as any)?.patient_id ?? null;
+
+          // A dispensed medicine IS a sale — create the pharmacy_sale + sale_item
+          // so the Schedule-H dispensing register (whose sale_item_id / sale_id
+          // are NOT NULL) stays consistent with counter dispensing.
+          const saleNo = `IPD-${order.admission_id}-${Date.now()}`;
+          const sale = d.prepare(
+            `INSERT INTO pharmacy_sales (sale_number, patient_id, subtotal, discount, total, payment_mode, sold_by)
+             VALUES (?,?,?,0,?,?,?)`
+          ).run(saleNo, patientId, rate * qty, rate * qty, 'IPD-bill', input?.administered_by ?? null);
+          const saleId = Number(sale.lastInsertRowid);
+          const saleItem = d.prepare(
+            `INSERT INTO pharmacy_sale_items (sale_id, drug_id, drug_name, qty, rate, amount) VALUES (?,?,?,?,?,?)`
+          ).run(saleId, order.drug_master_id, `${order.drug_name}${order.dose ? ' ' + order.dose : ''}`, qty, rate, rate * qty);
+          const saleItemId = Number(saleItem.lastInsertRowid);
+
+          let need = qty;
+          for (const b of batches) {
+            if (need <= 0) break;
+            const take = Math.min(need, b.qty_remaining);
+            d.prepare('UPDATE drug_stock_batches SET qty_remaining=qty_remaining-? WHERE id=?').run(take, b.id);
+            d.prepare(
+              `INSERT INTO dispensing_register (sale_item_id, sale_id, patient_id, doctor_id, drug_master_id, batch_id, batch_no, expiry, schedule, qty, rate, rx_reference, dispensed_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).run(saleItemId, saleId, patientId, order.ordered_by_doctor_id ?? null, order.drug_master_id, b.id, b.batch_no, b.expiry, b.schedule || 'OTC', take, b.mrp, `IPD-MAR#${oid}`, input?.administered_by ?? null);
+            batchId = b.id;
+            need -= take;
+          }
+
+          // Post to the running IPD bill.
+          const billId = getOrCreateAdmissionBill(d, order.admission_id);
+          const s = getAllSettings(d);
+          billItemId = addLine(d, billId, {
+            description: `${order.drug_name}${order.dose ? ' ' + order.dose : ''} × ${qty}`,
+            qty, rate, amount: rate * qty,
+            gst_rate: s.gst_enabled ? (batches[0]?.gst_rate ?? 0) : 0,
+            is_taxable: s.gst_enabled && (batches[0]?.gst_rate ?? 0) > 0,
+            source: 'ipd_medication', source_ref_id: oid,
+          }, input?.administered_by);
+          recalcBill(d, billId);
+        }
+
+        d.prepare(
+          `INSERT INTO ip_medication_admin (order_id, admission_id, status, reason, qty, batch_id, bill_item_id, administered_by)
+           VALUES (?,?,?,?,?,?,?,?)`
+        ).run(oid, order.admission_id, status, input?.reason ?? null, qty, batchId, billItemId, input?.administered_by ?? null);
+      });
+      tx();
+      broadcastEvent('ip:medUpdated', { admissionId: order.admission_id });
+      broadcastEvent('bill:updated', { billId: null });
+      return { ok: true, billed: billItemId !== null };
+    } catch (err: any) {
+      return fail(err?.message || String(err));
+    }
+  });
+
+  // ---------- Cross-consultation ----------
+  ipcMain.handle('ip:xconsults', (_e, admissionId: number) => {
+    const id = requireId(admissionId, 'Admission');
+    return db().prepare(
+      `SELECT x.*, dr.name AS doctor_name FROM ip_cross_consultations x
+       LEFT JOIN doctors dr ON dr.id=x.doctor_id WHERE x.admission_id=? ORDER BY x.id DESC`
+    ).all(id);
+  });
+
+  ipcMain.handle('ip:xconsultAdd', (_e, admissionId: number, doctorId: number, reason?: string) => {
+    const d = db();
+    try {
+      const aid = requireId(admissionId, 'Admission');
+      const did = requireId(doctorId, 'Doctor');
+      d.prepare('INSERT INTO ip_cross_consultations (admission_id, doctor_id, reason) VALUES (?,?,?)').run(aid, did, reason ?? null);
+      broadcastEvent('ip:clinicalUpdated', { admissionId: aid });
+      return { ok: true };
+    } catch (err: any) { return fail(`Could not request the consultation: ${err?.message || String(err)}`); }
+  });
+
+  ipcMain.handle('ip:xconsultRespond', (_e, id: number, opinion: string, by?: string) => {
+    const d = db();
+    try {
+      const xid = requireId(id, 'Consultation');
+      d.prepare("UPDATE ip_cross_consultations SET status='seen', opinion=?, responded_at=datetime('now') WHERE id=?").run(opinion ?? null, xid);
+      return { ok: true };
+    } catch (err: any) { return fail(`Could not save the opinion: ${err?.message || String(err)}`); }
+  });
+
   // ---------- Discharge-summary templates ----------
   ipcMain.handle('dischargeTemplates:list', (_e, filter: any = {}) => {
     const d = db();

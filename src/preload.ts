@@ -406,6 +406,16 @@ const api = {
     ioAdd: (admissionId: number, input: any) => ipcRenderer.invoke('ip:intakeOutput:add', admissionId, input) as Promise<any>,
     dietList: (admissionId: number) => ipcRenderer.invoke('ip:dietOrder:list', admissionId) as Promise<any[]>,
     dietAdd: (admissionId: number, input: any) => ipcRenderer.invoke('ip:dietOrder:add', admissionId, input) as Promise<any>,
+    // Medication orders + administration record (MAR)
+    medOrders: (admissionId: number) => ipcRenderer.invoke('ip:medOrders', admissionId) as Promise<any[]>,
+    medOrderAdd: (admissionId: number, input: any) => ipcRenderer.invoke('ip:medOrderAdd', admissionId, input) as Promise<{ ok: boolean; id?: number; error?: string }>,
+    medOrderStop: (orderId: number) => ipcRenderer.invoke('ip:medOrderStop', orderId) as Promise<{ ok: boolean; error?: string }>,
+    medAdminList: (admissionId: number) => ipcRenderer.invoke('ip:medAdminList', admissionId) as Promise<any[]>,
+    medAdminGive: (orderId: number, input: any) => ipcRenderer.invoke('ip:medAdminGive', orderId, input) as Promise<{ ok: boolean; billed?: boolean; error?: string }>,
+    // Cross-consultation
+    xconsults: (admissionId: number) => ipcRenderer.invoke('ip:xconsults', admissionId) as Promise<any[]>,
+    xconsultAdd: (admissionId: number, doctorId: number, reason?: string) => ipcRenderer.invoke('ip:xconsultAdd', admissionId, doctorId, reason) as Promise<{ ok: boolean; error?: string }>,
+    xconsultRespond: (id: number, opinion: string, by?: string) => ipcRenderer.invoke('ip:xconsultRespond', id, opinion, by) as Promise<{ ok: boolean; error?: string }>,
   },
   billing: {
     /** Running IPD bill — "what's the bill till now". */
@@ -421,6 +431,13 @@ const api = {
       ipcRenderer.invoke('bill:pay', billId, amount, mode, by) as Promise<{ ok: boolean; error?: string }>,
     refundAdvance: (advanceId: number, amount: number, reason: string, by?: string) =>
       ipcRenderer.invoke('advances:refund', advanceId, amount, reason, by) as Promise<any>,
+    // TPA / insurance
+    tpaInsurers: (includeInactive?: boolean) => ipcRenderer.invoke('tpa:insurers', includeInactive) as Promise<any[]>,
+    tpaInsurerSave: (input: any) => ipcRenderer.invoke('tpa:insurerSave', input) as Promise<{ ok: boolean; id?: number; error?: string }>,
+    tpaClaims: (status?: string) => ipcRenderer.invoke('tpa:claims', status) as Promise<any[]>,
+    tpaClaimSave: (input: any) => ipcRenderer.invoke('tpa:claimSave', input) as Promise<{ ok: boolean; id?: number; error?: string }>,
+    tpaClaimStatus: (claimId: number, status: string, amount?: number, note?: string, by?: string) =>
+      ipcRenderer.invoke('tpa:claimStatus', claimId, status, amount, note, by) as Promise<{ ok: boolean; error?: string }>,
     ipdAnalytics: (from: string, to: string) =>
       ipcRenderer.invoke('analytics:ipd', from, to) as Promise<any>,
     billingAnalytics: (from: string, to: string) =>

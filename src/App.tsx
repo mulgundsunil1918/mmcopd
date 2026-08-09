@@ -20,6 +20,7 @@ import { Analytics } from './pages/Analytics';
 import { Miscellaneous } from './pages/Miscellaneous';
 import { WhatsApp } from './pages/WhatsApp';
 import { Pediatrics } from './pages/Pediatrics';
+import { TPA } from './pages/TPA';
 import { WelcomeWizard } from './components/WelcomeWizard';
 import { ForcePasswordChange } from './components/ForcePasswordChange';
 import { useEffect, useState } from 'react';
@@ -129,6 +130,7 @@ export default function App() {
         <Route path="/pharmacy" element={<Pharmacy />} />
         <Route path="/ipd" element={<IPD />} />
         <Route path="/pediatrics" element={<Pediatrics />} />
+        <Route path="/tpa" element={<TPA />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/whatsapp" element={<WhatsApp />} />
         <Route path="/settings" element={<SettingsPage />} />
