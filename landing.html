@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>CureDesk HMS — Modern OPD management for Indian clinics</title>
-<meta name="description" content="Offline-first hospital management software for OPD clinics. Reception, doctor, pharmacy, lab, billing, analytics — all in one Windows app." />
+<meta name="description" content="Offline-first hospital management software for Indian clinics. Reception, doctor, pharmacy, 160+ lab tests, IPD, pediatrics (WHO & IAP growth), insurance/TPA, discharge summaries, billing and analytics — all in one Windows app, role-based." />
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Crect width='256' height='256' rx='56' fill='%232563eb'/%3E%3Crect x='104' y='52' width='48' height='152' rx='10' fill='white'/%3E%3Crect x='52' y='104' width='152' height='48' rx='10' fill='white'/%3E%3Ccircle cx='196' cy='196' r='16' fill='white'/%3E%3Ccircle cx='196' cy='196' r='8' fill='%232563eb'/%3E%3Ccircle cx='196' cy='196' r='4' fill='white'/%3E%3C/svg%3E" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -262,6 +262,26 @@
   .feat-icon.amber { background: linear-gradient(135deg, #f59e0b, #d97706); }
   .feat-icon.rose { background: linear-gradient(135deg, #f43f5e, #be123c); }
   .feat-icon.cyan { background: linear-gradient(135deg, #06b6d4, #0e7490); }
+  .feat-icon.fuchsia { background: linear-gradient(135deg, #d946ef, #a21caf); }
+  .feat-icon.red { background: linear-gradient(135deg, #ef4444, #b91c1c); }
+  .feat-icon.pink { background: linear-gradient(135deg, #ec4899, #be185d); }
+  .feat-icon.teal { background: linear-gradient(135deg, #14b8a6, #0f766e); }
+  .feat-icon.sky { background: linear-gradient(135deg, #0ea5e9, #0369a1); }
+
+  /* Roles & access table */
+  .roles-wrap { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 16px; box-shadow: 0 10px 30px -18px rgba(15,23,42,.25); background: #fff; }
+  .roles-table { width: 100%; border-collapse: collapse; min-width: 720px; font-size: 13.5px; }
+  .roles-table th, .roles-table td { padding: 12px 14px; text-align: center; border-bottom: 1px solid #eef2f7; white-space: nowrap; }
+  .roles-table thead th { background: linear-gradient(135deg,#1e3a8a,#4338ca); color: #fff; font-weight: 700; font-size: 12.5px; letter-spacing: .01em; }
+  .roles-table thead th:first-child { text-align: left; }
+  .roles-table th.area, .roles-table td.area { text-align: left; font-weight: 600; color: #0f172a; }
+  .roles-table tbody tr:nth-child(even) { background: #f8fafc; }
+  .roles-table tbody tr:hover { background: #eef2ff; }
+  .roles-table td { color: #94a3b8; }
+  .roles-table td.y { color: #059669; font-weight: 800; }
+  .roles-table td.p { color: #b45309; font-weight: 600; font-size: 12px; }
+  .roles-foot { text-align: center; color: #64748b; font-size: 13px; margin-top: 14px; max-width: 760px; margin-left: auto; margin-right: auto; }
+  @media (max-width: 600px) { .roles-table { font-size: 12.5px; } .roles-table th, .roles-table td { padding: 9px 10px; } }
   .feat-card h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; color: #0f172a; }
   .feat-card p { font-size: 14px; color: #64748b; line-height: 1.55; }
 
@@ -485,6 +505,7 @@
     </button>
     <nav class="nav-links" id="navLinks">
       <a href="#features">Features</a>
+      <a href="#roles">Roles</a>
       <a href="#modules">Modules</a>
       <a href="#demo">Demo</a>
       <a href="#contact">Contact</a>
@@ -522,12 +543,13 @@
       <div class="hero-mock-body">
         <aside class="hero-mock-side">
           <div class="item active">👥 Reception</div>
-          <div class="item">📅 Appointments</div>
           <div class="item">🩺 Doctors</div>
           <div class="item">💊 Pharmacy</div>
           <div class="item">🧪 Laboratory</div>
           <div class="item">🛏️ IPD</div>
-          <div class="item">💬 WhatsApp</div>
+          <div class="item">🍼 Pediatrics</div>
+          <div class="item">🛡️ Insurance / TPA</div>
+          <div class="item">📄 Discharge Summary</div>
           <div class="item">📊 Analytics</div>
           <div class="item">💵 Billing</div>
         </aside>
@@ -558,9 +580,9 @@
 <!-- ============== STATS BAR ============== -->
 <section class="stats-section">
   <div class="container stats-grid">
-    <div><div class="stat-num">16</div><div class="stat-label">Modules built in</div></div>
+    <div><div class="stat-num">20+</div><div class="stat-label">Modules built in</div></div>
     <div><div class="stat-num">100%</div><div class="stat-label">Offline-first</div></div>
-    <div><div class="stat-num">2</div><div class="stat-label">Languages on slip</div></div>
+    <div><div class="stat-num">160+</div><div class="stat-label">Lab tests ready</div></div>
     <div><div class="stat-num">∞</div><div class="stat-label">Patients · no limit</div></div>
   </div>
 </section>
@@ -586,14 +608,14 @@
           <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
         </div>
         <h3>Doctor Consultation</h3>
-        <p>Vitals strip, prescription with drug auto-complete, custom OPD slip templates per specialty (OBG, Pediatrics, ENT, Cardiology, Ortho).</p>
+        <p>Vitals strip, prescription with drug auto-complete, and fully custom OPD slip templates per specialty. Per-doctor quick-fill templates, and a live pediatric growth section that plots centiles as you type.</p>
       </div>
       <div class="feat-card">
         <div class="feat-icon emerald">
           <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/></svg>
         </div>
         <h3>Pharmacy with FEFO</h3>
-        <p>Batch-tracked inventory, First-Expired-First-Out dispensing, Schedule H register, purchase invoices, low-stock + expiry alerts.</p>
+        <p>Batch-tracked inventory with mandatory manufacture &amp; expiry dates, First-Expired-First-Out dispensing, Schedule H register, purchase invoices, low-stock + expiry alerts.</p>
       </div>
       <div class="feat-card">
         <div class="feat-icon amber">
@@ -631,13 +653,82 @@
         <p>One click sends an appointment confirmation — you review it before it goes. Connect the official WhatsApp Business API to add scheduled campaigns, follow-up reminders, a shared reply inbox, and AI-drafted replies.</p>
       </div>
       <div class="feat-card">
-        <div class="feat-icon rose">
+        <div class="feat-icon fuchsia">
           <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M9 2v6l-4 8a4 4 0 0 0 3.6 5.8h6.8A4 4 0 0 0 19 16l-4-8V2"/><path d="M8 2h8"/><path d="M5.5 16h13"/></svg>
         </div>
-        <h3>Laboratory &amp; In-Patient</h3>
-        <p>Raise lab orders from the consultation screen, enter results, and print reports. Admit, track, and discharge in-patients with bed assignment and a discharge summary.</p>
+        <h3>Laboratory — 160+ tests ready</h3>
+        <p>Load a standard catalog of <b>~105 pathology + ~55 radiology</b> investigations in one click, set your own prices, enable only what you offer. Order from the consult, enter results, print reports, and bill in a tap.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon red">
+          <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/></svg>
+        </div>
+        <h3>In-Patient (IPD)</h3>
+        <p>Colour-coded ward &amp; bed map, doctor→reception admission requests, running bill with advances, vitals · MAR · nursing notes · intake/output · diet, transfers, MLC register, and discharge with outcomes (LAMA/DAMA/death/referred).</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon pink">
+          <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M9 12h.01"/><path d="M15 12h.01"/><path d="M10 16c.5.3 1.2.5 2 .5s1.5-.2 2-.5"/><path d="M19 6.3a9 9 0 0 1 1.8 3.9 2 2 0 0 1 0 3.6 9 9 0 0 1-17.6 0 2 2 0 0 1 0-3.6A9 9 0 0 1 12 3c2 0 3.5 1.1 3.5 2.5S14.5 8 13 8"/></svg>
+        </div>
+        <h3>Pediatrics add-on</h3>
+        <p>Growth centiles on <b>WHO (0–5y) and IAP 2015 (5–18y)</b> charts, immunisation diary from IAP/NIS schedules, and calculators — mid-parental height, corrected age. Prints on your letterhead or sends to reception.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon teal">
+          <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
+        </div>
+        <h3>Insurance / TPA (cashless)</h3>
+        <p>Insurer master, pre-authorisation tracking, and the full claim lifecycle — claimed, approved, settled — reconciled against the patient's bill, with the pipeline shown in analytics.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon sky">
+          <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
+        </div>
+        <h3>Discharge Summary builder</h3>
+        <p>Build a summary from your own templated sections, save and re-edit it, then preview &amp; print on the clinic letterhead — the same header as your bills and OPD slips.</p>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- ============== ROLES & ACCESS ============== -->
+<section class="section" id="roles" style="padding-top:0;">
+  <div class="container">
+    <div class="section-head">
+      <span class="section-eyebrow">Who sees what</span>
+      <h2>Role-based access, out of the box.</h2>
+      <p>Every staff member logs in with their own password. What they can open is decided by their role — so reception can't change clinical notes, and a lab tech only sees the lab. The admin controls it all.</p>
+    </div>
+    <div class="roles-wrap">
+      <table class="roles-table">
+        <thead>
+          <tr>
+            <th class="area">Area</th>
+            <th>Admin</th>
+            <th>Reception</th>
+            <th>Doctor</th>
+            <th>Nurse / Sister</th>
+            <th>Pharmacist</th>
+            <th>Lab Tech</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="area">Reception &amp; Appointments</td><td class="y">✓</td><td class="y">✓</td><td class="p">view</td><td>—</td><td>—</td><td>—</td></tr>
+          <tr><td class="area">Doctor Consultation &amp; Rx</td><td class="y">✓</td><td>—</td><td class="y">✓</td><td>—</td><td>—</td><td>—</td></tr>
+          <tr><td class="area">Pharmacy</td><td class="y">✓</td><td class="p">sell</td><td class="p">view</td><td>—</td><td class="y">✓</td><td>—</td></tr>
+          <tr><td class="area">Laboratory</td><td class="y">✓</td><td class="p">order</td><td class="p">order + results</td><td>—</td><td>—</td><td class="y">✓</td></tr>
+          <tr><td class="area">IPD — admit / discharge</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td>—</td><td>—</td><td>—</td></tr>
+          <tr><td class="area">IPD — ward care (vitals · MAR)</td><td class="y">✓</td><td>—</td><td class="y">✓</td><td class="y">✓</td><td>—</td><td>—</td></tr>
+          <tr><td class="area">Pediatrics</td><td class="y">✓</td><td class="p">view</td><td class="y">✓</td><td class="p">view</td><td>—</td><td>—</td></tr>
+          <tr><td class="area">Discharge Summary</td><td class="y">✓</td><td class="p">print</td><td class="y">✓</td><td class="p">print</td><td>—</td><td>—</td></tr>
+          <tr><td class="area">Billing &amp; Accounts</td><td class="y">✓</td><td class="y">✓</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+          <tr><td class="area">Insurance / TPA</td><td class="y">✓</td><td class="y">✓</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+          <tr><td class="area">Analytics &amp; Reports</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td>—</td><td>—</td><td>—</td></tr>
+          <tr><td class="area">Users &amp; Settings</td><td class="y">✓ admin</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="roles-foot">Roles are fully configurable — the admin creates staff logins, assigns roles, links a doctor to their account, and can force a password reset. Every change is written to an audit log of who did what, when.</p>
   </div>
 </section>
 
