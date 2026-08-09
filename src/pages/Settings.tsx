@@ -12,13 +12,15 @@ import { WhatsAppMessaging } from '../components/WhatsAppMessaging';
 import { SlipPreviewLauncher } from '../components/SlipPreviewLauncher';
 import { AdminGate } from '../components/AdminGate';
 import { NetworkTroubleshoot } from '../components/NetworkTroubleshoot';
+import { WardsBedsEditor } from '../components/settings/WardsBedsEditor';
+import { BillingSettings } from '../components/settings/BillingSettings';
 import { useToast } from '../hooks/useToast';
 import { INDIAN_STATES } from '../lib/india';
 import { KARNATAKA_PLACES, ALL_NEARBY_PLACES } from '../lib/places';
 import { DOCTOR_COLOR_OPTIONS, colorForDoctor } from '../lib/doctor-colors';
 import type { AppMode, Doctor, Settings } from '../types';
 
-type SettingsTab = 'clinic' | 'doctors' | 'workflow' | 'patients' | 'system' | 'comms';
+type SettingsTab = 'clinic' | 'doctors' | 'workflow' | 'billing' | 'patients' | 'system' | 'comms';
 
 const SETTINGS_TAB_KEY = 'caredesk:settings-tab';
 
@@ -57,6 +59,7 @@ export function SettingsPage() {
           <SettingsTabBtn active={tab === 'clinic'} onClick={() => setTab('clinic')} icon={<Building2 className="w-3.5 h-3.5" />}>Clinic</SettingsTabBtn>
           <SettingsTabBtn active={tab === 'doctors'} onClick={() => setTab('doctors')} icon={<Stethoscope className="w-3.5 h-3.5" />}>Doctors & Templates</SettingsTabBtn>
           <SettingsTabBtn active={tab === 'workflow'} onClick={() => setTab('workflow')} icon={<Wallet className="w-3.5 h-3.5" />}>Fees & Workflow</SettingsTabBtn>
+          <SettingsTabBtn active={tab === 'billing'} onClick={() => setTab('billing')} icon={<IndianRupee className="w-3.5 h-3.5" />}>Billing & IPD</SettingsTabBtn>
           <SettingsTabBtn active={tab === 'patients'} onClick={() => setTab('patients')} icon={<UserIcon className="w-3.5 h-3.5" />}>Patients</SettingsTabBtn>
           <SettingsTabBtn active={tab === 'system'} onClick={() => setTab('system')} icon={<HardDrive className="w-3.5 h-3.5" />}>System</SettingsTabBtn>
           <SettingsTabBtn active={tab === 'comms'} onClick={() => setTab('comms')} icon={<MessageCircle className="w-3.5 h-3.5" />}>Communication</SettingsTabBtn>
@@ -122,6 +125,8 @@ export function SettingsPage() {
               </SettingsGroup>
             </>
           )}
+
+          {tab === 'billing' && <BillingIpdTab />}
 
           {tab === 'patients' && (
             <>
@@ -3815,4 +3820,122 @@ function useSectionDraft<K extends keyof Settings>(
       mutation.mutate(patch);
     },
   };
+}
+
+// =====================================================================
+// Billing & IPD tab
+// =====================================================================
+function BillingIpdTab() {
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { draft, set, reset, dirty, saving, save } = useSectionDraft(settings, [
+    'gst_enabled', 'gst_registration_type', 'clinic_gstin', 'clinic_legal_name', 'clinic_state_code',
+    'healthcare_gst_exempt', 'invoice_prefix', 'ip_number_prefix', 'bill_round_off',
+    'discount_caps_json', 'discount_require_reason',
+    'ipd_auto_accrue_bed', 'ipd_auto_accrue_nursing', 'ipd_auto_accrue_doctor_visit',
+    'ipd_doctor_visit_mode', 'ipd_transfer_charge_rule', 'ipd_accrual_time', 'ipd_advance_enabled',
+    'tpa_enabled',
+  ]);
+
+  if (!settings) return <div className="card p-8 text-center text-sm text-gray-500"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></div>;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between sticky top-12 z-[5] bg-white/80 dark:bg-slate-900/80 backdrop-blur py-2 -my-2 px-1 rounded">
+        <div className="text-[11px] text-gray-500 dark:text-slate-400">
+          Changes here apply across the clinic. Wards and beds save on their own; the toggles below need <b>Save</b>.
+        </div>
+        <div className="flex items-center gap-2">
+          {dirty && <button className="btn-ghost text-xs" onClick={reset}>Reset</button>}
+          <button className="btn-primary text-xs" disabled={!dirty || saving} onClick={save}>
+            {saving ? 'Saving…' : dirty ? 'Save changes' : 'All saved'}
+          </button>
+        </div>
+      </div>
+
+      <WardsBedsEditor />
+
+      {/* IPD auto-accrual */}
+      <div className="card p-5 space-y-4">
+        <div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">IPD Charges &amp; Accrual</div>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
+            Which charges post themselves to an admitted patient's running bill, and how. Anything auto-posted can still
+            be edited or removed on the bill.
+          </div>
+        </div>
+
+        <AccrualToggle label="Charge the bed rate automatically each day"
+          help="Every occupied bed posts its ward's daily rate once per day. Turn off to add bed charges by hand."
+          value={draft.ipd_auto_accrue_bed ?? true} onChange={(v) => set('ipd_auto_accrue_bed', v)} />
+        <AccrualToggle label="Charge the nursing rate automatically each day"
+          help="Posts the ward's nursing rate daily, separate from the bed. Off if nursing is included in your bed rate."
+          value={draft.ipd_auto_accrue_nursing ?? true} onChange={(v) => set('ipd_auto_accrue_nursing', v)} />
+        <AccrualToggle label="Charge doctor visit fees automatically each day"
+          help="Posts a visit fee for the doctor(s) who saw the patient that day, using their fee from the doctor list."
+          value={draft.ipd_auto_accrue_doctor_visit ?? true} onChange={(v) => set('ipd_auto_accrue_doctor_visit', v)} />
+
+        {(draft.ipd_auto_accrue_doctor_visit ?? true) && (
+          <div className="pl-6">
+            <label className="label">Which doctors get a daily visit fee</label>
+            <select className="input" value={draft.ipd_doctor_visit_mode ?? 'per_consultant'}
+              onChange={(e) => set('ipd_doctor_visit_mode', e.target.value as any)}>
+              <option value="per_consultant">Every doctor who wrote a note that day</option>
+              <option value="primary_only">Only the admitting doctor</option>
+              <option value="manual">None automatically — add by hand</option>
+            </select>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-gray-100 dark:border-slate-800">
+          <div>
+            <label className="label">If a patient moves ward mid-day, charge…</label>
+            <select className="input" value={draft.ipd_transfer_charge_rule ?? 'higher'}
+              onChange={(e) => set('ipd_transfer_charge_rule', e.target.value as any)}>
+              <option value="higher">The higher of the two bed rates (recommended)</option>
+              <option value="prorata">Split by hours in each ward</option>
+              <option value="both">Both beds in full</option>
+            </select>
+            <div className="text-[10px] text-gray-500 mt-1">
+              "Higher" is standard practice and the easiest to explain at the billing counter.
+            </div>
+          </div>
+          <div>
+            <label className="label">Time the daily charges post</label>
+            <input className="input" type="time" value={draft.ipd_accrual_time ?? '00:05'}
+              onChange={(e) => set('ipd_accrual_time', e.target.value)} />
+            <div className="text-[10px] text-gray-500 mt-1">
+              Just after midnight is usual, so each day's charge lands at the start of that day.
+            </div>
+          </div>
+        </div>
+
+        <AccrualToggle label="Collect advance deposits at admission"
+          help="Lets reception take a deposit when admitting, adjusted against the final bill. Refunds are handled at discharge (important for LAMA and death, where money is usually owed back)."
+          value={draft.ipd_advance_enabled ?? true} onChange={(v) => set('ipd_advance_enabled', v)} />
+      </div>
+
+      <BillingSettings draft={draft} set={set as any} />
+
+      {/* TPA */}
+      <div className="card p-5">
+        <AccrualToggle label="Handle insurance / TPA (cashless) admissions"
+          help="Turns on the insurance module — insurer master, pre-authorisation tracking, and claim reconciliation. Leave off if you take only cash, UPI and card."
+          value={draft.tpa_enabled ?? false} onChange={(v) => set('tpa_enabled', v)} />
+      </div>
+    </div>
+  );
+}
+
+function AccrualToggle({ label, help, value, onChange }: {
+  label: string; help: string; value: boolean; onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex items-start gap-3 cursor-pointer">
+      <input type="checkbox" className="mt-1" checked={value} onChange={(e) => onChange(e.target.checked)} />
+      <div>
+        <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">{label}</div>
+        <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">{help}</div>
+      </div>
+    </label>
+  );
 }

@@ -1,17 +1,20 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BedDouble, UserPlus, Search, LogOut, User, Plus, Trash2, Eye } from 'lucide-react';
+import { BedDouble, UserPlus, Search, LogOut, User, Plus, Trash2, Eye, LayoutGrid } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
 import { useToast } from '../hooks/useToast';
 import { cn, fmtDate, fmtDateTime } from '../lib/utils';
 import type { DischargeMedication } from '../types';
+import { WardMap } from '../components/ipd/WardMap';
+import { AdmitModal as WardAdmitModal } from '../components/ipd/AdmitModal';
 
-type Tab = 'admitted' | 'discharged' | 'all';
+type Tab = 'wardmap' | 'admitted' | 'discharged' | 'all';
 
 export function IPD() {
-  const [tab, setTab] = useState<Tab>('admitted');
+  const [tab, setTab] = useState<Tab>('wardmap');
   const [admitOpen, setAdmitOpen] = useState(false);
+  const [admitBed, setAdmitBed] = useState<any | null>(null);   // bed chosen on the ward map
   const [dischargeTarget, setDischargeTarget] = useState<any | null>(null);
   const [viewTarget, setViewTarget] = useState<any | null>(null);
   const qc = useQueryClient();
@@ -38,16 +41,25 @@ export function IPD() {
         </div>
         <div className="flex gap-2 items-center">
           <div className="flex bg-gray-100 dark:bg-slate-700 p-1 rounded-lg">
+            <TabBtn active={tab === 'wardmap'} onClick={() => setTab('wardmap')}>Ward Map</TabBtn>
             <TabBtn active={tab === 'admitted'} onClick={() => setTab('admitted')}>Admitted</TabBtn>
             <TabBtn active={tab === 'discharged'} onClick={() => setTab('discharged')}>Discharged</TabBtn>
             <TabBtn active={tab === 'all'} onClick={() => setTab('all')}>All</TabBtn>
           </div>
-          <button className="btn-primary" onClick={() => setAdmitOpen(true)}>
-            <UserPlus className="w-4 h-4" /> Admit Patient
-          </button>
+          {tab !== 'wardmap' && (
+            <button className="btn-primary" onClick={() => setAdmitOpen(true)}>
+              <UserPlus className="w-4 h-4" /> Admit Patient
+            </button>
+          )}
         </div>
       </div>
 
+      {tab === 'wardmap' ? (
+        <WardMap
+          onAdmit={(bed) => setAdmitBed(bed)}
+          onOpenAdmission={(id) => { setTab('admitted'); setViewTarget({ id }); }}
+        />
+      ) : (
       <div className="card p-4">
         {admissions.length === 0 ? (
           <EmptyState icon={BedDouble} title="No admissions" description="Click “Admit Patient” to add an in-patient." />
@@ -105,6 +117,21 @@ export function IPD() {
           </table>
         )}
       </div>
+      )}
+
+      {/* Admission from the ward map — a specific free bed was chosen. */}
+      {admitBed && (
+        <WardAdmitModal
+          bed={admitBed}
+          onClose={() => setAdmitBed(null)}
+          onAdmitted={() => {
+            qc.invalidateQueries({ queryKey: ['beds-map'] });
+            qc.invalidateQueries({ queryKey: ['ip-admissions'] });
+            qc.invalidateQueries({ queryKey: ['wards'] });
+            setAdmitBed(null);
+          }}
+        />
+      )}
 
       <AdmitModal open={admitOpen} onClose={() => setAdmitOpen(false)} onAdmitted={() => { qc.invalidateQueries({ queryKey: ['ip-admissions'] }); toast('Patient admitted'); setAdmitOpen(false); }} />
 

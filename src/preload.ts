@@ -352,6 +352,62 @@ const api = {
       followup_plan?: string; discharge_doctor_id?: number; discharge_summary?: string;
     } | string) => ipcRenderer.invoke('ip:discharge', id, payload) as Promise<IpAdmission>,
   },
+  // ===== Wards, beds and the IPD ward map =====
+  wards: {
+    list: (includeInactive?: boolean) =>
+      ipcRenderer.invoke('wards:list', includeInactive) as Promise<any[]>,
+    save: (input: any) =>
+      ipcRenderer.invoke('wards:save', input) as Promise<{ ok: true; id: number } | { ok: false; error: string }>,
+    remove: (wardId: number) =>
+      ipcRenderer.invoke('wards:delete', wardId) as Promise<{ ok: boolean; error?: string }>,
+  },
+  beds: {
+    /** Every bed with its ward and current occupant — drives the colour-coded map. */
+    map: () => ipcRenderer.invoke('beds:map') as Promise<any[]>,
+    save: (input: any) =>
+      ipcRenderer.invoke('beds:save', input) as Promise<{ ok: true; id: number } | { ok: false; error: string }>,
+    setStatus: (bedId: number, status: string) =>
+      ipcRenderer.invoke('beds:setStatus', bedId, status) as Promise<{ ok: boolean; error?: string }>,
+  },
+  chargeHeads: {
+    list: (appliesTo?: 'opd' | 'ipd') =>
+      ipcRenderer.invoke('chargeHeads:list', appliesTo) as Promise<any[]>,
+    save: (input: any) =>
+      ipcRenderer.invoke('chargeHeads:save', input) as Promise<{ ok: true; id: number } | { ok: false; error: string }>,
+  },
+  ipd: {
+    admit: (input: any) =>
+      ipcRenderer.invoke('ip:admitV2', input) as Promise<{ ok: true; id: number; admission_number: string } | { ok: false; error: string }>,
+    transfer: (admissionId: number, toBedId: number, reason?: string, by?: string) =>
+      ipcRenderer.invoke('ip:transfer', admissionId, toBedId, reason, by) as Promise<{ ok: boolean; error?: string }>,
+    discharge: (admissionId: number, input: any) =>
+      ipcRenderer.invoke('ip:dischargeV2', admissionId, input) as Promise<{ ok: boolean; outcome?: string; error?: string }>,
+    vitalsList: (admissionId: number) => ipcRenderer.invoke('ip:vitals:list', admissionId) as Promise<any[]>,
+    vitalsAdd: (admissionId: number, input: any) => ipcRenderer.invoke('ip:vitals:add', admissionId, input) as Promise<any>,
+    notesList: (admissionId: number) => ipcRenderer.invoke('ip:progressNote:list', admissionId) as Promise<any[]>,
+    notesAdd: (admissionId: number, input: any) => ipcRenderer.invoke('ip:progressNote:add', admissionId, input) as Promise<any>,
+    nursingList: (admissionId: number) => ipcRenderer.invoke('ip:nursingNote:list', admissionId) as Promise<any[]>,
+    nursingAdd: (admissionId: number, input: any) => ipcRenderer.invoke('ip:nursingNote:add', admissionId, input) as Promise<any>,
+    ioList: (admissionId: number) => ipcRenderer.invoke('ip:intakeOutput:list', admissionId) as Promise<any[]>,
+    ioAdd: (admissionId: number, input: any) => ipcRenderer.invoke('ip:intakeOutput:add', admissionId, input) as Promise<any>,
+    dietList: (admissionId: number) => ipcRenderer.invoke('ip:dietOrder:list', admissionId) as Promise<any[]>,
+    dietAdd: (admissionId: number, input: any) => ipcRenderer.invoke('ip:dietOrder:add', admissionId, input) as Promise<any>,
+  },
+  billing: {
+    /** Running IPD bill — "what's the bill till now". */
+    previewAdmission: (admissionId: number) =>
+      ipcRenderer.invoke('bill:previewAdmission', admissionId) as Promise<any>,
+    addItem: (billId: number, line: any, by?: string) =>
+      ipcRenderer.invoke('bill:addItem', billId, line, by) as Promise<any>,
+    removeItem: (itemId: number) =>
+      ipcRenderer.invoke('bill:removeItem', itemId) as Promise<any>,
+    setDiscount: (billId: number, discount: number, type: 'flat' | 'percent', role: string, reason?: string, by?: string) =>
+      ipcRenderer.invoke('bill:setDiscount', billId, discount, type, role, reason, by) as Promise<any>,
+    pay: (billId: number, amount: number, mode: string, by?: string) =>
+      ipcRenderer.invoke('bill:pay', billId, amount, mode, by) as Promise<{ ok: boolean; error?: string }>,
+    refundAdvance: (advanceId: number, amount: number, reason: string, by?: string) =>
+      ipcRenderer.invoke('advances:refund', advanceId, amount, reason, by) as Promise<any>,
+  },
   clinicalTemplates: {
     list: () => ipcRenderer.invoke('clinical-templates:list') as Promise<import('./types').ClinicalQuickTemplate[]>,
     save: (tpls: import('./types').ClinicalQuickTemplate[]) => ipcRenderer.invoke('clinical-templates:save', tpls) as Promise<import('./types').ClinicalQuickTemplate[]>,

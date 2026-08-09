@@ -27,6 +27,13 @@ const EVENT_TO_KEYS: Record<string, string[][]> = {
   'bill:created':       [['bills'], ['analytics-overview'], ['finance-summary']],
   'pharmacy:dispensed': [['pharmacy-sales'], ['pharmacy-alerts']],
   'pharmacy:sale':      [['pharmacy-sales-month'], ['analytics-overview']],
+  // IPD — keep the ward map and admission lists live across stations.
+  'ip:admitted':        [['beds-map'], ['ip-admissions'], ['wards']],
+  'ip:transferred':     [['beds-map'], ['ip-admissions']],
+  'ip:discharged':      [['beds-map'], ['ip-admissions'], ['wards'], ['analytics-overview']],
+  'ip:bedStatus':       [['beds-map']],
+  'ip:clinicalUpdated': [['ip-clinical']],
+  'bill:updated':       [['bill-preview'], ['bills']],
 };
 
 export function useNetworkLive() {
