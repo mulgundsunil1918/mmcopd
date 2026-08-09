@@ -140,6 +140,18 @@ export const LAB_CATALOG: CatalogTest[] = [
   { name: 'CA 19-9', category: 'pathology', sample_type: 'Serum' },
   { name: 'Semen Analysis', category: 'pathology', sample_type: 'Semen' },
 
+  // ---------- Histopathology / Cytology ----------
+  { name: 'Histopathology — Small Specimen', category: 'pathology', sample_type: 'Tissue (Formalin)' },
+  { name: 'Histopathology — Large Specimen / Resection', category: 'pathology', sample_type: 'Tissue (Formalin)' },
+  { name: 'Biopsy (Trucut / Punch / Incisional)', category: 'pathology', sample_type: 'Tissue (Formalin)' },
+  { name: 'Frozen Section', category: 'pathology', sample_type: 'Fresh Tissue' },
+  { name: 'FNAC (Fine Needle Aspiration Cytology)', category: 'pathology', sample_type: 'Aspirate Smear' },
+  { name: 'Pap Smear (Cervical Cytology)', category: 'pathology', sample_type: 'Cervical Smear' },
+  { name: 'Fluid Cytology (Pleural / Ascitic / CSF)', category: 'pathology', sample_type: 'Body Fluid' },
+  { name: 'Bone Marrow Aspiration', category: 'pathology', sample_type: 'Marrow Aspirate' },
+  { name: 'Bone Marrow Biopsy', category: 'pathology', sample_type: 'Marrow Trephine' },
+  { name: 'Immunohistochemistry (IHC) — per marker', category: 'pathology', sample_type: 'Tissue Block' },
+
   // ================= RADIOLOGY =================
   { name: 'X-Ray Chest PA View', category: 'radiology' },
   { name: 'X-Ray Chest AP/Lateral', category: 'radiology' },
