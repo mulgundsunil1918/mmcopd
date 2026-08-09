@@ -1,0 +1,285 @@
+{
+  "schedule_source": "NIS",
+  "data": [
+    {
+      "age": "Birth",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "Bacillus Calmette Guerin (BCG)",
+          "dose": "0.1ml (0.05ml until 1 month age)",
+          "route": "Intra-dermal",
+          "site": "Left Upper Arm"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Oral Polio Vaccine (OPV)-0",
+          "dose": "2 drops",
+          "route": "Oral",
+          "site": "Oral"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Hepatitis B - Birth dose",
+          "dose": "0.5 ml",
+          "route": "Intra-muscular",
+          "site": "Antero-lateral side of mid-thigh"
+        }
+      ]
+    },
+    {
+      "age": "6 Weeks",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "OPV-1",
+          "dose": "2 drops",
+          "route": "Oral",
+          "site": "Oral",
+          "notes": "OPV can be given till 5 years of age"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Pentavalent-1",
+          "dose": "0.5 ml",
+          "route": "Intra-muscular",
+          "site": "Antero-lateral side of mid-thigh",
+          "notes": "can be given till one year of age"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Rotavirus Vaccine (RVV)-1",
+          "dose": "5 drops (liquid vaccine) / 2.5 ml (lyophilized vaccine)",
+          "route": "Oral",
+          "site": "Oral",
+          "notes": "can be given till one year of age"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Fractional dose of Inactivated Polio Vaccine (fIPV)-1",
+          "dose": "0.1 ml",
+          "route": "Intra-dermal",
+          "site": "Right upper arm",
+          "notes": "two fractional dose"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Pneumococcal Conjugate Vaccine (PCV)-1",
+          "dose": "0.5 ml",
+          "route": "Intra-muscular",
+          "site": "Antero-lateral side of mid-thigh"
+        }
+      ]
+    },
+    {
+      "age": "10 Weeks",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "OPV-2",
+          "dose": "2 drops",
+          "route": "Oral",
+          "site": "Oral"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Pentavalent-2",
+          "dose": "0.5 ml",
+          "route": "Intra-muscular",
+          "site": "Antero-lateral side of mid-thigh"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Rotavirus Vaccine (RVV)-2",
+          "dose": "5 drops (liquid vaccine) / 2.5 ml (lyophilized vaccine)",
+          "route": "Oral",
+          "site": "Oral"
+        }
+      ]
+    },
+    {
+      "age": "14 Weeks",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "OPV-3",
+          "dose": "2 drops",
+          "route": "Oral",
+          "site": "Oral"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Pentavalent-3",
+          "dose": "0.5 ml",
+          "route": "Intra-muscular",
+          "site": "Antero-lateral side of mid-thigh"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Fractional dose of Inactivated Polio Vaccine (fIPV)-2",
+          "dose": "0.1 ml",
+          "route": "Intra-dermal",
+          "site": "Right upper arm"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Rotavirus Vaccine (RVV)-3",
+          "dose": "5 drops (liquid vaccine) / 2.5 ml (lyophilized vaccine)",
+          "route": "Oral",
+          "site": "Oral"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Pneumococcal Conjugate Vaccine (PCV)-2",
+          "dose": "0.5 ml",
+          "route": "Intra-muscular",
+          "site": "Antero-lateral side of mid-thigh"
+        }
+      ]
+    },
+    {
+      "age": "9-12 months",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "Measles & Rubella (MR)-1",
+          "dose": "0.5 ml",
+          "route": "Sub-cutaneous",
+          "site": "Right upper Arm"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Japanese Encephalitis (JE)-1",
+          "dose": "0.5 ml",
+          "route": "Sub-cutaneous (Live attenuated vaccine) / Intramuscular(Killed vaccine)",
+          "site": "Left upper Arm (Live attenuated vaccine) / Anterolateral aspect of mid thigh (Killed vaccine)"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Pneumococcal Conjugate Vaccine (PCV)-Booster",
+          "dose": "0.5 ml",
+          "route": "Intra-muscular",
+          "site": "Antero-lateral side of mid-thigh"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Vitamin A (1st dose)",
+          "dose": "1 ml ( 1 lakh IU)",
+          "route": "Oral",
+          "site": "Oral"
+        }
+      ]
+    },
+    {
+      "age": "16-24 months",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "Measles Rubella (MR)-2",
+          "dose": "0.5 ml",
+          "route": "Sub-cutaneous",
+          "site": "Right upper Arm"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Japanese Encephalitis (JE)-2",
+          "dose": "0.5 ml",
+          "route": "Sub-cutaneous (Live attenuated vaccine) / Intramuscular(Killed vaccine)",
+          "site": "Left upper Arm (Live attenuated vaccine) / Anterolateral aspect of mid thigh (Killed vaccine)"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Diphtheria, Pertussis & Tetanus (DPT)-Booster-1",
+          "dose": "0.5 ml",
+          "route": "Intra-muscular",
+          "site": "Antero-lateral side of mid-thigh"
+        },
+        {
+          "type": "structured",
+          "vaccine": "OPV – Booster",
+          "dose": "2 drops",
+          "route": "Oral",
+          "site": "Oral"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Vitamin A (2nd to 9th dose)",
+          "dose": "2 ml (2 lakh IU)",
+          "route": "Oral",
+          "site": "Oral",
+          "notes": "16-18 months. Then one dose every 6 months up to the age of 5 years."
+        }
+      ]
+    },
+    {
+      "age": "5-6 years",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "DPT-Booster-2",
+          "dose": "0.5 ml",
+          "route": "Intra-muscular",
+          "site": "Upper Arm"
+        }
+      ]
+    },
+    {
+      "age": "10 years",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "Tetanus & adult Diphtheria (Td)",
+          "dose": "0.5 ml",
+          "route": "Intra-muscular",
+          "site": "Upper Arm"
+        }
+      ]
+    },
+    {
+      "age": "16 years",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "Td",
+          "dose": "0.5 ml",
+          "route": "Intra-muscular",
+          "site": "Upper Arm"
+        }
+      ]
+    },
+    {
+      "age": "Pregnant Mother",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "Td-1",
+          "dose": "0.5 ml",
+          "route": "Intra-muscular",
+          "site": "Upper Arm",
+          "notes": "Early in pregnancy"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Td-2",
+          "dose": "0.5 ml",
+          "route": "Intra-muscular",
+          "site": "Upper Arm",
+          "notes": "4 weeks after Td-1"
+        },
+        {
+          "type": "structured",
+          "vaccine": "Td-Booster",
+          "dose": "0.5 ml",
+          "route": "Intra-muscular",
+          "site": "Upper Arm",
+          "notes": "If received 2 TT/Td doses in a pregnancy within the last 3 years"
+        }
+      ]
+    }
+  ],
+  "notes": [
+    "PCV in selected states/districts: Bihar, Himachal Pradesh, Madhya Pradesh, Uttar Pradesh (selected districts) and Rajasthan; in Haryana as state initiative",
+    "JE Vaccine is introduced in select endemic districts after the campaign.",
+    "The 2nd to 9th doses of Vitamin A can be administered to children 1-5 years old during biannual rounds, in collaboration with ICDS."
+  ]
+}

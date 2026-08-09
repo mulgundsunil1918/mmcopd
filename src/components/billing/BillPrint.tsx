@@ -19,6 +19,21 @@ function inr(n: number): string {
   return (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** "3y 2m · Female" from dob + gender, for the patient block. */
+function ageSex(dob?: string | null, gender?: string | null): string {
+  const parts: string[] = [];
+  if (dob) {
+    const b = new Date(dob).getTime();
+    if (!Number.isNaN(b)) {
+      const months = Math.max(0, Math.floor((Date.now() - b) / (30.44 * 86_400_000)));
+      const y = Math.floor(months / 12), m = months % 12;
+      parts.push(y > 0 ? `${y}y${m ? ` ${m}m` : ''}` : `${m}m`);
+    }
+  }
+  if (gender) parts.push(gender === 'M' ? 'Male' : gender === 'F' ? 'Female' : gender);
+  return parts.join(' · ');
+}
+
 /** Amount in words (Indian system) for the total-in-words line invoices need. */
 function inWords(num: number): string {
   const n = Math.round(num);
@@ -48,8 +63,10 @@ export function BillPrint({ admissionId, billId, onClose }: {
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   const { data, isLoading } = useQuery({
     queryKey: ['bill-print', admissionId, billId],
-    queryFn: () => window.electronAPI.billing.previewAdmission(admissionId!),
-    enabled: !!admissionId,
+    queryFn: () => billId
+      ? window.electronAPI.billing.previewById(billId)
+      : window.electronAPI.billing.previewAdmission(admissionId!),
+    enabled: !!admissionId || !!billId,
   });
 
   if (isLoading || !settings) {
@@ -98,15 +115,25 @@ export function BillPrint({ admissionId, billId, onClose }: {
           <span className="inline-block px-4 py-1 rounded font-bold tracking-wide" style={{ background: '#eff6ff', color: '#1e3a8a', fontSize: 14 }}>{title}</span>
         </div>
 
-        {/* ===== Bill meta ===== */}
-        <div className="flex justify-between text-[12px] mb-3">
-          <div>
-            <div><b>Patient:</b> {bill?.patient_name || data?.patient_name || '—'}</div>
-            <div className="text-slate-600">{bill?.patient_uhid || ''}</div>
+        {/* ===== Patient + invoice block ===== */}
+        <div className="flex justify-between gap-6 text-[12px] mb-3 p-3 rounded" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+          <div className="space-y-0.5">
+            <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Bill to</div>
+            <div className="font-bold text-[13px] text-slate-900">{bill?.patient_name || '—'}</div>
+            <div className="text-slate-600">
+              {bill?.patient_uhid ? <>UHID: {bill.patient_uhid}</> : null}
+              {ageSex(bill?.patient_dob, bill?.patient_gender) ? <> · {ageSex(bill.patient_dob, bill.patient_gender)}</> : null}
+            </div>
+            {bill?.patient_phone && <div className="text-slate-600">☎ {bill.patient_phone}</div>}
+            {bill?.patient_address && <div className="text-slate-600" style={{ maxWidth: '80mm' }}>{bill.patient_address}</div>}
           </div>
-          <div className="text-right">
-            <div><b>Invoice #:</b> {bill?.bill_number || '—'}</div>
-            <div className="text-slate-600">{bill?.created_at ? new Date(bill.created_at).toLocaleString('en-IN') : ''}</div>
+          <div className="text-right space-y-0.5">
+            <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">{title === 'RECEIPT' ? 'Receipt' : 'Invoice'} details</div>
+            <div><b>No:</b> {bill?.bill_number || '—'}</div>
+            <div className="text-slate-600"><b>Date:</b> {bill?.created_at ? new Date(bill.created_at).toLocaleString('en-IN') : new Date().toLocaleString('en-IN')}</div>
+            {bill?.admission_number && <div className="text-slate-600"><b>Admission:</b> {bill.admission_number}</div>}
+            {bill?.ward && <div className="text-slate-600">{bill.ward}{bill.bed_number ? ` / ${bill.bed_number}` : ''}</div>}
+            {bill?.doctor_name && <div className="text-slate-600">Dr. {bill.doctor_name}</div>}
           </div>
         </div>
 
@@ -126,6 +153,11 @@ export function BillPrint({ admissionId, billId, onClose }: {
             </tr>
           </thead>
           <tbody>
+            {items.length === 0 && (
+              <tr><td colSpan={isTax ? 9 : 5} style={{ ...cell, padding: '12px', color: '#94a3b8' }}>
+                No charges have been added to this bill yet.
+              </td></tr>
+            )}
             {items.map((it: any, i: number) => (
               <tr key={it.id}>
                 <td style={cell}>{i + 1}</td>

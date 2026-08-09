@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { HeartPulse, Phone, MapPin, Clock, CloudUpload, AlertTriangle } from 'lucide-react';
+import { HeartPulse, Phone, MapPin, Clock, CloudUpload, AlertTriangle, Receipt } from 'lucide-react';
 import { format } from 'date-fns';
+import { QuickBillModal } from './billing/QuickBillModal';
 
 export function TopBar() {
+  const [billOpen, setBillOpen] = useState(false);
   const { data: settings } = useQuery({
     queryKey: ['settings'],
     queryFn: () => window.electronAPI.settings.get(),
@@ -81,6 +83,17 @@ export function TopBar() {
         {backedUpToday ? <CloudUpload className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
         {backupLabel}
       </div>
+
+      {/* Global New Bill — available from every screen */}
+      <button
+        onClick={() => setBillOpen(true)}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white shadow-sm transition active:scale-95"
+        style={{ background: 'linear-gradient(135deg,#2563eb,#4f46e5)' }}
+        title="Raise a bill for anyone — consultation, pharmacy, lab or custom"
+      >
+        <Receipt className="w-3.5 h-3.5" /> New Bill
+      </button>
+      {billOpen && <QuickBillModal onClose={() => setBillOpen(false)} />}
 
       {/* Live clock */}
       <div className="flex items-center gap-2 pl-4 border-l border-gray-200 dark:border-slate-700">

@@ -1,0 +1,292 @@
+{
+  "schedule_source": "IAP_2022",
+  "data": [
+    {
+      "age": "At Birth",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "BCG",
+          "dose": "0.05ml <1m, 0.1ml >1m",
+          "route": "ID",
+          "site": "LUA",
+          "brands": ["Tubervac"]
+        },
+        {
+          "type": "structured",
+          "vaccine": "OPV -0 dose",
+          "dose": "2 drops",
+          "route": "Oral",
+          "site": "",
+          "brands": ["Biopolio"]
+        },
+        {
+          "type": "structured",
+          "vaccine": "Hepatitis B - birth dose",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": ["Energix B", "Recombivax B"]
+        }
+      ]
+    },
+    {
+      "age": "At 6 ,10 ,14 weeks",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "Pentavalent -1 ,2,3",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": ["Hexaxim [DTaP, IPV, Hib, HepB]"]
+        },
+        {
+          "type": "structured",
+          "vaccine": "IPV -1,2,3",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": ["Pentavac & IPV"]
+        },
+        {
+          "type": "structured",
+          "vaccine": "OPV -1,2,3",
+          "dose": "2 drops",
+          "route": "Oral",
+          "site": "",
+          "brands": ["Biopolio"]
+        },
+        {
+          "type": "structured",
+          "vaccine": "Pneumococcal -1,2,3",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": ["PREVENAR-13", "SYNFLORIX -10 (pneumococcal conjugated vaccine)"]
+        },
+        {
+          "type": "structured",
+          "vaccine": "Rotavaccine -1,2,3",
+          "dose": "5 drops",
+          "route": "Oral",
+          "site": "",
+          "brands": ["Rotavac"]
+        }
+      ]
+    },
+    {
+      "age": "At 6 months",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "Influenza vaccine",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": ["INFLUVAC", "FLUQUADRI"]
+        }
+      ]
+    },
+    {
+      "age": "At 7 months",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "Influenza vaccine",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": ["INFLUVAC", "FLUQUADRI"]
+        }
+      ]
+    },
+    {
+      "age": "At 9 months",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "Typhoid conjugate vaccine",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": ["Typbar"]
+        },
+        {
+          "type": "structured",
+          "vaccine": "MMR -1",
+          "dose": "0.5ml",
+          "route": "S/C",
+          "site": "RUA",
+          "brands": ["TRESIVAC PFS"]
+        }
+      ]
+    },
+    {
+      "age": "At 12 months",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "Hepatitis A",
+          "dose": "0.5ml",
+          "route": "S/C",
+          "site": "",
+          "brands": ["BIOVAC A (live attenuated) single dose"]
+        },
+        {
+          "type": "structured",
+          "vaccine": "Hepatitis A",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": ["HAVRIX (Inactivated killed) two doses"]
+        }
+      ]
+    },
+    {
+      "age": "At 15 months",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "MMR -2",
+          "dose": "0.5ml",
+          "route": "S/C",
+          "site": "RUA",
+          "brands": ["Tresivac PFS"]
+        },
+        {
+          "type": "structured",
+          "vaccine": "Varicella -1",
+          "dose": "0.5 ml",
+          "route": "S/C",
+          "site": "",
+          "brands": ["VARIPED", "NEXIPOX"]
+        },
+        {
+          "type": "structured",
+          "vaccine": "PCV booster",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": ["PREVINAR 13"],
+          "notes": "PCV can be given on same day or after 4 weeks"
+        }
+      ]
+    },
+    {
+      "age": "At 18 months",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "DTaP Hib",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": ["Pentaxim (DTaP, Hib, IPV)"]
+        },
+        {
+          "type": "structured",
+          "vaccine": "IPV booster",
+          "dose": "",
+          "route": "",
+          "site": "",
+          "brands": []
+        },
+        {
+          "type": "structured",
+          "vaccine": "Varicella -2",
+          "dose": "0.5ml",
+          "route": "S/C",
+          "site": "",
+          "brands": ["VARIPED", "NEXIPOX"]
+        },
+        {
+          "type": "structured",
+          "vaccine": "Hepatitis A -2",
+          "dose": "",
+          "route": "",
+          "site": "",
+          "brands": [],
+          "notes": "Only if 1st dose is inactivated killed vaccine is given"
+        }
+      ]
+    },
+    {
+      "age": "At 2, 3, 4 years",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "Influenza booster",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": ["INFLUVAC", "FLUQUADRI"]
+        }
+      ]
+    },
+    {
+      "age": "At 5 years",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "Influenza",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": ["INFLUVAC", "FLUQUADRI"]
+        },
+        {
+          "type": "structured",
+          "vaccine": "DTaP",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": ["TETRAXIM (DTaP, IPV)"]
+        },
+        {
+          "type": "structured",
+          "vaccine": "IPV - booster 2",
+          "dose": "0.5 ml",
+          "route": "IM",
+          "site": "",
+          "brands": ["IMOVAX polio"]
+        },
+        {
+          "type": "structured",
+          "vaccine": "MMR -3",
+          "dose": "0.5ml",
+          "route": "S/C",
+          "site": "",
+          "brands": ["Tresivac PFS"]
+        }
+      ]
+    },
+    {
+      "age": "At 10-12 years",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "Tdap",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": ["BOOSTRIX"]
+        },
+        {
+          "type": "text_block",
+          "vaccine": "HPV",
+          "content": [
+            "HPV: 9–14 year-old girls: 9vHPV and 4vHPV are recommended in a 2-dose series (0–6 m)",
+            "9–14 years boys: HPV9 is recommended in a 2-dose schedule of 0–6 months",
+            "15–45 years: 4vHPV (0–2–6 m) is recommended in a 3-dose series",
+            "15–26 years: 9vHPV is recommended in a 3-dose schedule of 0–2–6 months"
+          ]
+        }
+      ]
+    }
+  ],
+  "notes": [
+    "IM - INTRA MUSCULAR, ID- INTRA DERMAL, S/C - SUB CUTANEOUS, RUA- RIGHT UPPER ARM .LUA-LEFT UPPER ARM",
+    "VITAMIN A TO BE GIVEN AFTER 9 MONTHS - 1 SPOON ( 1 LAKH IU) < 1 YEAR FOLLOWED BY EVERY 6 MONTHS 2 SPOONFUL (2 LAKH IU)."
+  ]
+}

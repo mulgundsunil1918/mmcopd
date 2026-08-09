@@ -411,6 +411,13 @@ const api = {
       ipcRenderer.invoke('analytics:ipd', from, to) as Promise<any>,
     billingAnalytics: (from: string, to: string) =>
       ipcRenderer.invoke('analytics:billing', from, to) as Promise<any>,
+    // Standalone bills — OPD consult, pharmacy, lab, or a quick custom bill.
+    createStandalone: (input: any) =>
+      ipcRenderer.invoke('bill:createStandalone', input) as Promise<{ ok: true; id: number; bill_number: string } | { ok: false; error: string }>,
+    previewById: (billId: number) =>
+      ipcRenderer.invoke('bill:previewById', billId) as Promise<any>,
+    recent: (limit?: number) =>
+      ipcRenderer.invoke('bill:recent', limit) as Promise<any[]>,
   },
   clinicalTemplates: {
     list: () => ipcRenderer.invoke('clinical-templates:list') as Promise<import('./types').ClinicalQuickTemplate[]>,

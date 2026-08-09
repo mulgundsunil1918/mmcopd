@@ -568,6 +568,142 @@ export function registerIpdBillingIpc() {
     });
   }
 
+  // ---------- Standalone bills (OPD consult, pharmacy, lab, custom) ----------
+  /**
+   * Create a one-off bill not tied to an admission. Covers:
+   *   - OPD consultation      (bill_type 'opd_consult')
+   *   - Pharmacy dispense      ('pharmacy')
+   *   - Lab                    ('lab')
+   *   - Quick custom bill      ('custom') — just a name, a reason and an amount
+   *
+   * patient_id is optional: a custom bill can carry only a typed name, so a
+   * walk-in with no record can still be billed and given a printout.
+   */
+  ipcMain.handle('bill:createStandalone', (_e, input: any) => {
+    const d = db();
+    try {
+      const items: any[] = Array.isArray(input?.items) ? input.items : [];
+      if (items.length === 0) {
+        return fail('Add at least one line to the bill before saving.');
+      }
+      for (const it of items) {
+        if (!it?.description || String(it.description).trim() === '') {
+          return fail('Every line needs a description.');
+        }
+        const amt = Number(it.amount ?? (Number(it.qty ?? 1) * Number(it.rate ?? 0)));
+        if (!Number.isFinite(amt) || amt < 0) {
+          return fail(`"${it.description}" has an invalid amount.`);
+        }
+      }
+
+      let patientId: number | null = null;
+      if (input?.patient_id) {
+        patientId = requireId(input.patient_id, 'Patient');
+        if (!d.prepare('SELECT id FROM patients WHERE id=?').get(patientId)) {
+          return fail(`Patient #${patientId} was not found.`);
+        }
+      }
+      const nameOverride = (input?.patient_name || '').trim();
+      if (!patientId && !nameOverride) {
+        return fail('Enter a patient name, or pick a registered patient.');
+      }
+
+      const billType = ['opd_consult', 'pharmacy', 'lab', 'custom', 'misc'].includes(input?.bill_type) ? input.bill_type : 'custom';
+      const s = getAllSettings(d);
+
+      let billId = 0;
+      let billNumber = '';
+      const tx = d.transaction(() => {
+        billNumber = nextBillNumber(d, s.invoice_prefix || 'INV');
+        const info = d.prepare(
+          `INSERT INTO bills (bill_number, appointment_id, patient_id, items_json, subtotal,
+                              discount, discount_type, total, payment_mode, status, bill_type, notes)
+           VALUES (?, NULL, ?, '[]', 0, ?, ?, 0, ?, 'open', ?, ?)`
+        ).run(
+          billNumber,
+          patientId,
+          Number(input?.discount ?? 0),
+          input?.discount_type === 'percent' ? 'percent' : 'flat',
+          input?.payment_mode || 'Cash',
+          billType,
+          nameOverride && !patientId ? `Name: ${nameOverride}` : (input?.reason || null)
+        );
+        billId = Number(info.lastInsertRowid);
+        for (const it of items) {
+          addLine(d, billId, {
+            charge_head_id: it.charge_head_id ?? null,
+            description: String(it.description).trim(),
+            qty: Number(it.qty ?? 1),
+            rate: Number(it.rate ?? (Number(it.amount ?? 0) / Number(it.qty ?? 1))),
+            amount: it.amount !== undefined ? Number(it.amount) : undefined,
+            hsn_sac: it.hsn_sac ?? null,
+            gst_rate: Number(it.gst_rate ?? 0),
+            is_taxable: !!it.is_taxable,
+            source: billType,
+          }, input?.performed_by);
+        }
+      });
+      tx();
+      recalcBill(d, billId);
+
+      // If it's paid at the counter, record the payment and settle it.
+      if (input?.paid_now) {
+        const total = (d.prepare('SELECT total FROM bills WHERE id=?').get(billId) as any).total;
+        d.prepare('INSERT INTO bill_payments (bill_id, amount, payment_mode, received_by) VALUES (?,?,?,?)')
+          .run(billId, total, input?.payment_mode || 'Cash', input?.performed_by ?? null);
+        d.prepare("UPDATE bills SET amount_paid=?, status='paid', paid_at=? WHERE id=?")
+          .run(total, new Date().toISOString(), billId);
+      }
+
+      logAudit(d, null, 'bill_created', 'bills', billId, `${billNumber} · ${billType}${nameOverride ? ' · ' + nameOverride : ''}`);
+      broadcastEvent('bill:created', { billId });
+      return { ok: true, id: billId, bill_number: billNumber, patient_name_override: nameOverride || null };
+    } catch (err: any) {
+      return fail(err?.message || String(err));
+    }
+  });
+
+  /** Preview any bill by id (for print / reprint), with patient details joined. */
+  ipcMain.handle('bill:previewById', (_e, billId: number) => {
+    const d = db();
+    try {
+      const bid = requireId(billId, 'Bill');
+      if (!d.prepare('SELECT id FROM bills WHERE id=?').get(bid)) return fail(`Bill #${bid} was not found.`);
+      const totals = recalcBill(d, bid);
+      const items = d.prepare(
+        `SELECT bi.*, ch.name AS charge_head_name, ch.category, ch.colour
+         FROM bill_items bi LEFT JOIN charge_heads ch ON ch.id = bi.charge_head_id
+         WHERE bi.bill_id=? ORDER BY bi.id`
+      ).all(bid);
+      const bill = d.prepare(
+        `SELECT b.*,
+                COALESCE((p.first_name || ' ' || p.last_name), '') AS patient_name,
+                p.uhid AS patient_uhid, p.phone AS patient_phone,
+                p.gender AS patient_gender, p.dob AS patient_dob, p.address AS patient_address
+         FROM bills b LEFT JOIN patients p ON p.id = b.patient_id WHERE b.id=?`
+      ).get(bid) as any;
+      // Custom bill with only a typed name — recover it from notes.
+      if ((!bill.patient_name || bill.patient_name.trim() === '') && bill.notes?.startsWith('Name: ')) {
+        bill.patient_name = bill.notes.slice(6);
+      }
+      return { ok: true, bill, items, totals };
+    } catch (err: any) {
+      return fail(`Could not load the bill: ${err?.message || String(err)}`);
+    }
+  });
+
+  /** Recent bills for the register / reprint list. */
+  ipcMain.handle('bill:recent', (_e, limit = 50) => {
+    const d = db();
+    const n = Math.min(Math.max(Number(limit) || 50, 1), 500);
+    return d.prepare(
+      `SELECT b.id, b.bill_number, b.bill_type, b.total, b.status, b.created_at, b.notes,
+              COALESCE((p.first_name || ' ' || p.last_name), '') AS patient_name, p.uhid AS patient_uhid
+       FROM bills b LEFT JOIN patients p ON p.id = b.patient_id
+       ORDER BY b.id DESC LIMIT ?`
+    ).all(n);
+  });
+
   // ---------- Bill: preview / add / finalise ----------
   /** Running bill for an admission — "what's the bill till now". */
   ipcMain.handle('bill:previewAdmission', (_e, admissionId: number) => {
@@ -587,7 +723,23 @@ export function registerIpdBillingIpc() {
       const paid = d.prepare(
         'SELECT COALESCE(SUM(amount), 0) AS p FROM bill_payments WHERE bill_id=?'
       ).get(billId) as { p: number };
-      const bill = d.prepare('SELECT * FROM bills WHERE id=?').get(billId);
+      // Join the patient and admission so the bill and its printout can show
+      // who it is for — the bills row alone has no name, which is why the print
+      // showed "Patient: —".
+      const bill = d.prepare(
+        `SELECT b.*,
+                (p.first_name || ' ' || p.last_name) AS patient_name,
+                p.uhid AS patient_uhid, p.phone AS patient_phone,
+                p.gender AS patient_gender, p.dob AS patient_dob,
+                p.address AS patient_address,
+                a.admission_number, a.admitted_at, a.ward, a.bed_number,
+                dr.name AS doctor_name
+         FROM bills b
+         JOIN patients p ON p.id = b.patient_id
+         LEFT JOIN ip_admissions a ON a.id = b.admission_id
+         LEFT JOIN doctors dr ON dr.id = a.admission_doctor_id
+         WHERE b.id=?`
+      ).get(billId);
       return {
         ok: true, bill, items, totals,
         advanceAvailable: money(advances.a),
