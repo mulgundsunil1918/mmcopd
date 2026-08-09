@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 
 /** Mirrors the backend Role in main/auth.ts, plus the renderer-only 'staff'
  *  pseudo-role used for the default unauthenticated session. */
@@ -22,6 +22,10 @@ export interface SessionUser {
 
 const SESSION_KEY = 'caredesk-session';
 const ADMIN_UNLOCK_KEY = 'caredesk-admin-unlocked';
+// Mirror of settings.require_login so the very first render can decide whether
+// to show Login without waiting for the async settings fetch (avoids a flash of
+// the app before redirecting to sign-in).
+const REQUIRE_LOGIN_MIRROR = 'caredesk-require-login';
 
 interface AuthCtx {
   user: SessionUser | null;
@@ -65,19 +69,52 @@ const DEFAULT_SESSION: SessionUser = {
   doctor_id: null,
 };
 
+/** A stored session counts as a real sign-in only if it's a genuine account. */
+function isRealLogin(u: any): u is SessionUser {
+  return !!u && typeof u.id === 'number' && u.id > 0 && u.role !== 'staff';
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  // Read the mirror synchronously so the first render is already correct.
+  const requireLoginInitial = (() => {
+    try { return localStorage.getItem(REQUIRE_LOGIN_MIRROR) === '1'; } catch { return false; }
+  })();
+  const [requireLogin, setRequireLogin] = useState(requireLoginInitial);
+  const [sessionTimeout, setSessionTimeout] = useState(0);
+
   const [user, setUser] = useState<SessionUser | null>(() => {
     try {
       const raw = localStorage.getItem(SESSION_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        // If an older admin-auto-session was stored, replace with default staff session
-        if (parsed?.role === 'admin' && parsed?.id === 1) return DEFAULT_SESSION;
-        return parsed;
+        // If an older admin-auto-session was stored, drop it.
+        if (parsed?.role === 'admin' && parsed?.id === 1) {
+          return requireLoginInitial ? null : DEFAULT_SESSION;
+        }
+        // A genuine sign-in is always honoured. A stale default/staff session is
+        // not a login — under require_login it must not grant access.
+        if (isRealLogin(parsed)) return parsed;
+        return requireLoginInitial ? null : parsed;
       }
     } catch { /* ignore */ }
-    return DEFAULT_SESSION;
+    return requireLoginInitial ? null : DEFAULT_SESSION;
   });
+
+  // Load the real setting; sync the mirror and, if login just became required
+  // while only a default/staff session was active, drop to the sign-in screen.
+  useEffect(() => {
+    let cancelled = false;
+    window.electronAPI.settings.get().then((s: any) => {
+      if (cancelled || !s) return;
+      const req = !!s.require_login;
+      setRequireLogin(req);
+      setSessionTimeout(Number(s.session_timeout_minutes) || 0);
+      try { localStorage.setItem(REQUIRE_LOGIN_MIRROR, req ? '1' : '0'); } catch { /* ignore */ }
+      if (req) setUser((cur) => (isRealLogin(cur) ? cur : null));
+      else setUser((cur) => cur ?? DEFAULT_SESSION);
+    }).catch(() => { /* settings unreachable — leave initial state */ });
+    return () => { cancelled = true; };
+  }, []);
 
   const [adminUnlocked, setAdminUnlocked] = useState<boolean>(() => {
     try { return sessionStorage.getItem(ADMIN_UNLOCK_KEY) === '1'; } catch { return false; }
@@ -104,9 +141,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
-    setUser(DEFAULT_SESSION);
+    // With mandatory login, logging out returns to the sign-in screen rather
+    // than a shared session.
+    setUser(requireLogin ? null : DEFAULT_SESSION);
     setAdminUnlocked(false);
   };
+
+  // Inactivity auto sign-out (only when login is required and a timeout is set).
+  const lastActivity = useRef(Date.now());
+  useEffect(() => {
+    if (!requireLogin || sessionTimeout <= 0 || !isRealLogin(user)) return;
+    const bump = () => { lastActivity.current = Date.now(); };
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'wheel'];
+    events.forEach((e) => window.addEventListener(e, bump, { passive: true }));
+    const timer = window.setInterval(() => {
+      if (Date.now() - lastActivity.current >= sessionTimeout * 60_000) {
+        setUser(null);
+        setAdminUnlocked(false);
+      }
+    }, 15_000);
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, bump));
+      window.clearInterval(timer);
+    };
+  }, [requireLogin, sessionTimeout, user]);
 
   const unlockAdmin = async (password: string) => {
     const ok = await window.electronAPI.admin.verifyPassword(password);

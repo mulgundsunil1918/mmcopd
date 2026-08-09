@@ -626,6 +626,12 @@ export interface Settings {
 
   // ===== IPD admission-request workflow =====
   ipd_admission_requests_enabled: boolean;
+
+  // ===== Access / login =====
+  /** When true, everyone must sign in as themselves — no shared default session. */
+  require_login: boolean;
+  /** Auto sign-out after this many minutes idle (0 = never). Only when require_login. */
+  session_timeout_minutes: number;
 }
 
 /** Live state of a patient's free-follow-up entitlement with a given doctor, used at booking time. */

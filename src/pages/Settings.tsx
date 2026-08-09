@@ -10,6 +10,7 @@ import { Modal } from '../components/Modal';
 import { ImageUpload } from '../components/ImageUpload';
 import { WhatsAppMessaging } from '../components/WhatsAppMessaging';
 import { SlipPreviewLauncher } from '../components/SlipPreviewLauncher';
+import { OpdSlip } from '../components/OpdSlip';
 import { AdminGate } from '../components/AdminGate';
 import { NetworkTroubleshoot } from '../components/NetworkTroubleshoot';
 import { WardsBedsEditor } from '../components/settings/WardsBedsEditor';
@@ -140,6 +141,9 @@ export function SettingsPage() {
 
           {tab === 'system' && (
             <>
+              <SettingsGroup title="Security & Login" subtitle="Require each person to sign in as themselves, and auto sign-out an idle station.">
+                <SecurityLoginSettings />
+              </SettingsGroup>
               <SettingsGroup title="Startup & Background" subtitle="Auto-launch with Windows, minimize to tray, start hidden.">
                 <StartupBehavior />
               </SettingsGroup>
@@ -2597,6 +2601,7 @@ function SlipTemplatesEditor() {
   const [activeId, setActiveId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'sections' | 'layout'>('sections');
+  const [previewId, setPreviewId] = useState<number | null>(null);   // inline slip preview
 
   useEffect(() => {
     if (!templates) return;
@@ -2702,6 +2707,15 @@ function SlipTemplatesEditor() {
         <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Slip Body Templates</div>
         <div className="flex items-center gap-2">
           {active && (
+            <button
+              className="btn-secondary text-xs"
+              onClick={async () => { if (dirty) { await window.electronAPI.templates.saveAll(draft); await qc.invalidateQueries({ queryKey: ['slip-templates'] }); } setPreviewId(active.id); }}
+              title="See how this template prints"
+            >
+              <Eye className="w-3.5 h-3.5" /> Preview
+            </button>
+          )}
+          {active && (
             <button className="btn-secondary text-xs" onClick={duplicateTemplate} title="Duplicate selected template">
               <Copy className="w-3.5 h-3.5" /> Duplicate
             </button>
@@ -2795,47 +2809,7 @@ function SlipTemplatesEditor() {
                           <ArrowDown className="w-3 h-3" />
                         </button>
                       </div>
-                      <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-2">
-                        <div className="md:col-span-2">
-                          <label className="label !mb-0.5 !text-[10px]">Title</label>
-                          <input className="input !py-1 !text-xs" value={s.title} onChange={(e) => updateSection(idx, { title: e.target.value })} />
-                        </div>
-                        {/* Key is an internal identifier — auto-generated, not shown, so a
-                            doctor never has to think about it. */}
-                        <div>
-                          <label className="label !mb-0.5 !text-[10px]">Type</label>
-                          <select className="input !py-1 !text-xs" value={s.type} onChange={(e) => updateSection(idx, { type: e.target.value })}>
-                            <option value="textarea">Textarea (multi-line)</option>
-                            <option value="singleline">Single line</option>
-                            <option value="date">Date</option>
-                            <option value="number">Number</option>
-                            <option value="dropdown">Dropdown</option>
-                          </select>
-                        </div>
-                        {(s.type === 'textarea' || s.type === 'singleline') && (
-                          <div>
-                            <label className="label !mb-0.5 !text-[10px]">Print height (mm)</label>
-                            <input type="number" min={5} max={120} className="input !py-1 !text-xs" value={s.height_mm ?? 20} onChange={(e) => updateSection(idx, { height_mm: parseInt(e.target.value, 10) || 20 })} />
-                          </div>
-                        )}
-                        {s.type === 'dropdown' && (
-                          <div className="md:col-span-2">
-                            <label className="label !mb-0.5 !text-[10px]">Options (comma-separated)</label>
-                            <input className="input !py-1 !text-xs" value={(s.options || []).join(', ')} onChange={(e) => updateSection(idx, { options: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })} />
-                          </div>
-                        )}
-                        <div className="md:col-span-2">
-                          <label className="label !mb-0.5 !text-[10px]">Placeholder</label>
-                          <input className="input !py-1 !text-xs" value={s.placeholder || ''} onChange={(e) => updateSection(idx, { placeholder: e.target.value })} />
-                        </div>
-                        <label className="inline-flex items-center gap-1.5 text-[11px] mt-4 cursor-pointer">
-                          <input type="checkbox" checked={s.printed !== false} onChange={(e) => updateSection(idx, { printed: e.target.checked })} className="w-3.5 h-3.5 accent-blue-600" />
-                          <span>Print on slip</span>
-                        </label>
-                        <button onClick={() => removeSection(idx)} className="self-start mt-3 text-[11px] text-red-600 hover:text-red-700 inline-flex items-center gap-1">
-                          <Trash2 className="w-3 h-3" /> Remove
-                        </button>
-                      </div>
+                      <SlipSectionRow s={s} idx={idx} updateSection={updateSection} removeSection={removeSection} />
                     </div>
                   </li>
                 ))}
@@ -2983,7 +2957,55 @@ function SlipTemplatesEditor() {
           )}
         </div>
       )}
+
+      {/* Inline preview of the template just edited — opens right here, no
+          scrolling to a separate section. */}
+      {previewId !== null && <SlipTemplatePreview templateId={previewId} onClose={() => setPreviewId(null)} />}
     </section>
+  );
+}
+
+/** Renders the OPD slip with sample data for one template id (the inline preview). */
+function SlipTemplatePreview({ templateId, onClose }: { templateId: number; onClose: () => void }) {
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { data: doctors = [] } = useQuery({ queryKey: ['doctors'], queryFn: () => window.electronAPI.doctors.list(true) });
+  if (!settings) return null;
+
+  const baseDoctor = (doctors as any[]).find((d) => d.is_active) ?? {
+    id: 1, name: 'Dr. Sample', specialty: 'General', phone: '', room_number: '101',
+    is_active: 1, default_fee: 0, qualifications: 'MBBS', registration_no: '', signature: null, color: '#2563eb',
+  };
+  const doctor = { ...baseDoctor, template_id: templateId };   // force OpdSlip to resolve this template
+
+  const today = new Date();
+  const dob3 = new Date(today.getFullYear() - 3, today.getMonth(), today.getDate() - 12);
+  const appointment: any = {
+    id: 9999, patient_id: 9999, doctor_id: doctor.id,
+    appointment_date: today.toISOString().slice(0, 10), appointment_time: '10:30',
+    token_number: 7, consultation_token: null, visit_number: 3, visit_id: 'PT-PREVIEW-0001/V3',
+    status: 'Done', notes: 'Fever x3 days', created_at: today.toISOString(),
+    patient_name: 'Rohit Kulkarni (sample)', patient_uhid: 'PT-PREVIEW-0001',
+    patient_dob: dob3.toISOString().slice(0, 10), patient_gender: 'M', patient_phone: '9876543210',
+    patient_blood_group: 'O+', patient_created_at: today.toISOString(),
+    doctor_name: doctor.name, doctor_specialty: doctor.specialty, doctor_room: doctor.room_number,
+  };
+  const consultation: any = {
+    id: 9999, appointment_id: 9999, patient_id: 9999, doctor_id: doctor.id,
+    history: 'Fever since 3 days, cough, reduced appetite.',
+    examination: 'Throat congested. Chest clear. P/A soft.',
+    impression: 'Acute viral URTI.', advice: 'Steam inhalation, warm fluids, review in 48h.',
+    follow_up_date: new Date(today.getTime() + 5 * 864e5).toISOString().slice(0, 10),
+    vitals: { bp: '110/72', pulse: '92', temp: '101.4', spo2: '98', rr: '20', weight: '14', height: '95' },
+    created_at: today.toISOString(), updated_at: today.toISOString(),
+  };
+  const rx: any = [
+    { drug_name: 'Crocin Syrup 60ml', dosage: '5 ml', frequency: 'TID', duration: '3 days', instructions: 'After food' },
+    { drug_name: 'ORS Sachet', dosage: '1 sachet', frequency: 'PRN', duration: 'As needed', instructions: 'In 200 ml water' },
+  ];
+
+  return (
+    <OpdSlip appointment={appointment} consultation={consultation} doctor={doctor as any}
+      settings={settings} rxItems={rx} labOrders={[]} onClose={onClose} />
   );
 }
 
@@ -3976,6 +3998,145 @@ function BillingIpdTab() {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One editable slip section. Simple by default — a doctor sees only the section
+ * name, how much space it takes on the slip, and a print toggle. The technical
+ * options (field type, hint text, exact height, dropdown choices) are tucked
+ * behind an "Advanced" link so nobody has to understand "Print height (mm)".
+ */
+function SlipSectionRow({ s, idx, updateSection, removeSection }: {
+  s: any; idx: number; updateSection: (idx: number, patch: any) => void; removeSection: (idx: number) => void;
+}) {
+  const [advanced, setAdvanced] = useState(false);
+  // Friendly space sizes mapped to millimetres.
+  const SPACE: Record<string, number> = { Small: 22, Medium: 45, Large: 70 };
+  const spaceLabel = (mm: number) => mm <= 30 ? 'Small' : mm <= 55 ? 'Medium' : mm <= 90 ? 'Large' : 'Custom';
+  const hasSpace = s.type === 'textarea' || s.type === 'singleline';
+
+  return (
+    <div className="flex-1 space-y-2">
+      {/* Simple row: name · space · print */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
+        <div className="md:col-span-7">
+          <label className="label !mb-0.5 !text-[10px]">Section name</label>
+          <input className="input !py-1.5 !text-sm" value={s.title} placeholder="e.g. Examination"
+            onChange={(e) => updateSection(idx, { title: e.target.value })} />
+        </div>
+        {hasSpace && (
+          <div className="md:col-span-3">
+            <label className="label !mb-0.5 !text-[10px]">Space on slip</label>
+            <select className="input !py-1.5 !text-sm"
+              value={spaceLabel(s.height_mm ?? 45)}
+              onChange={(e) => { const v = e.target.value; if (SPACE[v]) updateSection(idx, { height_mm: SPACE[v] }); }}>
+              {Object.keys(SPACE).map((k) => <option key={k} value={k}>{k}</option>)}
+              {spaceLabel(s.height_mm ?? 45) === 'Custom' && <option value="Custom">Custom ({s.height_mm}mm)</option>}
+            </select>
+          </div>
+        )}
+        <label className="md:col-span-2 inline-flex items-center gap-1.5 text-[12px] cursor-pointer pb-1.5">
+          <input type="checkbox" checked={s.printed !== false} onChange={(e) => updateSection(idx, { printed: e.target.checked })} className="w-4 h-4 accent-blue-600" />
+          <span>Print it</span>
+        </label>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={() => setAdvanced((v) => !v)} className="text-[11px] text-blue-600 dark:text-blue-300 hover:underline">
+          {advanced ? 'Hide advanced' : 'Advanced options'}
+        </button>
+        <button onClick={() => removeSection(idx)} className="text-[11px] text-red-600 hover:text-red-700 inline-flex items-center gap-1">
+          <Trash2 className="w-3 h-3" /> Remove section
+        </button>
+      </div>
+
+      {advanced && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 rounded-lg bg-white dark:bg-slate-900/60 border border-gray-200 dark:border-slate-700 p-3">
+          <div>
+            <label className="label !mb-0.5 !text-[10px]">What kind of field</label>
+            <select className="input !py-1 !text-xs" value={s.type} onChange={(e) => updateSection(idx, { type: e.target.value })}>
+              <option value="textarea">Paragraph (several lines)</option>
+              <option value="singleline">Short text (one line)</option>
+              <option value="date">Date</option>
+              <option value="number">Number</option>
+              <option value="dropdown">Pick from a list</option>
+            </select>
+          </div>
+          {s.type === 'dropdown' && (
+            <div>
+              <label className="label !mb-0.5 !text-[10px]">List choices (separate with commas)</label>
+              <input className="input !py-1 !text-xs" value={(s.options || []).join(', ')}
+                onChange={(e) => updateSection(idx, { options: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })} />
+            </div>
+          )}
+          <div>
+            <label className="label !mb-0.5 !text-[10px]">Hint text (grey text shown before typing)</label>
+            <input className="input !py-1 !text-xs" value={s.placeholder || ''} onChange={(e) => updateSection(idx, { placeholder: e.target.value })} placeholder="optional" />
+          </div>
+          {hasSpace && (
+            <div>
+              <label className="label !mb-0.5 !text-[10px]">Exact height on print (mm)</label>
+              <input type="number" min={5} max={120} className="input !py-1 !text-xs" value={s.height_mm ?? 45}
+                onChange={(e) => updateSection(idx, { height_mm: parseInt(e.target.value, 10) || 45 })} />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SecurityLoginSettings() {
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { draft, set, reset, dirty, saving, save } = useSectionDraft(settings, ['require_login', 'session_timeout_minutes']);
+  if (!settings) return <div className="card p-8 text-center text-sm text-gray-500"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></div>;
+
+  return (
+    <div className="card p-5 space-y-4">
+      <AccrualToggle
+        label="Require everyone to sign in"
+        help="Each person logs in with their own username and password, and their actions are attributed to them in the audit trail. Turn off for a single shared PC where no login is needed. When on, sign-out returns to the login screen instead of a shared session."
+        value={draft.require_login ?? false}
+        onChange={(v) => set('require_login', v)}
+      />
+      {draft.require_login && (
+        <div className="pl-7 border-l-2 border-blue-200 dark:border-blue-900">
+          <label className="label">Auto sign-out after idle (minutes)</label>
+          <input
+            type="number" min={0} max={240} className="input max-w-[140px]"
+            value={draft.session_timeout_minutes ?? 0}
+            onChange={(e) => set('session_timeout_minutes', Math.max(0, Number(e.target.value) || 0))}
+          />
+          <div className="text-[11px] text-gray-500 mt-1">
+            Signs a user out automatically after this many minutes with no mouse or keyboard activity — useful for a shared reception PC. Set 0 to never auto sign-out.
+          </div>
+        </div>
+      )}
+      {draft.require_login && (
+        <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 text-[11px] text-amber-800 dark:text-amber-200">
+          Before turning this on, make sure every staff member has an account under <b>Users &amp; Access</b> with a password they know. You can always sign in as <b>admin</b> to manage accounts.
+        </div>
+      )}
+      <div className="flex items-center gap-2">
+        {dirty && <button className="btn-ghost text-xs" onClick={reset}>Reset</button>}
+        <button
+          className="btn-primary text-xs"
+          disabled={!dirty || saving}
+          onClick={() => {
+            const loginChanged = (draft.require_login ?? false) !== (settings.require_login ?? false);
+            // Update the synchronous mirror so the gate re-evaluates correctly.
+            try { localStorage.setItem('caredesk-require-login', draft.require_login ? '1' : '0'); } catch { /* ignore */ }
+            save();
+            // Turning the requirement on or off changes the app's entry gate, so
+            // reload to apply it cleanly (the setting itself is already saved).
+            if (loginChanged) setTimeout(() => window.location.reload(), 500);
+          }}
+        >
+          {saving ? 'Saving…' : dirty ? 'Save changes' : 'All saved'}
+        </button>
       </div>
     </div>
   );

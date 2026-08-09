@@ -93,7 +93,12 @@ export function createMockElectronAPI(): any {
       list: () => r([]),
     },
     settings: {
-      get: () => r(settings),
+      // Honour a login-requirement toggle across reloads (the mock is otherwise
+      // in-memory) so the sign-in gate can be demonstrated in the showcase.
+      get: () => {
+        try { const m = localStorage.getItem('caredesk-require-login'); if (m !== null) (settings as any).require_login = m === '1'; } catch { /* ignore */ }
+        return r(settings);
+      },
       save: (patch: any) => { Object.assign(settings, patch); return r(settings); },
     },
     patients: {

@@ -124,6 +124,12 @@ export function getAllSettings(db: Database.Database): Settings {
 
     // ===== IPD admission requests =====
     ipd_admission_requests_enabled: map.ipd_admission_requests_enabled !== 'false',
+
+    // ===== Access / login =====
+    // Default OFF so existing single-user installs keep working without setting
+    // up passwords; a clinic turns it on for real multi-user sign-in.
+    require_login: map.require_login === 'true',
+    session_timeout_minutes: parseInt(map.session_timeout_minutes || '0', 10),
   };
 }
 
