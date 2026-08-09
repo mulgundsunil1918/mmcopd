@@ -39,6 +39,75 @@ function addColumnIfMissing(db: Database.Database, table: string, column: string
 }
 
 /**
+ * Make bills.patient_id nullable so a walk-in / quick custom bill can be raised
+ * with just a typed name and no patient record.
+ *
+ * The original column is `patient_id INTEGER NOT NULL`, which rejects such a
+ * bill. SQLite cannot drop a NOT NULL in place, so the table is rebuilt via the
+ * official 12-step procedure — but the new CREATE is derived from the LIVE
+ * schema (sqlite_master), not hand-written, so no column, default or added
+ * migration field can be missed.
+ *
+ * Safety:
+ *   - Idempotent: returns immediately if patient_id is already nullable.
+ *   - Runs inside a transaction with foreign keys deferred, and a
+ *     foreign_key_check afterwards; any failure rolls the whole thing back so
+ *     the live bills table is never left half-migrated.
+ *   - bills is referenced by bill_items, bill_payments, tpa_claims and
+ *     ip_admissions; ids are preserved by the copy, so those references stay
+ *     valid.
+ */
+function makeBillPatientNullable(db: Database.Database) {
+  let cols: { name: string; notnull: number }[];
+  try {
+    cols = db.prepare('PRAGMA table_info(bills)').all() as any;
+  } catch {
+    return; // bills table absent on a brand-new DB — createSchema already made it nullable-free? no-op.
+  }
+  const pid = cols.find((c) => c.name === 'patient_id');
+  if (!pid || pid.notnull === 0) return; // already nullable, nothing to do
+
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='bills'").get() as { sql: string } | undefined;
+  if (!row?.sql) throw new Error('Cannot make bills.patient_id nullable: could not read the bills table definition.');
+
+  // Derive the new CREATE from the live one: rename target, and drop NOT NULL
+  // from patient_id only. Match the exact column declaration.
+  let newSql = row.sql.replace(/CREATE TABLE\s+"?bills"?/i, 'CREATE TABLE bills_new');
+  const before = newSql;
+  newSql = newSql.replace(/(\bpatient_id\s+INTEGER)\s+NOT\s+NULL/i, '$1');
+  if (newSql === before) {
+    throw new Error('Cannot make bills.patient_id nullable: did not find "patient_id INTEGER NOT NULL" in the table definition.');
+  }
+
+  const fkWasOn = (db.pragma('foreign_keys', { simple: true }) as unknown) === 1;
+  db.pragma('foreign_keys = OFF');
+  const tx = db.transaction(() => {
+    db.exec(newSql);
+    db.exec('INSERT INTO bills_new SELECT * FROM bills');
+    const oldCount = (db.prepare('SELECT COUNT(*) AS c FROM bills').get() as { c: number }).c;
+    const newCount = (db.prepare('SELECT COUNT(*) AS c FROM bills_new').get() as { c: number }).c;
+    if (oldCount !== newCount) {
+      throw new Error(`Row count mismatch during bills rebuild: ${oldCount} → ${newCount}. Aborting.`);
+    }
+    db.exec('DROP TABLE bills');
+    db.exec('ALTER TABLE bills_new RENAME TO bills');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_bills_patient ON bills(patient_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_bills_created ON bills(created_at)');
+    const violations = db.prepare('PRAGMA foreign_key_check').all();
+    if (violations.length > 0) {
+      throw new Error(`Foreign-key check failed after bills rebuild (${violations.length} issues). Aborting — no changes applied.`);
+    }
+  });
+  try {
+    tx();
+  } catch (err: any) {
+    if (fkWasOn) db.pragma('foreign_keys = ON');
+    throw new Error(`Making bills.patient_id nullable failed: ${err?.message || String(err)}. The bills table is unchanged.`);
+  }
+  if (fkWasOn) db.pragma('foreign_keys = ON');
+}
+
+/**
  * Copy existing bills.items_json into real bill_items rows.
  *
  * items_json stays untouched as a fallback, so this migration is non-destructive
@@ -430,6 +499,7 @@ export function runMigrations(db: Database.Database) {
   addColumnIfMissing(db, 'bills', 'is_tax_invoice', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'bills', 'tpa_claim_id', 'INTEGER REFERENCES tpa_claims(id)');
 
+  makeBillPatientNullable(db);
   migrateBillItemsFromJson(db);
   seedDefaultChargeHeads(db);
 

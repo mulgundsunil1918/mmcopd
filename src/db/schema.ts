@@ -73,7 +73,9 @@ export function createSchema(db: Database.Database) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       bill_number TEXT NOT NULL UNIQUE,
       appointment_id INTEGER REFERENCES appointments(id) ON DELETE SET NULL,
-      patient_id INTEGER NOT NULL REFERENCES patients(id),
+      -- Nullable so a walk-in / quick custom bill can be raised with just a
+      -- typed name and no patient record.
+      patient_id INTEGER REFERENCES patients(id),
       items_json TEXT NOT NULL,
       subtotal REAL NOT NULL,
       discount REAL NOT NULL DEFAULT 0,
