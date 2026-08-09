@@ -69,7 +69,18 @@ export function QuickBillModal({
     return [...ls, line];
   });
 
+  // Live totals. GST is charged per line only when it is enabled in Settings
+  // AND the line is marked taxable (charge heads carry this; free-text lines
+  // default to exempt, which is correct for consultations).
   const subtotal = lines.reduce((s, l) => s + (Number(l.qty) || 1) * (Number(l.rate) || 0), 0);
+  const gstAmount = gstOn
+    ? lines.reduce((s, l) => {
+        const amt = (Number(l.qty) || 1) * (Number(l.rate) || 0);
+        return s + (l.is_taxable && l.gst_rate ? (amt * l.gst_rate) / 100 : 0);
+      }, 0)
+    : 0;
+  const grandTotal = subtotal + gstAmount;
+  const money = (n: number) => '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
 
   const save = async (thenPrint: boolean) => {
     const validLines = lines.filter((l) => l.description.trim() && (Number(l.qty) * Number(l.rate)) >= 0 && (Number(l.rate) > 0 || Number(l.qty) > 0));
@@ -178,24 +189,49 @@ export function QuickBillModal({
           </div>
         )}
 
-        {/* Lines */}
-        <div className="space-y-2">
-          {lines.map((l, i) => (
-            <div key={i} className="grid grid-cols-12 gap-2 items-center">
-              <input className="input col-span-6" placeholder="Description (e.g. Consultation)" value={l.description}
-                onChange={(e) => setLine(i, { description: e.target.value })} />
-              <input className="input col-span-2" type="number" min={1} placeholder="Qty" value={l.qty}
-                onChange={(e) => setLine(i, { qty: Number(e.target.value) })} />
-              <input className="input col-span-3" type="number" min={0} placeholder="Amount ₹" value={l.rate}
-                onChange={(e) => setLine(i, { rate: Number(e.target.value) })} />
-              <button className="col-span-1 text-gray-400 hover:text-red-500" onClick={() => removeLine(i)}><Trash2 className="w-4 h-4" /></button>
-            </div>
-          ))}
+        {/* Lines — with clear column headers */}
+        <div className="space-y-1.5">
+          <div className={cn('grid gap-2 items-center px-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500', gstOn ? 'grid-cols-12' : 'grid-cols-12')}>
+            <div className={gstOn ? 'col-span-5' : 'col-span-6'}>Item / Service</div>
+            <div className="col-span-2 text-center">Qty</div>
+            <div className={gstOn ? 'col-span-2' : 'col-span-3'}>Rate (₹)</div>
+            {gstOn && <div className="col-span-2 text-center">GST %</div>}
+            <div className="col-span-1"></div>
+          </div>
+          {lines.map((l, i) => {
+            const lineAmt = (Number(l.qty) || 1) * (Number(l.rate) || 0);
+            return (
+              <div key={i}>
+                <div className="grid grid-cols-12 gap-2 items-center">
+                  <input className={cn('input', gstOn ? 'col-span-5' : 'col-span-6')} placeholder="e.g. Consultation" value={l.description}
+                    onChange={(e) => setLine(i, { description: e.target.value })} />
+                  <input className="input col-span-2 text-center" type="number" min={1} value={l.qty}
+                    onChange={(e) => setLine(i, { qty: Number(e.target.value) })} />
+                  <input className={cn('input', gstOn ? 'col-span-2' : 'col-span-3')} type="number" min={0} value={l.rate}
+                    onChange={(e) => setLine(i, { rate: Number(e.target.value) })} />
+                  {gstOn && (
+                    <select className="input col-span-2 text-[12px]"
+                      value={l.is_taxable ? (l.gst_rate ?? 0) : -1}
+                      onChange={(e) => { const v = Number(e.target.value); setLine(i, v < 0 ? { is_taxable: false, gst_rate: 0 } : { is_taxable: true, gst_rate: v }); }}>
+                      <option value={-1}>Exempt</option>
+                      {[0, 5, 12, 18, 28].map((r) => <option key={r} value={r}>{r}%</option>)}
+                    </select>
+                  )}
+                  <button className="col-span-1 flex justify-center text-gray-400 hover:text-red-500" onClick={() => removeLine(i)} title="Remove line"><Trash2 className="w-4 h-4" /></button>
+                </div>
+                {lineAmt > 0 && (
+                  <div className="text-[10px] text-gray-400 text-right pr-10 mt-0.5">
+                    line total: {money(lineAmt)}{gstOn && l.is_taxable && l.gst_rate ? ` + ${money(lineAmt * l.gst_rate / 100)} GST` : ''}
+                  </div>
+                )}
+              </div>
+            );
+          })}
           <button className="btn-ghost text-xs" onClick={addLine}><Plus className="w-3.5 h-3.5" /> Add line</button>
         </div>
 
-        {/* Total + payment */}
-        <div className="flex items-center justify-between flex-wrap gap-3 pt-3 border-t dark:border-slate-700">
+        {/* Payment + totals breakdown */}
+        <div className="flex items-end justify-between flex-wrap gap-3 pt-3 border-t dark:border-slate-700">
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-1.5 text-[12px]">
               <input type="checkbox" checked={paidNow} onChange={(e) => setPaidNow(e.target.checked)} /> Paid now
@@ -204,9 +240,14 @@ export function QuickBillModal({
               <option>Cash</option><option>UPI</option><option>Card</option>
             </select>
           </div>
-          <div className="text-right">
-            <div className="text-[10px] uppercase text-gray-500">Subtotal{gstOn ? ' (GST added on save)' : ''}</div>
-            <div className="text-xl font-extrabold tabular-nums">₹{subtotal.toLocaleString('en-IN')}</div>
+          <div className="text-right text-[12px] min-w-[180px]">
+            <div className="flex justify-between text-gray-500"><span>Subtotal</span><span className="tabular-nums">{money(subtotal)}</span></div>
+            {gstOn && gstAmount > 0 && (
+              <div className="flex justify-between text-gray-500"><span>GST (CGST + SGST)</span><span className="tabular-nums">{money(gstAmount)}</span></div>
+            )}
+            <div className="flex justify-between font-extrabold text-gray-900 dark:text-slate-100 text-lg mt-1 pt-1 border-t dark:border-slate-700">
+              <span>Total</span><span className="tabular-nums">{money(grandTotal)}</span>
+            </div>
           </div>
         </div>
 
