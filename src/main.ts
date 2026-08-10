@@ -344,10 +344,20 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
   mainWindowRef = mainWindow;
+
+  // Hardening: the app is a local SPA, so block any attempt to navigate the
+  // window to a remote origin or spawn a popup. Legitimate external links go
+  // through the allowlisted app:openExternal IPC, never window.open / <a>.
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', (e, navUrl) => {
+    const dev = MAIN_WINDOW_VITE_DEV_SERVER_URL;
+    const allowed = navUrl.startsWith('file:') || (!!dev && navUrl.startsWith(dev));
+    if (!allowed) e.preventDefault();
+  });
 
   // Push LAN connection-state changes to the renderer so the status pill and
   // the troubleshooting panel update the moment the link drops or recovers,

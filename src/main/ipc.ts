@@ -1180,9 +1180,12 @@ export function registerIpc() {
   ipcMain.handle(
     'emr:addDocument',
     (_e, payload: { patient_id: number; file_name: string; file_type: string; data_base64: string; note?: string }) => {
-      const dir = path.join(app.getPath('userData'), 'documents', String(payload.patient_id));
+      // Coerce the id to a positive integer so it can never contain "../".
+      const pid = Number(payload.patient_id);
+      if (!Number.isInteger(pid) || pid <= 0) throw new Error('Invalid patient id.');
+      const dir = path.join(app.getPath('userData'), 'documents', String(pid));
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      const safeName = payload.file_name.replace(/[^\w.\-]/g, '_');
+      const safeName = String(payload.file_name || 'file').replace(/[^\w.\-]/g, '_');
       const fileName = `${Date.now()}-${safeName}`;
       const filePath = path.join(dir, fileName);
       const buf = Buffer.from(payload.data_base64.split(',').pop() || '', 'base64');
@@ -1190,7 +1193,7 @@ export function registerIpc() {
       const db = getDb();
       const info = db
         .prepare('INSERT INTO patient_documents (patient_id, file_name, file_type, file_path, size_bytes, note) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(payload.patient_id, payload.file_name, payload.file_type, filePath, buf.byteLength, payload.note ?? null);
+        .run(pid, payload.file_name, payload.file_type, filePath, buf.byteLength, payload.note ?? null);
       return db.prepare('SELECT * FROM patient_documents WHERE id=?').get(info.lastInsertRowid);
     }
   );
@@ -2268,10 +2271,15 @@ export function registerIpc() {
   });
 
   // ===== Settings =====
-  ipcMain.handle('settings:get', () => getAllSettings(getDb()));
+  // The admin-password hash must never reach the renderer or a network client;
+  // it's set only via auth:changeAdminPassword (which verifies the current one).
+  const redactSettings = (s: any) => { const o = { ...s }; delete o.admin_password; return o; };
+  ipcMain.handle('settings:get', () => redactSettings(getAllSettings(getDb())));
   ipcMain.handle('settings:save', (_e, patch: Partial<Settings>) => {
-    saveSettings(getDb(), patch);
-    return getAllSettings(getDb());
+    const clean = { ...(patch || {}) } as any;
+    delete clean.admin_password; // cannot be changed through the generic save path
+    saveSettings(getDb(), clean);
+    return redactSettings(getAllSettings(getDb()));
   });
 
   // ===== Clinical Quick Templates =====

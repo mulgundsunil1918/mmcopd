@@ -134,8 +134,20 @@ export function registerWhatsAppIpc() {
   ipcMain.handle('wa:setRule', (_e, accountId: number, trigger: string, patch: Partial<WaAutomationRule>) => {
     const existing = db().prepare(`SELECT id FROM wa_automation_rules WHERE account_id=? AND trigger=?`).get(accountId, trigger) as { id: number } | undefined;
     if (existing) {
-      const sets = Object.keys(patch).map(k => `${k}=?`).join(', ');
-      db().prepare(`UPDATE wa_automation_rules SET ${sets} WHERE id=?`).run(...Object.values(patch), existing.id);
+      // Allowlist the columns — never build SET from caller-supplied object keys.
+      const ALLOWED = ['template_name', 'is_enabled', 'delay_minutes', 'extra_config'] as const;
+      const cols: string[] = [];
+      const vals: any[] = [];
+      for (const k of ALLOWED) {
+        if ((patch as any)[k] === undefined) continue;
+        cols.push(`${k}=?`);
+        if (k === 'is_enabled') vals.push(patch.is_enabled ? 1 : 0);
+        else if (k === 'extra_config') vals.push(patch.extra_config ? JSON.stringify(patch.extra_config) : null);
+        else vals.push((patch as any)[k]);
+      }
+      if (cols.length) {
+        db().prepare(`UPDATE wa_automation_rules SET ${cols.join(', ')} WHERE id=?`).run(...vals, existing.id);
+      }
     } else {
       db().prepare(
         `INSERT INTO wa_automation_rules (account_id, trigger, template_name, is_enabled, delay_minutes, extra_config)

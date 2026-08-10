@@ -69,6 +69,36 @@ export async function runSelfTest(): Promise<SelfTest> {
 
 export function setPreferredIp(ip: string) { preferredIp = (ip || '').trim(); }
 
+// ===== Security helpers =====
+/** Timing-safe bearer-token comparison — no early-exit on the first wrong byte. */
+function tokensMatch(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided || ''), b = Buffer.from(expected || '');
+  if (a.length !== b.length) return false;
+  try { return crypto.timingSafeEqual(a, b); } catch { return false; }
+}
+/** Channels that must run ONLY on the host, never for a remote cabin:
+ *  data destruction, DB restore, and OS-level actions. */
+function isNetworkDenied(channel: string): boolean {
+  return /^(admin:|backup:|updates:)/.test(channel);
+}
+/** Secrets stripped from any settings payload before it leaves for a client. */
+const NETWORK_SECRET_KEYS = ['admin_password', 'anthropic_api_key', 'whatsapp_api_key', 'network_secret'];
+function stripSecretsForNetwork(result: any): any {
+  if (!result || typeof result !== 'object') return result;
+  const out = { ...result };
+  for (const k of NETWORK_SECRET_KEYS) delete (out as any)[k];
+  return out;
+}
+/** Per-IP rate limit for the public /api/pair endpoint (join-code brute force). */
+const pairAttempts = new Map<string, { count: number; resetAt: number }>();
+function pairRateOk(ip: string): boolean {
+  const now = Date.now();
+  const rec = pairAttempts.get(ip);
+  if (!rec || now > rec.resetAt) { pairAttempts.set(ip, { count: 1, resetAt: now + 60_000 }); return true; }
+  rec.count += 1;
+  return rec.count <= 10;
+}
+
 // ===== Join code (short pairing code) =====
 let joinCode: { code: string; secret: string; port: number; expiresAt: number } | null = null;
 const JOIN_CODE_TTL_MS = 10 * 60 * 1000;
@@ -234,6 +264,12 @@ export async function startNetworkServer(port: number, secret: string, appVersio
         });
       }
       if (method === 'GET' && url.pathname === '/api/info') {
+        // Requires the token — LAN topology / client count is not public info.
+        if (activeSecret) {
+          const auth = req.headers['authorization'] || '';
+          const token = auth.startsWith('Bearer ') ? auth.slice(7) : String(auth);
+          if (!tokensMatch(token, activeSecret)) return sendJson(res, 401, { ok: false, error: 'Invalid or missing token' });
+        }
         return sendJson(res, 200, {
           product: 'CureDesk HMS',
           version: appVersion,
@@ -243,6 +279,8 @@ export async function startNetworkServer(port: number, secret: string, appVersio
         });
       }
       if (method === 'POST' && url.pathname === '/api/pair') {
+        const ip = req.socket.remoteAddress || 'unknown';
+        if (!pairRateOk(ip)) return sendJson(res, 429, { ok: false, error: 'Too many attempts — wait a minute and try again.' });
         try {
           const body = await readJsonBody(req);
           const raw = String(body?.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -268,12 +306,16 @@ export async function startNetworkServer(port: number, secret: string, appVersio
       if (method === 'POST' && url.pathname.startsWith('/ipc/')) {
         if (activeSecret) {
           const auth = req.headers['authorization'] || '';
-          const token = auth.startsWith('Bearer ') ? auth.slice(7) : auth;
-          if (token !== activeSecret) {
+          const token = auth.startsWith('Bearer ') ? auth.slice(7) : String(auth);
+          if (!tokensMatch(token, activeSecret)) {
             return sendJson(res, 401, { ok: false, error: 'Invalid or missing token' });
           }
         }
         const channel = decodeURIComponent(url.pathname.slice('/ipc/'.length));
+        // Destructive / OS-level channels are host-only, never runnable remotely.
+        if (isNetworkDenied(channel)) {
+          return sendJson(res, 403, { ok: false, error: `"${channel}" can only be run on the host PC, not from a cabin.` });
+        }
         const handler = ipcHandlers.get(channel);
         if (!handler) return sendJson(res, 404, { ok: false, error: `Unknown IPC channel: ${channel}` });
         try {
@@ -281,7 +323,9 @@ export async function startNetworkServer(port: number, secret: string, appVersio
           const args = Array.isArray(body?.args) ? body.args : [];
           const fakeEvent = { sender: { send: () => { /* noop */ } } } as any;
           const result = await handler(fakeEvent, ...args);
-          return sendJson(res, 200, { ok: true, result });
+          // Never ship the host's secrets (admin password, API keys) to a cabin.
+          const safe = channel === 'settings:get' ? stripSecretsForNetwork(result) : result;
+          return sendJson(res, 200, { ok: true, result: safe });
         } catch (err: any) {
           return sendJson(res, 500, { ok: false, error: err?.message || String(err) });
         }
@@ -294,7 +338,7 @@ export async function startNetworkServer(port: number, secret: string, appVersio
     wss.on('connection', (ws, req) => {
       const url = new URL(req.url || '/ws', 'http://localhost');
       const token = url.searchParams.get('token') || '';
-      if (activeSecret && token !== activeSecret) {
+      if (activeSecret && !tokensMatch(token, activeSecret)) {
         ws.close(4401, 'unauthorized');
         return;
       }
