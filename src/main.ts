@@ -6,7 +6,7 @@ import { registerIpc, runFullBackup, isBackupServiceReady } from './main/ipc';
 import { registerIpdBillingIpc } from './main/ipd-billing-ipc';
 import { registerPedsIpc } from './main/peds-ipc';
 import { installIpcRegistry, setReadOnlyMode } from './main/ipc-registry';
-import { getLicenseStatus, activateLicense, machineFingerprint } from './main/licensing/license';
+import { getLicenseStatus, activateLicense, activateOnline, machineFingerprint } from './main/licensing/license';
 import { registerWhatsAppIpc, pollRelayServer, runScheduledCampaigns } from './main/whatsapp-ipc';
 import { processQueue } from './services/whatsapp/queue-worker';
 import { runAutomationScheduler } from './services/whatsapp/scheduler';
@@ -803,6 +803,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('license:machineId', () => machineFingerprint());
   ipcMain.handle('license:activate', (_e, token: string) => {
     const r = activateLicense(String(token || ''));
+    if (r.ok) applyLicense();
+    return r;
+  });
+  ipcMain.handle('license:activateOnline', async (_e, code: string) => {
+    const r = await activateOnline(String(code || ''));
     if (r.ok) applyLicense();
     return r;
   });

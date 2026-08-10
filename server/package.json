@@ -1,0 +1,14 @@
+{
+  "name": "curedesk-activation-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Online licence-activation server for CureDesk HMS (zero dependencies).",
+  "type": "module",
+  "main": "activation-server.mjs",
+  "scripts": {
+    "start": "node activation-server.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

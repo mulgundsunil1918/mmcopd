@@ -9,6 +9,7 @@ export type LicenseStatusIPC = {
   payload: { clinic: string; customer?: string; edition?: string; modules: string[]; issued_at: string; expires_at: string; license_id: string } | null;
   contact: { phone?: string; email?: string };
   hardwareId: string; message: string;
+  onlineAvailable: boolean;
 };
 
 import type {
@@ -601,6 +602,7 @@ const api = {
     status: () => ipcRenderer.invoke('license:status') as Promise<LicenseStatusIPC>,
     machineId: () => ipcRenderer.invoke('license:machineId') as Promise<string>,
     activate: (token: string) => ipcRenderer.invoke('license:activate', token) as Promise<{ ok: boolean; error?: string; status?: LicenseStatusIPC }>,
+    activateOnline: (code: string) => ipcRenderer.invoke('license:activateOnline', code) as Promise<{ ok: boolean; error?: string; status?: LicenseStatusIPC }>,
     onState: (cb: (s: LicenseStatusIPC) => void) => {
       const h = (_e: any, s: LicenseStatusIPC) => cb(s);
       ipcRenderer.on('license:state', h);

@@ -15,6 +15,7 @@ import os from 'node:os';
 import { execSync } from 'node:child_process';
 import { app } from 'electron';
 import { LICENSE_PUBLIC_KEY_PEM } from './publicKey';
+import { ACTIVATION_SERVER_URL } from './activationConfig';
 
 export const GRACE_DAYS = 7;
 export const DEFAULT_CONTACT = { phone: '8073935006', email: 'mulgundsunil@gmail.com' };
@@ -50,6 +51,7 @@ export interface LicenseStatus {
   contact: { phone?: string; email?: string };
   hardwareId: string;
   message: string;
+  onlineAvailable: boolean;   // true when an activation server URL is configured
 }
 
 const DAY = 86_400_000;
@@ -110,6 +112,7 @@ export function getLicenseStatus(): LicenseStatus {
     state: 'none', ok: false, readOnly: false, needsActivation: true,
     daysLeft: null, graceDaysLeft: null, reminder: 'none',
     modules: [], payload: null, contact: DEFAULT_CONTACT, hardwareId, message: '',
+    onlineAvailable: !!ACTIVATION_SERVER_URL,
   };
 
   if (!app.isPackaged) {
@@ -170,4 +173,37 @@ export function activateLicense(token: string): { ok: boolean; error?: string; s
     writeSeen(Date.now());
   } catch (e: any) { return { ok: false, error: e?.message || 'Could not save the licence.' }; }
   return { ok: true, status: getLicenseStatus() };
+}
+
+/**
+ * Online activation (Phase 2). Sends this machine's fingerprint + a short
+ * activation code to the vendor server, which signs a machine-bound licence and
+ * returns it; we then install it exactly like a pasted one. Falls back cleanly
+ * (clear error) when offline or unconfigured so the paste path still works.
+ */
+export async function activateOnline(code: string): Promise<{ ok: boolean; error?: string; status?: LicenseStatus }> {
+  const c = String(code || '').trim();
+  if (!ACTIVATION_SERVER_URL) return { ok: false, error: 'Online activation isn’t set up. Paste your licence code instead.' };
+  if (!c) return { ok: false, error: 'Enter the activation code you were given.' };
+  const machineId = machineFingerprint();
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15_000);
+    let resp: Response;
+    try {
+      resp = await fetch(`${ACTIVATION_SERVER_URL}/activate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code: c, machineId }),
+        signal: ctrl.signal,
+      });
+    } finally { clearTimeout(timer); }
+    const data: any = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.ok) return { ok: false, error: data?.error || `Activation failed (HTTP ${resp.status}).` };
+    if (!data.token) return { ok: false, error: 'The server did not return a licence. Contact support.' };
+    return activateLicense(String(data.token));
+  } catch (e: any) {
+    const msg = e?.name === 'AbortError' ? 'timed out' : (e?.message || 'no connection');
+    return { ok: false, error: `Couldn’t reach the activation server (${msg}). Check your internet, or paste your licence code instead.` };
+  }
 }

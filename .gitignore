@@ -12,3 +12,6 @@ dist-installer/
 
 # Licensing — vendor private key must never be committed
 license-keys/
+
+# activation server local code store (never commit)
+server/data/

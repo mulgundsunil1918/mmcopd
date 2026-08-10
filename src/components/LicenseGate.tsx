@@ -68,8 +68,13 @@ function ClockScreen({ status }: { status: any }) {
 }
 
 function ActivationScreen({ status, onActivated }: { status: any; onActivated: (s: any) => void }) {
+  const online = !!status.onlineAvailable;
+  const [code, setCode] = useState('');
   const [token, setToken] = useState('');
-  const [busy, setBusy] = useState(false);
+  // When online activation is available, that's the default; the paste path is a
+  // manual fallback the user can expand. With no server, only paste is shown.
+  const [showPaste, setShowPaste] = useState(!online);
+  const [busy, setBusy] = useState<'online' | 'paste' | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const machineId = status.hardwareId || '';
@@ -77,16 +82,28 @@ function ActivationScreen({ status, onActivated }: { status: any; onActivated: (
 
   const copyId = async () => { try { await navigator.clipboard.writeText(machineId); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* ignore */ } };
 
-  const activate = async () => {
+  const activateOnline = async () => {
+    setErr(null);
+    if (!code.trim()) { setErr('Enter the activation code you were given.'); return; }
+    setBusy('online');
+    try {
+      const r = await (window as any).electronAPI.license.activateOnline(code.trim());
+      if (r.ok) onActivated(r.status);
+      else setErr(r.error || 'Activation failed.');
+    } catch (e: any) { setErr(e?.message || 'Activation failed.'); }
+    finally { setBusy(null); }
+  };
+
+  const activatePaste = async () => {
     setErr(null);
     if (!token.trim()) { setErr('Paste the licence code you were sent.'); return; }
-    setBusy(true);
+    setBusy('paste');
     try {
       const r = await (window as any).electronAPI.license.activate(token.trim());
       if (r.ok) onActivated(r.status);
       else setErr(r.error || 'Activation failed.');
     } catch (e: any) { setErr(e?.message || 'Activation failed.'); }
-    finally { setBusy(false); }
+    finally { setBusy(null); }
   };
 
   return (
@@ -98,22 +115,42 @@ function ActivationScreen({ status, onActivated }: { status: any; onActivated: (
         </div>
         {status.state === 'wrong_machine'
           ? <p className="text-[13px] text-amber-700 dark:text-amber-300 mb-4">{status.message}</p>
-          : <p className="text-[13px] text-gray-600 dark:text-slate-300 mb-4">Enter the licence code for this clinic to start. Don’t have one? Share the <b>Machine ID</b> below with us and we’ll send your licence.</p>}
+          : <p className="text-[13px] text-gray-600 dark:text-slate-300 mb-4">{online
+              ? 'Enter the activation code for this clinic to start.'
+              : 'Enter the licence code for this clinic to start.'} Don’t have one? Share the <b>Machine ID</b> below with us and we’ll set you up.</p>}
 
         <label className="label">Your Machine ID <span className="font-normal text-gray-400">(send this to us)</span></label>
-        <div className="flex gap-2 mb-3">
+        <div className="flex gap-2 mb-4">
           <input className="input font-mono text-xs" readOnly value={machineId} />
           <button className="btn-secondary text-xs whitespace-nowrap" onClick={copyId}><Copy className="w-3.5 h-3.5" /> {copied ? 'Copied' : 'Copy'}</button>
         </div>
 
-        <label className="label">Licence code</label>
-        <textarea className="input font-mono text-[11px] leading-tight" rows={4} value={token} placeholder="Paste the licence code you were sent…"
-          onChange={(e) => setToken(e.target.value)} />
-        {err && <div className="text-[12px] text-red-600 dark:text-red-400 mt-2">{err}</div>}
+        {online && (
+          <>
+            <label className="label">Activation code</label>
+            <input className="input font-mono tracking-widest uppercase" value={code} placeholder="CURE-XXXX-XXXX-XXXX"
+              onChange={(e) => setCode(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === 'Enter') activateOnline(); }} />
+            {err && <div className="text-[12px] text-red-600 dark:text-red-400 mt-2">{err}</div>}
+            <button className="btn-primary w-full justify-center mt-3" disabled={busy !== null || !code.trim()} onClick={activateOnline}>
+              {busy === 'online' ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />} Activate online
+            </button>
+            <button className="w-full text-center text-[11px] text-gray-500 dark:text-slate-400 hover:underline mt-3" onClick={() => { setShowPaste((v) => !v); setErr(null); }}>
+              {showPaste ? 'Hide licence-code option' : 'Have a licence code instead? Paste it'}
+            </button>
+          </>
+        )}
 
-        <button className="btn-primary w-full justify-center mt-3" disabled={busy || !token.trim()} onClick={activate}>
-          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />} Activate
-        </button>
+        {showPaste && (
+          <div className={online ? 'mt-2 pt-3 border-t border-gray-100 dark:border-slate-700' : ''}>
+            <label className="label">Licence code</label>
+            <textarea className="input font-mono text-[11px] leading-tight" rows={4} value={token} placeholder="Paste the licence code you were sent…"
+              onChange={(e) => setToken(e.target.value)} />
+            {err && !online && <div className="text-[12px] text-red-600 dark:text-red-400 mt-2">{err}</div>}
+            <button className="btn-primary w-full justify-center mt-3" disabled={busy !== null || !token.trim()} onClick={activatePaste}>
+              {busy === 'paste' ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />} Activate
+            </button>
+          </div>
+        )}
 
         <div className="mt-4 pt-3 border-t border-gray-100 dark:border-slate-700 text-[11px] text-gray-500 dark:text-slate-400 flex items-center gap-2">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
