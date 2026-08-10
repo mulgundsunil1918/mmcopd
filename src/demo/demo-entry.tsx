@@ -57,6 +57,7 @@ import { ToastProvider } from '../hooks/useToast';
 import { ThemeProvider } from '../hooks/useTheme';
 import { AuthProvider } from '../hooks/useAuth';
 import { DemoBanner } from './DemoBanner';
+import { MobileGate } from './MobileGate';
 import '../index.css';
 
 const queryClient = new QueryClient({
@@ -81,6 +82,7 @@ createRoot(document.getElementById('root')!).render(
         <ToastProvider>
           <AuthProvider>
             <HashRouter>
+              <MobileGate />
               <DemoBanner />
               <App />
             </HashRouter>
