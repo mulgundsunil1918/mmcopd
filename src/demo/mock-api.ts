@@ -430,6 +430,16 @@ export function createMockElectronAPI(): any {
       }),
     },
     analytics: {
+      modules: () => r({
+        ok: true,
+        modules: [
+          { key: 'ipd', label: 'IPD (in-patient)', count: 25, revenue: 420253, collected: 336332, outstanding: 83921 },
+          { key: 'pharmacy', label: 'Pharmacy', count: 45, revenue: 78098, collected: 78098, outstanding: 0 },
+          { key: 'lab', label: 'Laboratory', count: 15, revenue: 10770, collected: 5660, outstanding: 5110 },
+          { key: 'opd', label: 'OPD / Consultation', count: 20, revenue: 6979, collected: 6979, outstanding: 0 },
+        ],
+        totals: { revenue: 516100, collected: 427069, outstanding: 89031, count: 105 },
+      }),
       overview: () => r({
         asOf: new Date().toISOString(),
         todayVisits: 8, todayDone: 6, todayRevenue: 4200,
@@ -462,6 +472,9 @@ export function createMockElectronAPI(): any {
       }),
       pharmacyOverview: () => r({
         totalDispensed: 200, scheduleHCount: 80, totalRevenue: 32000, totalSales: 50,
+        valuation: { skus: 115, units: 47680, at_cost: 2077863, at_mrp: 3306022 },
+        expiredStock: { batches: 3, value: 8400 },
+        lowStockCount: 30,
         topDrugs: drugMaster.slice(0, 8).map((d) => ({ name: d.name, units: 50, revenue: 1500, sales: 12 })),
         salesMix: [{ kind: 'Counter Sale (walk-in)', count: 18, revenue: 9000 }, { kind: 'Rx-driven (from doctor)', count: 32, revenue: 23000 }],
         scheduleMix: [{ schedule: 'OTC', count: 110, units: 320 }, { schedule: 'H', count: 80, units: 220 }, { schedule: 'H1', count: 10, units: 25 }],

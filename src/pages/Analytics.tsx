@@ -5,7 +5,7 @@ import {
   BarChart3, Wallet, MapPin, FileText, Users as UsersIcon, Pill,
   TrendingUp, AlertTriangle, Calendar, Activity, RefreshCw,
   Download, Database, FolderOpen, HardDriveDownload, Syringe,
-  MessageSquare, BedDouble,
+  MessageSquare, BedDouble, Layers,
 } from 'lucide-react';
 import { IpdAnalyticsTab } from '../components/analytics/IpdAnalyticsTab';
 import { cn, fmt12h, fmtDate, fmtDateTime, formatINR, todayISO } from '../lib/utils';
@@ -13,7 +13,7 @@ import { useToast } from '../hooks/useToast';
 import { colorForDoctor } from '../lib/doctor-colors';
 import type { Doctor } from '../types';
 
-type Tab = 'overview' | 'finance' | 'ipd' | 'demographics' | 'origin' | 'pharmacy' | 'services' | 'operations' | 'whatsapp';
+type Tab = 'overview' | 'finance' | 'modules' | 'ipd' | 'demographics' | 'origin' | 'pharmacy' | 'services' | 'operations' | 'whatsapp';
 
 /**
  * Unified Analytics page — consolidates the metrics that previously lived in
@@ -56,6 +56,7 @@ export function Analytics() {
       <div className="flex gap-1 bg-gray-100 dark:bg-slate-700 p-1 rounded-lg flex-wrap">
         <TabBtn active={tab === 'overview'} onClick={() => setTab('overview')} icon={<Activity className="w-3.5 h-3.5" />}>Overview</TabBtn>
         <TabBtn active={tab === 'finance'} onClick={() => setTab('finance')} icon={<Wallet className="w-3.5 h-3.5" />}>Finance</TabBtn>
+        <TabBtn active={tab === 'modules'} onClick={() => setTab('modules')} icon={<Layers className="w-3.5 h-3.5" />}>Modules P&amp;L</TabBtn>
         <TabBtn active={tab === 'ipd'} onClick={() => setTab('ipd')} icon={<BedDouble className="w-3.5 h-3.5" />}>IPD</TabBtn>
         <TabBtn active={tab === 'demographics'} onClick={() => setTab('demographics')} icon={<UsersIcon className="w-3.5 h-3.5" />}>Demographics</TabBtn>
         <TabBtn active={tab === 'origin'} onClick={() => setTab('origin')} icon={<MapPin className="w-3.5 h-3.5" />}>Patient Origin</TabBtn>
@@ -70,6 +71,7 @@ export function Analytics() {
       {tab === 'ipd' && <IpdAnalyticsTab from={from} to={to} />}
       {tab === 'demographics' && <DemographicsTab />}
       {tab === 'origin' && <OriginTab from={from} to={to} />}
+      {tab === 'modules' && <ModulesTab from={from} to={to} />}
       {tab === 'pharmacy' && <PharmacyTab from={from} to={to} />}
       {tab === 'services' && <ServicesTab from={from} to={to} />}
       {tab === 'operations' && <OperationsTab from={from} to={to} />}
@@ -596,6 +598,86 @@ function OriginTab({ from, to }: { from: string; to: string }) {
 /* ============================================================
    PHARMACY — top drugs, sales mix, schedule mix, low-stock + expiring
    ============================================================ */
+function ModulesTab({ from, to }: { from: string; to: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['analytics-modules', from, to],
+    queryFn: () => window.electronAPI.analytics.modules(from, to),
+  });
+  if (isLoading || !data) return <div className="text-xs text-gray-500 dark:text-slate-400 p-4">Loading…</div>;
+  const mods = data.modules || [];
+  const t = data.totals || { revenue: 0, collected: 0, outstanding: 0, count: 0 };
+  const TONE: Record<string, string> = { ipd: 'bg-blue-500', pharmacy: 'bg-emerald-500', lab: 'bg-fuchsia-500', opd: 'bg-violet-500', misc: 'bg-amber-500' };
+  const maxRev = Math.max(1, ...mods.map((m) => m.revenue));
+  const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
+
+  return (
+    <div className="space-y-5">
+      <SectionTitle icon={<Layers className="w-4 h-4" />} title="Module-wise P&L" subtitle={`Revenue, collections and dues by clinical module · ${fmtDate(from)} — ${fmtDate(to)}`} />
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Kpi label="Total revenue" value={formatINR(t.revenue)} tone="blue" />
+        <Kpi label="Collected" value={formatINR(t.collected)} sub={`${pct(t.collected, t.revenue)}% of billed`} tone="emerald" />
+        <Kpi label="Outstanding" value={formatINR(t.outstanding)} tone="rose" />
+        <Kpi label="Transactions" value={t.count} tone="indigo" />
+      </div>
+
+      <div className="card p-4">
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-3">Revenue share by module</div>
+        <div className="space-y-2.5">
+          {mods.map((m) => (
+            <div key={m.key}>
+              <div className="flex justify-between text-[11px] mb-0.5">
+                <span className="text-gray-700 dark:text-slate-300">{m.label} <span className="text-gray-400">· {m.count}</span></span>
+                <span className="tabular-nums font-medium text-gray-700 dark:text-slate-300">{formatINR(m.revenue)} <span className="text-gray-400">({pct(m.revenue, t.revenue)}%)</span></span>
+              </div>
+              <div className="h-2.5 rounded-full bg-gray-100 dark:bg-slate-800 overflow-hidden">
+                <div className={cn('h-full rounded-full', TONE[m.key] || 'bg-slate-400')} style={{ width: `${Math.round((m.revenue / maxRev) * 100)}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="card p-4 overflow-x-auto">
+        <table className="w-full text-[12px] min-w-[520px]">
+          <thead>
+            <tr className="text-left text-[10px] uppercase text-gray-500 border-b dark:border-slate-700">
+              <th className="py-1.5">Module</th>
+              <th className="py-1.5 text-right">Txns</th>
+              <th className="py-1.5 text-right">Revenue</th>
+              <th className="py-1.5 text-right">Collected</th>
+              <th className="py-1.5 text-right">Outstanding</th>
+              <th className="py-1.5 text-right">Collection %</th>
+            </tr>
+          </thead>
+          <tbody>
+            {mods.map((m) => (
+              <tr key={m.key} className="border-b border-gray-50 dark:border-slate-800/50">
+                <td className="py-1.5"><span className="inline-flex items-center gap-1.5"><span className={cn('inline-block w-2.5 h-2.5 rounded-full', TONE[m.key] || 'bg-slate-400')} />{m.label}</span></td>
+                <td className="py-1.5 text-right tabular-nums">{m.count}</td>
+                <td className="py-1.5 text-right tabular-nums font-medium">{formatINR(m.revenue)}</td>
+                <td className="py-1.5 text-right tabular-nums text-emerald-600">{formatINR(m.collected)}</td>
+                <td className="py-1.5 text-right tabular-nums text-red-600">{formatINR(m.outstanding)}</td>
+                <td className="py-1.5 text-right tabular-nums text-gray-500">{pct(m.collected, m.revenue)}%</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t-2 dark:border-slate-700 font-bold">
+              <td className="py-1.5">Total</td>
+              <td className="py-1.5 text-right tabular-nums">{t.count}</td>
+              <td className="py-1.5 text-right tabular-nums">{formatINR(t.revenue)}</td>
+              <td className="py-1.5 text-right tabular-nums text-emerald-600">{formatINR(t.collected)}</td>
+              <td className="py-1.5 text-right tabular-nums text-red-600">{formatINR(t.outstanding)}</td>
+              <td className="py-1.5 text-right tabular-nums">{pct(t.collected, t.revenue)}%</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function PharmacyTab({ from, to }: { from: string; to: string }) {
   const { data: p, isLoading } = useQuery({
     queryKey: ['analytics-pharmacy', from, to],
@@ -617,6 +699,17 @@ function PharmacyTab({ from, to }: { from: string; to: string }) {
           <Kpi label="Revenue" value={formatINR(p.totalRevenue)} tone="emerald" />
           <Kpi label="Items dispensed" value={p.totalDispensed} tone="indigo" />
           <Kpi label="Schedule H/H1 entries" value={p.scheduleHCount} sub="legal register" tone="violet" />
+        </div>
+      </section>
+
+      {/* Inventory valuation — a live snapshot of stock on hand (not date-filtered) */}
+      <section>
+        <SectionTitle icon={<Pill className="w-4 h-4 text-teal-600" />} title="Inventory on hand" subtitle="Live snapshot across all active batches" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Kpi label="SKUs in stock" value={p.valuation?.skus ?? 0} sub={`${Number(p.valuation?.units ?? 0).toLocaleString('en-IN')} units · ${p.lowStockCount ?? 0} low`} tone="blue" />
+          <Kpi label="Stock at cost" value={formatINR(p.valuation?.at_cost ?? 0)} sub="what you paid" tone="indigo" />
+          <Kpi label="Stock at MRP" value={formatINR(p.valuation?.at_mrp ?? 0)} sub={`margin ${formatINR((p.valuation?.at_mrp ?? 0) - (p.valuation?.at_cost ?? 0))}`} tone="emerald" />
+          <Kpi label="Expired stock" value={formatINR(p.expiredStock?.value ?? 0)} sub={`${p.expiredStock?.batches ?? 0} batch(es) · write-off`} tone="rose" />
         </div>
       </section>
 

@@ -1408,12 +1408,39 @@ export function registerIpdBillingIpc() {
          GROUP BY a.admission_doctor_id ORDER BY admissions DESC`
       ).all(...range) as any[];
 
-      const byWard = d.prepare(
-        `SELECT COALESCE(w.name, a.ward, 'Unknown') AS ward, COUNT(*) AS admissions
-         FROM ip_admissions a LEFT JOIN wards w ON w.id = a.ward_id
+      // Ward-wise finance: admissions attributed to a ward, with the billing on
+      // those admissions (revenue / collected / outstanding) and advances held.
+      // Bills and advances are pre-aggregated per admission so multiple bills on
+      // one admission don't double-count when summed up to the ward.
+      const byWardRaw = d.prepare(
+        `SELECT COALESCE(w.name, a.ward, 'Unknown') AS ward,
+                w.colour AS colour,
+                COUNT(DISTINCT a.id) AS admissions,
+                SUM(CASE WHEN a.status = 'admitted' THEN 1 ELSE 0 END) AS active,
+                AVG(CASE WHEN a.discharged_at IS NOT NULL THEN julianday(a.discharged_at) - julianday(a.admitted_at) END) AS alos,
+                COALESCE(SUM(bill.total), 0) AS revenue,
+                COALESCE(SUM(bill.paid), 0) AS collected,
+                COALESCE(SUM(adv.advance), 0) AS advance
+         FROM ip_admissions a
+         LEFT JOIN wards w ON w.id = a.ward_id
+         LEFT JOIN (SELECT admission_id, SUM(total) AS total, SUM(IFNULL(amount_paid, 0)) AS paid
+                    FROM bills WHERE status IS NULL OR status <> 'cancelled' GROUP BY admission_id) bill ON bill.admission_id = a.id
+         LEFT JOIN (SELECT admission_id, SUM(amount) AS advance FROM advances GROUP BY admission_id) adv ON adv.admission_id = a.id
          WHERE date(a.admitted_at) BETWEEN ? AND ?
-         GROUP BY ward ORDER BY admissions DESC`
+         GROUP BY ward ORDER BY revenue DESC`
       ).all(...range) as any[];
+      const byWard = byWardRaw.map((r) => ({
+        ward: r.ward,
+        colour: r.colour || null,
+        admissions: r.admissions,
+        active: r.active,
+        alos: r.alos ? Math.round(r.alos * 10) / 10 : 0,
+        revenue: money(r.revenue),
+        collected: money(r.collected),
+        outstanding: money((r.revenue || 0) - (r.collected || 0)),
+        advance: money(r.advance),
+        revPerAdm: r.admissions ? money(r.revenue / r.admissions) : 0,
+      }));
 
       const revenue = d.prepare(
         `SELECT COALESCE(SUM(total), 0) AS total FROM bills

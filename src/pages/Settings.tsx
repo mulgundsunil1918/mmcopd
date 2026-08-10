@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle, Trash2, User as UserIcon, IndianRupee, PenTool, Power, AlertCircle, ArrowUp, ArrowDown, MessageCircle, Eye, FileText, MapPin, Syringe, RefreshCw, Sparkles, HardDrive, Sun, Copy } from 'lucide-react';
+import { Building2, Baby, Search, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle, Trash2, User as UserIcon, IndianRupee, PenTool, Power, AlertCircle, ArrowUp, ArrowDown, MessageCircle, Eye, FileText, MapPin, Syringe, RefreshCw, Sparkles, HardDrive, Sun, Copy } from 'lucide-react';
 import { DEFAULT_LAYOUT } from '../db/slip-templates';
 import type { SlipLayout } from '../db/slip-templates';
 import { format, parseISO } from 'date-fns';
@@ -26,15 +26,52 @@ import { KARNATAKA_PLACES, ALL_NEARBY_PLACES } from '../lib/places';
 import { DOCTOR_COLOR_OPTIONS, colorForDoctor } from '../lib/doctor-colors';
 import type { AppMode, Doctor, Settings } from '../types';
 
-type SettingsTab = 'clinic' | 'doctors' | 'workflow' | 'billing' | 'patients' | 'system' | 'comms';
+type SettingsTab = 'clinic' | 'doctors' | 'workflow' | 'billing' | 'peds' | 'patients' | 'system' | 'comms';
 
 const SETTINGS_TAB_KEY = 'caredesk:settings-tab';
+
+const TAB_LABEL: Record<SettingsTab, string> = {
+  clinic: 'Clinic', doctors: 'Doctors & Templates', workflow: 'Fees & Workflow', billing: 'Billing & IPD',
+  peds: 'Pediatrics', patients: 'Patients', system: 'System', comms: 'Communication',
+};
+
+/** Flat index of every settings section, so the search box can jump to its tab. */
+const SETTINGS_SEARCH: { tab: SettingsTab; label: string; hint: string; keywords: string }[] = [
+  { tab: 'clinic', label: 'Clinic Identity', hint: 'Name, logo, address, contact', keywords: 'clinic name logo address phone letterhead tagline registration email' },
+  { tab: 'clinic', label: 'Prescription QR Codes', hint: 'QR codes on prescription page 2', keywords: 'qr code website maps prescription link' },
+  { tab: 'clinic', label: 'App Mode', hint: 'Which modules show in the sidebar', keywords: 'app mode module sidebar reception pharmacy doctor lab ipd' },
+  { tab: 'doctors', label: 'Doctors', hint: 'Fees, signature, colour, template', keywords: 'doctor fee signature colour color template room specialty' },
+  { tab: 'doctors', label: 'OPD Slip Body Templates', hint: 'Consultation & printed-slip sections', keywords: 'opd slip template section body specialty growth layout' },
+  { tab: 'doctors', label: 'Consultation Quick-Fill Templates', hint: 'One-tap clinical text by department', keywords: 'quick fill template consultation clinical department specialty history examination' },
+  { tab: 'workflow', label: 'Fees, Queue Flow & Display', hint: 'Consultation fee, queue toggle', keywords: 'fee queue flow waiting done pending consultation display badge billing slot' },
+  { tab: 'workflow', label: 'Patient Registration Fee', hint: 'One-time registration fee', keywords: 'registration fee one time' },
+  { tab: 'workflow', label: 'Free Follow-up Policy', hint: 'Same-doctor follow-up window', keywords: 'follow up free policy window revisit' },
+  { tab: 'workflow', label: 'Services', hint: 'Quick-pick service chips', keywords: 'services procedures vaccination chips price' },
+  { tab: 'billing', label: 'Wards & Beds', hint: 'IPD wards and beds', keywords: 'ward bed ipd room admission' },
+  { tab: 'billing', label: 'IPD Charges & Accrual', hint: 'Auto bed/nursing/doctor charges', keywords: 'ipd bed nursing accrual charge doctor visit advance deposit transfer' },
+  { tab: 'billing', label: 'GST & Billing', hint: 'GST, invoice prefix, round-off', keywords: 'gst tax invoice prefix round off discount gstin' },
+  { tab: 'billing', label: 'Insurance / TPA', hint: 'Cashless admissions', keywords: 'tpa insurance cashless claim preauth' },
+  { tab: 'billing', label: 'Discharge Summary', hint: 'Builder + templates', keywords: 'discharge summary template letterhead' },
+  { tab: 'billing', label: 'Admission Requests', hint: 'Doctor requests from OPD', keywords: 'admission request opd reception' },
+  { tab: 'billing', label: 'Lab Auto-Billing', hint: 'Auto-raise a bill when tests are ordered', keywords: 'lab laboratory auto bill billing test order revenue investigation' },
+  { tab: 'peds', label: 'Pediatrics Add-on', hint: 'Growth, vaccines, calculators', keywords: 'pediatrics paediatrics growth centile who iap vaccine immunisation calculator bmi head circumference child chart' },
+  { tab: 'patients', label: 'Patients & Locations', hint: 'Default state, district, villages', keywords: 'patient location state district village autocomplete' },
+  { tab: 'patients', label: 'List Window (performance)', hint: 'How far back lists show by default', keywords: 'list window performance recent month week reception discharge slow speed pagination lag' },
+  { tab: 'system', label: 'Security & Login', hint: 'Sign-in, idle sign-out', keywords: 'security login password idle signout user audit' },
+  { tab: 'system', label: 'Role-Based Access', hint: 'Module access per staff role', keywords: 'role access permission module staff customisable' },
+  { tab: 'system', label: 'Startup & Background', hint: 'Auto-launch, tray', keywords: 'startup background tray autolaunch windows minimize' },
+  { tab: 'system', label: 'Network Mode', hint: 'Multi-station LAN setup', keywords: 'network multi station lan server client cabin' },
+  { tab: 'system', label: 'Backup, Restore & Updates', hint: 'Backups, USB, app updates', keywords: 'backup restore update usb sqlite excel auto' },
+  { tab: 'comms', label: 'WhatsApp Messaging', hint: 'Click-to-WhatsApp templates', keywords: 'whatsapp message template preview' },
+  { tab: 'comms', label: 'AI Reply Suggestions', hint: 'Claude API key', keywords: 'ai claude api reply suggestion anthropic key' },
+];
 
 export function SettingsPage() {
   const [tab, setTab] = useState<SettingsTab>(() => {
     try { return (localStorage.getItem(SETTINGS_TAB_KEY) as SettingsTab) || 'clinic'; } catch { return 'clinic'; }
   });
   useEffect(() => { try { localStorage.setItem(SETTINGS_TAB_KEY, tab); } catch { /* ignore */ } }, [tab]);
+  const [search, setSearch] = useState('');
 
   // Pre-load settings at the page level so every sub-component's useQuery
   // returns synchronously from cache — no blank-flash on any tab.
@@ -50,8 +87,38 @@ export function SettingsPage() {
         <div className="mb-4">
           <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Settings</h1>
           <p className="text-xs text-gray-500 dark:text-slate-400">
-            Pick a tab below to find what you need.
+            Search below, or pick a tab to find what you need.
           </p>
+        </div>
+
+        {/* Search — jumps straight to any setting's tab */}
+        <div className="relative mb-4 max-w-md">
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            className="input pl-9"
+            placeholder="Search settings… e.g. growth, GST, backup, roles"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search.trim() && (
+            <div className="absolute z-30 mt-1 w-full max-h-72 overflow-auto rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg">
+              {(() => {
+                const q = search.trim().toLowerCase();
+                const hits = SETTINGS_SEARCH.filter((e) => `${e.label} ${e.hint} ${e.keywords} ${TAB_LABEL[e.tab]}`.toLowerCase().includes(q));
+                if (hits.length === 0) return <div className="px-3 py-2 text-xs text-gray-500">No matching setting.</div>;
+                return hits.map((e, i) => (
+                  <button
+                    key={i}
+                    onClick={() => { setTab(e.tab); setSearch(''); }}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-slate-800 border-b border-gray-100 dark:border-slate-800 last:border-0"
+                  >
+                    <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">{e.label}</div>
+                    <div className="text-[11px] text-gray-500">{e.hint} · <span className="uppercase tracking-wide text-blue-600 dark:text-blue-400">{TAB_LABEL[e.tab]}</span></div>
+                  </button>
+                ));
+              })()}
+            </div>
+          )}
         </div>
 
         {settingsError && (
@@ -66,6 +133,7 @@ export function SettingsPage() {
           <SettingsTabBtn active={tab === 'doctors'} onClick={() => setTab('doctors')} icon={<Stethoscope className="w-3.5 h-3.5" />}>Doctors & Templates</SettingsTabBtn>
           <SettingsTabBtn active={tab === 'workflow'} onClick={() => setTab('workflow')} icon={<Wallet className="w-3.5 h-3.5" />}>Fees & Workflow</SettingsTabBtn>
           <SettingsTabBtn active={tab === 'billing'} onClick={() => setTab('billing')} icon={<IndianRupee className="w-3.5 h-3.5" />}>Billing & IPD</SettingsTabBtn>
+          <SettingsTabBtn active={tab === 'peds'} onClick={() => setTab('peds')} icon={<Baby className="w-3.5 h-3.5" />}>Pediatrics</SettingsTabBtn>
           <SettingsTabBtn active={tab === 'patients'} onClick={() => setTab('patients')} icon={<UserIcon className="w-3.5 h-3.5" />}>Patients</SettingsTabBtn>
           <SettingsTabBtn active={tab === 'system'} onClick={() => setTab('system')} icon={<HardDrive className="w-3.5 h-3.5" />}>System</SettingsTabBtn>
           <SettingsTabBtn active={tab === 'comms'} onClick={() => setTab('comms')} icon={<MessageCircle className="w-3.5 h-3.5" />}>Communication</SettingsTabBtn>
@@ -134,10 +202,15 @@ export function SettingsPage() {
 
           {tab === 'billing' && <BillingIpdTab />}
 
+          {tab === 'peds' && <PediatricsTab />}
+
           {tab === 'patients' && (
             <>
               <SettingsGroup title="Patients & Locations" subtitle="Default state, district, and bundled village list shown as autocomplete.">
                 <DefaultLocation />
+              </SettingsGroup>
+              <SettingsGroup title="List Window (keeps big lists fast)" subtitle="How far back the Reception patient list and Discharge Summary list show by default. Search always finds everyone, however old.">
+                <RecordsWindowSetting />
               </SettingsGroup>
             </>
           )}
@@ -3890,8 +3963,7 @@ function BillingIpdTab() {
     'discount_caps_json', 'discount_require_reason',
     'ipd_auto_accrue_bed', 'ipd_auto_accrue_nursing', 'ipd_auto_accrue_doctor_visit',
     'ipd_doctor_visit_mode', 'ipd_transfer_charge_rule', 'ipd_accrual_time', 'ipd_advance_enabled',
-    'tpa_enabled', 'ipd_admission_requests_enabled', 'discharge_summary_enabled',
-    'peds_enabled', 'peds_growth_enabled', 'peds_vaccines_enabled', 'peds_calculators_enabled', 'peds_vaccine_schedule',
+    'tpa_enabled', 'ipd_admission_requests_enabled', 'discharge_summary_enabled', 'lab_auto_bill',
   ]);
 
   if (!settings) return <div className="card p-8 text-center text-sm text-gray-500"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></div>;
@@ -3997,23 +4069,74 @@ function BillingIpdTab() {
           value={draft.ipd_admission_requests_enabled ?? true} onChange={(v) => set('ipd_admission_requests_enabled', v)} />
       </div>
 
-      {/* Pediatrics add-on */}
+      {/* Lab auto-billing */}
+      <div className="card p-5">
+        <AccrualToggle label="Auto-raise a bill when a lab test is ordered"
+          help="When a doctor or reception orders lab tests, an unpaid bill is created automatically from the test prices, so lab revenue lands in billing instead of being missed. Reception collects it at the counter. Turn off if you bill lab work another way."
+          value={draft.lab_auto_bill ?? true} onChange={(v) => set('lab_auto_bill', v)} />
+      </div>
+
+    </div>
+  );
+}
+
+/**
+ * Pediatrics add-on settings — its own tab (was buried under Billing & IPD).
+ * The module gates a dedicated Pediatrics screen plus the in-consultation growth
+ * section for pediatricians. Growth reference default: WHO 0–5y, IAP 5–18y.
+ */
+function PediatricsTab() {
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { draft, set, reset, dirty, saving, save } = useSectionDraft(settings, [
+    'peds_enabled', 'peds_growth_enabled', 'peds_vaccines_enabled', 'peds_calculators_enabled',
+    'peds_vaccine_schedule', 'peds_growth_default',
+  ]);
+
+  if (!settings) return <div className="card p-8 text-center text-sm text-gray-500"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></div>;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between sticky top-12 z-[5] bg-white/80 dark:bg-slate-900/80 backdrop-blur py-2 -my-2 px-1 rounded">
+        <div className="text-[11px] text-gray-500 dark:text-slate-400">
+          Turn the paediatrics tools on or off. The toggles below need <b>Save</b>.
+        </div>
+        <div className="flex items-center gap-2">
+          {dirty && <button className="btn-ghost text-xs" onClick={reset}>Reset</button>}
+          <button className="btn-primary text-xs" disabled={!dirty || saving} onClick={save}>
+            {saving ? 'Saving…' : dirty ? 'Save changes' : 'All saved'}
+          </button>
+        </div>
+      </div>
+
       <div className="card p-5 space-y-4">
         <div>
-          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Pediatrics Add-on</div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5"><Baby className="w-4 h-4 text-pink-500" /> Pediatrics Add-on</div>
           <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
-            Growth centiles (WHO 0–5y &amp; IAP 5–18y), an immunisation diary, and paediatric calculators, in a dedicated
-            Pediatrics screen. Off by default — turn it on only if your clinic sees children.
+            Growth centiles (WHO 0–5y &amp; IAP 5–18y), an immunisation diary, and paediatric calculators — in a dedicated
+            Pediatrics screen, and live inside a pediatrician’s consultation. Off by default — turn it on only if your clinic sees children.
           </div>
         </div>
         <AccrualToggle label="Enable the Pediatrics module"
-          help="Adds a Pediatrics item to the sidebar. Each tool below can be shown or hidden separately."
+          help="Adds a Pediatrics item to the sidebar, and shows the growth section live inside a pediatrician's consultation. Each tool below can be shown or hidden separately."
           value={draft.peds_enabled ?? false} onChange={(v) => set('peds_enabled', v)} />
         {draft.peds_enabled && (
           <div className="pl-7 space-y-3 border-l-2 border-pink-200 dark:border-pink-900">
             <AccrualToggle label="Growth &amp; centiles"
-              help="Enter weight, height and head circumference; get centiles and z-scores with a saved history. Chart toggles between WHO (0–5y) and IAP 2015 (5–18y)."
+              help="Enter weight, height and (under 5) head circumference; get centiles and z-scores with a saved history. Charts: WHO (0–5y) and IAP 2015 (5–18y), plus BMI."
               value={draft.peds_growth_enabled ?? true} onChange={(v) => set('peds_growth_enabled', v)} />
+            {(draft.peds_growth_enabled ?? true) && (
+              <div className="pl-2">
+                <label className="label">Growth-chart reference</label>
+                <select className="input max-w-md" value={draft.peds_growth_default ?? 'auto'} onChange={(e) => set('peds_growth_default', e.target.value as any)}>
+                  <option value="auto">Automatic — WHO under 5, IAP 5–18 (recommended)</option>
+                  <option value="who">Always WHO</option>
+                  <option value="iap">Always IAP 2015</option>
+                </select>
+                <div className="text-[11px] text-gray-500 mt-1">
+                  Head circumference always uses WHO and only shows for under-5s. Height, weight and BMI use the reference chosen here.
+                </div>
+              </div>
+            )}
             <AccrualToggle label="Immunisation diary"
               help="Per-child vaccine schedule with due dates from date of birth; mark doses as given."
               value={draft.peds_vaccines_enabled ?? true} onChange={(v) => set('peds_vaccines_enabled', v)} />
@@ -4030,6 +4153,39 @@ function BillingIpdTab() {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Default time window for the big record lists (Reception patients, Discharge
+ * Summary admissions). Keeps the app snappy when the database has grown to tens
+ * of thousands of rows — search always scans everything, only the default view
+ * is trimmed.
+ */
+function RecordsWindowSetting() {
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { draft, set, reset, dirty, saving, save } = useSectionDraft(settings, ['records_list_window']);
+  if (!settings) return <div className="card p-6 text-center"><Loader2 className="w-4 h-4 animate-spin mx-auto text-gray-400" /></div>;
+  return (
+    <div className="card p-5 space-y-3">
+      <div className="max-w-xs">
+        <label className="label">Show records from</label>
+        <select className="input" value={draft.records_list_window ?? 'month'} onChange={(e) => set('records_list_window', e.target.value as any)}>
+          <option value="week">Last 7 days</option>
+          <option value="month">Last month</option>
+          <option value="quarter">Last 3 months</option>
+          <option value="all">Everything</option>
+        </select>
+      </div>
+      <div className="text-[11px] text-gray-500 dark:text-slate-400">
+        This trims only the <b>default</b> list you see before typing, so a clinic with 20,000+ patients still opens instantly.
+        Searching by name, phone, UHID or IP number always looks through your <b>entire</b> history, no matter how old.
+      </div>
+      <div className="flex items-center gap-2">
+        {dirty && <button className="btn-ghost text-xs" onClick={reset}>Reset</button>}
+        <button className="btn-primary text-xs" disabled={!dirty || saving} onClick={save}>{saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}</button>
       </div>
     </div>
   );

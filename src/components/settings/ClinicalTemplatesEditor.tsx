@@ -166,10 +166,10 @@ export function ClinicalTemplatesEditor() {
       ) : (
         <div className="space-y-4">
           {shared.length > 0 && (
-            <TemplateGroup title="Shared with everyone" icon={<Users className="w-3.5 h-3.5" />} items={shared} onEdit={setEditing} onRemove={remove} />
+            <TemplateGroup title="Shared with everyone" icon={<Users className="w-3.5 h-3.5" />} items={shared} onEdit={setEditing} onRemove={remove} groupByDept />
           )}
           {[...byDoctor.entries()].map(([docId, items]) => (
-            <TemplateGroup key={docId} title={doctorName(docId) ? `Dr. ${doctorName(docId)}` : `Doctor #${docId}`} icon={<User className="w-3.5 h-3.5" />} items={items} onEdit={setEditing} onRemove={remove} />
+            <TemplateGroup key={docId} title={doctorName(docId) ? `Dr. ${doctorName(docId)}` : `Doctor #${docId}`} icon={<User className="w-3.5 h-3.5" />} items={items} onEdit={setEditing} onRemove={remove} groupByDept />
           ))}
         </div>
       )}
@@ -177,26 +177,62 @@ export function ClinicalTemplatesEditor() {
   );
 }
 
-function TemplateGroup({ title, icon, items, onEdit, onRemove }: {
+/** Order templates into [category, items] groups, sorted A→Z (blank category last). */
+function byDepartment(items: ClinicalQuickTemplate[]): [string, ClinicalQuickTemplate[]][] {
+  const map = new Map<string, ClinicalQuickTemplate[]>();
+  for (const t of items) {
+    const cat = (t.category || '').trim();
+    const arr = map.get(cat) || [];
+    arr.push(t); map.set(cat, arr);
+  }
+  return [...map.entries()].sort(([a], [b]) => {
+    if (!a) return 1; if (!b) return -1; // uncategorised sinks to the bottom
+    return a.localeCompare(b);
+  });
+}
+
+function TemplateGroup({ title, icon, items, onEdit, onRemove, groupByDept }: {
   title: string; icon: React.ReactNode; items: ClinicalQuickTemplate[];
   onEdit: (t: ClinicalQuickTemplate) => void; onRemove: (id: string, name: string) => void;
+  /** Sub-group the list by department (category) with a heading per department. */
+  groupByDept?: boolean;
 }) {
   return (
     <div>
       <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-slate-400 mb-1.5">{icon} {title}</div>
-      <div className="space-y-1.5">
-        {items.map((t) => (
-          <div key={t.id} className={cn('flex items-center gap-3 rounded-lg border border-gray-200 dark:border-slate-700 p-2.5')}>
-            <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">{t.name}</div>
-              <div className="text-[11px] text-gray-500">{t.category}{t.follow_up_days ? ` · follow-up ${t.follow_up_days}d` : ''}</div>
+      {groupByDept ? (
+        <div className="space-y-3">
+          {byDepartment(items).map(([cat, catItems]) => (
+            <div key={cat || '_uncat'}>
+              <div className="text-[10px] uppercase tracking-wider font-semibold text-amber-600 dark:text-amber-500 mb-1 px-0.5">{cat || 'Uncategorised'}</div>
+              <div className="space-y-1.5">
+                {catItems.map((t) => <TemplateRow key={t.id} t={t} onEdit={onEdit} onRemove={onRemove} />)}
+              </div>
             </div>
-            <button className="btn-ghost text-xs" onClick={() => onEdit(t)}><Pencil className="w-3.5 h-3.5" /></button>
-            <button className="btn-ghost text-xs text-red-600" onClick={() => onRemove(t.id, t.name)}><Trash2 className="w-3.5 h-3.5" /></button>
-          </div>
-        ))}
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {items.map((t) => <TemplateRow key={t.id} t={t} onEdit={onEdit} onRemove={onRemove} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TemplateRow({ t, onEdit, onRemove }: {
+  t: ClinicalQuickTemplate;
+  onEdit: (t: ClinicalQuickTemplate) => void; onRemove: (id: string, name: string) => void;
+}) {
+  return (
+    <div className={cn('flex items-center gap-3 rounded-lg border border-gray-200 dark:border-slate-700 p-2.5')}>
+      <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">{t.name}</div>
+        <div className="text-[11px] text-gray-500">{t.category}{t.follow_up_days ? ` · follow-up ${t.follow_up_days}d` : ''}</div>
       </div>
+      <button className="btn-ghost text-xs" onClick={() => onEdit(t)}><Pencil className="w-3.5 h-3.5" /></button>
+      <button className="btn-ghost text-xs text-red-600" onClick={() => onRemove(t.id, t.name)}><Trash2 className="w-3.5 h-3.5" /></button>
     </div>
   );
 }

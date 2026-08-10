@@ -7,6 +7,7 @@ import { Modal } from './Modal';
 import { RequestAdmissionButton } from './ipd/AdmissionRequests';
 import { PedsGrowthField } from './peds/PedsGrowthField';
 import { PedsVaccineInline } from './peds/PedsVaccineInline';
+import { ageInDays } from '../lib/peds/growth';
 import type { AppointmentWithJoins, Consultation, Doctor, PrescriptionItem, Vitals } from '../types';
 
 type RxRow = {
@@ -213,6 +214,20 @@ export function ConsultationPanel({
     vitals, follow_up_date: followUp || null,
   };
 
+  // Pediatric growth — shown for a pediatrician (module on) treating a child
+  // under 18. Reference follows the child's age (WHO 0–5y, IAP 5–18y) unless the
+  // clinic pinned a default in Settings. Auto-injected below the vitals if the
+  // doctor's slip template doesn't already carry a dedicated growth section.
+  const pedsAllowed = !!(settings?.peds_enabled && /pa?ediatr/i.test(doctor.specialty || ''));
+  const childAgeY = appointment.patient_dob ? ageInDays(appointment.patient_dob) / 365.25 : null;
+  const showGrowth = pedsAllowed && (childAgeY == null || childAgeY < 18);
+  const growthDefault = (settings?.peds_growth_default as 'auto' | 'who' | 'iap') || 'auto';
+  const templateHasGrowth = (template?.sections || []).some((s: any) => s.type === 'growth');
+  const pedsPatient = {
+    id: appointment.patient_id, name: appointment.patient_name,
+    uhid: appointment.patient_uhid, dob: appointment.patient_dob, gender: appointment.patient_gender,
+  };
+
   return (
     <div className="card p-6">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -295,6 +310,18 @@ export function ConsultationPanel({
         </div>
       </div>
 
+      {/* Pediatric growth (auto) — only if the template doesn't already place one. */}
+      {showGrowth && !templateHasGrowth && (
+        <div className="mt-4">
+          <PedsGrowthField
+            value={extraFields['peds_growth'] || ''}
+            onChange={(v) => setExtraFields((prev) => ({ ...prev, peds_growth: v }))}
+            patient={pedsPatient}
+            defaultStandard={growthDefault}
+          />
+        </div>
+      )}
+
       {/* Body sections — driven by the doctor's assigned slip template. Reserved
           keys (history/examination/impression/advice) read from / write to the
           dedicated state; everything else lives in extraFields. */}
@@ -321,11 +348,10 @@ export function ConsultationPanel({
             else setExtraFields((prev) => ({ ...prev, [s.key]: v }));
           };
           const rows = Math.max(1, Math.round(((s.height_mm ?? 18) - 4) / 6));
-          // Pediatric growth section — only for a pediatrician when the module is on.
+          // Pediatric growth section — pediatrician + module on, child under 18.
           if (s.type === 'growth') {
-            const pedsAllowed = settings?.peds_enabled && /pa?ediatr/i.test(doctor.specialty || '');
-            if (!pedsAllowed) return null;
-            return <PedsGrowthField key={s.key} value={extraFields[s.key] || ''} onChange={setter} dob={appointment.patient_dob} gender={appointment.patient_gender} />;
+            if (!showGrowth) return null;
+            return <PedsGrowthField key={s.key} value={extraFields[s.key] || ''} onChange={setter} patient={pedsPatient} defaultStandard={growthDefault} />;
           }
           if (s.type === 'textarea') {
             return <TextBlock key={s.key} label={s.title} value={reader} onChange={setter} rows={rows} />;

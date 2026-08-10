@@ -175,17 +175,97 @@ export function IpdAnalyticsTab({ from, to }: { from: string; to: string }) {
         </div>
       )}
 
-      {/* Doctor + ward breakdowns */}
+      {/* Ward-wise finance — the money each ward brought in */}
+      <WardFinanceCard rows={ipd.byWard} />
+
+      {/* Doctor + ward clinical breakdowns */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <BreakdownTable title="By doctor" rows={ipd.byDoctor} cols={[
           { key: 'doctor', label: 'Doctor' },
           { key: 'admissions', label: 'Admissions', align: 'right' },
           { key: 'alos', label: 'Avg stay', align: 'right', fmt: (v: number) => v ? `${Math.round(v * 10) / 10}d` : '—' },
         ]} />
-        <BreakdownTable title="By ward" rows={ipd.byWard} cols={[
+        <BreakdownTable title="Ward occupancy &amp; stay" rows={ipd.byWard} cols={[
           { key: 'ward', label: 'Ward' },
-          { key: 'admissions', label: 'Admissions', align: 'right' },
+          { key: 'active', label: 'In beds', align: 'right' },
+          { key: 'alos', label: 'Avg stay', align: 'right', fmt: (v: number) => v ? `${v}d` : '—' },
         ]} />
+      </div>
+    </div>
+  );
+}
+
+/** Ward-wise finance: revenue, collections, dues and advances by ward, with a total row. */
+function WardFinanceCard({ rows }: { rows: any[] }) {
+  if (!rows || rows.length === 0) {
+    return (
+      <div className="card p-4">
+        <div className="text-[13px] font-bold text-gray-900 dark:text-slate-100 mb-2">Ward-wise finance</div>
+        <div className="text-[12px] text-gray-400 text-center py-4">No admissions in this period.</div>
+      </div>
+    );
+  }
+  const tot = rows.reduce((a: any, r: any) => ({
+    admissions: a.admissions + (r.admissions || 0),
+    active: a.active + (r.active || 0),
+    revenue: a.revenue + (r.revenue || 0),
+    collected: a.collected + (r.collected || 0),
+    outstanding: a.outstanding + (r.outstanding || 0),
+    advance: a.advance + (r.advance || 0),
+  }), { admissions: 0, active: 0, revenue: 0, collected: 0, outstanding: 0, advance: 0 });
+
+  return (
+    <div className="card p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <BedDouble className="w-4 h-4 text-blue-600" />
+        <div className="text-[13px] font-bold text-gray-900 dark:text-slate-100">Ward-wise finance</div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[12px] min-w-[560px]">
+          <thead>
+            <tr className="text-left text-[10px] uppercase text-gray-500 border-b dark:border-slate-700">
+              <th className="py-1.5">Ward</th>
+              <th className="py-1.5 text-right">Adm</th>
+              <th className="py-1.5 text-right">In beds</th>
+              <th className="py-1.5 text-right">Revenue</th>
+              <th className="py-1.5 text-right">Collected</th>
+              <th className="py-1.5 text-right">Outstanding</th>
+              <th className="py-1.5 text-right">Advances</th>
+              <th className="py-1.5 text-right">₹/adm</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r: any, i: number) => (
+              <tr key={i} className="border-b border-gray-50 dark:border-slate-800/50">
+                <td className="py-1.5">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: r.colour || '#94a3b8' }} />
+                    {r.ward}
+                  </span>
+                </td>
+                <td className="py-1.5 text-right tabular-nums">{r.admissions}</td>
+                <td className="py-1.5 text-right tabular-nums">{r.active}</td>
+                <td className="py-1.5 text-right tabular-nums font-medium">{inr(r.revenue)}</td>
+                <td className="py-1.5 text-right tabular-nums text-emerald-600">{inr(r.collected)}</td>
+                <td className="py-1.5 text-right tabular-nums text-red-600">{inr(r.outstanding)}</td>
+                <td className="py-1.5 text-right tabular-nums text-indigo-600">{inr(r.advance)}</td>
+                <td className="py-1.5 text-right tabular-nums text-gray-500">{inr(r.revPerAdm)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t-2 dark:border-slate-700 font-bold">
+              <td className="py-1.5">Total</td>
+              <td className="py-1.5 text-right tabular-nums">{tot.admissions}</td>
+              <td className="py-1.5 text-right tabular-nums">{tot.active}</td>
+              <td className="py-1.5 text-right tabular-nums">{inr(tot.revenue)}</td>
+              <td className="py-1.5 text-right tabular-nums text-emerald-600">{inr(tot.collected)}</td>
+              <td className="py-1.5 text-right tabular-nums text-red-600">{inr(tot.outstanding)}</td>
+              <td className="py-1.5 text-right tabular-nums text-indigo-600">{inr(tot.advance)}</td>
+              <td className="py-1.5 text-right"></td>
+            </tr>
+          </tfoot>
+        </table>
       </div>
     </div>
   );

@@ -317,9 +317,19 @@ export function registerIpc() {
     const db = getDb();
     const like = `%${q.trim()}%`;
     if (!q.trim()) {
+      // Default (no search) list: most-recently-active patients within the
+      // configured window, so a 50,000-patient database still opens instantly.
+      // A search (below) always scans the whole table, so nobody is hidden.
+      const win = (getAllSettings(db) as any).records_list_window || 'month';
+      const DAYS: Record<string, number> = { week: 7, month: 31, quarter: 92 };
+      const days = DAYS[win];
+      const activity = "COALESCE((SELECT MAX(appointment_date) FROM appointments WHERE patient_id=p.id), date(p.created_at))";
+      const windowClause = days ? `WHERE ${activity} >= date('now', '-${days} days')` : '';
       return db
         .prepare(
-          'SELECT p.*, (SELECT MAX(appointment_date) FROM appointments WHERE patient_id=p.id) as last_visit FROM patients p ORDER BY created_at DESC LIMIT 50'
+          `SELECT p.*, (SELECT MAX(appointment_date) FROM appointments WHERE patient_id=p.id) as last_visit
+           FROM patients p ${windowClause}
+           ORDER BY ${activity} DESC LIMIT 100`
         )
         .all();
     }
@@ -1405,14 +1415,34 @@ export function registerIpc() {
         const insItem = db.prepare(
           'INSERT INTO lab_order_items (lab_order_id, lab_test_id, test_name, ref_range, unit) VALUES (?, ?, ?, ?, ?)'
         );
+        const priced: { description: string; qty: number; rate: number; amount: number }[] = [];
         for (const it of payload.items) {
           let range: string | null = null;
           let unit: string | null = null;
+          let price = 0;
           if (it.lab_test_id) {
-            const t = db.prepare('SELECT ref_range, unit FROM lab_tests WHERE id=?').get(it.lab_test_id) as any;
-            range = t?.ref_range ?? null; unit = t?.unit ?? null;
+            const t = db.prepare('SELECT ref_range, unit, price FROM lab_tests WHERE id=?').get(it.lab_test_id) as any;
+            range = t?.ref_range ?? null; unit = t?.unit ?? null; price = Number(t?.price) || 0;
           }
           insItem.run(orderId, it.lab_test_id ?? null, it.test_name, range, unit);
+          if (price > 0) priced.push({ description: it.test_name, qty: 1, rate: price, amount: price });
+        }
+
+        // Auto-raise an (unpaid) lab bill from the ordered tests' prices, so lab
+        // revenue lands in billing instead of leaking. Reception collects later.
+        const autoBill = getAllSettings(db).lab_auto_bill !== false;
+        if (autoBill && priced.length) {
+          const total = priced.reduce((s, r) => s + r.amount, 0);
+          const billNumber = nextBillNumber(db);
+          db.prepare(
+            `INSERT INTO bills
+               (bill_number, appointment_id, patient_id, doctor_id, items_json, subtotal, discount, discount_type,
+                total, payment_mode, bill_kind, bill_type, amount_paid, notes)
+             VALUES (?, ?, ?, ?, ?, ?, 0, 'flat', ?, 'Pending', 'lab', 'lab', 0, ?)`
+          ).run(
+            billNumber, payload.appointment_id, payload.patient_id, payload.doctor_id ?? null,
+            JSON.stringify(priced), total, total, `Lab order ${orderNumber}`
+          );
         }
         return orderId;
       });
@@ -2125,10 +2155,30 @@ export function registerIpc() {
   });
 
   // ===== IP Admissions =====
-  ipcMain.handle('ip:list', (_e, filter: { status?: string } = {}) => {
+  ipcMain.handle('ip:list', (_e, filter: { status?: string; q?: string; window?: string; limit?: number } = {}) => {
     const db = getDb();
-    const where = filter.status ? 'WHERE a.status=?' : '';
-    const params = filter.status ? [filter.status] : [];
+    const clauses: string[] = [];
+    const params: any[] = [];
+    if (filter.status) { clauses.push('a.status = ?'); params.push(filter.status); }
+
+    const q = (filter.q || '').trim();
+    if (q) {
+      // A search reaches every admission (no window), by patient or IP number.
+      clauses.push("((p.first_name || ' ' || p.last_name) LIKE ? OR p.uhid LIKE ? OR p.phone LIKE ? OR a.admission_number LIKE ?)");
+      const like = `%${q}%`;
+      params.push(like, like, like, like);
+    } else {
+      // No search: keep the list recent so a big hospital's history stays fast.
+      const DAYS: Record<string, number> = { week: 7, month: 31, quarter: 92 };
+      const days = filter.window ? DAYS[filter.window] : undefined;
+      if (days) {
+        clauses.push(`(date(a.admitted_at) >= date('now', '-${days} days') OR (a.discharged_at IS NOT NULL AND date(a.discharged_at) >= date('now', '-${days} days')))`);
+      }
+    }
+
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const limit = Math.min(Math.max(Number(filter.limit) || 1000, 1), 5000);
+    params.push(limit);
     return db
       .prepare(
         `SELECT a.*, (p.first_name || ' ' || p.last_name) as patient_name, p.uhid as patient_uhid, p.phone as patient_phone,
@@ -2137,7 +2187,7 @@ export function registerIpc() {
          JOIN patients p ON p.id=a.patient_id
          LEFT JOIN doctors d ON d.id=a.admission_doctor_id
          ${where}
-         ORDER BY a.admitted_at DESC`
+         ORDER BY a.admitted_at DESC LIMIT ?`
       )
       .all(...params);
   });
@@ -3539,6 +3589,21 @@ export function registerIpc() {
       scheduleHCount: sc(`SELECT COUNT(*) as c FROM dispensing_register WHERE date(dispensed_at) BETWEEN ? AND ? AND schedule IN ('H','H1')`, filter.from, filter.to),
       totalRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM pharmacy_sales WHERE date(created_at) BETWEEN ? AND ?`, filter.from, filter.to),
       totalSales: sc(`SELECT COUNT(*) as c FROM pharmacy_sales WHERE date(created_at) BETWEEN ? AND ?`, filter.from, filter.to),
+      // Live inventory valuation (not date-filtered — it's a snapshot of stock now).
+      valuation: db.prepare(`
+        SELECT COUNT(DISTINCT m.id) as skus,
+               COALESCE(SUM(b.qty_remaining), 0) as units,
+               COALESCE(SUM(b.qty_remaining * b.purchase_price), 0) as at_cost,
+               COALESCE(SUM(b.qty_remaining * b.mrp), 0) as at_mrp
+        FROM drug_master m LEFT JOIN drug_stock_batches b ON b.drug_master_id=m.id AND b.is_active=1
+        WHERE m.is_active=1
+      `).get(),
+      expiredStock: db.prepare(`
+        SELECT COUNT(*) as batches, COALESCE(SUM(qty_remaining * purchase_price), 0) as value
+        FROM drug_stock_batches WHERE is_active=1 AND qty_remaining > 0 AND date(expiry) < date('now')
+      `).get(),
+      lowStockCount: sc(`SELECT COUNT(*) as c FROM drug_master m WHERE m.is_active=1
+        AND (SELECT COALESCE(SUM(qty_remaining),0) FROM drug_stock_batches b WHERE b.drug_master_id=m.id AND b.is_active=1) <= m.low_stock_threshold`),
       topDrugs: db.prepare(`
         SELECT COALESCE(m.name, ps.drug_name) as name,
                SUM(ps.qty) as units,
@@ -3588,6 +3653,37 @@ export function registerIpc() {
         ORDER BY date(b.expiry) ASC LIMIT 30
       `).all(),
     };
+  });
+
+  // ===== Modules P&L — revenue by clinical module, side by side =====
+  ipcMain.handle('analytics:modules', (_e, from: string, to: string) => {
+    const db = getDb();
+    const billAgg = (cond: string) => db.prepare(
+      `SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue, COALESCE(SUM(amount_paid), 0) as collected
+       FROM bills WHERE (status IS NULL OR status <> 'cancelled') AND date(created_at) BETWEEN ? AND ? AND ${cond}`
+    ).get(from, to) as { count: number; revenue: number; collected: number };
+    const phar = db.prepare(
+      `SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue FROM pharmacy_sales WHERE date(created_at) BETWEEN ? AND ?`
+    ).get(from, to) as { count: number; revenue: number };
+
+    const mk = (key: string, label: string, a: { count: number; revenue: number; collected: number }) => ({
+      key, label, count: a.count, revenue: Math.round(a.revenue),
+      collected: Math.round(a.collected), outstanding: Math.round(a.revenue - a.collected),
+    });
+    const modules = [
+      mk('opd', 'OPD / Consultation', billAgg("bill_type='opd_consult'")),
+      mk('ipd', 'IPD (in-patient)', billAgg("bill_type='ipd'")),
+      mk('lab', 'Laboratory', billAgg("bill_type='lab'")),
+      // Pharmacy sells over the counter — treat sale value as collected.
+      { key: 'pharmacy', label: 'Pharmacy', count: phar.count, revenue: Math.round(phar.revenue), collected: Math.round(phar.revenue), outstanding: 0 },
+      mk('misc', 'Procedures / Misc', billAgg("bill_kind='misc'")),
+    ].filter((m) => m.count > 0 || m.revenue > 0);
+
+    const totals = modules.reduce((t, m) => ({
+      revenue: t.revenue + m.revenue, collected: t.collected + m.collected,
+      outstanding: t.outstanding + m.outstanding, count: t.count + m.count,
+    }), { revenue: 0, collected: 0, outstanding: 0, count: 0 });
+    return { ok: true, modules, totals };
   });
 
   // ===== Patient Origin (place stats) =====

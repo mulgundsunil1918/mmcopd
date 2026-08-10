@@ -555,6 +555,9 @@ export interface Settings {
   whatsapp_template: string;
   whatsapp_country_code: string;
   appointments_default_sort: 'oldest_first' | 'newest_first';
+  /** Default time window for the Reception patient list and Discharge Summary
+   *  admission list. Search always reaches the whole database regardless. */
+  records_list_window: 'week' | 'month' | 'quarter' | 'all';
   // Free follow-up policy
   followup_enabled: boolean;
   followup_window_days: number;
@@ -628,12 +631,16 @@ export interface Settings {
   peds_calculators_enabled: boolean;
   /** Which vaccine schedule the immunisation diary follows. */
   peds_vaccine_schedule: 'iap' | 'nis';
+  /** Growth-chart reference default: 'auto' = WHO 0–5y, IAP 5–18y (recommended). */
+  peds_growth_default: 'auto' | 'who' | 'iap';
 
   // ===== IPD admission-request workflow =====
   ipd_admission_requests_enabled: boolean;
 
   // ===== Discharge Summary module (dedicated builder in the sidebar) =====
   discharge_summary_enabled: boolean;
+  /** Auto-raise an unpaid lab bill when a lab order is placed. Default on. */
+  lab_auto_bill: boolean;
 
   // ===== Customisable role-based access =====
   // JSON map of { [routePath]: Role[] } that OVERRIDES the built-in defaults for

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { FileText, Search, Loader2, Plus, Trash2, ChevronUp, ChevronDown, Eye, Save, Printer, X, BedDouble } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { FileText, Search, Loader2, Plus, Trash2, ChevronUp, ChevronDown, Eye, Save, Printer, X, BedDouble, SlidersHorizontal } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
 import { cn, fmtDate } from '../lib/utils';
@@ -33,9 +34,18 @@ export function DischargeSummary() {
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(false);
 
+  const navigate = useNavigate();
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const listWindow = ((settings as any)?.records_list_window) || 'month';
+  // Default list is windowed for speed; a search reaches every admission ever.
   const { data: admissions = [], isLoading } = useQuery({
-    queryKey: ['ds-admissions', statusFilter],
-    queryFn: () => window.electronAPI.ip.list(statusFilter === 'all' ? {} : { status: statusFilter }),
+    queryKey: ['ds-admissions', statusFilter, q.trim(), listWindow],
+    queryFn: () => window.electronAPI.ip.list({
+      status: statusFilter === 'all' ? undefined : statusFilter,
+      q: q.trim() || undefined,
+      window: q.trim() ? undefined : listWindow,
+      limit: 300,
+    }),
   });
   const { data: doctors = [] } = useQuery({ queryKey: ['doctors'], queryFn: () => window.electronAPI.doctors.list(true) });
   const { data: templates = [] } = useQuery({ queryKey: ['discharge-templates', 'all'], queryFn: () => window.electronAPI.ipd.dischargeTemplatesList() });
@@ -99,9 +109,18 @@ export function DischargeSummary() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-4">
-      <div className="flex items-center gap-2">
-        <FileText className="w-5 h-5 text-sky-500" />
-        <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Discharge Summary</h1>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <FileText className="w-5 h-5 text-sky-500" />
+          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Discharge Summary</h1>
+        </div>
+        <button
+          className="btn-secondary text-xs"
+          onClick={() => { try { localStorage.setItem('caredesk:settings-tab', 'billing'); } catch { /* ignore */ } navigate('/settings'); }}
+          title="Add or edit discharge-summary templates in Settings"
+        >
+          <SlidersHorizontal className="w-3.5 h-3.5" /> Customise templates
+        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

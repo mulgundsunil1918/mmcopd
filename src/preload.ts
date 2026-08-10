@@ -342,7 +342,7 @@ const api = {
       }>>,
   },
   ip: {
-    list: (filter?: { status?: string }) =>
+    list: (filter?: { status?: string; q?: string; window?: string; limit?: number }) =>
       ipcRenderer.invoke('ip:list', filter || {}) as Promise<(IpAdmission & { patient_name: string; patient_uhid: string; patient_phone: string; doctor_name: string | null })[]>,
     admit: (payload: { patient_id: number; admission_doctor_id?: number; bed_number?: string; ward?: string; admission_notes?: string }) =>
       ipcRenderer.invoke('ip:admit', payload) as Promise<IpAdmission>,
@@ -511,6 +511,11 @@ const api = {
       ipcRenderer.invoke('finance:summary', filter) as Promise<any>,
   },
   analytics: {
+    modules: (from: string, to: string) => ipcRenderer.invoke('analytics:modules', from, to) as Promise<{
+      ok: boolean;
+      modules: { key: string; label: string; count: number; revenue: number; collected: number; outstanding: number }[];
+      totals: { revenue: number; collected: number; outstanding: number; count: number };
+    }>,
     overview: () => ipcRenderer.invoke('analytics:overview') as Promise<{
       asOf: string;
       todayVisits: number; todayDone: number; todayRevenue: number;
@@ -546,6 +551,9 @@ const api = {
       ipcRenderer.invoke('analytics:pharmacyOverview', filter) as Promise<{
         totalDispensed: number; scheduleHCount: number;
         totalRevenue: number; totalSales: number;
+        valuation: { skus: number; units: number; at_cost: number; at_mrp: number };
+        expiredStock: { batches: number; value: number };
+        lowStockCount: number;
         topDrugs: { name: string; units: number; revenue: number; sales: number }[];
         salesMix: { kind: string; count: number; revenue: number }[];
         scheduleMix: { schedule: string; count: number; units: number }[];

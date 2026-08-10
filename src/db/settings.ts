@@ -61,6 +61,7 @@ export function getAllSettings(db: Database.Database): Settings {
         'Please arrive 10 minutes early. For any change, simply reply to this message or call us.\n\nThank you,\n*{{clinic_name}}*',
     whatsapp_country_code: map.whatsapp_country_code || '91',
     appointments_default_sort: (map.appointments_default_sort as any) || 'oldest_first',
+    records_list_window: (map.records_list_window as any) || 'month',
     followup_enabled: map.followup_enabled !== 'false',
     followup_window_days: parseInt(map.followup_window_days || '7', 10),
     followup_free_visits: parseInt(map.followup_free_visits || '2', 10),
@@ -121,10 +122,12 @@ export function getAllSettings(db: Database.Database): Settings {
     peds_vaccines_enabled: map.peds_vaccines_enabled !== 'false',
     peds_calculators_enabled: map.peds_calculators_enabled !== 'false',
     peds_vaccine_schedule: (map.peds_vaccine_schedule as any) || 'iap',
+    peds_growth_default: (map.peds_growth_default as any) || 'auto',
 
     // ===== IPD admission requests =====
     ipd_admission_requests_enabled: map.ipd_admission_requests_enabled !== 'false',
     discharge_summary_enabled: map.discharge_summary_enabled !== 'false',
+    lab_auto_bill: map.lab_auto_bill !== 'false',
     role_access_json: map.role_access_json || '',
 
     // ===== Access / login =====

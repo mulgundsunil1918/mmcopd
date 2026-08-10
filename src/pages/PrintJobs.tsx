@@ -84,10 +84,18 @@ function PrintJobViewer({ job, onClose }: { job: any; onClose: () => void; onPri
 
   if (job.kind === 'growth') {
     const sex: Sex = payload?.patient?.gender === 'F' ? 'F' : 'M';
-    const points = payload.points || [];
-    const chartEl = payload.standard === 'iap' && payload.iapMetric
-      ? <IapGrowthChart metric={payload.iapMetric} sex={sex} points={points} />
-      : <GrowthChartPlot chart={payload.chart || 'wfa'} sex={sex} points={points} />;
+    const one = (chart: string, iapMetric: any, points: any[], key?: any) =>
+      payload.standard === 'iap' && iapMetric
+        ? <IapGrowthChart key={key} metric={iapMetric} sex={sex} points={points} />
+        : <GrowthChartPlot key={key} chart={(chart as any) || 'wfa'} sex={sex} points={points} />;
+    // "All charts" jobs carry every chart for the standard; render them on one sheet.
+    const chartEl = payload.mode === 'all' && Array.isArray(payload.charts)
+      ? <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {payload.charts
+            .filter((ch: any) => (ch.points || []).length > 0)
+            .map((ch: any, i: number) => one(ch.chart, ch.iapMetric, ch.points || [], i))}
+        </div>
+      : one(payload.chart, payload.iapMetric, payload.points || []);
     return (
       <GrowthChartPrint patient={payload.patient || {}} subtitle={payload.subtitle || 'Growth chart'} onClose={onClose}>
         {chartEl}
