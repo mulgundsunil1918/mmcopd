@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ShieldAlert } from 'lucide-react';
 import { useAuth, canAnyRole } from '../hooks/useAuth';
 import { ACCESS_MODULES, parseRoleAccess, effectiveRoles } from '../lib/accessModules';
+import { routeLicensed } from '../lib/licenseModules';
 
 /**
  * Hard URL guard. Even if someone types a module's URL directly, they're bounced
@@ -14,6 +15,8 @@ import { ACCESS_MODULES, parseRoleAccess, effectiveRoles } from '../lib/accessMo
 export function useAccessGuard() {
   const { user, adminUnlocked } = useAuth();
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { data: license } = useQuery({ queryKey: ['license'], queryFn: () => window.electronAPI.license.status(), staleTime: 60_000 });
+  const licensedModules = license?.modules;
   const overrides = parseRoleAccess(settings?.role_access_json);
 
   // Add-on / hideable modules are also blocked by their enable toggle.
@@ -28,6 +31,9 @@ export function useAccessGuard() {
 
   const canAccess = (path: string): boolean => {
     if (!user) return false;
+    // Licence gate applies to everyone, admin included — you can't open a module
+    // the clinic's subscription doesn't include.
+    if (!routeLicensed(path, licensedModules)) return false;
     if (user.role === 'admin' || adminUnlocked) return true;
     if (path === '/users' || path === '/settings') return false; // admin-only, always
     if (!moduleEnabled(path)) return false;

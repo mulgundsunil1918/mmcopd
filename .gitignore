@@ -9,3 +9,6 @@ dist-installer/
 .env.local
 .claude/
 
+
+# Licensing — vendor private key must never be committed
+license-keys/

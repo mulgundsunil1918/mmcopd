@@ -26,6 +26,7 @@ import { Pediatrics } from './pages/Pediatrics';
 import { TPA } from './pages/TPA';
 import { WelcomeWizard } from './components/WelcomeWizard';
 import { ForceAdminPasswordGate } from './components/ForceAdminPasswordGate';
+import { LicenseGate } from './components/LicenseGate';
 import { ForcePasswordChange } from './components/ForcePasswordChange';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -96,11 +97,12 @@ export default function App() {
   const wizardOverlay = wizardOpen ? <WelcomeWizard onClose={() => setWizardOpen(false)} /> : null;
   const needsSetupBanner = !!settings && !settings.clinic_name && settings.network_mode === 'local';
 
-  if (!user) return <><ForceAdminPasswordGate />{wizardOverlay}<Login /></>;
+  if (!user) return <><LicenseGate /><ForceAdminPasswordGate />{wizardOverlay}<Login /></>;
   if (user.must_change_password) return <ForcePasswordChange />;
 
   return (
     <>
+      <LicenseGate />
       <ForceAdminPasswordGate />
       {wizardOverlay}
       {needsSetupBanner && !wizardOpen && (

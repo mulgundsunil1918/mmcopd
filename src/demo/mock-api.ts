@@ -394,6 +394,12 @@ export function createMockElectronAPI(): any {
         return r([]);
       },
     },
+    license: {
+      status: () => r({ state: 'dev', ok: true, readOnly: false, needsActivation: false, daysLeft: null, graceDaysLeft: null, reminder: 'none', modules: ['reception', 'opd', 'pharmacy', 'ipd', 'lab', 'peds', 'whatsapp', 'analytics'], payload: null, contact: {}, hardwareId: 'DEMO', message: '' }),
+      machineId: () => r('DEMO-MACHINE'),
+      activate: () => r({ ok: true }),
+      onState: () => () => { /* no-op unsubscribe */ },
+    },
     backup: {
       now: () => r({ path: '(demo)', bundleDir: '(demo)', totalBundles: 0, documentCount: 0 }),
       nowTo: () => r({ ok: true }),

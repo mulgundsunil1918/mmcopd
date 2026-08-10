@@ -10,6 +10,7 @@ import { cn } from '../lib/utils';
 import { useTheme } from '../hooks/useTheme';
 import { useAuth, canAnyRole, type Role } from '../hooks/useAuth';
 import { parseRoleAccess, effectiveRoles } from '../lib/accessModules';
+import { routeLicensed } from '../lib/licenseModules';
 import { BackupAndClose } from './BackupAndClose';
 import type { AppMode } from '../types';
 
@@ -61,6 +62,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const { user, logout, adminUnlocked, lockAdmin } = useAuth();
   const { data: clinicName } = useQuery({ queryKey: ['clinic-name'], queryFn: () => window.electronAPI.app.getClinicName() });
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { data: license } = useQuery({ queryKey: ['license'], queryFn: () => window.electronAPI.license.status(), staleTime: 60_000 });
+  const licensedModules = license?.modules;
 
   const currentMode = (settings?.app_mode || 'reception_pharmacy_doctor') as AppMode;
   const billingHidden = settings?.show_billing_module === false;
@@ -82,6 +85,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const accessOverrides = parseRoleAccess(settings?.role_access_json);
 
   const visibleNav = NAV.filter((n) => {
+    // Licence gate — hide modules the clinic's subscription doesn't include.
+    if (!routeLicensed(n.to, licensedModules)) return false;
     if (!n.modes.has(currentMode)) return false;
     if (n.to === '/billing' && billingHidden) return false;
     if (n.to === '/origin' && originHidden) return false;

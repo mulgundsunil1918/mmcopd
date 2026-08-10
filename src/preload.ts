@@ -1,4 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron';
+
+export type LicenseStatusIPC = {
+  state: 'valid' | 'grace' | 'locked' | 'invalid' | 'wrong_machine' | 'clock_tampered' | 'none' | 'dev';
+  ok: boolean; readOnly: boolean; needsActivation: boolean;
+  daysLeft: number | null; graceDaysLeft: number | null;
+  reminder: 'none' | '30d' | '7d' | '1d' | 'grace' | 'locked';
+  modules: string[];
+  payload: { clinic: string; customer?: string; edition?: string; modules: string[]; issued_at: string; expires_at: string; license_id: string } | null;
+  contact: { phone?: string; email?: string };
+  hardwareId: string; message: string;
+};
+
 import type {
   Appointment,
   AppointmentStatus,
@@ -584,6 +596,16 @@ const api = {
       ipcRenderer.invoke('analytics:pharmacyBasket') as Promise<
         { month: string; sales: number; avg_revenue: number; total_revenue: number; avg_units: number }[]
       >,
+  },
+  license: {
+    status: () => ipcRenderer.invoke('license:status') as Promise<LicenseStatusIPC>,
+    machineId: () => ipcRenderer.invoke('license:machineId') as Promise<string>,
+    activate: (token: string) => ipcRenderer.invoke('license:activate', token) as Promise<{ ok: boolean; error?: string; status?: LicenseStatusIPC }>,
+    onState: (cb: (s: LicenseStatusIPC) => void) => {
+      const h = (_e: any, s: LicenseStatusIPC) => cb(s);
+      ipcRenderer.on('license:state', h);
+      return () => ipcRenderer.removeListener('license:state', h);
+    },
   },
   updates: {
     state: () => ipcRenderer.invoke('updates:state') as Promise<{

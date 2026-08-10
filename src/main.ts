@@ -5,7 +5,8 @@ import crypto from 'node:crypto';
 import { registerIpc, runFullBackup, isBackupServiceReady } from './main/ipc';
 import { registerIpdBillingIpc } from './main/ipd-billing-ipc';
 import { registerPedsIpc } from './main/peds-ipc';
-import { installIpcRegistry } from './main/ipc-registry';
+import { installIpcRegistry, setReadOnlyMode } from './main/ipc-registry';
+import { getLicenseStatus, activateLicense, machineFingerprint } from './main/licensing/license';
 import { registerWhatsAppIpc, pollRelayServer, runScheduledCampaigns } from './main/whatsapp-ipc';
 import { processQueue } from './services/whatsapp/queue-worker';
 import { runAutomationScheduler } from './services/whatsapp/scheduler';
@@ -790,6 +791,24 @@ app.whenReady().then(async () => {
   registerIpdBillingIpc();
   registerPedsIpc();
   registerWhatsAppIpc();
+
+  // ===== Licensing =====
+  const applyLicense = () => {
+    const st = getLicenseStatus();
+    setReadOnlyMode(st.readOnly);
+    try { mainWindowRef?.webContents.send('license:state', st); } catch { /* ignore */ }
+    return st;
+  };
+  ipcMain.handle('license:status', () => applyLicense());
+  ipcMain.handle('license:machineId', () => machineFingerprint());
+  ipcMain.handle('license:activate', (_e, token: string) => {
+    const r = activateLicense(String(token || ''));
+    if (r.ok) applyLicense();
+    return r;
+  });
+  applyLicense();                          // enforce from the very first IPC call
+  setInterval(applyLicense, 60 * 60 * 1000); // re-evaluate hourly (grace/expiry crossing)
+
   // Boot the network server if Settings says we're in 'server' mode.
   await applyNetworkMode().catch((e) => console.warn('Network server boot failed:', e));
   createWindow();
