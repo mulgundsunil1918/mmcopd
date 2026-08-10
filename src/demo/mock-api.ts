@@ -93,7 +93,8 @@ export function createMockElectronAPI(): any {
     },
     admin: {
       verifyPassword: (pwd: string) => r(pwd === '1234' || pwd === 'Sunil@1918'),
-      isDefaultAdminPassword: () => r(true),
+      isDefaultAdminPassword: () => r(false),
+      setInitialAdminPassword: () => r({ ok: true }),
       changePassword: () => r({ ok: true }),
       resetAuditLog: () => r({ ok: true }),
       resetNotificationLog: () => r({ ok: true }),

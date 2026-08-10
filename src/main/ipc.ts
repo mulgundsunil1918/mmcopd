@@ -190,6 +190,24 @@ export function registerIpc() {
     logAudit(db, null, 'admin_password_changed');
     return { ok: true };
   });
+  // First-run only: set the admin password when it's still the factory default,
+  // WITHOUT requiring the current one (there is none the user chose). Refuses
+  // once a real password exists — after that, use auth:changeAdminPassword.
+  ipcMain.handle('auth:setInitialAdminPassword', (_e, newPassword: string) => {
+    const db = getDb();
+    const stored = (getAllSettings(db).admin_password || '').trim();
+    const isDefault = stored === '' || stored === '1234' || stored === '1918';
+    if (!isDefault) return { ok: false, error: 'An admin password is already set — use Change password in Settings.' };
+    const pw = String(newPassword || '');
+    if (pw.length < 8) return { ok: false, error: 'Password must be at least 8 characters.' };
+    if (['1234', '1918', '12345678', 'password', 'admin123'].includes(pw.toLowerCase())) {
+      return { ok: false, error: 'That password is too easy to guess — choose another.' };
+    }
+    saveSettings(db, { admin_password: hashAdminPassword(pw) });
+    logAudit(db, null, 'admin_password_set_initial');
+    return { ok: true };
+  });
+
   ipcMain.handle('audit:list', (_e, limit?: number) => listAudit(getDb(), limit ?? 500));
 
   ipcMain.handle('admin:resetAuditLog', (_e, confirmPhrase: string, adminPassword?: string) => {
