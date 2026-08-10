@@ -98,7 +98,49 @@ gets a licence dated one year from that activation.
 
 ---
 
-## Deploying (any always-on Node host)
+## Deploy to Railway (5 minutes)
+
+Railway needs *your* login, so run these on your Mac (the repo already carries
+`server/railway.json` + `server/package.json`, so the service is pre-shaped).
+
+```bash
+# 1. Install + log in (opens your browser once)
+npm i -g @railway/cli
+railway login
+
+# 2. From the SERVER folder, create the project/service
+cd ~/caredesk/mmcopd/server
+railway init            # name it e.g. curedesk-activation
+
+# 3. Add a persistent disk (so issued codes survive restarts/redeploys)
+railway volume add --mount-path /data
+
+# 4. Set the secrets  (ADMIN_TOKEN below is pre-generated — or make your own)
+railway variables --set "ADMIN_TOKEN=3c68807e50efd3b9fd48c87fb291a230e0bdd8dbf24f7d8c" \
+                  --set "DATA_FILE=/data/codes.json"
+
+# 5. Set the signing key from your LOCAL private key (never leaves your machine → Railway secret)
+railway variables --set "LICENSE_PRIVATE_KEY=$(cat ../license-keys/private.pem)"
+
+# 6. Deploy, then get the public URL
+railway up
+railway domain          # → https://curedesk-activation-production.up.railway.app
+
+# 7. Smoke-test it
+curl https://<your-domain>/health
+```
+
+Then put that domain in `src/main/licensing/activationConfig.ts`
+(`HARDCODED_ACTIVATION_URL`) and rebuild the app → the "Activate online" box
+lights up. Verify by issuing a code (`POST /admin/issue` with the Bearer token)
+and activating it in the app.
+
+> **Root directory:** because you run `railway init`/`railway up` from inside
+> `server/`, Railway builds just this folder (it sees `server/package.json`, not
+> the Electron app). If you instead connect the repo from the Railway dashboard,
+> set the service **Root Directory = `server`**.
+
+## Deploying (any other always-on Node host)
 
 Works on Render / Railway / Fly.io / a small VPS — anything that runs Node and
 gives a **persistent disk** for `DATA_FILE`. Set the env vars above (private key
