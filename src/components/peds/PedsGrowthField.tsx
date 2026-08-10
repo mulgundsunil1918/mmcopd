@@ -124,24 +124,24 @@ export function PedsGrowthField({ value, onChange, patient, defaultStandard = 'a
         <div>
           <label className="label">Weight (kg)</label>
           <input className="input" inputMode="decimal" value={vals.weight || ''} onChange={(e) => set({ weight: e.target.value.replace(/[^0-9.]/g, '') })} />
-          <Result label="WFA" res={wRes} />
+          <Result label="Weight centile" res={wRes} />
         </div>
         <div>
           <label className="label">Height (cm)</label>
           <input className="input" inputMode="decimal" value={vals.height || ''} onChange={(e) => set({ height: e.target.value.replace(/[^0-9.]/g, '') })} />
-          <Result label="HFA" res={hRes} />
+          <Result label="Height centile" res={hRes} />
         </div>
         {under5 && (
           <div>
             <label className="label">Head circ. (cm)</label>
             <input className="input" inputMode="decimal" value={vals.hc || ''} onChange={(e) => set({ hc: e.target.value.replace(/[^0-9.]/g, '') })} />
-            <Result label="HCFA" res={hcRes} />
+            <Result label="Head-circ centile" res={hcRes} />
           </div>
         )}
         <div>
           <label className="label">BMI</label>
           <input className="input bg-gray-50 dark:bg-slate-800" value={bmiVal ? String(bmiVal) : ''} readOnly placeholder="auto" />
-          <Result label="BMI" res={bmiRes} />
+          <Result label="BMI centile" res={bmiRes} />
         </div>
       </div>
 
