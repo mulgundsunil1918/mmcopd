@@ -1471,7 +1471,11 @@ export function registerIpc() {
   });
 
   ipcMain.handle('lab:getOrderItems', (_e, orderId: number) => {
-    return getDb().prepare('SELECT * FROM lab_order_items WHERE lab_order_id=?').all(orderId);
+    return getDb().prepare(
+      `SELECT i.*, COALESCE(t.price, 0) AS price
+       FROM lab_order_items i LEFT JOIN lab_tests t ON t.id = i.lab_test_id
+       WHERE i.lab_order_id = ?`
+    ).all(orderId);
   });
 
   ipcMain.handle('lab:updateOrderStatus', (_e, orderId: number, status: string) => {
@@ -3230,6 +3234,63 @@ export function registerIpc() {
     const s = getAllSettings(getDb());
     const dir = s.backup_folder || path.join(app.getPath('userData'), 'backups');
     return scanBackupStatus(dir);
+  });
+
+  // ---- Cloud backup: point the auto-backup folder at a cloud-synced folder ----
+  /** Find Google Drive / OneDrive / Dropbox / iCloud folders synced on this PC.
+   *  We back up INTO one of these; the cloud client handles the upload — no API
+   *  keys, works with any provider, patient data stays in the clinic's account. */
+  function detectCloudFolders(): { provider: string; path: string }[] {
+    const home = app.getPath('home');
+    const found: { provider: string; path: string }[] = [];
+    const add = (provider: string, dir?: string | null) => {
+      if (!dir) return;
+      try { if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) found.push({ provider, path: dir }); } catch { /* ignore */ }
+    };
+    if (process.platform === 'darwin') {
+      const cs = path.join(home, 'Library', 'CloudStorage');
+      try {
+        for (const e of fs.readdirSync(cs)) {
+          if (/^GoogleDrive-/i.test(e)) add('Google Drive', path.join(cs, e, 'My Drive'));
+          else if (/^OneDrive/i.test(e)) add('OneDrive', path.join(cs, e));
+          else if (/^Dropbox/i.test(e)) add('Dropbox', path.join(cs, e));
+        }
+      } catch { /* no CloudStorage dir */ }
+      add('Google Drive', path.join(home, 'Google Drive'));
+      add('OneDrive', path.join(home, 'OneDrive'));
+      add('Dropbox', path.join(home, 'Dropbox'));
+      add('iCloud Drive', path.join(home, 'Library', 'Mobile Documents', 'com~apple~CloudDocs'));
+    } else if (process.platform === 'win32') {
+      add('OneDrive', process.env.OneDrive || process.env.OneDriveConsumer || path.join(home, 'OneDrive'));
+      add('OneDrive', process.env.OneDriveCommercial);
+      add('Dropbox', path.join(home, 'Dropbox'));
+      add('Google Drive', path.join(home, 'Google Drive'));
+      add('Google Drive', path.join(home, 'My Drive'));
+      // Google Drive for Desktop mounts as a virtual drive letter (usually G:).
+      for (let c = 68 /* D */; c <= 90 /* Z */; c++) add('Google Drive', `${String.fromCharCode(c)}:\\My Drive`);
+    }
+    const seen = new Set<string>();
+    return found.filter((f) => (seen.has(f.path) ? false : (seen.add(f.path), true)));
+  }
+
+  ipcMain.handle('backup:detectCloudFolders', () => {
+    try { return { ok: true as const, folders: detectCloudFolders() }; }
+    catch (err: any) { return { ok: false as const, folders: [], error: err?.message || 'Failed' }; }
+  });
+
+  /** Create "CureDesk Backups" inside a cloud folder and route auto-backups there. */
+  ipcMain.handle('backup:useCloudFolder', (_e, baseDir: string, provider?: string) => {
+    try {
+      if (!baseDir || !fs.existsSync(baseDir)) return { ok: false as const, error: 'That cloud folder no longer exists — is the cloud app still installed?' };
+      const target = path.join(baseDir, 'CureDesk Backups');
+      if (!fs.existsSync(target)) fs.mkdirSync(target, { recursive: true });
+      const invalid = validateFolderPath(target);
+      if (invalid) return { ok: false as const, error: invalid };
+      const db = getDb();
+      saveSettings(db, { backup_folder: target, auto_backup_enabled: true });
+      logAudit(db, null, 'backup_cloud_set', 'backups', undefined, `${provider || 'cloud'} → ${target}`);
+      return { ok: true as const, path: target };
+    } catch (err: any) { return { ok: false as const, error: err?.message || 'Failed' }; }
   });
 
   ipcMain.handle('backup:quitAfter', async () => {

@@ -718,6 +718,8 @@ const api = {
     list: () => ipcRenderer.invoke('backup:list') as Promise<{ name: string; path: string; size: number; mtime: string }[]>,
     open: () => ipcRenderer.invoke('backup:open') as Promise<void>,
     status: () => ipcRenderer.invoke('backup:status') as Promise<{ lastBackupAt: string | null; lastBackupName: string | null; totalBackups: number; dir: string }>,
+    detectCloudFolders: () => ipcRenderer.invoke('backup:detectCloudFolders') as Promise<{ ok: boolean; folders: { provider: string; path: string }[]; error?: string }>,
+    useCloudFolder: (baseDir: string, provider?: string) => ipcRenderer.invoke('backup:useCloudFolder', baseDir, provider) as Promise<{ ok: boolean; path?: string; error?: string }>,
     quitAfter: () => ipcRenderer.invoke('backup:quitAfter') as Promise<{ ok: boolean; path: string }>,
     restore: (sourcePath: string, confirmPhrase: string) =>
       ipcRenderer.invoke('backup:restore', sourcePath, confirmPhrase) as Promise<{ ok: boolean; error?: string; restartIn?: number }>,

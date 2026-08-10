@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Baby, Search, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle, Trash2, User as UserIcon, IndianRupee, PenTool, Power, AlertCircle, ArrowUp, ArrowDown, MessageCircle, Eye, FileText, MapPin, Syringe, RefreshCw, Sparkles, HardDrive, Sun, Copy } from 'lucide-react';
+import { Building2, Baby, Search, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle, Trash2, User as UserIcon, IndianRupee, PenTool, Power, AlertCircle, ArrowUp, ArrowDown, MessageCircle, Eye, FileText, MapPin, Syringe, RefreshCw, Sparkles, HardDrive, Sun, Copy, FlaskConical } from 'lucide-react';
 import { DEFAULT_LAYOUT } from '../db/slip-templates';
 import type { SlipLayout } from '../db/slip-templates';
 import { format, parseISO } from 'date-fns';
@@ -54,6 +55,7 @@ const SETTINGS_SEARCH: { tab: SettingsTab; label: string; hint: string; keywords
   { tab: 'billing', label: 'Discharge Summary', hint: 'Builder + templates', keywords: 'discharge summary template letterhead' },
   { tab: 'billing', label: 'Admission Requests', hint: 'Doctor requests from OPD', keywords: 'admission request opd reception' },
   { tab: 'billing', label: 'Lab Auto-Billing', hint: 'Auto-raise a bill when tests are ordered', keywords: 'lab laboratory auto bill billing test order revenue investigation' },
+  { tab: 'billing', label: 'Laboratory catalog', hint: 'Load & manage lab tests + prices', keywords: 'lab laboratory catalog test inventory pathology biochemistry microbiology histopathology radiology price manage load standard investigation' },
   { tab: 'peds', label: 'Pediatrics Add-on', hint: 'Growth, vaccines, calculators', keywords: 'pediatrics paediatrics growth centile who iap vaccine immunisation calculator bmi head circumference child chart' },
   { tab: 'patients', label: 'Patients & Locations', hint: 'Default state, district, villages', keywords: 'patient location state district village autocomplete' },
   { tab: 'patients', label: 'List Window (performance)', hint: 'How far back lists show by default', keywords: 'list window performance recent month week reception discharge slow speed pagination lag' },
@@ -515,6 +517,76 @@ function RestoreRow({ label, now, after }: { label: string; now: number; after: 
   );
 }
 
+/**
+ * One-click cloud backup. Detects Google Drive / OneDrive / Dropbox / iCloud
+ * folders synced on this PC and routes the auto-backup into one — the cloud app
+ * does the upload, so no API keys and the data stays in the clinic's account.
+ */
+function CloudBackupCard({ currentFolder, onApplied }: { currentFolder?: string; onApplied: (path: string) => void }) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState<string | null>(null);
+  const { data: detected } = useQuery({ queryKey: ['cloud-folders'], queryFn: () => window.electronAPI.backup.detectCloudFolders() });
+  const { data: status } = useQuery({ queryKey: ['backup-status'], queryFn: () => window.electronAPI.backup.status(), refetchInterval: 60_000 });
+
+  const folders = detected?.folders ?? [];
+  const active = folders.find((f) => currentFolder && currentFolder.startsWith(f.path));
+  const emoji: Record<string, string> = { 'Google Drive': '🟢', 'OneDrive': '🔷', 'Dropbox': '🟦', 'iCloud Drive': '☁️' };
+
+  const use = async (f: { provider: string; path: string }) => {
+    setBusy(f.path);
+    try {
+      const r = await window.electronAPI.backup.useCloudFolder(f.path, f.provider);
+      if (r.ok && r.path) {
+        onApplied(r.path);
+        qc.invalidateQueries({ queryKey: ['settings'] });
+        qc.invalidateQueries({ queryKey: ['backup-status'] });
+        toast(`Auto-backup now saves to ${f.provider}`, 'success');
+      } else toast(r.error || 'Could not set up cloud backup', 'error');
+    } catch (e: any) { toast(e?.message || 'Failed', 'error'); }
+    finally { setBusy(null); }
+  };
+
+  return (
+    <div className="rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/50 dark:bg-blue-900/15 p-4 mb-4">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-base">☁️</span>
+        <div className="text-[13px] font-bold text-blue-900 dark:text-blue-200">Cloud backup (recommended)</div>
+      </div>
+      {active ? (
+        <div className="text-[12px] text-emerald-700 dark:text-emerald-300 mb-2">
+          ✓ Backing up to <b>{active.provider}</b>
+          {status?.lastBackupAt ? <> · last backup {new Date(status.lastBackupAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</> : <> · first backup runs on the schedule below</>}
+        </div>
+      ) : (
+        <p className="text-[12px] text-gray-600 dark:text-slate-300 mb-2">
+          Send every auto-backup straight to your own cloud. Your data stays in <b>your</b> account — no passwords or keys are ever shared with CureDesk.
+        </p>
+      )}
+      {folders.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {folders.map((f) => (
+            <button key={f.path} disabled={busy === f.path} onClick={() => use(f)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 text-blue-800 dark:text-blue-200 hover:bg-blue-100 dark:hover:bg-blue-900/40 disabled:opacity-50">
+              {busy === f.path ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>{emoji[f.provider] || '☁️'}</span>}
+              {active?.path === f.path ? `Using ${f.provider}` : `Back up to ${f.provider}`}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="text-[12px] text-gray-600 dark:text-slate-300">
+          <div className="font-semibold mb-1">No cloud folder found on this PC yet. To set one up:</div>
+          <ol className="list-decimal ml-4 space-y-0.5 text-[11px]">
+            <li>Install <a href="https://www.google.com/drive/download/" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Google Drive for Desktop</a> (or OneDrive / Dropbox) and sign in.</li>
+            <li>Reopen this screen — a one-click <b>“Back up to Google Drive”</b> button appears here automatically.</li>
+            <li>Or just paste the folder path manually below.</li>
+          </ol>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BackupSettings() {
   const toast = useToast();
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
@@ -613,6 +685,12 @@ function BackupSettings() {
         <a href="https://www.google.com/drive/download/" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Google Drive for Desktop</a>
         {' '}and point this at a Drive-synced folder (e.g. <code className="font-mono">G:\My Drive\CureDesk Backups</code>) — files upload to the cloud automatically.
       </p>
+
+      <CloudBackupCard
+        currentFolder={draft.backup_folder}
+        onApplied={(p) => { set('backup_folder', p); set('auto_backup_enabled', true); }}
+      />
+
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2">
           <label className="label">Backup Folder Path</label>
@@ -4076,6 +4154,8 @@ function BillingIpdTab() {
           value={draft.lab_auto_bill ?? true} onChange={(v) => set('lab_auto_bill', v)} />
       </div>
 
+      <LabSettingsCard />
+
     </div>
   );
 }
@@ -4164,6 +4244,55 @@ function PediatricsTab() {
  * of thousands of rows — search always scans everything, only the default view
  * is trimmed.
  */
+/**
+ * Laboratory catalog management — surfaced in Settings so an admin can load the
+ * standard Indian test catalog and jump to the full editor. The tests drive OPD/
+ * IPD ordering, auto-billing and the Modules P&L, so this is the one place to
+ * curate what the lab offers and at what price.
+ */
+function LabSettingsCard() {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const { data: tests = [] } = useQuery({ queryKey: ['lab-tests', false], queryFn: () => window.electronAPI.lab.listTests(false) });
+  const active = tests.filter((t: any) => t.is_active === 1).length;
+
+  const loadStd = async () => {
+    setBusy(true);
+    try {
+      const r = await window.electronAPI.lab.loadStandardCatalog();
+      if (r.ok) { qc.invalidateQueries({ queryKey: ['lab-tests', false] }); toast(r.added > 0 ? `Added ${r.added} standard tests — set your prices in the catalog` : 'Standard catalog already loaded', 'success'); }
+      else toast('Could not load the catalog', 'error');
+    } catch (e: any) { toast(e?.message || 'Failed', 'error'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="card p-5 space-y-3">
+      <div>
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5"><FlaskConical className="w-4 h-4 text-fuchsia-500" /> Laboratory catalog</div>
+        <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
+          The tests your lab offers, with prices — used across OPD/IPD orders, billing and analytics.
+          {tests.length > 0 ? <> Currently <b>{tests.length}</b> tests · <b>{active}</b> active.</> : <> No tests loaded yet.</>}
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button className="btn-secondary text-xs" disabled={busy} onClick={loadStd} title="Adds the ~160 common Indian pathology + radiology tests (skips ones you already have)">
+          {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Load standard catalog (~160 tests)
+        </button>
+        <button className="btn-primary text-xs" onClick={() => navigate('/lab')}>
+          <Pencil className="w-3.5 h-3.5" /> Manage tests &amp; prices
+        </button>
+      </div>
+      <div className="text-[11px] text-gray-500 dark:text-slate-400">
+        Covers pathology (haematology, biochemistry, serology, microbiology, histopathology…) and radiology. Set prices, enable/disable
+        and add your own tests under <b>Laboratory → Test Catalog</b>.
+      </div>
+    </div>
+  );
+}
+
 function RecordsWindowSetting() {
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   const { draft, set, reset, dirty, saving, save } = useSectionDraft(settings, ['records_list_window']);

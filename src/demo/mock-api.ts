@@ -372,6 +372,8 @@ export function createMockElectronAPI(): any {
       list: () => r([]),
       open: noop,
       status: () => r({ lastBackupAt: null, lastBackupName: null, totalBackups: 0, dir: '(demo)' }),
+      detectCloudFolders: () => r({ ok: true, folders: [{ provider: 'Google Drive', path: '/Users/demo/Google Drive' }, { provider: 'OneDrive', path: '/Users/demo/OneDrive' }] }),
+      useCloudFolder: () => r({ ok: false, error: 'Cloud backup is set up on the installed app, not the demo.' }),
       quitAfter: () => r({ ok: false, path: '' }),
       restore: () => r({ ok: false, error: 'Demo mode — no DB to restore.' }),
       previewRestore: () => r({ ok: false, error: 'Demo mode' }),

@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FlaskConical, Plus, Pencil, FileText, Beaker, Clipboard, CheckCircle2, Loader2 } from 'lucide-react';
+import { FlaskConical, Plus, Pencil, FileText, Beaker, Clipboard, CheckCircle2, Loader2, Printer, Search, X, Receipt } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
+import { LabPrint } from '../components/LabPrint';
 import { useToast } from '../hooks/useToast';
 import { cn, fmtDateTime, formatINR } from '../lib/utils';
 import type { LabTest } from '../types';
@@ -49,12 +50,15 @@ function OrdersView() {
   const toast = useToast();
   const [filter, setFilter] = useState<string>('ordered');
   const [activeOrder, setActiveOrder] = useState<number | null>(null);
+  const [newReqOpen, setNewReqOpen] = useState(false);
+  const [printMode, setPrintMode] = useState<'bill' | 'report' | null>(null);
 
   const { data: orders = [] } = useQuery({
     queryKey: ['lab-orders', filter],
     queryFn: () => window.electronAPI.lab.listOrders({ status: filter || undefined }),
     refetchInterval: 30_000,
   });
+  const activeOrderObj = orders.find((o) => o.id === activeOrder);
 
   const { data: items = [] } = useQuery({
     queryKey: ['lab-order-items', activeOrder],
@@ -80,7 +84,13 @@ function OrdersView() {
   });
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <button className="btn-primary" onClick={() => setNewReqOpen(true)}>
+          <Plus className="w-4 h-4" /> New Lab Request
+        </button>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
       <div className="lg:col-span-1 card p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="text-xs font-semibold text-gray-600 dark:text-slate-300 uppercase tracking-wide">Orders</div>
@@ -125,33 +135,62 @@ function OrdersView() {
           </div>
         ) : (
           <OrderDetail
+            order={activeOrderObj}
             orderId={activeOrder}
             items={items}
             onStatus={(s) => setStatus.mutate({ id: activeOrder, status: s })}
             onSaveResults={(results) => saveResults.mutate({ orderId: activeOrder, results })}
+            onPrint={(m) => setPrintMode(m)}
           />
         )}
       </div>
+      </div>
+
+      {newReqOpen && (
+        <NewLabRequestModal
+          onClose={() => setNewReqOpen(false)}
+          onCreated={(orderId) => {
+            qc.invalidateQueries({ queryKey: ['lab-orders'] });
+            setNewReqOpen(false);
+            setFilter('ordered');
+            if (orderId) setActiveOrder(orderId);
+            toast('Lab order created — bill raised for the counter', 'success');
+          }}
+        />
+      )}
+      {printMode && activeOrderObj && (
+        <LabPrint order={activeOrderObj} items={items} mode={printMode} onClose={() => setPrintMode(null)} />
+      )}
     </div>
   );
 }
 
 function OrderDetail({
-  orderId, items, onStatus, onSaveResults,
+  order, orderId, items, onStatus, onSaveResults, onPrint,
 }: {
+  order?: any;
   orderId: number;
   items: any[];
   onStatus: (s: string) => void;
   onSaveResults: (r: any[]) => void;
+  onPrint: (mode: 'bill' | 'report') => void;
 }) {
   const [draft, setDraft] = useState<Record<number, { result: string; is_abnormal: number }>>({});
   const setField = (id: number, patch: any) => setDraft((d) => ({ ...d, [id]: { ...(d[id] || { result: '', is_abnormal: 0 }), ...patch } }));
 
   return (
     <div className="card p-5">
-      <div className="flex items-center justify-between mb-4">
-        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Order #{orderId} — Items</div>
-        <div className="flex gap-2">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+          {order?.order_number || `Order #${orderId}`}{order?.patient_name ? <span className="text-gray-400 font-normal"> · {order.patient_name}</span> : null}
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button className="btn-ghost text-xs" onClick={() => onPrint('bill')} title="Print the lab bill on letterhead">
+            <Receipt className="w-3.5 h-3.5" /> Print Bill
+          </button>
+          <button className="btn-ghost text-xs" onClick={() => onPrint('report')} title="Print the results report on letterhead">
+            <Printer className="w-3.5 h-3.5" /> Print Report
+          </button>
           <button className="btn-secondary text-xs" onClick={() => onStatus('sample_collected')}>
             <CheckCircle2 className="w-3.5 h-3.5" /> Sample Collected
           </button>
@@ -353,4 +392,125 @@ function CatalogView() {
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return <div><label className="label">{label}</label>{children}</div>;
+}
+
+/** Raise a lab order directly from the Lab desk: pick a patient + tests. The
+ *  order auto-raises an (unpaid) bill from the test prices, ready at the counter. */
+function NewLabRequestModal({ onClose, onCreated }: { onClose: () => void; onCreated: (orderId?: number) => void }) {
+  const toast = useToast();
+  const [q, setQ] = useState('');
+  const [patient, setPatient] = useState<any | null>(null);
+  const [doctorId, setDoctorId] = useState<number | ''>('');
+  const [testSearch, setTestSearch] = useState('');
+  const [selected, setSelected] = useState<Record<number, true>>({});
+  const [notes, setNotes] = useState('');
+
+  const { data: results = [] } = useQuery({
+    queryKey: ['lab-patient-search', q],
+    queryFn: () => window.electronAPI.patients.search(q),
+    enabled: !patient,
+  });
+  const { data: doctors = [] } = useQuery({ queryKey: ['doctors'], queryFn: () => window.electronAPI.doctors.list(true) });
+  const { data: tests = [] } = useQuery({ queryKey: ['lab-tests', true], queryFn: () => window.electronAPI.lab.listTests(true) });
+
+  const shownTests = tests.filter((t) => !testSearch.trim() || t.name.toLowerCase().includes(testSearch.toLowerCase()));
+  const selCount = Object.keys(selected).length;
+  const selTotal = tests.filter((t) => selected[t.id]).reduce((sum, t) => sum + (t.price || 0), 0);
+
+  const create = useMutation({
+    mutationFn: () => window.electronAPI.lab.createOrder({
+      appointment_id: null,
+      patient_id: patient.id,
+      doctor_id: doctorId ? Number(doctorId) : null,
+      notes: notes || undefined,
+      items: tests.filter((t) => selected[t.id]).map((t) => ({ lab_test_id: t.id, test_name: t.name })),
+    }),
+    onSuccess: (order: any) => onCreated(order?.id),
+    onError: (e: any) => toast(e?.message || 'Could not create order', 'error'),
+  });
+
+  return (
+    <Modal open onClose={onClose} title="New Lab Request" size="lg">
+      <div className="space-y-3">
+        {!patient ? (
+          <div>
+            <label className="label">Patient</label>
+            <div className="relative">
+              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5 pointer-events-none" />
+              <input className="input pl-9" autoFocus placeholder="Search by name, phone or UHID…" value={q} onChange={(e) => setQ(e.target.value)} />
+            </div>
+            {q.trim() && (
+              <div className="mt-1 max-h-44 overflow-auto rounded-lg border border-gray-200 dark:border-slate-700">
+                {results.length === 0 ? <div className="px-3 py-2 text-xs text-gray-500">No patients found.</div> :
+                  results.map((p: any) => (
+                    <button key={p.id} onClick={() => setPatient(p)} className="w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-slate-800 border-b border-gray-100 dark:border-slate-800 last:border-0">
+                      <div className="text-sm font-medium text-gray-900 dark:text-slate-100">{p.first_name} {p.last_name}</div>
+                      <div className="text-[11px] text-gray-500">{p.uhid} · {p.phone}</div>
+                    </button>
+                  ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center justify-between rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 px-3 py-2">
+            <div>
+              <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">{patient.first_name} {patient.last_name}</div>
+              <div className="text-[11px] text-gray-500">{patient.uhid} · {patient.phone}</div>
+            </div>
+            <button className="btn-ghost text-xs" onClick={() => setPatient(null)}><X className="w-3.5 h-3.5" /> Change</button>
+          </div>
+        )}
+
+        <div>
+          <label className="label">Referring doctor (optional)</label>
+          <select className="input" value={doctorId} onChange={(e) => setDoctorId(e.target.value ? Number(e.target.value) : '')}>
+            <option value="">— none —</option>
+            {doctors.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="label mb-0">Tests</label>
+            <input className="input !py-1 !text-xs w-44" placeholder="Filter tests…" value={testSearch} onChange={(e) => setTestSearch(e.target.value)} />
+          </div>
+          {tests.length === 0 ? (
+            <div className="text-xs text-amber-600 p-2">No tests in the catalog yet — load the standard catalog in the <b>Test Catalog</b> tab first.</div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-56 overflow-auto p-1">
+              {shownTests.map((t) => {
+                const on = !!selected[t.id];
+                return (
+                  <label key={t.id} className={cn('flex items-center gap-2 p-2 rounded-lg border cursor-pointer text-sm', on ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30' : 'border-gray-200 dark:border-slate-700')}>
+                    <input type="checkbox" checked={on} onChange={(e) => setSelected((sel) => { const c = { ...sel }; if (e.target.checked) c[t.id] = true; else delete c[t.id]; return c; })} />
+                    <span className="flex-1 min-w-0">
+                      <span className="block truncate text-gray-900 dark:text-slate-100">{t.name}</span>
+                      <span className="text-[10px] text-gray-500">{t.category || 'pathology'} · ₹{t.price}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <label className="label">Notes (optional)</label>
+          <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </div>
+
+        <div className="flex items-center justify-between pt-2 border-t dark:border-slate-700">
+          <div className="text-[12px] text-gray-600 dark:text-slate-300">
+            {selCount} test{selCount === 1 ? '' : 's'} · <b>{formatINR(selTotal)}</b> <span className="text-gray-400">(auto-billed, unpaid)</span>
+          </div>
+          <div className="flex gap-2">
+            <button className="btn-secondary" onClick={onClose}>Cancel</button>
+            <button className="btn-primary" disabled={!patient || selCount === 0 || create.isPending} onClick={() => create.mutate()}>
+              {create.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Create &amp; raise bill
+            </button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
 }
