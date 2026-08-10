@@ -10,6 +10,25 @@ import type { LabTest } from '../types';
 
 type Tab = 'orders' | 'catalog';
 
+// First-class lab departments (categories) — used for filter chips + labels.
+const LAB_CATEGORIES = ['haematology', 'biochemistry', 'serology', 'microbiology', 'clinical_pathology', 'histopathology', 'radiology'] as const;
+const CAT_LABEL: Record<string, string> = {
+  haematology: 'Haematology', biochemistry: 'Biochemistry', serology: 'Serology',
+  microbiology: 'Microbiology', clinical_pathology: 'Clinical Pathology',
+  histopathology: 'Histopathology', radiology: 'Radiology', pathology: 'Pathology (other)',
+};
+const CAT_COLOR: Record<string, string> = {
+  haematology: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
+  biochemistry: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
+  serology: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+  microbiology: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+  clinical_pathology: 'bg-lime-100 text-lime-700 dark:bg-lime-900/40 dark:text-lime-300',
+  histopathology: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300',
+  radiology: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
+  pathology: 'bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-slate-300',
+};
+const catLabel = (c?: string) => CAT_LABEL[c || 'pathology'] || c || 'Pathology';
+
 export function Lab() {
   const [tab, setTab] = useState<Tab>('orders');
 
@@ -260,7 +279,7 @@ function CatalogView() {
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState<Partial<LabTest> | null>(null);
-  const [filter, setFilter] = useState<'all' | 'pathology' | 'radiology'>('all');
+  const [filter, setFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
 
   const { data: tests = [] } = useQuery({
@@ -289,10 +308,10 @@ function CatalogView() {
   return (
     <section className="card p-4 space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <div className="flex gap-1 p-1 rounded-lg bg-gray-100 dark:bg-slate-800/60 text-[11px] font-semibold">
-            {(['all', 'pathology', 'radiology'] as const).map((f) => (
-              <button key={f} onClick={() => setFilter(f)} className={cn('px-2.5 py-1 rounded-md capitalize', filter === f ? 'bg-white dark:bg-slate-900 text-fuchsia-700 shadow-sm' : 'text-gray-500')}>{f}</button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex flex-wrap gap-1 p-1 rounded-lg bg-gray-100 dark:bg-slate-800/60 text-[11px] font-semibold">
+            {['all', ...LAB_CATEGORIES].map((f) => (
+              <button key={f} onClick={() => setFilter(f)} className={cn('px-2.5 py-1 rounded-md whitespace-nowrap', filter === f ? 'bg-white dark:bg-slate-900 text-fuchsia-700 shadow-sm' : 'text-gray-500')}>{f === 'all' ? 'All' : CAT_LABEL[f]}</button>
             ))}
           </div>
           <input className="input !py-1.5 !text-sm w-48" placeholder="Search tests…" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -301,7 +320,7 @@ function CatalogView() {
           <button className="btn-secondary" disabled={loadCatalog.isPending} onClick={() => loadCatalog.mutate()} title="Add the ~160 standard Indian lab + radiology tests (skips ones you already have)">
             {loadCatalog.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Load standard catalog
           </button>
-          <button className="btn-primary" onClick={() => setEditing({ is_active: 1, price: 0, category: filter === 'radiology' ? 'radiology' : 'pathology' })}>
+          <button className="btn-primary" onClick={() => setEditing({ is_active: 1, price: 0, category: filter !== 'all' ? filter : 'biochemistry' })}>
             <Plus className="w-4 h-4" /> Add Test
           </button>
         </div>
@@ -324,7 +343,7 @@ function CatalogView() {
             {shown.map((t) => (
               <tr key={t.id} className="border-b border-gray-100 dark:border-slate-800">
                 <td className="py-1.5 font-medium text-gray-900 dark:text-slate-100">{t.name}{t.unit ? <span className="text-[10px] text-gray-400"> · {t.unit}</span> : null}</td>
-                <td className="py-1.5"><span className={cn('badge text-[10px]', (t.category || 'pathology') === 'radiology' ? 'bg-violet-100 text-violet-700' : 'bg-cyan-100 text-cyan-700')}>{t.category || 'pathology'}</span></td>
+                <td className="py-1.5"><span className={cn('badge text-[10px]', CAT_COLOR[t.category || 'pathology'] || CAT_COLOR.pathology)}>{catLabel(t.category)}</span></td>
                 <td className="py-1.5 text-gray-600 dark:text-slate-300 text-xs">{t.sample_type || '—'}</td>
                 <td className="py-1.5 text-right">
                   <input type="number" className="input !py-1 !text-sm w-24 text-right" defaultValue={t.price}
@@ -355,9 +374,8 @@ function CatalogView() {
             </Row>
             <div className="grid grid-cols-2 gap-3">
               <Row label="Category">
-                <select className="input" value={editing.category || 'pathology'} onChange={(e) => setEditing({ ...editing, category: e.target.value })}>
-                  <option value="pathology">Pathology / Lab</option>
-                  <option value="radiology">Radiology / Imaging</option>
+                <select className="input" value={editing.category || 'biochemistry'} onChange={(e) => setEditing({ ...editing, category: e.target.value })}>
+                  {LAB_CATEGORIES.map((c) => <option key={c} value={c}>{CAT_LABEL[c]}</option>)}
                 </select>
               </Row>
               <Row label="Price (₹)">
@@ -485,7 +503,7 @@ function NewLabRequestModal({ onClose, onCreated }: { onClose: () => void; onCre
                     <input type="checkbox" checked={on} onChange={(e) => setSelected((sel) => { const c = { ...sel }; if (e.target.checked) c[t.id] = true; else delete c[t.id]; return c; })} />
                     <span className="flex-1 min-w-0">
                       <span className="block truncate text-gray-900 dark:text-slate-100">{t.name}</span>
-                      <span className="text-[10px] text-gray-500">{t.category || 'pathology'} · ₹{t.price}</span>
+                      <span className="text-[10px] text-gray-500">{catLabel(t.category)} · ₹{t.price}</span>
                     </span>
                   </label>
                 );
