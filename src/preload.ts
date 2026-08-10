@@ -271,7 +271,7 @@ const api = {
       notes?: string;
       items: { lab_test_id?: number; test_name: string }[];
     }) => ipcRenderer.invoke('lab:createOrder', payload) as Promise<LabOrder>,
-    listOrders: (filter?: { status?: string; patient_id?: number }) =>
+    listOrders: (filter?: { status?: string; patient_id?: number; window?: 'week' | 'month' | 'quarter' | 'all'; sort?: 'recent' | 'name' | 'status' }) =>
       ipcRenderer.invoke('lab:listOrders', filter || {}) as Promise<(LabOrder & { patient_name: string; patient_uhid: string; doctor_name: string | null })[]>,
     getOrderItems: (orderId: number) => ipcRenderer.invoke('lab:getOrderItems', orderId) as Promise<LabOrderItem[]>,
     updateOrderStatus: (orderId: number, status: string) => ipcRenderer.invoke('lab:updateOrderStatus', orderId, status) as Promise<LabOrder>,

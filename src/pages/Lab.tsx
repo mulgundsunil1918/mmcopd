@@ -71,10 +71,12 @@ function OrdersView() {
   const [activeOrder, setActiveOrder] = useState<number | null>(null);
   const [newReqOpen, setNewReqOpen] = useState(false);
   const [printMode, setPrintMode] = useState<'bill' | 'report' | null>(null);
+  const [win, setWin] = useState<'week' | 'month' | 'quarter' | 'all'>('month');
+  const [sortBy, setSortBy] = useState<'recent' | 'name' | 'status'>('recent');
 
   const { data: orders = [] } = useQuery({
-    queryKey: ['lab-orders', filter],
-    queryFn: () => window.electronAPI.lab.listOrders({ status: filter || undefined }),
+    queryKey: ['lab-orders', filter, win, sortBy],
+    queryFn: () => window.electronAPI.lab.listOrders({ status: filter || undefined, window: win, sort: sortBy }),
     refetchInterval: 30_000,
   });
   const activeOrderObj = orders.find((o) => o.id === activeOrder);
@@ -111,21 +113,35 @@ function OrdersView() {
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
       <div className="lg:col-span-1 card p-4">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-2">
           <div className="text-xs font-semibold text-gray-600 dark:text-slate-300 uppercase tracking-wide">Orders</div>
           <select className="input w-auto text-xs" value={filter} onChange={(e) => setFilter(e.target.value)}>
-            <option value="">All</option>
+            <option value="">All statuses</option>
             <option value="ordered">Ordered</option>
             <option value="sample_collected">Collected</option>
             <option value="reported">Reported</option>
             <option value="cancelled">Cancelled</option>
           </select>
         </div>
+        {/* Time window + sort */}
+        <div className="flex items-center gap-2 mb-3">
+          <div className="flex gap-0.5 p-0.5 rounded-md bg-gray-100 dark:bg-slate-800/60 text-[11px] font-semibold">
+            {([['week', '1 wk'], ['month', '1 mo'], ['quarter', '3 mo'], ['all', 'All']] as const).map(([val, lbl]) => (
+              <button key={val} onClick={() => setWin(val)} title={`Orders from the last ${lbl}`}
+                className={cn('px-2 py-0.5 rounded', win === val ? 'bg-white dark:bg-slate-900 text-blue-700 shadow-sm' : 'text-gray-500')}>{lbl}</button>
+            ))}
+          </div>
+          <select className="input !py-1 !text-[11px] w-auto ml-auto" value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} title="Sort the list">
+            <option value="recent">Order date</option>
+            <option value="name">Name (A–Z)</option>
+            <option value="status">Status</option>
+          </select>
+        </div>
         {orders.length === 0 ? (
-          <EmptyState icon={FlaskConical} title="No orders" description="Orders created from consultations or directly will appear here." />
+          <EmptyState icon={FlaskConical} title="No orders" description={win === 'all' ? 'Orders created from consultations or directly will appear here.' : 'No orders in this window — widen it to “All”.'} />
         ) : (
           <ul className="space-y-1 max-h-[70vh] overflow-auto">
-            {orders.map((o) => (
+            {orders.map((o, idx) => (
               <li
                 key={o.id}
                 onClick={() => setActiveOrder(o.id)}
@@ -135,7 +151,7 @@ function OrdersView() {
                 )}
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-mono text-gray-600 dark:text-slate-300">{o.order_number}</span>
+                  <span className="text-[11px] font-mono text-gray-600 dark:text-slate-300"><span className="text-gray-400 dark:text-slate-500">{orders.length - idx}.</span> {o.order_number}</span>
                   <StatusPill status={o.status} />
                 </div>
                 <div className="text-sm text-gray-900 dark:text-slate-100 mt-0.5">{o.patient_name}</div>

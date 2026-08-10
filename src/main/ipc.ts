@@ -1512,12 +1512,24 @@ export function registerIpc() {
     }
   );
 
-  ipcMain.handle('lab:listOrders', (_e, filter: { status?: string; patient_id?: number } = {}) => {
+  ipcMain.handle('lab:listOrders', (_e, filter: { status?: string; patient_id?: number; window?: string; sort?: string } = {}) => {
     const db = getDb();
     const conds: string[] = [];
     const params: any[] = [];
     if (filter.status) { conds.push('o.status=?'); params.push(filter.status); }
     if (filter.patient_id) { conds.push('o.patient_id=?'); params.push(filter.patient_id); }
+    // Time window on the order date (skipped when looking up one patient's orders).
+    if (!filter.patient_id) {
+      const DAYS: Record<string, number> = { week: 7, month: 31, quarter: 92 };
+      const days = filter.window ? DAYS[filter.window] : undefined; // 'all'/undefined → no limit
+      if (days) conds.push(`date(o.ordered_at) >= date('now', '-${days} days')`);
+    }
+    const ORDER: Record<string, string> = {
+      recent: 'o.ordered_at DESC',
+      name: "lower(p.first_name || ' ' || p.last_name) ASC",
+      status: 'o.status ASC, o.ordered_at DESC',
+    };
+    const orderBy = ORDER[filter.sort || ''] || 'o.ordered_at DESC';
     const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
     return db
       .prepare(
@@ -1526,7 +1538,7 @@ export function registerIpc() {
          JOIN patients p ON p.id=o.patient_id
          LEFT JOIN doctors d ON d.id=o.doctor_id
          ${where}
-         ORDER BY o.ordered_at DESC LIMIT 200`
+         ORDER BY ${orderBy} LIMIT 300`
       )
       .all(...params);
   });

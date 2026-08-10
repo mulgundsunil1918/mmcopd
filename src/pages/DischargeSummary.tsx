@@ -168,7 +168,7 @@ export function DischargeSummary() {
               : sorted.map((a: any, idx: number) => (
                 <button key={a.id} onClick={() => loadAdmission(a)}
                   className={cn('w-full text-left rounded-lg border p-2.5 transition flex items-start gap-2.5', selected?.id === a.id ? 'border-sky-400 bg-sky-50/60 dark:bg-sky-900/20' : 'border-gray-200 dark:border-slate-700 hover:border-sky-300')}>
-                  <span className="text-[11px] font-bold text-gray-400 tabular-nums mt-0.5 w-5 shrink-0 text-right">{idx + 1}</span>
+                  <span className="text-[11px] font-bold text-gray-400 tabular-nums mt-0.5 w-6 shrink-0 text-right">{sorted.length - idx}</span>
                   <div className="min-w-0">
                     <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100 truncate">{a.patient_name}</div>
                     <div className="text-[11px] text-gray-500">{a.admission_number} · {a.ward || '—'}{a.bed_number ? `/${a.bed_number}` : ''} · {a.discharged_at ? `D/C ${fmtDate(a.discharged_at)}` : `Adm ${fmtDate(a.admitted_at)}`}</div>

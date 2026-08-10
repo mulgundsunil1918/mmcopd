@@ -170,7 +170,7 @@ export function Reception() {
                 )}
               >
                 <div className="flex items-start gap-3">
-                  <span className="shrink-0 mt-0.5 w-6 text-right text-[12px] font-semibold text-gray-400 dark:text-slate-500 tabular-nums">{i + 1}.</span>
+                  <span className="shrink-0 mt-0.5 w-8 text-right text-[12px] font-semibold text-gray-400 dark:text-slate-500 tabular-nums">{results.length - i}.</span>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
                       <div className="font-semibold text-sm text-gray-900 dark:text-slate-100">
