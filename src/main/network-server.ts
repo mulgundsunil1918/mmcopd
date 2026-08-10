@@ -271,9 +271,20 @@ export async function startNetworkServer(port: number, secret: string, appVersio
     });
 
     await new Promise<void>((resolve, reject) => {
-      httpServer!.once('error', reject);
-      httpServer!.listen(port, () => resolve());
+      httpServer!.once('error', (err: any) => {
+        const code = err?.code;
+        if (code === 'EADDRINUSE') reject(new Error(`Port ${port} is already in use on this PC — another program (or a second copy of CureDesk) has it. Pick a different Listen port (e.g. 4321 or 4400).`));
+        else if (code === 'EACCES') reject(new Error(`This PC blocked binding to port ${port}. Use a port above 1024 (the default 4321 works) and allow CureDesk through the firewall.`));
+        else reject(new Error(err?.message || String(err)));
+      });
+      // Bind to 0.0.0.0 (every IPv4 adapter). Node's bare listen(port) binds to
+      // '::', which is IPv6-only on Windows (IPV6_V6ONLY defaults on) — so LAN
+      // clients hitting the host's IPv4 address get "connection refused".
+      // Explicit 0.0.0.0 makes host↔client work identically on Windows & macOS.
+      httpServer!.listen(port, '0.0.0.0', () => resolve());
     });
+    // Persistent handler so a later per-socket error can never crash the host.
+    httpServer.on('error', (err) => { try { console.error('[network] server error:', err); } catch { /* ignore */ } });
     activePort = port;
     regenerateJoinCode(secret || '', port);
     startUdpBroadcast();
