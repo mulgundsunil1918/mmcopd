@@ -471,6 +471,7 @@ const api = {
     growthDelete: (id: number) => ipcRenderer.invoke('peds:growthDelete', id) as Promise<{ ok: boolean; error?: string }>,
     vaccineList: (patientId: number) => ipcRenderer.invoke('peds:vaccineList', patientId) as Promise<any[]>,
     vaccineSeed: (patientId: number) => ipcRenderer.invoke('peds:vaccineSeed', patientId) as Promise<{ ok: boolean; added?: number; schedule?: string; error?: string }>,
+    vaccineRecalc: (patientId: number) => ipcRenderer.invoke('peds:vaccineRecalcDueDates', patientId) as Promise<{ ok: boolean; updated?: number; error?: string }>,
     vaccineUpdate: (recordId: number, patch: any) => ipcRenderer.invoke('peds:vaccineUpdate', recordId, patch) as Promise<{ ok: boolean; error?: string }>,
     vaccineAddCustom: (patientId: number, input: any) => ipcRenderer.invoke('peds:vaccineAddCustom', patientId, input) as Promise<{ ok: boolean; id?: number; error?: string }>,
   },

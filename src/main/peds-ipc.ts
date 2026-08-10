@@ -158,6 +158,40 @@ export function registerPedsIpc() {
     }
   });
 
+  /** Recompute due dates for a child's existing diary from their DOB, using the
+   *  current schedule-parsing logic. Recorded (given) and manually-skipped doses
+   *  keep their status; the rest are re-flagged due/overdue against the fresh
+   *  date. Fixes diaries created before a schedule-date correction. */
+  ipcMain.handle('peds:vaccineRecalcDueDates', (_e, patientId: number) => {
+    const d = db();
+    try {
+      const id = reqId(patientId, 'Patient');
+      const patient = d.prepare('SELECT dob FROM patients WHERE id=?').get(id) as { dob: string } | undefined;
+      if (!patient) return fail(`Patient #${id} was not found.`);
+      if (!patient.dob) return fail('This patient has no date of birth on record, so due dates cannot be computed.');
+
+      const rows = d.prepare('SELECT id, schedule_age, status FROM peds_vaccine_records WHERE patient_id=?').all(id) as any[];
+      const today = new Date().toISOString().slice(0, 10);
+      const upd = d.prepare('UPDATE peds_vaccine_records SET due_date=?, status=? WHERE id=?');
+      let updated = 0;
+      const tx = d.transaction(() => {
+        for (const r of rows) {
+          const due = dueDateFromLabel(patient.dob, r.schedule_age || '');
+          if (due === null) continue; // custom / non-date rows (e.g. "Pregnant Mother", HPV text block)
+          // Never disturb a recorded dose (given) or a clinician's manual skip.
+          const keepStatus = r.status === 'given' || r.status === 'skipped' || r.status === 'not_applicable';
+          const status = keepStatus ? r.status : (due < today ? 'overdue' : 'due');
+          upd.run(due, status, r.id);
+          updated++;
+        }
+      });
+      tx();
+      return { ok: true, updated };
+    } catch (err: any) {
+      return fail(`Could not recalculate due dates: ${err?.message || String(err)}`);
+    }
+  });
+
   ipcMain.handle('peds:vaccineUpdate', (_e, recordId: number, patch: any) => {
     const d = db();
     try {

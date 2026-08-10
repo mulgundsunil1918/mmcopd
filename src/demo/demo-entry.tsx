@@ -27,7 +27,7 @@ function safeFill(api: any): any {
         // Mutations → { ok: true }; single-object reads → {}; everything else
         // (list-style reads) → [] so a render that maps the result never
         // crashes in the showcase.
-        const isMutation = /^(save|add|update|delete|remove|set|create|give|pay|refund|seed|reject|approve|transfer|discharge|admit|request|stop|respond)/.test(prop) || /Save$|Add$|Update$|Delete$|Status$/.test(prop);
+        const isMutation = /^(save|add|update|delete|remove|set|create|give|pay|refund|seed|recalc|reject|approve|transfer|discharge|admit|request|stop|respond)/.test(prop) || /Save$|Add$|Update$|Delete$|Status$/.test(prop);
         const isObject = /^(get|preview|status|config|health|info|joinCode|previewById|previewAdmission)/.test(prop) || /Config$|Status$|By[A-Z]/.test(prop);
         return (..._args: any[]) => Promise.resolve(isMutation ? { ok: true } : isObject ? {} : []);
       }

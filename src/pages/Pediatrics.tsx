@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Baby, Search, Ruler, Syringe, Calculator, Loader2, Plus, Check, TrendingUp } from 'lucide-react';
+import { Baby, Search, Ruler, Syringe, Calculator, Loader2, Plus, Check, TrendingUp, RefreshCw } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
 import { cn, fmtDate } from '../lib/utils';
@@ -245,6 +245,19 @@ function VaccineSection({ patient }: { patient: any }) {
     finally { setBusy(false); }
   };
 
+  // Recompute every due date from the child's DOB using the current schedule
+  // logic — fixes a diary built before a schedule correction. Given/skipped
+  // doses are left untouched.
+  const recalc = async () => {
+    setBusy(true);
+    try {
+      const r = await window.electronAPI.peds.vaccineRecalc(patient.id);
+      if (r.ok) { toast(`Recalculated ${r.updated} due date${r.updated === 1 ? '' : 's'} from date of birth`, 'success'); qc.invalidateQueries({ queryKey: ['peds-vax', patient.id] }); }
+      else toast(r.error || 'Could not recalculate', 'error');
+    } catch (e: any) { toast(e?.message || 'Failed', 'error'); }
+    finally { setBusy(false); }
+  };
+
   const markGiven = async (rec: any, givenDate?: string) => {
     const r = await window.electronAPI.peds.vaccineUpdate(rec.id, { status: 'given', given_date: givenDate || new Date().toISOString().slice(0, 10), recorded_by: user?.username });
     if (r.ok) qc.invalidateQueries({ queryKey: ['peds-vax', patient.id] });
@@ -275,7 +288,13 @@ function VaccineSection({ patient }: { patient: any }) {
         </div>
       ) : (
         <>
-          <div className="flex justify-end"><button className="btn-ghost text-xs" disabled={busy} onClick={seed}>Refresh from schedule</button></div>
+          <div className="flex justify-end gap-2">
+            <button className="btn-ghost text-xs" disabled={busy} onClick={recalc}
+              title="Recompute every due date from the child's date of birth using the current schedule">
+              <RefreshCw className="w-3.5 h-3.5" /> Recalculate dates
+            </button>
+            <button className="btn-ghost text-xs" disabled={busy} onClick={seed} title="Add any vaccines missing from the current schedule">Refresh from schedule</button>
+          </div>
           <div className="card p-0 overflow-x-auto">
             <table className="w-full text-[12px]">
               <thead><tr className="text-left text-[10px] uppercase text-gray-500 border-b dark:border-slate-700">
