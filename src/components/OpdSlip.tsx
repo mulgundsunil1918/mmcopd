@@ -1,8 +1,9 @@
 import { format, parseISO } from 'date-fns';
 import { Printer, X, MapPin, Phone, Mail, HeartPulse } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ageStringFull, fmt12h, fmtDateTime } from '../lib/utils';
+import { rxKannadaLine } from '../lib/rxKannada';
 import type { AppointmentWithJoins, Consultation, Doctor, FollowupSummary, LabOrder, PrescriptionItem, Settings, SlipLayout, SlipTemplate, SlipTemplateSection, Vitals } from '../types';
 import { DEFAULT_LAYOUT } from '../db/slip-templates';
 
@@ -542,15 +543,26 @@ function RxTable({ rxItems }: { rxItems: PrescriptionItem[] }) {
         </tr>
       </thead>
       <tbody>
-        {rxItems.map((r, idx) => (
-          <tr key={idx} style={{ borderBottom: '1px dotted #e2e8f0' }}>
-            <td style={{ padding: '3px 4px', fontWeight: 600 }}>{r.drug_name}</td>
-            <td style={{ padding: '3px 4px' }}>{r.dosage || ''}</td>
-            <td style={{ padding: '3px 4px' }}>{r.frequency || ''}</td>
-            <td style={{ padding: '3px 4px' }}>{r.duration || ''}</td>
-            <td style={{ padding: '3px 4px' }}>{r.instructions || ''}</td>
-          </tr>
-        ))}
+        {rxItems.map((r, idx) => {
+          const kn = rxKannadaLine(r);
+          return (
+            <Fragment key={idx}>
+              <tr style={{ borderBottom: kn ? 'none' : '1px dotted #e2e8f0' }}>
+                <td style={{ padding: '3px 4px', fontWeight: 600 }}>{r.drug_name}</td>
+                <td style={{ padding: '3px 4px' }}>{r.dosage || ''}</td>
+                <td style={{ padding: '3px 4px' }}>{r.frequency || ''}</td>
+                <td style={{ padding: '3px 4px' }}>{r.duration || ''}</td>
+                <td style={{ padding: '3px 4px' }}>{r.instructions || ''}</td>
+              </tr>
+              {kn && (
+                <tr style={{ borderBottom: '1px dotted #e2e8f0' }}>
+                  <td></td>
+                  <td colSpan={4} style={{ padding: '0 4px 4px', color: '#475569', fontStyle: 'italic', fontSize: '0.92em' }}>{kn}</td>
+                </tr>
+              )}
+            </Fragment>
+          );
+        })}
       </tbody>
     </table>
   );
