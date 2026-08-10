@@ -15,6 +15,18 @@ import {
   DEMO_DRUG_MASTER, DEMO_BATCHES, DEMO_WHOLESALERS, DEMO_PURCHASES,
   DEMO_PHARMACY_SALES, DEMO_DISPENSING, DEMO_CONSULTATIONS, DEMO_RX_ITEMS,
 } from './demo-data';
+import { LAB_CATALOG } from '../data/lab-catalog';
+
+// Full lab catalog for the demo, priced by department so the showcase looks real.
+const DEMO_LAB_PRICE: Record<string, number> = {
+  haematology: 200, biochemistry: 300, serology: 450, microbiology: 350,
+  clinical_pathology: 150, histopathology: 900, radiology: 700,
+};
+const labTests = LAB_CATALOG.map((t, i) => ({
+  id: i + 1, name: t.name, price: DEMO_LAB_PRICE[t.category] ?? 300,
+  sample_type: t.sample_type ?? null, ref_range: t.ref_range ?? null,
+  unit: t.unit ?? null, category: t.category, is_active: 1,
+}));
 
 // Mutable copies — UI mutations land here.
 const settings = { ...DEMO_SETTINGS };
@@ -265,7 +277,8 @@ export function createMockElectronAPI(): any {
       },
     },
     lab: {
-      listTests: () => r([]),
+      listTests: (activeOnly = true) => r(activeOnly ? labTests.filter((t) => t.is_active === 1) : labTests),
+      loadStandardCatalog: () => r({ ok: true, added: 0, total: labTests.length }),
       listOrders: () => r([]),
       createOrder: () => r({} as any),
       updateOrderStatus: () => r({} as any),
