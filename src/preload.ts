@@ -82,6 +82,8 @@ const api = {
   },
   patients: {
     search: (q: string) => ipcRenderer.invoke('patients:search', q) as Promise<(Patient & { last_visit: string | null })[]>,
+    allList: (filter?: { q?: string; sort?: string; limit?: number }) =>
+      ipcRenderer.invoke('patients:allList', filter || {}) as Promise<{ rows: (Patient & { last_visit: string | null; visit_count: number })[]; total: number }>,
     get: (id: number) => ipcRenderer.invoke('patients:get', id) as Promise<Patient | undefined>,
     create: (input: PatientInput) => ipcRenderer.invoke('patients:create', input) as Promise<Patient>,
     update: (id: number, input: PatientInput) => ipcRenderer.invoke('patients:update', id, input) as Promise<Patient>,

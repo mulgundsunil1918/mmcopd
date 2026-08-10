@@ -22,6 +22,7 @@ export function PatientLog() {
   const [doctorId, setDoctorId] = useState<'all' | number>('all');
   const [groupByDay, setGroupByDay] = useState(true);
   const [printAppt, setPrintAppt] = useState<AppointmentWithJoins | null>(null);
+  const [view, setView] = useState<'log' | 'all'>('log');
 
   const [from, to] = useMemo(() => {
     const now = new Date();
@@ -105,24 +106,35 @@ export function PatientLog() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex bg-gray-100 dark:bg-slate-700 p-1 rounded-lg">
-            <RangeBtn active={range === 'day'} onClick={() => setRange('day')}>Today</RangeBtn>
-            <RangeBtn active={range === 'week'} onClick={() => setRange('week')}>This Week</RangeBtn>
-            <RangeBtn active={range === 'month'} onClick={() => setRange('month')}>This Month</RangeBtn>
-            <RangeBtn active={range === 'custom'} onClick={() => setRange('custom')}>Custom</RangeBtn>
+            <RangeBtn active={view === 'log'} onClick={() => setView('log')}>Visit Log</RangeBtn>
+            <RangeBtn active={view === 'all'} onClick={() => setView('all')}>All Patients</RangeBtn>
           </div>
-          {range === 'custom' && (
+          {view === 'log' && (
             <>
-              <input type="date" className="input w-auto" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
-              <span className="text-xs text-gray-500">to</span>
-              <input type="date" className="input w-auto" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+              <div className="flex bg-gray-100 dark:bg-slate-700 p-1 rounded-lg">
+                <RangeBtn active={range === 'day'} onClick={() => setRange('day')}>Today</RangeBtn>
+                <RangeBtn active={range === 'week'} onClick={() => setRange('week')}>This Week</RangeBtn>
+                <RangeBtn active={range === 'month'} onClick={() => setRange('month')}>This Month</RangeBtn>
+                <RangeBtn active={range === 'custom'} onClick={() => setRange('custom')}>Custom</RangeBtn>
+              </div>
+              {range === 'custom' && (
+                <>
+                  <input type="date" className="input w-auto" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+                  <span className="text-xs text-gray-500">to</span>
+                  <input type="date" className="input w-auto" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+                </>
+              )}
+              <button className="btn-secondary" onClick={exportCsv} disabled={rows.length === 0}>
+                <Download className="w-4 h-4" /> CSV
+              </button>
             </>
           )}
-          <button className="btn-secondary" onClick={exportCsv} disabled={rows.length === 0}>
-            <Download className="w-4 h-4" /> CSV
-          </button>
         </div>
       </div>
 
+      {view === 'all' && <AllPatientsList />}
+
+      {view === 'log' && (<>
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -229,6 +241,7 @@ export function PatientLog() {
           <LogTable rows={rows} onPrint={setPrintAppt} />
         )}
       </section>
+      </>)}
 
       {printAppt && <OpdSlipFor appointment={printAppt} onClose={() => setPrintAppt(null)} />}
     </div>
@@ -347,6 +360,89 @@ function LogTable({
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+/** The full patient directory — search by anything, sort by registration / name /
+ *  age, numbered 1..N. Search always scans the whole database. */
+function AllPatientsList() {
+  const [q, setQ] = useState('');
+  const [sort, setSort] = useState('registered_desc');
+  const { data, isLoading } = useQuery({
+    queryKey: ['patients-all', q, sort],
+    queryFn: () => window.electronAPI.patients.allList({ q: q || undefined, sort, limit: 2000 }),
+  });
+  const rows = data?.rows ?? [];
+  const total = data?.total ?? 0;
+
+  const exportCsv = () => {
+    const head = ['#', 'UHID', 'Name', 'Age', 'Sex', 'Phone', 'Place', 'District', 'Blood', 'Registered', 'Visits'];
+    const lines = rows.map((p: any, i: number) => [
+      i + 1, p.uhid, `${p.first_name} ${p.last_name}`.trim(), ageString(p.dob) || '', p.gender || '',
+      p.phone || '', p.place || '', p.district || '', p.blood_group || '',
+      p.created_at ? fmtDate(p.created_at) : '', p.visit_count ?? 0,
+    ].map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','));
+    const csv = [head.join(','), ...lines].join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    const a = document.createElement('a'); a.href = url; a.download = `all-patients-${todayISO()}.csv`; a.click(); URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="relative flex-1 min-w-[220px] max-w-md">
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input className="input pl-9" placeholder="Search name, UHID, phone, place, district…" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        <select className="input w-auto" value={sort} onChange={(e) => setSort(e.target.value)}>
+          <option value="registered_desc">Newest first</option>
+          <option value="registered_asc">Oldest first</option>
+          <option value="name_asc">Name A–Z</option>
+          <option value="name_desc">Name Z–A</option>
+          <option value="age_desc">Age: oldest first</option>
+          <option value="age_asc">Age: youngest first</option>
+        </select>
+        <button className="btn-secondary" onClick={exportCsv} disabled={rows.length === 0}><Download className="w-4 h-4" /> CSV</button>
+        <span className="ml-auto text-[11px] text-gray-500 dark:text-slate-400">
+          {isLoading ? 'Loading…' : `Showing ${rows.length}${rows.length < total ? ` of ${total}` : ''} patient${total === 1 ? '' : 's'}`}
+        </span>
+      </div>
+
+      <div className="card p-0 overflow-x-auto">
+        <table className="w-full text-[13px] min-w-[720px]">
+          <thead>
+            <tr className="text-left text-[10px] uppercase tracking-wide text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
+              <th className="py-2 px-3 w-12">#</th>
+              <th className="py-2 px-3">Patient</th>
+              <th className="py-2 px-3">Age / Sex</th>
+              <th className="py-2 px-3">Phone</th>
+              <th className="py-2 px-3">Place</th>
+              <th className="py-2 px-3 text-right">Visits</th>
+              <th className="py-2 px-3">Registered</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((p: any, i: number) => (
+              <tr key={p.id} className="border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50 dark:hover:bg-slate-800/40">
+                <td className="py-1.5 px-3 text-gray-400 tabular-nums">{i + 1}</td>
+                <td className="py-1.5 px-3">
+                  <div className="font-medium text-gray-900 dark:text-slate-100">{p.first_name} {p.last_name}</div>
+                  <div className="text-[11px] text-gray-500 dark:text-slate-400 font-mono">{p.uhid}{p.blood_group ? ` · ${p.blood_group}` : ''}</div>
+                </td>
+                <td className="py-1.5 px-3 whitespace-nowrap">{ageString(p.dob) || '—'}{p.gender ? ` · ${p.gender}` : ''}</td>
+                <td className="py-1.5 px-3 whitespace-nowrap">{p.phone || '—'}</td>
+                <td className="py-1.5 px-3">{p.place || '—'}{p.district ? <span className="text-[11px] text-gray-400"> · {p.district}</span> : null}</td>
+                <td className="py-1.5 px-3 text-right tabular-nums">{p.visit_count ?? 0}</td>
+                <td className="py-1.5 px-3 whitespace-nowrap text-gray-500 dark:text-slate-400">{p.created_at ? fmtDate(p.created_at) : '—'}</td>
+              </tr>
+            ))}
+            {!isLoading && rows.length === 0 && (
+              <tr><td colSpan={7} className="py-8 text-center text-gray-400 text-[12px]">No patients{q ? ' match your search' : ''}.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

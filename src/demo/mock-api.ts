@@ -116,6 +116,20 @@ export function createMockElectronAPI(): any {
     },
     patients: {
       search: (q: string) => r(searchPatients(q || '')),
+      allList: (f: any = {}) => {
+        const q = (f.q || '').toLowerCase();
+        let rows = patients.filter((p: any) => !q ||
+          `${p.first_name} ${p.last_name} ${p.uhid} ${p.phone} ${p.place || ''}`.toLowerCase().includes(q));
+        const s = f.sort || 'registered_desc';
+        rows = rows.slice().sort((a: any, b: any) =>
+          s === 'name_asc' ? `${a.first_name}`.localeCompare(b.first_name)
+          : s === 'name_desc' ? `${b.first_name}`.localeCompare(a.first_name)
+          : s === 'age_desc' ? String(a.dob || '').localeCompare(String(b.dob || ''))
+          : s === 'age_asc' ? String(b.dob || '').localeCompare(String(a.dob || ''))
+          : s === 'registered_asc' ? a.id - b.id
+          : b.id - a.id);
+        return r({ rows: rows.map((p: any) => ({ ...p, last_visit: null, visit_count: 0 })), total: patients.length });
+      },
       list: () => r(patients.slice(0, 50)),
       get: (id: number) => r(patients.find((x) => x.id === id) || null),
       create: (input: any) => {

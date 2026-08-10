@@ -365,6 +365,39 @@ export function registerIpc() {
     return getDb().prepare('SELECT * FROM patients WHERE id=?').get(id);
   });
 
+  // Full patient master — searchable by name / UHID / phone / place, sortable by
+  // registration date, name or age. Used by the "All Patients" directory.
+  ipcMain.handle('patients:allList', (_e, filter: { q?: string; sort?: string; limit?: number } = {}) => {
+    const db = getDb();
+    const q = (filter.q || '').trim();
+    const params: any[] = [];
+    let where = '';
+    if (q) {
+      where = `WHERE (p.uhid LIKE ? OR p.phone LIKE ? OR (p.first_name || ' ' || p.last_name) LIKE ? OR p.place LIKE ? OR p.district LIKE ?)`;
+      const like = `%${q}%`;
+      params.push(like, like, like, like, like);
+    }
+    const ORDER: Record<string, string> = {
+      registered_desc: 'p.created_at DESC, p.id DESC',
+      registered_asc: 'p.created_at ASC, p.id ASC',
+      name_asc: "(p.first_name || ' ' || p.last_name) COLLATE NOCASE ASC",
+      name_desc: "(p.first_name || ' ' || p.last_name) COLLATE NOCASE DESC",
+      age_desc: '(p.dob IS NULL), p.dob ASC',   // oldest first
+      age_asc: '(p.dob IS NULL), p.dob DESC',    // youngest first
+    };
+    const order = ORDER[filter.sort || 'registered_desc'] || ORDER.registered_desc;
+    const limit = Math.min(Math.max(Number(filter.limit) || 1000, 1), 5000);
+    params.push(limit);
+    const rows = db.prepare(
+      `SELECT p.id, p.uhid, p.first_name, p.last_name, p.dob, p.gender, p.phone, p.place, p.district, p.blood_group, p.created_at,
+              (SELECT MAX(appointment_date) FROM appointments WHERE patient_id=p.id) AS last_visit,
+              (SELECT COUNT(*) FROM appointments WHERE patient_id=p.id AND status<>'Cancelled') AS visit_count
+       FROM patients p ${where} ORDER BY ${order} LIMIT ?`
+    ).all(...params);
+    const total = (db.prepare('SELECT COUNT(*) AS c FROM patients').get() as { c: number }).c;
+    return { rows, total };
+  });
+
   ipcMain.handle('patients:create', (_e, input: PatientInput) => {
     const db = getDb();
     const uhid = generateUHID();
