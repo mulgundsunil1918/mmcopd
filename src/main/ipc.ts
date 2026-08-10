@@ -331,23 +331,30 @@ export function registerIpc() {
   });
 
   // ===== Patients =====
-  ipcMain.handle('patients:search', (_e, q: string) => {
+  ipcMain.handle('patients:search', (_e, q: string, opts: { window?: string; sort?: string } = {}) => {
     const db = getDb();
     const like = `%${q.trim()}%`;
+    const activity = "COALESCE((SELECT MAX(appointment_date) FROM appointments WHERE patient_id=p.id), date(p.created_at))";
+    const ORDER: Record<string, string> = {
+      recent: `${activity} DESC`,
+      registered: 'p.created_at DESC',
+      name: "lower(p.first_name || ' ' || p.last_name) ASC",
+    };
+    const orderBy = ORDER[opts.sort || ''] || `${activity} DESC`;
     if (!q.trim()) {
-      // Default (no search) list: most-recently-active patients within the
-      // configured window, so a 50,000-patient database still opens instantly.
-      // A search (below) always scans the whole table, so nobody is hidden.
-      const win = (getAllSettings(db) as any).records_list_window || 'month';
+      // Default (no search) list: patients within the chosen window, so a
+      // 50,000-patient database still opens instantly. A search (below) always
+      // scans the whole table, so nobody is hidden. The window defaults to the
+      // Settings value but the Reception UI can override it per-view.
+      const win = opts.window || (getAllSettings(db) as any).records_list_window || 'month';
       const DAYS: Record<string, number> = { week: 7, month: 31, quarter: 92 };
-      const days = DAYS[win];
-      const activity = "COALESCE((SELECT MAX(appointment_date) FROM appointments WHERE patient_id=p.id), date(p.created_at))";
+      const days = DAYS[win];   // 'all' → undefined → no date restriction
       const windowClause = days ? `WHERE ${activity} >= date('now', '-${days} days')` : '';
       return db
         .prepare(
           `SELECT p.*, (SELECT MAX(appointment_date) FROM appointments WHERE patient_id=p.id) as last_visit
            FROM patients p ${windowClause}
-           ORDER BY ${activity} DESC LIMIT 100`
+           ORDER BY ${orderBy} LIMIT 100`
         )
         .all();
     }
@@ -356,7 +363,7 @@ export function registerIpc() {
         `SELECT p.*, (SELECT MAX(appointment_date) FROM appointments WHERE patient_id=p.id) as last_visit
          FROM patients p
          WHERE p.uhid LIKE ? OR p.phone LIKE ? OR (p.first_name || ' ' || p.last_name) LIKE ?
-         ORDER BY created_at DESC LIMIT 50`
+         ORDER BY ${orderBy} LIMIT 50`
       )
       .all(like, like, like);
   });

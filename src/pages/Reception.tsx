@@ -54,13 +54,19 @@ export function Reception() {
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [mode, setMode] = useState<Mode>('idle');
+  // null = follow the global Settings window; a chip click overrides it here.
+  const [winOverride, setWinOverride] = useState<'week' | 'month' | 'quarter' | 'all' | null>(null);
+  const [sortBy, setSortBy] = useState<'recent' | 'registered' | 'name'>('recent');
   const toast = useToast();
   const navigate = useNavigate();
   const qc = useQueryClient();
 
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const listWindow = (winOverride ?? (settings as any)?.records_list_window) || 'month';
+
   const { data: results = [], isLoading } = useQuery({
-    queryKey: ['patients', 'search', query],
-    queryFn: () => window.electronAPI.patients.search(query),
+    queryKey: ['patients', 'search', query, listWindow, sortBy],
+    queryFn: () => window.electronAPI.patients.search(query, { window: listWindow, sort: sortBy }),
   });
 
   const { data: selected } = useQuery({
@@ -123,6 +129,20 @@ export function Reception() {
               onChange={(e) => setQuery(e.target.value)}
               autoFocus
             />
+          </div>
+          {/* Time window + sort. A live search reaches every patient, so the window is dimmed then. */}
+          <div className="flex items-center gap-2 mt-3">
+            <div className={cn('flex gap-0.5 p-0.5 rounded-md bg-gray-100 dark:bg-slate-800/60 text-[11px] font-semibold', query.trim() && 'opacity-40 pointer-events-none')}>
+              {([['week', '1 wk'], ['month', '1 mo'], ['quarter', '3 mo'], ['all', 'All']] as const).map(([val, lbl]) => (
+                <button key={val} onClick={() => setWinOverride(val)} title={`Show patients active in the last ${lbl}`}
+                  className={cn('px-2 py-0.5 rounded', listWindow === val ? 'bg-white dark:bg-slate-900 text-blue-700 shadow-sm' : 'text-gray-500')}>{lbl}</button>
+              ))}
+            </div>
+            <select className="input !py-1 !text-[11px] w-auto ml-auto" value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} title="Sort the list">
+              <option value="recent">Recent visit</option>
+              <option value="registered">Registration date</option>
+              <option value="name">Name (A–Z)</option>
+            </select>
           </div>
           <button className="btn-primary w-full mt-3" onClick={onNewPatient}>
             <UserPlus className="w-4 h-4" /> New Patient

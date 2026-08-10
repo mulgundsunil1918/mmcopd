@@ -24,6 +24,9 @@ export function DischargeSummary() {
   const [selected, setSelected] = useState<any | null>(null);
   const [q, setQ] = useState('');
   const [statusFilter, setStatusFilter] = useState<'admitted' | 'discharged' | 'all'>('admitted');
+  // null = follow the global Settings window; a chip click overrides it just here.
+  const [winOverride, setWinOverride] = useState<'week' | 'month' | 'quarter' | 'all' | null>(null);
+  const [sortBy, setSortBy] = useState<'discharge' | 'admit' | 'name'>('discharge');
 
   // Form state
   const [diagnosis, setDiagnosis] = useState('');
@@ -36,14 +39,14 @@ export function DischargeSummary() {
 
   const navigate = useNavigate();
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
-  const listWindow = ((settings as any)?.records_list_window) || 'month';
+  const listWindow = (winOverride ?? (settings as any)?.records_list_window) || 'month';
   // Default list is windowed for speed; a search reaches every admission ever.
   const { data: admissions = [], isLoading } = useQuery({
     queryKey: ['ds-admissions', statusFilter, q.trim(), listWindow],
     queryFn: () => window.electronAPI.ip.list({
       status: statusFilter === 'all' ? undefined : statusFilter,
       q: q.trim() || undefined,
-      window: q.trim() ? undefined : listWindow,
+      window: q.trim() || listWindow === 'all' ? undefined : listWindow,
       limit: 300,
     }),
   });
@@ -54,6 +57,16 @@ export function DischargeSummary() {
     if (!q.trim()) return true;
     const s = q.toLowerCase();
     return (a.patient_name || '').toLowerCase().includes(s) || (a.patient_uhid || '').toLowerCase().includes(s) || (a.admission_number || '').toLowerCase().includes(s);
+  });
+  const sorted = [...filtered].sort((a: any, b: any) => {
+    if (sortBy === 'name') return (a.patient_name || '').localeCompare(b.patient_name || '');
+    if (sortBy === 'discharge') {
+      const da = a.discharged_at || '', db = b.discharged_at || '';
+      if (da && db) return db.localeCompare(da);       // both discharged → newest first
+      if (da !== db) return da ? -1 : 1;               // discharged sort above still-admitted
+      return (b.admitted_at || '').localeCompare(a.admitted_at || '');
+    }
+    return (b.admitted_at || '').localeCompare(a.admitted_at || ''); // admit date, newest first
   });
 
   const loadAdmission = (a: any) => {
@@ -135,14 +148,31 @@ export function DischargeSummary() {
             <Search className="w-4 h-4 absolute left-3 top-2.5 text-gray-400" />
             <input className="input pl-9" placeholder="Find patient / admission" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
+          {/* Time window + sort. A live search reaches every admission, so the window is dimmed then. */}
+          <div className="flex items-center gap-2">
+            <div className={cn('flex gap-0.5 p-0.5 rounded-md bg-gray-100 dark:bg-slate-800/60 text-[11px] font-semibold', q.trim() && 'opacity-40 pointer-events-none')}>
+              {([['week', '1 wk'], ['month', '1 mo'], ['quarter', '3 mo'], ['all', 'All']] as const).map(([val, lbl]) => (
+                <button key={val} onClick={() => setWinOverride(val)} title={`Show admissions from the last ${lbl}`}
+                  className={cn('px-2 py-0.5 rounded', listWindow === val ? 'bg-white dark:bg-slate-900 text-sky-700 shadow-sm' : 'text-gray-500')}>{lbl}</button>
+              ))}
+            </div>
+            <select className="input !py-1 !text-[11px] w-auto ml-auto" value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} title="Sort the list">
+              <option value="discharge">Discharge date</option>
+              <option value="admit">Admission date</option>
+              <option value="name">Name (A–Z)</option>
+            </select>
+          </div>
           <div className="max-h-[60vh] overflow-y-auto space-y-1.5">
             {isLoading ? <div className="py-6 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto text-gray-400" /></div>
-              : filtered.length === 0 ? <div className="text-[12px] text-gray-400 text-center py-6">No {statusFilter === 'all' ? '' : statusFilter} admissions.</div>
-              : filtered.map((a: any) => (
+              : sorted.length === 0 ? <div className="text-[12px] text-gray-400 text-center py-6">No {statusFilter === 'all' ? '' : statusFilter} admissions{q.trim() ? ' match' : listWindow === 'all' ? '' : ' in this window'}.</div>
+              : sorted.map((a: any, idx: number) => (
                 <button key={a.id} onClick={() => loadAdmission(a)}
-                  className={cn('w-full text-left rounded-lg border p-2.5 transition', selected?.id === a.id ? 'border-sky-400 bg-sky-50/60 dark:bg-sky-900/20' : 'border-gray-200 dark:border-slate-700 hover:border-sky-300')}>
-                  <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">{a.patient_name}</div>
-                  <div className="text-[11px] text-gray-500">{a.admission_number} · {a.ward || '—'}{a.bed_number ? `/${a.bed_number}` : ''} · {fmtDate(a.admitted_at)}</div>
+                  className={cn('w-full text-left rounded-lg border p-2.5 transition flex items-start gap-2.5', selected?.id === a.id ? 'border-sky-400 bg-sky-50/60 dark:bg-sky-900/20' : 'border-gray-200 dark:border-slate-700 hover:border-sky-300')}>
+                  <span className="text-[11px] font-bold text-gray-400 tabular-nums mt-0.5 w-5 shrink-0 text-right">{idx + 1}</span>
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100 truncate">{a.patient_name}</div>
+                    <div className="text-[11px] text-gray-500">{a.admission_number} · {a.ward || '—'}{a.bed_number ? `/${a.bed_number}` : ''} · {a.discharged_at ? `D/C ${fmtDate(a.discharged_at)}` : `Adm ${fmtDate(a.admitted_at)}`}</div>
+                  </div>
                 </button>
               ))}
           </div>

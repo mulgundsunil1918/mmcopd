@@ -94,7 +94,8 @@ const api = {
       ipcRenderer.invoke('admin:hardResetAndRestart') as Promise<{ ok: boolean; error?: string }>,
   },
   patients: {
-    search: (q: string) => ipcRenderer.invoke('patients:search', q) as Promise<(Patient & { last_visit: string | null })[]>,
+    search: (q: string, opts?: { window?: 'week' | 'month' | 'quarter' | 'all'; sort?: 'recent' | 'registered' | 'name' }) =>
+      ipcRenderer.invoke('patients:search', q, opts || {}) as Promise<(Patient & { last_visit: string | null })[]>,
     allList: (filter?: { q?: string; sort?: string; limit?: number }) =>
       ipcRenderer.invoke('patients:allList', filter || {}) as Promise<{ rows: (Patient & { last_visit: string | null; visit_count: number })[]; total: number }>,
     get: (id: number) => ipcRenderer.invoke('patients:get', id) as Promise<Patient | undefined>,
