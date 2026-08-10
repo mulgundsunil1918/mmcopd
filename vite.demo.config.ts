@@ -34,6 +34,12 @@ function postBuildPlugin() {
       if (fs.existsSync(demoPath)) {
         fs.copyFileSync(demoPath, path.join(dist, '404.html'));
       }
+      // Static multi-station setup/recovery guide → served at /mmcopd/multi-station.html
+      // (linked from the in-app Network settings). It's a standalone HTML file.
+      const guideSrc = path.resolve(__dirname, 'multi-station.html');
+      if (fs.existsSync(guideSrc)) {
+        fs.copyFileSync(guideSrc, path.join(dist, 'multi-station.html'));
+      }
     },
   };
 }

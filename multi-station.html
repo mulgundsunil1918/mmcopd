@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CureDesk HMS — Multi-Station Setup & Recovery</title>
+<style>
+  :root{
+    --bg:#eef0f4; --surface:#ffffff; --ink:#161d2b; --muted:#5b6472;
+    --accent:#3730a3; --accent-ink:#4338ca; --accent-soft:#eef2ff; --line:#e2e5ec;
+    --good:#15803d; --good-bg:#e9f7ef; --good-line:#bbe7c9;
+    --warn:#b45309; --warn-bg:#fdf3e3; --warn-line:#f4dfae;
+    --bad:#c02626; --bad-bg:#fdecec; --bad-line:#f6cccc;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0e1320; --surface:#161d2b; --ink:#e6eaf2; --muted:#97a1b2;
+      --accent:#a5b4fc; --accent-ink:#c7d2fe; --accent-soft:#1c2540; --line:#273044;
+      --good:#6ee7a8; --good-bg:#12271c; --good-line:#1f4a33;
+      --warn:#fbbf60; --warn-bg:#2a2113; --warn-line:#4d3c1a;
+      --bad:#f79a9a; --bad-bg:#2a1717; --bad-line:#50272a;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0e1320; --surface:#161d2b; --ink:#e6eaf2; --muted:#97a1b2;
+    --accent:#a5b4fc; --accent-ink:#c7d2fe; --accent-soft:#1c2540; --line:#273044;
+    --good:#6ee7a8; --good-bg:#12271c; --good-line:#1f4a33;
+    --warn:#fbbf60; --warn-bg:#2a2113; --warn-line:#4d3c1a;
+    --bad:#f79a9a; --bad-bg:#2a1717; --bad-line:#50272a;
+  }
+  :root[data-theme="light"]{
+    --bg:#eef0f4; --surface:#ffffff; --ink:#161d2b; --muted:#5b6472;
+    --accent:#3730a3; --accent-ink:#4338ca; --accent-soft:#eef2ff; --line:#e2e5ec;
+    --good:#15803d; --good-bg:#e9f7ef; --good-line:#bbe7c9;
+    --warn:#b45309; --warn-bg:#fdf3e3; --warn-line:#f4dfae;
+    --bad:#c02626; --bad-bg:#fdecec; --bad-line:#f6cccc;
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    line-height:1.5;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:880px;margin:0 auto;padding:28px 22px 64px;}
+
+  header.doc{
+    background:linear-gradient(135deg,#1e3a8a,#4338ca 60%,#6d28d9);
+    color:#fff;border-radius:16px;padding:22px 26px;
+    display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  }
+  .logo{width:44px;height:44px;border-radius:11px;flex:0 0 auto;
+    background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.28);
+    display:flex;align-items:center;justify-content:center;font-size:22px;}
+  header.doc h1{margin:0;font-size:22px;font-weight:800;letter-spacing:-.02em;line-height:1.15;text-wrap:balance;}
+  header.doc .sub{margin-top:3px;font-size:12.5px;color:#dbeafe;font-weight:500;}
+  header.doc .tag{margin-left:auto;font-size:11px;color:#c7d2fe;text-align:right;line-height:1.4;}
+
+  h2{font-size:12px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--accent-ink);margin:34px 0 12px;display:flex;align-items:center;gap:9px;}
+  h2 .n{width:22px;height:22px;border-radius:7px;background:var(--accent-soft);color:var(--accent-ink);
+    display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex:0 0 auto;}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:16px 18px;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  @media (max-width:640px){.grid2{grid-template-columns:1fr}}
+
+  .role-h{display:flex;align-items:center;gap:9px;font-weight:800;font-size:14.5px;margin:0 0 4px;}
+  .pill{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;letter-spacing:.02em;}
+  .pill.host{background:var(--accent-soft);color:var(--accent-ink);}
+  .pill.cabin{background:var(--good-bg);color:var(--good);border:1px solid var(--good-line);}
+  .role-h .sub{font-size:11.5px;color:var(--muted);font-weight:500;}
+
+  ol.steps{list-style:none;counter-reset:s;margin:10px 0 0;padding:0;}
+  ol.steps>li{counter-increment:s;position:relative;padding:0 0 0 30px;margin:0 0 11px;font-size:13.5px;}
+  ol.steps>li::before{content:counter(s);position:absolute;left:0;top:-1px;width:21px;height:21px;
+    background:var(--accent);color:#fff;border-radius:6px;font-size:11.5px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;}
+  :root[data-theme="dark"] ol.steps>li::before,@media (prefers-color-scheme:dark){ }
+  ol.steps b{font-weight:700;}
+  .path{font-weight:700;color:var(--accent-ink);white-space:nowrap;}
+  code{font-family:var(--mono);font-size:.88em;background:var(--accent-soft);color:var(--accent-ink);
+    padding:1px 6px;border-radius:5px;white-space:nowrap;}
+
+  .lead{font-size:14px;color:var(--muted);margin:6px 0 0;max-width:66ch;}
+
+  /* concept flow */
+  .flow{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap;margin-top:6px;}
+  .node{flex:1 1 150px;border:1px solid var(--line);border-radius:11px;padding:12px 13px;background:var(--surface);}
+  .node .t{font-weight:800;font-size:13px;display:flex;align-items:center;gap:7px;}
+  .node .d{font-size:11.5px;color:var(--muted);margin-top:3px;}
+  .node.host{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset;}
+  .arrow{align-self:center;color:var(--muted);font-size:20px;font-weight:700;}
+  @media (max-width:640px){.arrow{transform:rotate(90deg)}}
+
+  /* callouts */
+  .note{border-radius:11px;padding:11px 14px;font-size:13px;border:1px solid;margin-top:12px;}
+  .note.good{background:var(--good-bg);border-color:var(--good-line);color:var(--good);}
+  .note.warn{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn);}
+  .note b{color:inherit;}
+  .note .ink{color:var(--ink);}
+
+  table{width:100%;border-collapse:collapse;font-size:12.8px;}
+  thead th{text-align:left;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
+    border-bottom:2px solid var(--line);padding:7px 10px;}
+  tbody td{border-bottom:1px solid var(--line);padding:9px 10px;vertical-align:top;}
+  tbody tr:last-child td{border-bottom:0;}
+  td .sym{font-weight:700;}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle;}
+  .dot.a{background:var(--warn)} .dot.b{background:var(--bad)} .dot.c{background:var(--accent-ink)}
+
+  .rules{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  @media (max-width:640px){.rules{grid-template-columns:1fr}}
+  .rule{display:flex;gap:11px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);
+    border-radius:11px;padding:12px 14px;}
+  .rule .ic{font-size:20px;line-height:1;flex:0 0 auto;}
+  .rule .t{font-weight:700;font-size:13.5px;}
+  .rule .d{font-size:12px;color:var(--muted);margin-top:2px;}
+
+  footer{margin-top:34px;padding-top:14px;border-top:1px solid var(--line);
+    font-size:11.5px;color:var(--muted);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+
+  @media print{
+    :root{--bg:#fff;--surface:#fff;}
+    body{background:#fff;}
+    .wrap{padding:0;max-width:100%;}
+    header.doc{background:#1e3a8a !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+    .card,.node,.rule,.note{break-inside:avoid;}
+    h2{break-after:avoid;}
+    footer{page-break-inside:avoid;}
+  }
+</style>
+</head><body>
+
+<div class="wrap">
+  <header class="doc">
+    <div class="logo">🖥️</div>
+    <div>
+      <h1>Multi-Station Setup &amp; Recovery</h1>
+      <div class="sub">CureDesk HMS · reception, doctor cabins &amp; pharmacy sharing one clinic database over the LAN / Wi-Fi</div>
+    </div>
+    <div class="tag">Field reference<br>Windows &amp; macOS · v0.4</div>
+  </header>
+
+  <h2><span class="n">1</span> How it works</h2>
+  <p class="lead">One PC runs as the <b>Host (Server)</b> and holds the entire clinic database. Every other PC runs as a <b>Cabin (Client)</b> and works off the host over your network — cabins keep <b>no</b> data of their own. Data never leaves the clinic; there is no cloud in the middle.</p>
+  <div class="flow" style="margin-top:12px">
+    <div class="node host">
+      <div class="t">🖥️ Host <span class="pill host">SERVER</span></div>
+      <div class="d">The main PC (usually reception). Holds all data. Listens on port <code>4321</code>.</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="node">
+      <div class="t">🌐 Your router / switch</div>
+      <div class="d">Same Wi-Fi or wired LAN connects everyone. No internet needed.</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="node">
+      <div class="t">💻 Cabins <span class="pill cabin">CLIENT</span></div>
+      <div class="d">Doctor rooms, pharmacy, billing. Open the same live data as the host.</div>
+    </div>
+  </div>
+  <div class="note warn"><b>Before you start:</b> <span class="ink">put every PC on the <b>same router/switch</b> (avoid “Guest” Wi-Fi — it isolates devices), connect the <b>host by network cable</b> if you can, and keep the host <b>awake</b> (disable sleep). One host, any number of cabins.</span></div>
+
+  <h2><span class="n">2</span> Set it up</h2>
+  <div class="grid2">
+    <div class="card">
+      <div class="role-h">🖥️ On the HOST PC <span class="pill host">SERVER</span></div>
+      <div class="role-h"><span class="sub">The PC that keeps the data — set this up first.</span></div>
+      <ol class="steps">
+        <li>Open <span class="path">Settings → Network Mode</span>, choose <b>Server</b>, and Save.</li>
+        <li>When Windows/macOS asks, click <b>Allow access</b> so the port isn’t blocked by the firewall.</li>
+        <li>Confirm the green banner: <b>“✓ other PCs can reach this host at <code>http://…:4321</code>”</b>. If it’s amber, fix the firewall / pick the wired adapter, then <b>Re-check</b>.</li>
+        <li>Click <b>Generate join code</b> — a 6-character code (valid 10&nbsp;minutes). Read out the code <i>and</i> the host address shown next to it.</li>
+      </ol>
+    </div>
+    <div class="card">
+      <div class="role-h">💻 On each CABIN <span class="pill cabin">CLIENT</span></div>
+      <div class="role-h"><span class="sub">Repeat on every doctor / pharmacy / billing PC.</span></div>
+      <ol class="steps">
+        <li>Make sure it’s on the <b>same network</b> as the host.</li>
+        <li>Open <span class="path">Settings → Network Mode</span> and choose <b>Client</b>.</li>
+        <li>Pick the host under <b>“Servers found on your network”</b>, <i>or</i> type the <b>6-character join code</b> from the host.</li>
+        <li>It connects and reloads. The sidebar shows a <b>connected</b> pill — you’re now on the shared data.</li>
+      </ol>
+    </div>
+  </div>
+  <div class="note good"><b>✓ That’s it.</b> <span class="ink">Book a patient on a cabin — it appears on the host and every other cabin instantly. To take a PC back to standalone, set its Network Mode to <b>Local</b>.</span></div>
+
+  <h2><span class="n">3</span> When something’s wrong — recovery</h2>
+  <div class="card" style="padding:6px 8px;overflow-x:auto">
+    <table>
+      <thead><tr><th style="width:29%">Symptom</th><th style="width:30%">Most likely cause</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="sym">Cabin: “server not reachable”</span></td>
+          <td><span class="dot b"></span>Host off / not in Server mode / firewall blocking</td>
+          <td>Check the host is <b>running</b> and set to <b>Server</b>; click <b>Allow access</b> on the firewall prompt. Re-check the host’s green banner.</td>
+        </tr>
+        <tr>
+          <td><span class="sym">Host banner is amber</span></td>
+          <td><span class="dot a"></span>Firewall block, or wrong network adapter pinned</td>
+          <td>Allow CureDesk through the firewall; under <b>Troubleshoot</b> pin the <b>wired/Wi-Fi adapter</b> the clinic uses; press <b>Re-check</b>.</td>
+        </tr>
+        <tr>
+          <td><span class="sym">Worked yesterday, dead today</span></td>
+          <td><span class="dot a"></span>Host’s IP changed (router handed out a new one)</td>
+          <td><b>Cabins now find the host again automatically.</b> If one doesn’t, re-pair with a fresh <b>join code</b>. Prevent it for good → Golden Rule #1.</td>
+        </tr>
+        <tr>
+          <td><span class="sym">Cabin screen frozen</span></td>
+          <td><span class="dot c"></span>Host went to sleep / lost power</td>
+          <td>The app now times out to a clear error instead of hanging. <b>Wake the host</b>, or switch the cabin to <b>Local</b> to keep working, then back to Client.</td>
+        </tr>
+        <tr>
+          <td><span class="sym">Some PCs can’t see the host</span></td>
+          <td><span class="dot b"></span>Different networks — Guest Wi-Fi, or one wired + one Wi-Fi kept apart</td>
+          <td>Put everyone on the <b>same router/switch</b>. Avoid “Guest” networks and AP-isolation. Wired for the host is most reliable.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note warn"><b>Always available:</b> <span class="ink"><span class="path">Settings → Network Mode → Troubleshoot</span> runs a step-by-step check (adapter → same network → port open → server answering → token accepted) and tells you, in plain words, exactly which step failed and how to fix it.</span></div>
+
+  <h2><span class="n">4</span> Golden rules (do these once)</h2>
+  <div class="rules">
+    <div class="rule"><div class="ic">📌</div><div><div class="t">1 · Give the host a fixed IP</div><div class="d">Add a <b>DHCP reservation</b> for the host on your router (or set a static IP). This stops the address ever changing — the single biggest cause of “it stopped working”.</div></div></div>
+    <div class="rule"><div class="ic">☁️</div><div><div class="t">2 · Back up the host</div><div class="d">Only the host holds data. Turn on cloud backup: <span class="path">Settings → Backup → “Back up to my Google Drive”</span>. Cabins need no backup.</div></div></div>
+    <div class="rule"><div class="ic">🔌</div><div><div class="t">3 · Keep the host awake & wired</div><div class="d">Disable sleep on the host and connect it by cable. If the host is off, the whole clinic is off.</div></div></div>
+    <div class="rule"><div class="ic">🔒</div><div><div class="t">4 · Same clinic, same code</div><div class="d">Cabins only join a host whose access code they were paired with — they’ll never latch onto a neighbouring clinic’s PC by mistake.</div></div></div>
+  </div>
+
+  <footer>
+    <span>CureDesk HMS — offline-first hospital software. Data stays on your PCs.</span>
+    <span>Default port <code>4321</code> · Host + unlimited cabins</span>
+  </footer>
+</div>
+</body></html>

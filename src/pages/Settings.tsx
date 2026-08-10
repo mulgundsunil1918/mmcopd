@@ -2253,6 +2253,14 @@ function NetworkSetupGuide() {
         to do in 2-3 minutes.
       </div>
 
+      <button
+        className="btn-secondary text-xs w-fit"
+        onClick={() => window.electronAPI.app.openExternal('https://mulgundsunil1918.github.io/mmcopd/multi-station.html').catch(() => { /* ignore */ })}
+        title="Opens the full illustrated, printable Setup & Recovery guide in your browser"
+      >
+        📄 Open the illustrated Setup &amp; Recovery guide (printable) →
+      </button>
+
       <GuideSection
         id="overview" open={open === 'overview'} onToggle={toggle}
         title="What is multi-station and do I need it?"
