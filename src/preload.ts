@@ -631,6 +631,8 @@ const api = {
       port: number;
       clients: number;
       ipcChannels: number;
+      lanIp: string | null;
+      selfTest: { reachable: boolean; ip: string | null; port: number; error?: string; at: number } | null;
       appVersion: string;
       client: {
         installed: boolean;
@@ -643,6 +645,7 @@ const api = {
       };
     }>,
     applyMode: () => ipcRenderer.invoke('network:applyMode') as Promise<{ ok: boolean; running: boolean; port: number; clients: number; ipcChannels: number }>,
+    selfTest: () => ipcRenderer.invoke('network:selfTest') as Promise<{ reachable: boolean; ip: string | null; port: number; error?: string; at: number }>,
     probe: (payload: { url: string; secret?: string }) =>
       ipcRenderer.invoke('network:probe', payload) as Promise<{ ok: true; info: any } | { ok: false; error: string }>,
     joinCode: () => ipcRenderer.invoke('network:joinCode') as Promise<{ code: string | null; expiresAt: number | null; lanIp: string | null; port: number }>,

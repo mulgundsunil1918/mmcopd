@@ -34,6 +34,39 @@ let activeVersion = '';
 let preferredIp = '';
 const wsClients = new Set<WebSocket>();
 
+/** Result of the last launch self-test — did the host answer on its own LAN IP? */
+export interface SelfTest { reachable: boolean; ip: string | null; port: number; error?: string; at: number; }
+let lastSelfTest: SelfTest | null = null;
+export function getSelfTest(): SelfTest | null { return lastSelfTest; }
+
+/**
+ * After the server binds, connect to OUR OWN LAN IP (not 127.0.0.1) and hit
+ * /api/health. This proves the socket is actually reachable on the address we
+ * advertise to cabins — catching an IPv6-only bind, a firewall blocking the
+ * port, or a wrong pinned adapter BEFORE a receptionist discovers it mid-shift.
+ * A 127.0.0.1 test would pass even when the LAN interface is unreachable.
+ */
+export async function runSelfTest(): Promise<SelfTest> {
+  const ip = getLocalLanIP();
+  const port = activePort;
+  const base: SelfTest = { reachable: false, ip, port, at: Date.now() };
+  if (!ip) { lastSelfTest = { ...base, error: 'No usable LAN adapter found on this PC (only loopback / disconnected).' }; return lastSelfTest; }
+  if (!port) { lastSelfTest = { ...base, error: 'Server is not listening.' }; return lastSelfTest; }
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 3000);
+    const res = await fetch(`http://${ip}:${port}/api/health`, { signal: ctrl.signal });
+    clearTimeout(timer);
+    const body: any = res.ok ? await res.json().catch(() => null) : null;
+    lastSelfTest = body?.ok === true
+      ? { ...base, reachable: true }
+      : { ...base, error: `Unexpected reply (HTTP ${res.status}) on ${ip}:${port}` };
+  } catch (e: any) {
+    lastSelfTest = { ...base, error: e?.name === 'AbortError' ? `No answer on ${ip}:${port} within 3s` : (e?.message || String(e)) };
+  }
+  return lastSelfTest;
+}
+
 export function setPreferredIp(ip: string) { preferredIp = (ip || '').trim(); }
 
 // ===== Join code (short pairing code) =====
@@ -168,9 +201,10 @@ export async function stopNetworkServer(): Promise<void> {
   wsClients.clear();
   activePort = 0;
   activeSecret = '';
+  lastSelfTest = null;
 }
 
-export async function startNetworkServer(port: number, secret: string, appVersion: string): Promise<{ ok: true; port: number } | { ok: false; error: string }> {
+export async function startNetworkServer(port: number, secret: string, appVersion: string): Promise<{ ok: true; port: number; selfTest: SelfTest | null } | { ok: false; error: string }> {
   await stopNetworkServer();
   try {
     activeSecret = secret || '';
@@ -288,7 +322,9 @@ export async function startNetworkServer(port: number, secret: string, appVersio
     activePort = port;
     regenerateJoinCode(secret || '', port);
     startUdpBroadcast();
-    return { ok: true, port };
+    // Confirm we're actually reachable on our own LAN address (fire-and-store).
+    await runSelfTest();
+    return { ok: true, port, selfTest: lastSelfTest };
   } catch (err: any) {
     await stopNetworkServer();
     return { ok: false, error: err?.message || String(err) };
@@ -309,5 +345,7 @@ export function networkServerStatus() {
     port: activePort,
     clients: wsClients.size,
     ipcChannels: ipcHandlers.size,
+    lanIp: httpServer ? getLocalLanIP() : null,
+    selfTest: lastSelfTest,
   };
 }

@@ -1972,6 +1972,26 @@ function NetworkModeSettings() {
       {/* Server-mode config */}
       {mode === 'server' && (
         <>
+          {status?.running && (() => {
+            const st = status.selfTest;
+            const ip = status.lanIp || st?.ip;
+            if (st?.reachable) {
+              return (
+                <div className="rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2 text-[12px] text-emerald-800 dark:text-emerald-200">
+                  ✓ Reachability check passed — other PCs can connect to this host at <span className="font-mono">http://{ip}:{status.port}</span>.
+                </div>
+              );
+            }
+            if (st && !st.reachable) {
+              return (
+                <div className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-[12px] text-amber-800 dark:text-amber-200 flex items-start justify-between gap-3 flex-wrap">
+                  <span>⚠ The server is running but did <b>not</b> answer on its own network address <span className="font-mono">{st.ip || '(no LAN IP)'}:{st.port}</span> — {st.error}. Cabins likely can’t connect: <b>allow CureDesk through the firewall</b> (Windows shows an “Allow access” prompt the first time), check the pinned adapter below, then re-check.</span>
+                  <button className="btn-secondary text-xs whitespace-nowrap" onClick={async () => { await window.electronAPI.network.selfTest(); refetchStatus(); }}>Re-check</button>
+                </div>
+              );
+            }
+            return <div className="text-[12px] text-gray-500 dark:text-slate-400">Checking whether other PCs can reach this host…</div>;
+          })()}
           <ServerJoinCodePanel />
           <MigrationHelper />
         </>

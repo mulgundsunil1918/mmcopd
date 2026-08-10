@@ -27,6 +27,7 @@
 
 import { ipcMain } from 'electron';
 import { ipcHandlers, rawHandle } from './ipc-registry';
+import { discoverServers } from './network-discovery';
 
 /** Hard ceiling on any single proxied IPC call. Long enough for a big report
  *  query on a slow PC, short enough that a dead host surfaces as an error
@@ -41,6 +42,13 @@ export type ConnState = 'idle' | 'connected' | 'degraded' | 'offline';
 
 let installed = false;
 let installedFor: { url: string; secret: string } | null = null;
+/** The address currently used for all remote calls. Starts as the configured
+ *  URL but is UPDATED in place if the host moves (DHCP), so cabins self-heal. */
+let activeUrl = '';
+let activeSecret = '';
+/** Set by main.ts so a relocated URL persists to this PC's settings. */
+let persistUrl: ((url: string) => void) | null = null;
+export function setUrlPersister(fn: (url: string) => void) { persistUrl = fn; }
 let lastError: string | null = null;
 let lastSuccessAt: number | null = null;
 let connState: ConnState = 'idle';
@@ -161,17 +169,21 @@ export function installNetworkClient(serverUrl: string, secret: string): { ok: b
   if (installed && installedFor && installedFor.url === cleanUrl && installedFor.secret === secret) {
     return { ok: true, channels: ipcHandlers.size };
   }
+  // The proxies read these module-level values, so relocating the host after a
+  // DHCP change is a single reassignment rather than a full re-install.
+  activeUrl = cleanUrl;
+  activeSecret = secret;
   let proxied = 0;
 
   /** One remote /ipc/:channel call with timeout. Shared by the generic proxy
    *  and the settings split-router below. */
   const callRemote = async (channel: string, args: any[]): Promise<any> => {
     const started = Date.now();
-    const res = await fetchWithTimeout(`${cleanUrl}/ipc/${channel}`, {
+    const res = await fetchWithTimeout(`${activeUrl}/ipc/${channel}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(secret ? { 'Authorization': `Bearer ${secret}` } : {}),
+        ...(activeSecret ? { 'Authorization': `Bearer ${activeSecret}` } : {}),
       },
       body: JSON.stringify({ args }),
     }, REQUEST_TIMEOUT_MS);
@@ -265,7 +277,7 @@ export function installNetworkClient(serverUrl: string, secret: string): { ok: b
               ? `Host did not respond within ${REQUEST_TIMEOUT_MS / 1000}s`
               : (err2?.message || String(err2));
             setState('offline', msg);
-            throw new Error(`${msg} — the clinic server at ${cleanUrl} is not reachable. Settings → Network Mode → Troubleshoot to diagnose, or switch this PC to Local mode.`);
+            throw new Error(`${msg} — the clinic server at ${activeUrl} is not reachable. Settings → Network Mode → Troubleshoot to diagnose, or switch this PC to Local mode.`);
           }
         }
         setState('degraded', err?.message || String(err));
@@ -289,7 +301,7 @@ async function pingHost(): Promise<{ ok: boolean; ms: number; error?: string }> 
   if (!installedFor) return { ok: false, ms: 0, error: 'not installed' };
   const started = Date.now();
   try {
-    const res = await fetchWithTimeout(`${installedFor.url}/api/health`, {}, HEALTH_TIMEOUT_MS);
+    const res = await fetchWithTimeout(`${activeUrl}/api/health`, {}, HEALTH_TIMEOUT_MS);
     const ms = Date.now() - started;
     if (!res.ok) return { ok: false, ms, error: `HTTP ${res.status}` };
     const body: any = await res.json().catch(() => null);
@@ -312,6 +324,34 @@ function scheduleHealth(delayMs: number) {
   healthTimer = setTimeout(runHealthCheck, delayMs);
 }
 
+/** The host may have changed IP (DHCP renew, swapped router). Listen for CureDesk
+ *  UDP broadcasts on the LAN and, for any server at a NEW address, prove it's OUR
+ *  host by presenting the saved secret — only a server that accepts our token is
+ *  adopted, so we never latch onto a neighbouring clinic. Returns true if moved. */
+async function tryRelocate(): Promise<boolean> {
+  if (!installedFor) return false;
+  let servers: { ip: string; port: number }[] = [];
+  try { servers = await discoverServers(4000); } catch { return false; }
+  for (const s of servers) {
+    const url = `http://${s.ip}:${s.port}`;
+    if (url === activeUrl) continue;
+    try {
+      const res = await fetchWithTimeout(`${url}/ipc/settings:get`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(activeSecret ? { Authorization: `Bearer ${activeSecret}` } : {}) },
+        body: JSON.stringify({ args: [] }),
+      }, HEALTH_TIMEOUT_MS);
+      if (res.status === 401 || !res.ok) continue; // not our host, or not ready
+      // Adopt the new address for this session and persist it for next launch.
+      activeUrl = url;
+      installedFor.url = url;
+      try { persistUrl?.(url); } catch { /* ignore */ }
+      return true;
+    } catch { /* try next candidate */ }
+  }
+  return false;
+}
+
 async function runHealthCheck() {
   if (!installed || !installedFor) return;
   const r = await pingHost();
@@ -326,6 +366,23 @@ async function runHealthCheck() {
     consecutiveFailures++;
     // One miss is a blip; two or more means the link is genuinely down.
     setState(consecutiveFailures >= 2 ? 'offline' : 'degraded', r.error || 'Health check failed');
+    // Sustained failure → the host may have moved. Find it on the LAN by its
+    // broadcast, adopt the new address if our secret still works, then re-ping.
+    if (consecutiveFailures >= 2) {
+      const moved = await tryRelocate();
+      if (moved) {
+        const r2 = await pingHost();
+        if (r2.ok) {
+          lastLatencyMs = r2.ms;
+          lastSuccessAt = Date.now();
+          consecutiveFailures = 0;
+          reconnectAttempts = 0;
+          setState('connected', null);
+          scheduleHealth(HEALTH_INTERVAL_MS);
+          return;
+        }
+      }
+    }
     const delay = BACKOFF[Math.min(reconnectAttempts, BACKOFF.length - 1)];
     reconnectAttempts++;
     scheduleHealth(delay);
@@ -367,6 +424,8 @@ export function uninstallNetworkClient() {
   }
   installed = false;
   installedFor = null;
+  activeUrl = '';
+  activeSecret = '';
   lastError = null;
   lastLatencyMs = null;
   consecutiveFailures = 0;

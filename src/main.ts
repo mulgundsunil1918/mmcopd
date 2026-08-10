@@ -9,9 +9,9 @@ import { installIpcRegistry } from './main/ipc-registry';
 import { registerWhatsAppIpc, pollRelayServer, runScheduledCampaigns } from './main/whatsapp-ipc';
 import { processQueue } from './services/whatsapp/queue-worker';
 import { runAutomationScheduler } from './services/whatsapp/scheduler';
-import { startNetworkServer, stopNetworkServer, networkServerStatus, getJoinCode, regenerateJoinCode, getLocalLanIP, broadcastEvent, setPreferredIp } from './main/network-server';
+import { startNetworkServer, stopNetworkServer, networkServerStatus, getJoinCode, regenerateJoinCode, getLocalLanIP, setPreferredIp, runSelfTest } from './main/network-server';
 import { discoverServers, pairWithCode, addWindowsFirewallRule } from './main/network-discovery';
-import { installNetworkClient, networkClientStatus, uninstallNetworkClient, reconnectNow, setClientStateListener } from './main/network-client';
+import { installNetworkClient, networkClientStatus, uninstallNetworkClient, reconnectNow, setClientStateListener, setUrlPersister } from './main/network-client';
 import { listNetworkInterfaces, runDiagnostics } from './main/network-diagnostics';
 // Vite's ?raw import bundles the splash HTML as a string at build time so the
 // main process can show it before the main BrowserWindow is ready.
@@ -139,12 +139,23 @@ async function applyNetworkMode() {
       console.log(`[network] Server listening on port ${result.port}`);
       // Best-effort firewall rule (no-op if already exists or denied).
       addWindowsFirewallRule(port).catch(() => { /* ignore */ });
+      // Launch self-test: did we actually answer on our own LAN IP?
+      const st = result.selfTest;
+      if (st?.reachable) console.log(`[network] Self-test OK — reachable at http://${st.ip}:${st.port}`);
+      else console.warn(`[network] Self-test FAILED — cabins may not connect: ${st?.error || 'unknown'}`);
+      // Re-run after the firewall rule / first-run "Allow access" prompt settles,
+      // so the status flips to reachable without a restart (the Settings panel
+      // polls network:status every few seconds and picks it up).
+      setTimeout(() => { runSelfTest().catch(() => { /* ignore */ }); }, 5000);
     } else {
       console.warn(`[network] Failed to start server: ${result.error}`);
     }
   } else if (s.network_mode === 'client') {
     // Stop any local server first (in case user toggled from server → client).
     await stopNetworkServer();
+    // If the client auto-relocates to the host's new IP (DHCP change), persist
+    // the new address so it survives the next launch.
+    setUrlPersister((url) => { try { saveSettings(getDb(), { network_server_url: url }); } catch { /* ignore */ } });
     // Install the IPC-to-HTTP proxy. Every existing window.electronAPI call now
     // routes through the configured server transparently. Renderer code unchanged.
     const r = installNetworkClient(s.network_server_url, s.network_secret || '');
@@ -478,6 +489,12 @@ function createWindow() {
   ipcMain.handle('network:applyMode', async () => {
     await applyNetworkMode();
     return { ok: true, ...networkServerStatus() };
+  });
+  // Re-run the host reachability self-test on demand (the "Re-check" button).
+  ipcMain.handle('network:selfTest', async () => {
+    const s = getAllSettings(getDb());
+    if (s.network_mode !== 'server') return { reachable: false, ip: null, port: 0, error: 'This PC is not in Server mode.', at: Date.now() };
+    return runSelfTest();
   });
   // Probe a remote server (used by the Settings "Test connection" button).
   ipcMain.handle('network:probe', async (_e, payload: { url: string; secret?: string }) => {
