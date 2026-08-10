@@ -10,7 +10,9 @@
           "dose": "0.05ml <1m, 0.1ml >1m",
           "route": "ID",
           "site": "LUA",
-          "brands": ["Tubervac"]
+          "brands": [
+            "Tubervac"
+          ]
         },
         {
           "type": "structured",
@@ -18,7 +20,9 @@
           "dose": "2 drops",
           "route": "Oral",
           "site": "",
-          "brands": ["Biopolio"]
+          "brands": [
+            "Biopolio"
+          ]
         },
         {
           "type": "structured",
@@ -26,52 +30,178 @@
           "dose": "0.5ml",
           "route": "IM",
           "site": "",
-          "brands": ["Energix B", "Recombivax B"]
+          "brands": [
+            "Energix B",
+            "Recombivax B"
+          ]
         }
       ]
     },
     {
-      "age": "At 6 ,10 ,14 weeks",
+      "age": "At 6 weeks",
       "entries": [
         {
           "type": "structured",
-          "vaccine": "Pentavalent -1 ,2,3",
+          "vaccine": "Pentavalent-1",
           "dose": "0.5ml",
           "route": "IM",
           "site": "",
-          "brands": ["Hexaxim [DTaP, IPV, Hib, HepB]"]
+          "brands": [
+            "Hexaxim [DTaP, IPV, Hib, HepB]"
+          ]
         },
         {
           "type": "structured",
-          "vaccine": "IPV -1,2,3",
+          "vaccine": "IPV-1",
           "dose": "0.5ml",
           "route": "IM",
           "site": "",
-          "brands": ["Pentavac & IPV"]
+          "brands": [
+            "Pentavac & IPV"
+          ]
         },
         {
           "type": "structured",
-          "vaccine": "OPV -1,2,3",
+          "vaccine": "OPV-1",
           "dose": "2 drops",
           "route": "Oral",
           "site": "",
-          "brands": ["Biopolio"]
+          "brands": [
+            "Biopolio"
+          ]
         },
         {
           "type": "structured",
-          "vaccine": "Pneumococcal -1,2,3",
+          "vaccine": "Pneumococcal (PCV)-1",
           "dose": "0.5ml",
           "route": "IM",
           "site": "",
-          "brands": ["PREVENAR-13", "SYNFLORIX -10 (pneumococcal conjugated vaccine)"]
+          "brands": [
+            "PREVENAR-13",
+            "SYNFLORIX-10"
+          ]
         },
         {
           "type": "structured",
-          "vaccine": "Rotavaccine -1,2,3",
+          "vaccine": "Rotavirus-1",
           "dose": "5 drops",
           "route": "Oral",
           "site": "",
-          "brands": ["Rotavac"]
+          "brands": [
+            "Rotavac"
+          ]
+        }
+      ]
+    },
+    {
+      "age": "At 10 weeks",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "Pentavalent-2",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": [
+            "Hexaxim [DTaP, IPV, Hib, HepB]"
+          ]
+        },
+        {
+          "type": "structured",
+          "vaccine": "IPV-2",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": [
+            "Pentavac & IPV"
+          ]
+        },
+        {
+          "type": "structured",
+          "vaccine": "OPV-2",
+          "dose": "2 drops",
+          "route": "Oral",
+          "site": "",
+          "brands": [
+            "Biopolio"
+          ]
+        },
+        {
+          "type": "structured",
+          "vaccine": "Pneumococcal (PCV)-2",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": [
+            "PREVENAR-13",
+            "SYNFLORIX-10"
+          ]
+        },
+        {
+          "type": "structured",
+          "vaccine": "Rotavirus-2",
+          "dose": "5 drops",
+          "route": "Oral",
+          "site": "",
+          "brands": [
+            "Rotavac"
+          ]
+        }
+      ]
+    },
+    {
+      "age": "At 14 weeks",
+      "entries": [
+        {
+          "type": "structured",
+          "vaccine": "Pentavalent-3",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": [
+            "Hexaxim [DTaP, IPV, Hib, HepB]"
+          ]
+        },
+        {
+          "type": "structured",
+          "vaccine": "IPV-3",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": [
+            "Pentavac & IPV"
+          ]
+        },
+        {
+          "type": "structured",
+          "vaccine": "OPV-3",
+          "dose": "2 drops",
+          "route": "Oral",
+          "site": "",
+          "brands": [
+            "Biopolio"
+          ]
+        },
+        {
+          "type": "structured",
+          "vaccine": "Pneumococcal (PCV)-3",
+          "dose": "0.5ml",
+          "route": "IM",
+          "site": "",
+          "brands": [
+            "PREVENAR-13",
+            "SYNFLORIX-10"
+          ]
+        },
+        {
+          "type": "structured",
+          "vaccine": "Rotavirus-3",
+          "dose": "5 drops",
+          "route": "Oral",
+          "site": "",
+          "brands": [
+            "Rotavac"
+          ]
         }
       ]
     },
@@ -84,7 +214,10 @@
           "dose": "0.5ml",
           "route": "IM",
           "site": "",
-          "brands": ["INFLUVAC", "FLUQUADRI"]
+          "brands": [
+            "INFLUVAC",
+            "FLUQUADRI"
+          ]
         }
       ]
     },
@@ -97,7 +230,10 @@
           "dose": "0.5ml",
           "route": "IM",
           "site": "",
-          "brands": ["INFLUVAC", "FLUQUADRI"]
+          "brands": [
+            "INFLUVAC",
+            "FLUQUADRI"
+          ]
         }
       ]
     },
@@ -110,7 +246,9 @@
           "dose": "0.5ml",
           "route": "IM",
           "site": "",
-          "brands": ["Typbar"]
+          "brands": [
+            "Typbar"
+          ]
         },
         {
           "type": "structured",
@@ -118,7 +256,9 @@
           "dose": "0.5ml",
           "route": "S/C",
           "site": "RUA",
-          "brands": ["TRESIVAC PFS"]
+          "brands": [
+            "TRESIVAC PFS"
+          ]
         }
       ]
     },
@@ -131,7 +271,9 @@
           "dose": "0.5ml",
           "route": "S/C",
           "site": "",
-          "brands": ["BIOVAC A (live attenuated) single dose"]
+          "brands": [
+            "BIOVAC A (live attenuated) single dose"
+          ]
         },
         {
           "type": "structured",
@@ -139,7 +281,9 @@
           "dose": "0.5ml",
           "route": "IM",
           "site": "",
-          "brands": ["HAVRIX (Inactivated killed) two doses"]
+          "brands": [
+            "HAVRIX (Inactivated killed) two doses"
+          ]
         }
       ]
     },
@@ -152,7 +296,9 @@
           "dose": "0.5ml",
           "route": "S/C",
           "site": "RUA",
-          "brands": ["Tresivac PFS"]
+          "brands": [
+            "Tresivac PFS"
+          ]
         },
         {
           "type": "structured",
@@ -160,7 +306,10 @@
           "dose": "0.5 ml",
           "route": "S/C",
           "site": "",
-          "brands": ["VARIPED", "NEXIPOX"]
+          "brands": [
+            "VARIPED",
+            "NEXIPOX"
+          ]
         },
         {
           "type": "structured",
@@ -168,7 +317,9 @@
           "dose": "0.5ml",
           "route": "IM",
           "site": "",
-          "brands": ["PREVINAR 13"],
+          "brands": [
+            "PREVINAR 13"
+          ],
           "notes": "PCV can be given on same day or after 4 weeks"
         }
       ]
@@ -182,7 +333,9 @@
           "dose": "0.5ml",
           "route": "IM",
           "site": "",
-          "brands": ["Pentaxim (DTaP, Hib, IPV)"]
+          "brands": [
+            "Pentaxim (DTaP, Hib, IPV)"
+          ]
         },
         {
           "type": "structured",
@@ -198,7 +351,10 @@
           "dose": "0.5ml",
           "route": "S/C",
           "site": "",
-          "brands": ["VARIPED", "NEXIPOX"]
+          "brands": [
+            "VARIPED",
+            "NEXIPOX"
+          ]
         },
         {
           "type": "structured",
@@ -220,7 +376,10 @@
           "dose": "0.5ml",
           "route": "IM",
           "site": "",
-          "brands": ["INFLUVAC", "FLUQUADRI"]
+          "brands": [
+            "INFLUVAC",
+            "FLUQUADRI"
+          ]
         }
       ]
     },
@@ -233,7 +392,10 @@
           "dose": "0.5ml",
           "route": "IM",
           "site": "",
-          "brands": ["INFLUVAC", "FLUQUADRI"]
+          "brands": [
+            "INFLUVAC",
+            "FLUQUADRI"
+          ]
         },
         {
           "type": "structured",
@@ -241,7 +403,9 @@
           "dose": "0.5ml",
           "route": "IM",
           "site": "",
-          "brands": ["TETRAXIM (DTaP, IPV)"]
+          "brands": [
+            "TETRAXIM (DTaP, IPV)"
+          ]
         },
         {
           "type": "structured",
@@ -249,7 +413,9 @@
           "dose": "0.5 ml",
           "route": "IM",
           "site": "",
-          "brands": ["IMOVAX polio"]
+          "brands": [
+            "IMOVAX polio"
+          ]
         },
         {
           "type": "structured",
@@ -257,7 +423,9 @@
           "dose": "0.5ml",
           "route": "S/C",
           "site": "",
-          "brands": ["Tresivac PFS"]
+          "brands": [
+            "Tresivac PFS"
+          ]
         }
       ]
     },
@@ -270,7 +438,9 @@
           "dose": "0.5ml",
           "route": "IM",
           "site": "",
-          "brands": ["BOOSTRIX"]
+          "brands": [
+            "BOOSTRIX"
+          ]
         },
         {
           "type": "text_block",

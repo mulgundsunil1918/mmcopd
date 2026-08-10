@@ -44,19 +44,24 @@ function flattenSchedule(which: 'iap' | 'nis'): ScheduleEntry[] {
   return out;
 }
 
-/** Best-effort due-date from an age label like "6 weeks" / "9 months" / "At Birth". */
+/** Best-effort due-date from an age label like "6 weeks" / "9-12 months" / "At Birth". */
 function dueDateFromLabel(dobISO: string, label: string): string | null {
   const dob = new Date(dobISO);
   if (Number.isNaN(dob.getTime())) return null;
   const l = (label || '').toLowerCase();
   if (l.includes('birth')) return dob.toISOString().slice(0, 10);
-  const weeks = /(\d+)\s*week/.exec(l);
-  const months = /(\d+)\s*month/.exec(l);
-  const years = /(\d+)\s*year/.exec(l);
+  // A label may list several ages ("6, 10, 14 weeks") or give a range
+  // ("9-12 months"). A dose becomes DUE at the EARLIEST age in that set, so we
+  // anchor the due-date on the minimum — never the maximum, which would leave an
+  // early dose silently un-flagged until much later. The unit (week/month/year)
+  // is taken from the label's own wording.
+  const nums = (l.match(/\d+/g) || []).map((n) => parseInt(n, 10)).filter((n) => Number.isFinite(n));
+  if (!nums.length) return null;
+  const earliest = Math.min(...nums);
   const d = new Date(dob);
-  if (weeks) d.setDate(d.getDate() + parseInt(weeks[1], 10) * 7);
-  else if (months) d.setMonth(d.getMonth() + parseInt(months[1], 10));
-  else if (years) d.setFullYear(d.getFullYear() + parseInt(years[1], 10));
+  if (/week/.test(l)) d.setDate(d.getDate() + earliest * 7);
+  else if (/month/.test(l)) d.setMonth(d.getMonth() + earliest);
+  else if (/year/.test(l)) d.setFullYear(d.getFullYear() + earliest);
   else return null;
   return d.toISOString().slice(0, 10);
 }
