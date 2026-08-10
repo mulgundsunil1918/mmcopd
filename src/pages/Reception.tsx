@@ -138,7 +138,7 @@ export function Reception() {
             />
           )}
           <ul>
-            {results.map((p) => (
+            {results.map((p, i) => (
               <li
                 key={p.id}
                 onClick={() => onSelect(p)}
@@ -149,18 +149,23 @@ export function Reception() {
                     : 'hover:bg-gray-50 dark:hover:bg-slate-700'
                 )}
               >
-                <div className="flex items-center justify-between">
-                  <div className="font-semibold text-sm text-gray-900 dark:text-slate-100">
-                    {p.first_name} {p.last_name}
+                <div className="flex items-start gap-3">
+                  <span className="shrink-0 mt-0.5 w-6 text-right text-[12px] font-semibold text-gray-400 dark:text-slate-500 tabular-nums">{i + 1}.</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold text-sm text-gray-900 dark:text-slate-100">
+                        {p.first_name} {p.last_name}
+                      </div>
+                      <span className="text-[10px] text-gray-600 dark:text-slate-300">{ageString(p.dob)}</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
+                      <span className="flex items-center gap-1"><IdCard className="w-3 h-3" />{p.uhid}</span>
+                      <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{p.phone}</span>
+                    </div>
+                    <div className="text-[10px] text-gray-400 mt-0.5">
+                      {p.last_visit ? `Last visit: ${fmtDate(p.last_visit)}` : 'No visits yet'}
+                    </div>
                   </div>
-                  <span className="text-[10px] text-gray-600 dark:text-slate-300">{ageString(p.dob)}</span>
-                </div>
-                <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
-                  <span className="flex items-center gap-1"><IdCard className="w-3 h-3" />{p.uhid}</span>
-                  <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{p.phone}</span>
-                </div>
-                <div className="text-[10px] text-gray-400 mt-0.5">
-                  {p.last_visit ? `Last visit: ${fmtDate(p.last_visit)}` : 'No visits yet'}
                 </div>
               </li>
             ))}
