@@ -84,6 +84,7 @@ export function SettingsPage() {
     queryFn: () => window.electronAPI.settings.get(),
     staleTime: 30_000,
   });
+  const { has } = useLicensedModules();
 
   return (
     <AdminGate title="Settings — Administrator area">
@@ -251,12 +252,20 @@ export function SettingsPage() {
 
           {tab === 'comms' && (
             <>
-              <SettingsGroup title="WhatsApp Messaging" subtitle="Click-to-WhatsApp template editor + live preview.">
-                <WhatsAppMessaging />
-              </SettingsGroup>
-              <SettingsGroup title="AI Reply Suggestions" subtitle="Anthropic (Claude) API key for one-tap reply suggestions in the WhatsApp inbox.">
-                <AiSettings />
-              </SettingsGroup>
+              {has('whatsapp') ? (
+                <SettingsGroup title="WhatsApp Messaging" subtitle="Click-to-WhatsApp template editor + live preview.">
+                  <WhatsAppMessaging />
+                </SettingsGroup>
+              ) : (
+                <SettingsGroup title="WhatsApp Messaging" subtitle="Not in your subscription.">
+                  <div className="card p-5 text-[13px] text-gray-600 dark:text-slate-300">🔒 WhatsApp isn’t part of your plan. Add <b>WhatsApp Basic</b> (click-to-send) or <b>WhatsApp Pro</b> (Meta-API automation) from the <b>Subscription</b> tab.</div>
+                </SettingsGroup>
+              )}
+              {has('whatsapp_pro') && (
+                <SettingsGroup title="AI Reply Suggestions" subtitle="Anthropic (Claude) API key for one-tap reply suggestions in the WhatsApp inbox.">
+                  <AiSettings />
+                </SettingsGroup>
+              )}
               <SettingsGroup title="Support the Developer" subtitle="If CureDesk is helping your clinic, consider supporting continued development.">
                 <SupportDeveloperPanel />
               </SettingsGroup>
@@ -4123,15 +4132,17 @@ const SUB_MODULES: { key: string; name: string; desc: string; base?: boolean }[]
   { key: 'lab', name: 'Laboratory', desc: 'Test orders, results, 170+ catalog' },
   { key: 'pharmacy', name: 'Pharmacy', desc: 'Dispensing, FEFO inventory, sales' },
   { key: 'ipd', name: 'In-Patient (IPD)', desc: 'Admissions, wards, discharge, TPA' },
-  { key: 'whatsapp', name: 'WhatsApp Messaging', desc: 'Click-to-WhatsApp + automation' },
+  { key: 'whatsapp', name: 'WhatsApp Basic', desc: 'One-click send with name-filled templates' },
+  { key: 'whatsapp_pro', name: 'WhatsApp Pro', desc: 'Meta Cloud API — auto-reminders, 2-way inbox, campaigns' },
 ];
 
 const SUB_BASE_PRICE = 8999;
-const SUB_ADDON_PRICES: Record<string, { name: string; price: number; note?: string }> = {
+const SUB_ADDON_PRICES: Record<string, { name: string; price: number; note?: string; group?: string }> = {
   lab: { name: 'Laboratory', price: 999 },
   pharmacy: { name: 'Pharmacy', price: 1999 },
   ipd: { name: 'In-Patient (IPD)', price: 4999 },
-  whatsapp: { name: 'WhatsApp', price: 999, note: 'Basic · Pro ₹1,999' },
+  whatsapp: { name: 'WhatsApp Basic', price: 999, note: 'click-to-send', group: 'wa' },
+  whatsapp_pro: { name: 'WhatsApp Pro', price: 1999, note: 'Meta-API', group: 'wa' },
 };
 
 function SubscriptionTab() {
@@ -4158,11 +4169,12 @@ function SubscriptionTab() {
   const expiry = lic.payload?.expires_at ? format(parseISO(lic.payload.expires_at), 'd MMM yyyy') : '—';
   const machineId = lic.hardwareId || '';
   const isActive = (k: string, base?: boolean) => isDev || base || modules.includes(k);
-  // Live "new annual total" for the upgrade dialog = base + every add-on the clinic
-  // already has OR is now ticking.
-  const newTotal = SUB_BASE_PRICE + Object.entries(SUB_ADDON_PRICES)
-    .filter(([k]) => modules.includes(k) || picked.has(k))
-    .reduce((s, [, a]) => s + a.price, 0);
+  // Live "new annual total" = base + owned/picked add-ons. WhatsApp Basic & Pro
+  // are one mutually-exclusive line — count only the higher tier, never both.
+  const want = (k: string) => modules.includes(k) || picked.has(k);
+  const waPrice = want('whatsapp_pro') ? 1999 : want('whatsapp') ? 999 : 0;
+  const newTotal = SUB_BASE_PRICE + waPrice
+    + (['lab', 'pharmacy', 'ipd'] as const).filter((k) => want(k)).reduce((s, k) => s + SUB_ADDON_PRICES[k].price, 0);
 
   const planTone =
     lic.state === 'locked' ? { bg: 'bg-red-50 dark:bg-red-900/20', text: 'text-red-700 dark:text-red-300', label: 'Expired — read-only' }
@@ -4270,7 +4282,15 @@ function SubscriptionTab() {
                   <label key={key} className={cn('flex items-center justify-between rounded-lg border p-2.5 text-[13px]', have ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-900/10' : 'border-gray-200 dark:border-slate-700 cursor-pointer hover:border-indigo-300')}>
                     <span className="flex items-center gap-2">
                       <input type="checkbox" checked={on} disabled={have}
-                        onChange={(e) => setPicked((p) => { const n = new Set(p); if (e.target.checked) n.add(key); else n.delete(key); return n; })} />
+                        onChange={(e) => setPicked((p) => {
+                          const n = new Set(p);
+                          if (e.target.checked) {
+                            n.add(key);
+                            const g = SUB_ADDON_PRICES[key].group; // WhatsApp Basic/Pro are one-or-the-other
+                            if (g) Object.keys(SUB_ADDON_PRICES).forEach((k2) => { if (k2 !== key && SUB_ADDON_PRICES[k2].group === g) n.delete(k2); });
+                          } else n.delete(key);
+                          return n;
+                        })} />
                       <span className="font-medium text-gray-900 dark:text-slate-100">{a.name}</span>
                       {a.note && <span className="text-[10px] text-gray-400">{a.note}</span>}
                     </span>

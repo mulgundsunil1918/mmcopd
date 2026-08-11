@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { WhatsAppIcon } from './WhatsAppIcon';
 import { useToast } from '../hooks/useToast';
+import { useLicensedModules } from '../hooks/useLicensedModules';
 import { buildContext, buildWhatsAppUrl, renderTemplate, DEFAULT_WHATSAPP_TEMPLATE } from '../lib/whatsapp';
 import { cn } from '../lib/utils';
 import type { AppointmentWithJoins } from '../types';
@@ -17,6 +18,7 @@ export function SendWhatsAppButton({
   className?: string;
 }) {
   const toast = useToast();
+  const { has } = useLicensedModules();
   const { data: settings } = useQuery({
     queryKey: ['settings'],
     queryFn: () => window.electronAPI.settings.get(),
@@ -45,6 +47,9 @@ export function SendWhatsAppButton({
       toast('Opened WhatsApp — review the message and hit send', 'info');
     }
   };
+
+  // WhatsApp add-on (Basic or Pro) required — hide click-to-send otherwise.
+  if (!has('whatsapp')) return null;
 
   const tooltip = `Send appointment confirmation to ${appointment.patient_name} via WhatsApp`;
 

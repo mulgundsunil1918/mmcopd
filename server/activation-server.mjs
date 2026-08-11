@@ -35,7 +35,7 @@ const DEFAULT_CONTACT = {
   phone: process.env.CONTACT_PHONE || '8073935006',
   email: process.env.CONTACT_EMAIL || 'mulgundsunil@gmail.com',
 };
-const ALL_MODULES = ['reception', 'opd', 'pharmacy', 'ipd', 'lab', 'peds', 'whatsapp', 'analytics'];
+const ALL_MODULES = ['reception', 'opd', 'pharmacy', 'ipd', 'lab', 'peds', 'whatsapp', 'whatsapp_pro', 'analytics'];
 
 const PRIVATE_KEY = (() => {
   if (process.env.LICENSE_PRIVATE_KEY) return process.env.LICENSE_PRIVATE_KEY;

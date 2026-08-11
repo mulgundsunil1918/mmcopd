@@ -20,7 +20,9 @@ import { ACTIVATION_SERVER_URL } from './activationConfig';
 export const GRACE_DAYS = 7;
 export const DEFAULT_CONTACT = { phone: '8073935006', email: 'mulgundsunil@gmail.com' };
 /** Every gate-able module. Reception/OPD is the always-on base. */
-export const ALL_MODULES = ['reception', 'opd', 'pharmacy', 'ipd', 'lab', 'peds', 'whatsapp', 'analytics'] as const;
+// `whatsapp` = Basic (click-to-send + templates). `whatsapp_pro` = Pro upgrade
+// (Meta Cloud API automation). A Pro clinic's licence carries both.
+export const ALL_MODULES = ['reception', 'opd', 'pharmacy', 'ipd', 'lab', 'peds', 'whatsapp', 'whatsapp_pro', 'analytics'] as const;
 
 export interface LicensePayload {
   v: number;

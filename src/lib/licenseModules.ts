@@ -7,12 +7,14 @@
 // Only the PAID add-ons are licence-gated. The base bundle — Reception, OPD,
 // Pediatrics (free for paediatricians), Analytics, Billing — is included in every
 // plan and never gated. Paid add-ons: Laboratory, Pharmacy, IPD, WhatsApp.
+// The /whatsapp hub is the Meta-API automation page → WhatsApp **Pro**; Basic
+// (click-to-send) lives on appointment rows + Settings → Communication.
 export const ROUTE_MODULE: Record<string, string> = {
   '/lab': 'lab',
   '/pharmacy': 'pharmacy',
   '/ipd': 'ipd',
   '/discharge-summary': 'ipd',
-  '/whatsapp': 'whatsapp',
+  '/whatsapp': 'whatsapp_pro',
 };
 
 /**
