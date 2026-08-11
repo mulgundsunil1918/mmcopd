@@ -5,6 +5,7 @@ import { Modal } from '../Modal';
 import { BillPrint } from './BillPrint';
 import { useToast } from '../../hooks/useToast';
 import { useAuth } from '../../hooks/useAuth';
+import { useLicensedModules } from '../../hooks/useLicensedModules';
 import { cn } from '../../lib/utils';
 
 /**
@@ -37,7 +38,12 @@ export function QuickBillModal({
 }) {
   const toast = useToast();
   const { user } = useAuth();
-  const [billType, setBillType] = useState(presetType);
+  const { has } = useLicensedModules();
+  // Only show a module's bill tab if the clinic is licensed for it.
+  const billTabs = BILL_TYPES.filter((t) => (t.id === 'pharmacy' ? has('pharmacy') : t.id === 'lab' ? has('lab') : true));
+  const [billType, setBillType] = useState(
+    BILL_TYPES.some((t) => t.id === presetType) && (presetType === 'pharmacy' ? has('pharmacy') : presetType === 'lab' ? has('lab') : true)
+      ? presetType : 'opd_consult');
   const [q, setQ] = useState('');
   const [patient, setPatient] = useState<any | null>(presetPatient ?? null);
   const [customName, setCustomName] = useState('');
@@ -144,7 +150,7 @@ export function QuickBillModal({
       <div className="space-y-4">
         {/* Bill type */}
         <div className="flex flex-wrap gap-1 p-1 rounded-lg bg-gray-100 dark:bg-slate-800/60 w-fit">
-          {BILL_TYPES.map((t) => (
+          {billTabs.map((t) => (
             <button key={t.id} onClick={() => setBillType(t.id)}
               className={cn('px-3 py-1.5 rounded-md text-[12px] font-semibold transition',
                 billType === t.id ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-300 shadow-sm' : 'text-gray-600 dark:text-slate-400')}>

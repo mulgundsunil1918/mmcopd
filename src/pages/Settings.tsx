@@ -22,6 +22,7 @@ import { RoleAccessEditor } from '../components/settings/RoleAccessEditor';
 import { ModuleTutorialButton } from '../components/ModuleTutorial';
 import { BillingSettings } from '../components/settings/BillingSettings';
 import { useToast } from '../hooks/useToast';
+import { useLicensedModules } from '../hooks/useLicensedModules';
 import { INDIAN_STATES } from '../lib/india';
 import { KARNATAKA_PLACES, ALL_NEARBY_PLACES } from '../lib/places';
 import { DOCTOR_COLOR_OPTIONS, colorForDoctor } from '../lib/doctor-colors';
@@ -304,42 +305,50 @@ function SettingsGroup({ title, subtitle, children }: { title: string; subtitle:
   );
 }
 
-const MODES: { value: AppMode; title: string; blurb: string; includes: string[] }[] = [
+// `requires` = the PAID add-on modules a mode needs. A mode you aren't licensed
+// for is shown locked, so App Mode can never claim more than your subscription.
+const MODES: { value: AppMode; title: string; blurb: string; includes: string[]; requires: string[] }[] = [
   {
     value: 'reception',
     title: 'Reception Only',
     blurb: 'Front-desk flow: registration, appointments, billing, reports. No doctor screen, no pharmacy.',
     includes: ['Reception', 'Appointments', 'Billing', 'Accounts', 'Patient Log / Origin', 'Reports'],
+    requires: [],
   },
   {
     value: 'reception_pharmacy',
     title: 'Reception + Pharmacy',
     blurb: 'Adds the pharmacy module — drug master, batch-tracked stock, dispensing, Schedule H register. Useful for chemist-counter only setups.',
     includes: ['Everything in Reception', 'Pharmacy: inventory + dispense + Schedule H register'],
+    requires: ['pharmacy'],
   },
   {
     value: 'reception_doctor',
     title: 'Reception + Doctor',
     blurb: 'Adds the doctor consultation workflow — vitals, history, Rx, OPD slip. Patients send Rx to outside chemist.',
     includes: ['Everything in Reception', 'Doctor dashboards', 'Consultation + OPD slip'],
+    requires: [],
   },
   {
     value: 'reception_pharmacy_doctor',
     title: 'Reception + Pharmacy + Doctor (recommended)',
     blurb: 'Most common single-clinic setup — front desk, in-house pharmacy that auto-fills from doctor Rx, full Schedule H compliance.',
     includes: ['Everything in Reception', 'Doctor consultation + OPD slip', 'Pharmacy with auto-deduct on Rx'],
+    requires: ['pharmacy'],
   },
   {
     value: 'reception_pharmacy_doctor_lab',
     title: 'Reception + Pharmacy + Doctor + Lab',
     blurb: 'Polyclinic — adds the laboratory module: test catalog, orders, sample collection, result entry.',
     includes: ['Everything above', 'Lab test catalog', 'Lab orders + results'],
+    requires: ['pharmacy', 'lab'],
   },
   {
     value: 'full',
     title: 'Full HMS (adds IPD)',
     blurb: 'Full hospital — in-patient admissions, ward/bed management, discharge summary.',
     includes: ['Everything above', 'In-Patient (IPD) admissions', 'Ward + bed tracking', 'Discharge summary'],
+    requires: ['pharmacy', 'lab', 'ipd'],
   },
 ];
 
@@ -347,6 +356,9 @@ function AppModeSelector() {
   const qc = useQueryClient();
   const toast = useToast();
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { has, isDev } = useLicensedModules();
+  const MOD_LABEL: Record<string, string> = { pharmacy: 'Pharmacy', lab: 'Laboratory', ipd: 'In-Patient (IPD)' };
+  const missingFor = (m: { requires: string[] }) => (isDev ? [] : m.requires.filter((r) => !has(r)));
   const save = useMutation({
     mutationFn: (patch: Partial<Settings>) => window.electronAPI.settings.save(patch),
     onMutate: (patch) => {
@@ -370,38 +382,52 @@ function AppModeSelector() {
   // Defensive default — if the persisted setting is missing/unknown, assume reception_doctor.
   const current: AppMode = (MODES.find((m) => m.value === settings.app_mode)?.value) || 'reception_doctor';
   const currentTitle = MODES.find((m) => m.value === current)!.title;
+  const currentMissing = missingFor(MODES.find((m) => m.value === current)!);
 
   return (
     <section className="card p-5">
       <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-1">Application Mode</h2>
       <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-4">
-        Pick which modules your clinic uses. Navigation adapts instantly — nothing gets deleted, just hidden.
+        Pick which modules this station shows. Navigation adapts instantly — nothing gets deleted, just hidden. Options beyond your subscription are locked; add them in the Subscription tab.
       </p>
-      <div className="text-xs mb-4 px-3 py-2 rounded-lg bg-blue-100 border border-blue-300 text-blue-900 dark:bg-blue-900/40 dark:border-blue-700 dark:text-blue-100">
+      <div className={cn('text-xs mb-4 px-3 py-2 rounded-lg border', currentMissing.length
+        ? 'bg-amber-50 border-amber-300 text-amber-800 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-200'
+        : 'bg-blue-100 border-blue-300 text-blue-900 dark:bg-blue-900/40 dark:border-blue-700 dark:text-blue-100')}>
         Currently active mode: <span className="font-bold">{currentTitle}</span>
+        {currentMissing.length > 0 && <> — your subscription doesn’t include {currentMissing.map((r) => MOD_LABEL[r] || r).join(' + ')}, so those screens stay hidden until you add them.</>}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {MODES.map((m) => {
           const active = current === m.value;
           const pending = save.isPending && (save.variables as any)?.app_mode === m.value;
+          const missing = missingFor(m);
+          const locked = missing.length > 0;
           return (
             <div key={m.value} className="flex flex-col gap-1.5">
             <button
               type="button"
-              disabled={save.isPending}
+              disabled={save.isPending || locked}
+              title={locked ? `Needs ${missing.map((r) => MOD_LABEL[r] || r).join(' + ')} — add it in the Subscription tab` : undefined}
               onClick={() => {
-                if (current === m.value) return;
+                if (locked || current === m.value) return;
                 save.mutate({ app_mode: m.value });
               }}
               className={cn(
                 'relative text-left rounded-xl p-4 transition overflow-hidden',
-                active
+                locked
+                  ? 'border-2 border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/40 opacity-60 cursor-not-allowed'
+                  : active
                   ? 'border-4 border-blue-600 bg-blue-100 dark:bg-blue-900/50 dark:border-blue-400'
                   : 'border-2 border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-400'
               )}
-              style={active ? { boxShadow: '0 0 0 3px rgba(37, 99, 235, 0.3)' } : undefined}
+              style={active && !locked ? { boxShadow: '0 0 0 3px rgba(37, 99, 235, 0.3)' } : undefined}
             >
+              {locked && (
+                <div className="absolute top-2 right-2 flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider bg-gray-200 text-gray-600 dark:bg-slate-700 dark:text-slate-300">
+                  <Lock className="w-3 h-3" /> Locked
+                </div>
+              )}
               {active && (
                 <>
                   <div
@@ -453,8 +479,9 @@ function AppModeSelector() {
               </ul>
             </button>
             {/* "Learn about this setup" tutorial, just below each module option */}
-            <div className="px-1">
+            <div className="px-1 flex items-center gap-2 flex-wrap">
               <ModuleTutorialButton mode={m.value} />
+              {locked && <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">🔒 Needs {missing.map((r) => MOD_LABEL[r] || r).join(' + ')} — add it in Subscription</span>}
             </div>
             </div>
           );
@@ -4307,6 +4334,7 @@ function BillingIpdTab() {
     'ipd_doctor_visit_mode', 'ipd_transfer_charge_rule', 'ipd_accrual_time', 'ipd_advance_enabled',
     'tpa_enabled', 'ipd_admission_requests_enabled', 'discharge_summary_enabled', 'lab_auto_bill',
   ]);
+  const { has } = useLicensedModules();
 
   if (!settings) return <div className="card p-8 text-center text-sm text-gray-500"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></div>;
 
@@ -4324,6 +4352,7 @@ function BillingIpdTab() {
         </div>
       </div>
 
+      {has('ipd') && (<>
       <WardsBedsEditor />
 
       {/* IPD auto-accrual */}
@@ -4385,9 +4414,11 @@ function BillingIpdTab() {
           help="Lets reception take a deposit when admitting, adjusted against the final bill. Refunds are handled at discharge (important for LAMA and death, where money is usually owed back)."
           value={draft.ipd_advance_enabled ?? true} onChange={(v) => set('ipd_advance_enabled', v)} />
       </div>
+      </>)}
 
       <BillingSettings draft={draft} set={set as any} />
 
+      {has('ipd') && (<>
       {/* TPA */}
       <div className="card p-5">
         <AccrualToggle label="Handle insurance / TPA (cashless) admissions"
@@ -4410,7 +4441,9 @@ function BillingIpdTab() {
           help="A doctor seeing a patient can press “Request Admission”; it appears under IPD → Requests for reception to approve and assign a ward and bed. Turn off if reception admits directly."
           value={draft.ipd_admission_requests_enabled ?? true} onChange={(v) => set('ipd_admission_requests_enabled', v)} />
       </div>
+      </>)}
 
+      {has('lab') && (<>
       {/* Lab auto-billing */}
       <div className="card p-5">
         <AccrualToggle label="Auto-raise a bill when a lab test is ordered"
@@ -4419,6 +4452,7 @@ function BillingIpdTab() {
       </div>
 
       <LabSettingsCard />
+      </>)}
 
     </div>
   );
