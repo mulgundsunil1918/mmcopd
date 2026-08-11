@@ -460,6 +460,7 @@
     max-width: 440px; width: 100%; text-align: center;
     box-shadow: 0 30px 60px -10px rgba(0,0,0,0.4);
     animation: pop 0.25s ease;
+    max-height: calc(100vh - 40px); overflow-y: auto;   /* tall forms scroll inside */
   }
   @keyframes pop { from { transform: scale(0.92); opacity: 0; } to { transform: scale(1); opacity: 1; } }
   .modal-icon {
@@ -1002,12 +1003,18 @@
           <span class="calc-check"><svg fill="none" stroke="currentColor" stroke-width="4" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
           <div class="calc-info">
             <h4>🏥 Base — Reception &amp; OPD</h4>
-            <p>Registration (UHID) · appointments · consultation + Rx · bilingual OPD slip · 170+ lab catalog · pediatrics (WHO &amp; IAP) · GST billing · analytics · multi-station · 100% offline.</p>
+            <p>Registration (UHID) · appointments · consultation + Rx · bilingual OPD slip · pediatrics (WHO &amp; IAP) · GST billing · analytics · multi-station · 100% offline.</p>
           </div>
           <div class="calc-price">₹8,999<small>/ yr · required</small></div>
         </div>
 
         <div class="addons-label">Optional add-ons — tick what you need</div>
+
+        <label class="calc-mod" data-price="999" data-id="Laboratory">
+          <span class="calc-check"><svg fill="none" stroke="currentColor" stroke-width="4" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
+          <div class="calc-info"><h4>🧪 Laboratory</h4><p>170+ test catalog · orders · results · report &amp; bill printing.</p></div>
+          <div class="calc-price">+₹999<small>/ yr</small></div>
+        </label>
 
         <label class="calc-mod" data-price="1999" data-id="Pharmacy">
           <span class="calc-check"><svg fill="none" stroke="currentColor" stroke-width="4" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
@@ -1357,12 +1364,13 @@
         <label>Plan</label>
         <div class="enq-base">
           <div class="enq-base-head"><b>Included — every plan</b><span class="enq-base-price">₹8,999 / yr</span></div>
-          <div class="enq-base-mods">Registration · OPD / Doctors · Laboratory · Pediatrics <em>(free)</em> · Analytics · Billing</div>
+          <div class="enq-base-mods">Registration · OPD / Doctors · Pediatrics <em>(free)</em> · Analytics · Billing</div>
         </div>
       </div>
       <div class="enq-field">
         <label>Add-ons <span style="font-weight:400;color:#64748b;">(optional — tick what you need)</span></label>
         <div class="enq-addons">
+          <label class="enq-addon"><span class="l"><input type="checkbox" name="addon" value="Laboratory" data-price="999" onchange="calcTotal()"> Laboratory</span><span class="p">+ ₹999</span></label>
           <label class="enq-addon"><span class="l"><input type="checkbox" name="addon" value="Pharmacy" data-price="1999" onchange="calcTotal()"> Pharmacy</span><span class="p">+ ₹1,999</span></label>
           <label class="enq-addon"><span class="l"><input type="checkbox" name="addon" value="In-Patient (IPD)" data-price="4999" onchange="calcTotal()"> In-Patient (IPD)</span><span class="p">+ ₹4,999</span></label>
           <label class="enq-addon"><span class="l"><input type="checkbox" name="addon" value="WhatsApp Basic" data-price="999" data-wa="1" onchange="waPick(this); calcTotal()"> WhatsApp Basic</span><span class="p">+ ₹999</span></label>
@@ -1420,7 +1428,7 @@
 
   // ===== Sales enquiry =====
   const ENQ_BASE = 8999;
-  const ENQ_PRICES = { 'Pharmacy': 1999, 'In-Patient (IPD)': 4999, 'WhatsApp Basic': 999, 'WhatsApp Pro': 1999 };
+  const ENQ_PRICES = { 'Laboratory': 999, 'Pharmacy': 1999, 'In-Patient (IPD)': 4999, 'WhatsApp Basic': 999, 'WhatsApp Pro': 1999 };
   function openEnquiry() { document.getElementById('enqModal').classList.add('open'); calcTotal(); }
   function closeEnquiry() { document.getElementById('enqModal').classList.remove('open'); }
   function waPick(el) { // WhatsApp Basic / Pro are mutually exclusive — pick one
@@ -1515,18 +1523,12 @@
   });
 
   // ===== Visitor counter =====
-  // CounterAPI v2. Fill these in after creating a workspace + API key at
-  // https://counterapi.dev/signup — while either is blank the section stays
-  // hidden rather than showing a broken number.
-  //
-  // NOTE: this key ships inside the page and is readable by anyone who views
-  // source. A CounterAPI key only touches counters, but someone could inflate
-  // the number or burn the rate limit. Use a key scoped to this counter only.
-  //
-  // `baseline` is a starting offset added to the live count. It is a display
-  // number, not measured traffic — real visits accumulate on top of it once the
-  // API is configured. Set it to 0 to show only genuine traffic.
-  const COUNTER = { workspace: '', name: 'visits', apiKey: '', baseline: 36 };
+  // Live count via Abacus (https://abacus.jasoncameron.dev) — a free, no-signup,
+  // no-auth hit counter. Each page load hits /hit/<namespace>/<key> which
+  // increments and returns { value }. `baseline` is a starting offset added on
+  // top (a display number, not measured traffic); set it to 0 to show only
+  // genuine visits. No credentials ship in the page.
+  const COUNTER = { namespace: 'curedesk-hms', key: 'landing-mmcopd', baseline: 36 };
 
   (async function initVisitorCounter() {
     const base = Number(COUNTER.baseline) || 0;
@@ -1558,39 +1560,18 @@
       requestAnimationFrame(step);
     };
 
-    // Not wired to the API yet — show the baseline on its own so the section
-    // isn't blank. Once credentials are filled in, live visits add to it.
-    if (!COUNTER.workspace || !COUNTER.apiKey) {
-      if (base > 0) show(base);
-      return;
-    }
-
-    // The v2 response shape isn't published, so pull the first plausible
-    // count field rather than assuming one.
-    const pickCount = (o, depth = 0) => {
-      if (typeof o === 'number' && Number.isFinite(o)) return o;
-      if (!o || typeof o !== 'object' || depth > 3) return null;
-      for (const k of ['up_count', 'count', 'value', 'visits', 'total']) {
-        if (typeof o[k] === 'number') return o[k];
-      }
-      for (const v of Object.values(o)) {
-        const hit = pickCount(v, depth + 1);
-        if (hit !== null) return hit;
-      }
-      return null;
-    };
-
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 6000);   // never hang the page
       const res = await fetch(
-        `https://api.counterapi.dev/v2/${encodeURIComponent(COUNTER.workspace)}/${encodeURIComponent(COUNTER.name)}/up`,
-        { headers: { Authorization: `Bearer ${COUNTER.apiKey}` }, signal: ctrl.signal }
+        `https://abacus.jasoncameron.dev/hit/${encodeURIComponent(COUNTER.namespace)}/${encodeURIComponent(COUNTER.key)}`,
+        { signal: ctrl.signal }
       );
       clearTimeout(timer);
-      if (!res.ok) return;
+      if (!res.ok) { if (base > 0) show(base); return; }
 
-      const live = pickCount(await res.json());
+      const data = await res.json();
+      const live = (data && typeof data.value === 'number') ? data.value : null;
       if (live === null) { if (base > 0) show(base); return; }
 
       show(base + live);

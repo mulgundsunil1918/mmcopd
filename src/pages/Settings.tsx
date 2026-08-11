@@ -4090,14 +4090,22 @@ const SUB_MODULES: { key: string; name: string; desc: string; base?: boolean }[]
   // Base bundle — included in every plan (never locked).
   { key: 'reception', name: 'Reception & Registration', desc: 'Patient registration, tokens, queue', base: true },
   { key: 'opd', name: 'OPD / Consultation', desc: 'Doctor consultation & prescriptions', base: true },
-  { key: 'lab', name: 'Laboratory', desc: 'Test orders, results, 170+ catalog', base: true },
   { key: 'peds', name: 'Pediatrics', desc: 'Growth charts, vaccines — free for paediatricians', base: true },
   { key: 'analytics', name: 'Analytics & Reports', desc: 'Revenue, module P&L, insights', base: true },
   // Paid add-ons — licence-gated.
+  { key: 'lab', name: 'Laboratory', desc: 'Test orders, results, 170+ catalog' },
   { key: 'pharmacy', name: 'Pharmacy', desc: 'Dispensing, FEFO inventory, sales' },
   { key: 'ipd', name: 'In-Patient (IPD)', desc: 'Admissions, wards, discharge, TPA' },
   { key: 'whatsapp', name: 'WhatsApp Messaging', desc: 'Click-to-WhatsApp + automation' },
 ];
+
+const SUB_BASE_PRICE = 8999;
+const SUB_ADDON_PRICES: Record<string, { name: string; price: number; note?: string }> = {
+  lab: { name: 'Laboratory', price: 999 },
+  pharmacy: { name: 'Pharmacy', price: 1999 },
+  ipd: { name: 'In-Patient (IPD)', price: 4999 },
+  whatsapp: { name: 'WhatsApp', price: 999, note: 'Basic · Pro ₹1,999' },
+};
 
 function SubscriptionTab() {
   const qc = useQueryClient();
@@ -4108,6 +4116,7 @@ function SubscriptionTab() {
   const [busy, setBusy] = useState<'online' | 'paste' | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
 
   const { data: lic, isLoading } = useQuery({ queryKey: ['license'], queryFn: () => window.electronAPI.license.status() });
 
@@ -4122,6 +4131,11 @@ function SubscriptionTab() {
   const expiry = lic.payload?.expires_at ? format(parseISO(lic.payload.expires_at), 'd MMM yyyy') : '—';
   const machineId = lic.hardwareId || '';
   const isActive = (k: string, base?: boolean) => isDev || base || modules.includes(k);
+  // Live "new annual total" for the upgrade dialog = base + every add-on the clinic
+  // already has OR is now ticking.
+  const newTotal = SUB_BASE_PRICE + Object.entries(SUB_ADDON_PRICES)
+    .filter(([k]) => modules.includes(k) || picked.has(k))
+    .reduce((s, [, a]) => s + a.price, 0);
 
   const planTone =
     lic.state === 'locked' ? { bg: 'bg-red-50 dark:bg-red-900/20', text: 'text-red-700 dark:text-red-300', label: 'Expired — read-only' }
@@ -4172,7 +4186,7 @@ function SubscriptionTab() {
             </div>
           </div>
           {!isDev && (
-            <button className="btn-primary" onClick={() => { setErr(null); setOpen(true); }}>
+            <button className="btn-primary" onClick={() => { setErr(null); setPicked(new Set()); setOpen(true); }}>
               <KeyRound className="w-4 h-4" /> Enter upgrade / renewal code
             </button>
           )}
@@ -4193,7 +4207,7 @@ function SubscriptionTab() {
                     {m.base && <span className="text-[10px] font-normal text-gray-400">(always included)</span>}
                   </div>
                   <div className="text-[11px] text-gray-500 dark:text-slate-400">{m.desc}</div>
-                  {!on && <button onClick={() => { setErr(null); setOpen(true); }} className="text-[11px] font-semibold text-blue-600 hover:underline mt-1">Upgrade to activate →</button>}
+                  {!on && <button onClick={() => { setErr(null); setPicked(new Set([m.key])); setOpen(true); }} className="text-[11px] font-semibold text-blue-600 hover:underline mt-1">Upgrade to activate →</button>}
                 </div>
               </div>
             );
@@ -4213,7 +4227,38 @@ function SubscriptionTab() {
 
       <Modal open={open} onClose={() => busy === null && setOpen(false)} title="Upgrade / renew subscription" size="md">
         <div className="space-y-4">
-          <p className="text-[13px] text-gray-600 dark:text-slate-300">Share this Machine ID when you call — your code is tied to it. Then enter the code we send you.</p>
+          <p className="text-[13px] text-gray-600 dark:text-slate-300">Pick the modules you want, share the Machine ID below when you call, then enter the code we send you.</p>
+
+          {/* Priced module picker + live "new total" — mirrors the website. */}
+          <div>
+            <div className="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-900/10 px-3 py-2 mb-1.5 flex items-center justify-between text-[13px]">
+              <span className="text-gray-700 dark:text-slate-200">Included plan <span className="text-gray-400">· OPD · Pediatrics (free) · Analytics · Billing</span></span>
+              <span className="font-bold text-indigo-700 dark:text-indigo-300">₹{SUB_BASE_PRICE.toLocaleString('en-IN')}</span>
+            </div>
+            <div className="space-y-1.5">
+              {Object.entries(SUB_ADDON_PRICES).map(([key, a]) => {
+                const have = modules.includes(key);
+                const on = have || picked.has(key);
+                return (
+                  <label key={key} className={cn('flex items-center justify-between rounded-lg border p-2.5 text-[13px]', have ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-900/10' : 'border-gray-200 dark:border-slate-700 cursor-pointer hover:border-indigo-300')}>
+                    <span className="flex items-center gap-2">
+                      <input type="checkbox" checked={on} disabled={have}
+                        onChange={(e) => setPicked((p) => { const n = new Set(p); if (e.target.checked) n.add(key); else n.delete(key); return n; })} />
+                      <span className="font-medium text-gray-900 dark:text-slate-100">{a.name}</span>
+                      {a.note && <span className="text-[10px] text-gray-400">{a.note}</span>}
+                    </span>
+                    <span className={cn('font-semibold', have ? 'text-emerald-600' : 'text-indigo-700 dark:text-indigo-300')}>{have ? '✓ Included' : `+₹${a.price.toLocaleString('en-IN')}`}</span>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="flex justify-between items-center mt-2 rounded-lg bg-slate-900 text-white px-3 py-2">
+              <span className="text-[12px]">New annual total</span>
+              <span className="text-[15px] font-extrabold">₹{newTotal.toLocaleString('en-IN')} <span className="text-[10px] font-semibold opacity-70">/ yr</span></span>
+            </div>
+            <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-1.5">Prices are per year. Tell us the modules you want — we’ll send a code that unlocks exactly those.</p>
+          </div>
+
           <div>
             <label className="label">Machine ID</label>
             <div className="flex gap-2">
