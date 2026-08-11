@@ -530,6 +530,7 @@
         cabin, and the pharmacy counter over your hospital network. Your data never leaves your computer.
       </p>
       <div class="hero-ctas">
+        <a href="#" class="enquiry-cta" onclick="event.preventDefault(); openEnquiry();">📩 Sales Enquiry</a>
         <a href="demo.html" class="btn-primary">▶ Try Live Demo</a>
         <a href="#download" class="btn-secondary" onclick="event.preventDefault(); openDownload();">Download for Windows</a>
       </div>
@@ -1236,6 +1237,9 @@
       </a>
     </div>
     <p class="contact-note">Tell us your hospital / clinic name and city, and we'll tailor the walkthrough to how you actually work.</p>
+    <div style="text-align:center; margin-top:26px;">
+      <a href="#" class="enquiry-cta enquiry-cta-lg" onclick="event.preventDefault(); openEnquiry();">📩 Send a Sales Enquiry</a>
+    </div>
   </div>
 </div>
 
@@ -1288,6 +1292,87 @@
   </div>
 </footer>
 
+<!-- ============== SALES ENQUIRY ============== -->
+<style>
+  .enquiry-cta{ display:inline-flex; align-items:center; gap:8px; background:linear-gradient(135deg,#4f46e5,#2563eb); color:#fff; font-weight:800; padding:14px 26px; border-radius:12px; font-size:15px; box-shadow:0 8px 22px rgba(79,70,229,.30); cursor:pointer; border:none; text-decoration:none; transition:transform .15s ease, filter .15s ease; }
+  .enquiry-cta:hover{ filter:brightness(1.06); transform:translateY(-1px); }
+  .enquiry-cta-lg{ padding:17px 36px; font-size:17px; }
+  .enq-modal{ max-width:540px; text-align:left; }
+  .enq-modal h3{ text-align:center; }
+  .enq-modal .enq-sub{ text-align:center; color:#475569; margin-top:-4px; }
+  #enqForm{ margin-top:16px; display:flex; flex-direction:column; gap:13px; }
+  .enq-row{ display:flex; gap:12px; }
+  @media (max-width:520px){ .enq-row{ flex-direction:column; } }
+  .enq-field{ flex:1; display:flex; flex-direction:column; gap:5px; min-width:0; }
+  .enq-field label{ font-size:12px; font-weight:700; color:#334155; }
+  .enq-field input, .enq-field select{ padding:11px 12px; border:1px solid #cbd5e1; border-radius:9px; font-size:14px; font-family:inherit; background:#fff; color:#0f172a; width:100%; box-sizing:border-box; }
+  .enq-field input:focus, .enq-field select:focus{ outline:none; border-color:#4f46e5; box-shadow:0 0 0 3px rgba(79,70,229,.16); }
+  .enq-status{ font-size:13px; min-height:18px; text-align:center; }
+  .enq-status.ok{ color:#059669; font-weight:700; }
+  .enq-status.err{ color:#dc2626; font-weight:600; }
+  .enq-status.err a{ color:#4f46e5; font-weight:700; }
+</style>
+<div class="modal-overlay" id="enqModal" onclick="if (event.target===this) closeEnquiry();">
+  <div class="modal enq-modal">
+    <div class="modal-icon">
+      <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+    </div>
+    <h3>Sales Enquiry</h3>
+    <p class="enq-sub">Tell us about your clinic and the plan you need — we usually reply the same day.</p>
+    <form id="enqForm" onsubmit="return submitEnquiry(event)">
+      <div class="enq-field">
+        <label for="enqName">Your name</label>
+        <input id="enqName" name="name" required autocomplete="name" placeholder="Dr / Owner name">
+      </div>
+      <div class="enq-row">
+        <div class="enq-field">
+          <label for="enqPlace">Place / City</label>
+          <input id="enqPlace" name="place" required placeholder="e.g. Gadag">
+        </div>
+        <div class="enq-field">
+          <label for="enqState">State</label>
+          <select id="enqState" name="state" required>
+            <option value="" disabled selected>Select state…</option>
+            <option>Andhra Pradesh</option><option>Arunachal Pradesh</option><option>Assam</option><option>Bihar</option><option>Chhattisgarh</option><option>Goa</option><option>Gujarat</option><option>Haryana</option><option>Himachal Pradesh</option><option>Jharkhand</option><option>Karnataka</option><option>Kerala</option><option>Madhya Pradesh</option><option>Maharashtra</option><option>Manipur</option><option>Meghalaya</option><option>Mizoram</option><option>Nagaland</option><option>Odisha</option><option>Punjab</option><option>Rajasthan</option><option>Sikkim</option><option>Tamil Nadu</option><option>Telangana</option><option>Tripura</option><option>Uttar Pradesh</option><option>Uttarakhand</option><option>West Bengal</option>
+            <option>Andaman &amp; Nicobar</option><option>Chandigarh</option><option>Dadra &amp; Nagar Haveli and Daman &amp; Diu</option><option>Delhi</option><option>Jammu &amp; Kashmir</option><option>Ladakh</option><option>Lakshadweep</option><option>Puducherry</option>
+          </select>
+        </div>
+      </div>
+      <div class="enq-field">
+        <label for="enqPlan">Subscription required</label>
+        <select id="enqPlan" name="subscription" required>
+          <option value="" disabled selected>Choose a plan…</option>
+          <option>Full HMS — all modules</option>
+          <option>Clinic / OPD essentials (Reception + Doctors + Billing)</option>
+          <option>OPD + Pharmacy</option>
+          <option>OPD + Pharmacy + Laboratory</option>
+          <option>In-Patient (IPD) add-on</option>
+          <option>Pediatrics add-on</option>
+          <option>WhatsApp add-on</option>
+          <option>Not sure — please advise</option>
+        </select>
+      </div>
+      <div class="enq-row">
+        <div class="enq-field">
+          <label for="enqContact">Contact number</label>
+          <input id="enqContact" name="contact" type="tel" required inputmode="tel" autocomplete="tel" placeholder="10-digit mobile">
+        </div>
+        <div class="enq-field">
+          <label for="enqEmail">Email (Gmail)</label>
+          <input id="enqEmail" name="email" type="email" required autocomplete="email" placeholder="you@gmail.com">
+        </div>
+      </div>
+      <!-- honeypot: bots fill this, humans never see it -->
+      <input type="text" name="_honey" style="display:none" tabindex="-1" autocomplete="off">
+      <div class="enq-status" id="enqStatus" aria-live="polite"></div>
+      <div class="modal-actions">
+        <button type="submit" class="btn-primary" id="enqSubmit" style="font-size:14px;">Send enquiry</button>
+        <button type="button" class="btn-secondary" onclick="closeEnquiry();" style="border:1px solid #cbd5e1;background:#fff;cursor:pointer;font-size:14px;font-weight:600;padding:10px 18px;border-radius:10px;">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- ============== DOWNLOAD MODAL ============== -->
 <div class="modal-overlay" id="dlModal" onclick="if (event.target===this) closeDownload();">
   <div class="modal">
@@ -1310,6 +1395,47 @@
 <script>
   function openDownload() { document.getElementById('dlModal').classList.add('open'); }
   function closeDownload() { document.getElementById('dlModal').classList.remove('open'); }
+
+  // ===== Sales enquiry =====
+  function openEnquiry() { document.getElementById('enqModal').classList.add('open'); }
+  function closeEnquiry() { document.getElementById('enqModal').classList.remove('open'); }
+  async function submitEnquiry(e) {
+    e.preventDefault();
+    const form = e.target;
+    const btn = document.getElementById('enqSubmit');
+    const status = document.getElementById('enqStatus');
+    const d = Object.fromEntries(new FormData(form).entries());
+    if (d._honey) return false;                       // bot trap tripped — silently drop
+    status.className = 'enq-status'; status.textContent = '';
+    const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Sending…';
+    const payload = {
+      Name: d.name, Place: d.place, State: d.state,
+      Subscription: d.subscription, Contact: d.contact, Email: d.email,
+      _subject: 'CureDesk Sales Enquiry — ' + d.name + ' (' + d.place + ')',
+      _replyto: d.email, _template: 'table', _captcha: 'false',
+    };
+    try {
+      const r = await fetch('https://formsubmit.co/ajax/help@bridgr.co.in', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      status.className = 'enq-status ok';
+      status.textContent = '✓ Thank you! Your enquiry has been sent — we’ll be in touch shortly.';
+      form.reset();
+      btn.textContent = 'Sent ✓';
+      setTimeout(closeEnquiry, 2800);
+    } catch (err) {
+      // Fallback: open the visitor's mail app with everything pre-filled.
+      const body = 'Name: ' + d.name + '%0D%0APlace: ' + d.place + '%0D%0AState: ' + d.state
+        + '%0D%0ASubscription required: ' + d.subscription + '%0D%0AContact: ' + d.contact + '%0D%0AEmail: ' + d.email;
+      status.className = 'enq-status err';
+      status.innerHTML = 'Couldn’t send automatically. <a href="mailto:help@bridgr.co.in?subject=CureDesk%20Sales%20Enquiry&body=' + body + '">Click here to email us instead</a>.';
+      btn.disabled = false; btn.textContent = orig;
+    }
+    return false;
+  }
 
   // ===== Mobile nav =====
   const navToggle = document.getElementById('navToggle');
