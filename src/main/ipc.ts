@@ -25,6 +25,14 @@ export function runFullBackup(root: string, label: 'backup' | 'pre-restore' = 'b
 export function isBackupServiceReady() {
   return _performBackupToRoot !== null;
 }
+/** Full backup to the clinic's configured folder (falls back to userData/backups,
+ *  which always works). Used to force a safety backup before an app update. */
+export async function runConfiguredBackup(label: 'backup' | 'pre-restore' = 'backup') {
+  const s = getAllSettings(getDb()) as any;
+  const root = s.backup_folder || path.join(app.getPath('userData'), 'backups');
+  if (!fs.existsSync(root)) fs.mkdirSync(root, { recursive: true });
+  return runFullBackup(root, label);
+}
 import { getAllSettings, saveSettings } from '../db/settings';
 import { broadcastEvent as broadcastNetworkEvent } from './network-server';
 import { NotificationService } from '../services/notifications';
@@ -2588,6 +2596,26 @@ export function registerIpc() {
         rowCounts[spec.sheet] = -1;
       }
     }
+    // Completeness net: any table NOT covered by a curated sheet above still gets
+    // dumped raw, so a newly-added module's data can never silently miss the
+    // workbook. The .sqlite copy already has everything; this keeps the readable
+    // Excel complete too. Secrets/internal tables stay in the .sqlite backup only.
+    try {
+      const CURATED = new Set(['patients', 'doctors', 'appointments', 'consultations', 'prescription_items', 'bills', 'lab_orders', 'lab_order_items', 'lab_tests', 'pharmacy_sales', 'pharmacy_sale_items', 'drug_inventory', 'drug_master', 'drug_stock_batches', 'wholesalers', 'purchase_invoices', 'purchase_invoice_items', 'dispensing_register', 'ip_admissions', 'wards', 'beds', 'bed_transfers', 'ip_vitals', 'ip_medication_orders', 'ip_medication_admin', 'ip_progress_notes', 'ip_nursing_notes', 'ip_intake_output', 'ip_diet_orders', 'ip_cross_consultations', 'mlc_register', 'admission_requests', 'bill_items', 'bill_payments', 'advances', 'charge_heads', 'tpa_master', 'tpa_claims', 'discharge_templates', 'peds_growth_measurements', 'peds_vaccine_records', 'patient_allergies', 'patient_conditions', 'patient_family_history']);
+      const SKIP = new Set(['sqlite_sequence', 'schema_meta', 'settings', 'users']); // secrets/internal → .sqlite backup only
+      for (const t of listUserTables(db)) {
+        if (CURATED.has(t) || SKIP.has(t)) continue;
+        try {
+          const rawRows = db.prepare(`SELECT * FROM "${t}"`).all() as any[];
+          const rows = sanitizeRows(rawRows);
+          const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{}]);
+          const sheetName = ('tbl ' + t).replace(/[\/\\?*\[\]]/g, '').slice(0, 31);
+          XLSX.utils.book_append_sheet(wb, ws, sheetName);
+          rowCounts[sheetName] = rawRows.length;
+          sheets.push(sheetName);
+        } catch { /* skip a bad/locked table */ }
+      }
+    } catch { /* ignore — curated sheets are already written */ }
     if (!fs.existsSync(path.dirname(destFile))) fs.mkdirSync(path.dirname(destFile), { recursive: true });
     // SheetJS doesn't reliably auto-detect Node fs inside a Vite-bundled Electron main —
     // generate the workbook into a buffer and write it ourselves.
@@ -3066,31 +3094,27 @@ export function registerIpc() {
 
   // ===== Restore preview =====
   // Tables we count for the restore summary. Order = display order in the UI.
-  const COUNT_TABLES = [
-    'patients', 'appointments', 'bills', 'prescription_items',
-    'lab_orders', 'lab_order_items', 'pharmacy_sales', 'pharmacy_sale_items',
-    'ip_admissions', 'consultations',
-    // Pharmacy compliance v2 tables
-    'drug_master', 'drug_stock_batches', 'wholesalers',
-    'purchase_invoices', 'purchase_invoice_items', 'dispensing_register',
-    // Legacy (kept as safety net during v0.2.x; remove in v0.3.0)
-    'drug_inventory',
-    'doctors', 'users', 'notification_log', 'audit_log',
-    'patient_documents', 'patient_allergies', 'patient_conditions',
-  ];
+  // Every real (non-internal) table in a database, straight from its schema — so
+  // the backup preview always reflects the CURRENT schema, never a stale list.
+  // New modules' tables (IPD, lab, billing…) show up automatically; an empty
+  // table shows 0, and a table missing from an older backup shows null.
+  function listUserTables(db: any): string[] {
+    return (db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+    ).all() as { name: string }[]).map((r) => r.name);
+  }
 
   function countTablesIn(sqlitePath: string): { counts: Record<string, number | null>; totalRows: number } {
     const db = new Database(sqlitePath, { readonly: true, fileMustExist: true });
     try {
       const counts: Record<string, number | null> = {};
       let totalRows = 0;
-      for (const t of COUNT_TABLES) {
+      for (const t of listUserTables(db)) {
         try {
-          const r = db.prepare(`SELECT COUNT(*) as c FROM ${t}`).get() as { c: number };
+          const r = db.prepare(`SELECT COUNT(*) as c FROM "${t}"`).get() as { c: number };
           counts[t] = r.c;
           totalRows += r.c;
         } catch {
-          // Table doesn't exist in this backup (older schema) — mark as unknown
           counts[t] = null;
         }
       }
@@ -3150,9 +3174,9 @@ export function registerIpc() {
       try {
         // Use the live db, not a separate connection — avoids WAL conflict.
         const db = getDb();
-        for (const t of COUNT_TABLES) {
+        for (const t of listUserTables(db)) {
           try {
-            const r = db.prepare(`SELECT COUNT(*) as c FROM ${t}`).get() as { c: number };
+            const r = db.prepare(`SELECT COUNT(*) as c FROM "${t}"`).get() as { c: number };
             current.counts[t] = r.c;
             current.totalRows += r.c;
           } catch {

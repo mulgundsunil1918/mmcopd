@@ -36,7 +36,10 @@ export function UpdateBanner() {
 
   const installMut = useMutation({
     mutationFn: () => window.electronAPI.updates.installNow(),
-    onSuccess: () => toast('Restarting to install update…', 'info'),
+    onSuccess: (r: any) => {
+      if (r?.backup?.ok) toast('Backed up your data, then opened the installer download. Install over the current version — your records stay.', 'success');
+      else toast('Opened the installer download. ⚠ Auto-backup didn’t run — please back up from Settings before installing.', 'info');
+    },
   });
 
   if (state !== 'downloaded' || dismissed) return null;
@@ -53,7 +56,7 @@ export function UpdateBanner() {
               Update ready{info.version ? ` — v${info.version}` : ''}
             </div>
             <div className="text-[11px] text-gray-600 dark:text-slate-300 mt-0.5">
-              A new version of CureDesk HMS is downloaded and ready to install. Restart now to apply. Your data is safe.
+              A new version of CureDesk HMS is ready. We take a full backup of your data automatically before you install — nothing is lost.
             </div>
             {info.releaseNotes && (
               <details className="mt-2">

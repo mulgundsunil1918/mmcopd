@@ -476,22 +476,36 @@ type RestorePreview = {
   currentDbPath: string;
 };
 
-const RESTORE_ROWS: { key: string; label: string }[] = [
-  { key: 'patients', label: 'Patients' },
-  { key: 'appointments', label: 'Appointments' },
-  { key: 'bills', label: 'Bills' },
-  { key: 'consultations', label: 'Consultations / EMR' },
-  { key: 'prescription_items', label: 'Prescription items' },
-  { key: 'lab_orders', label: 'Lab orders' },
-  { key: 'pharmacy_sales', label: 'Pharmacy sales' },
-  { key: 'ip_admissions', label: 'IP admissions' },
-  { key: 'drug_inventory', label: 'Drugs in inventory' },
-  { key: 'doctors', label: 'Doctors' },
-  { key: 'users', label: 'User accounts' },
-  { key: 'patient_documents', label: 'Patient documents (EMR)' },
-  { key: 'notification_log', label: 'Notification log' },
-  { key: 'audit_log', label: 'Audit log entries' },
-];
+// Friendly names for known tables; any table without one falls back to a
+// prettified version of its raw name. The row list itself is built dynamically
+// from whatever tables the backup + current database actually contain, so every
+// module (IPD, lab, billing, WhatsApp…) is always shown — nothing is hardcoded.
+const TABLE_LABELS: Record<string, string> = {
+  patients: 'Patients', appointments: 'Appointments', bills: 'Bills', bill_items: 'Bill items',
+  bill_payments: 'Bill payments', advances: 'Advances', charge_heads: 'Charge heads',
+  consultations: 'Consultations / EMR', prescription_items: 'Prescription items',
+  lab_orders: 'Lab orders', lab_order_items: 'Lab results', lab_tests: 'Lab test catalog',
+  pharmacy_sales: 'Pharmacy sales', pharmacy_sale_items: 'Pharmacy sale items',
+  drug_inventory: 'Drugs (legacy)', drug_master: 'Drug master', drug_stock_batches: 'Drug stock batches',
+  wholesalers: 'Wholesalers', purchase_invoices: 'Purchase invoices', purchase_invoice_items: 'Purchase invoice items',
+  dispensing_register: 'Dispensing register', ip_admissions: 'IP admissions', wards: 'Wards', beds: 'Beds',
+  bed_transfers: 'Bed transfers', ip_vitals: 'IP vitals', ip_medication_orders: 'IP medication orders',
+  ip_medication_admin: 'IP medication admin (MAR)', ip_progress_notes: 'IP progress notes',
+  ip_nursing_notes: 'IP nursing notes', ip_intake_output: 'IP intake/output', ip_diet_orders: 'IP diet orders',
+  ip_cross_consultations: 'IP cross consultations', mlc_register: 'MLC register', mlc_correspondence: 'MLC correspondence',
+  admission_requests: 'Admission requests', tpa_master: 'TPA insurers', tpa_claims: 'TPA claims',
+  tpa_claim_events: 'TPA claim events', discharge_templates: 'Discharge templates',
+  peds_growth_measurements: 'Pediatric growth', peds_vaccine_records: 'Pediatric vaccines',
+  patient_immunizations: 'Immunisations', patient_allergies: 'EMR allergies', patient_conditions: 'EMR conditions',
+  patient_family_history: 'EMR family history', patient_documents: 'Patient documents', print_jobs: 'Print jobs',
+  doctors: 'Doctors', users: 'User accounts', notification_log: 'Notification log', audit_log: 'Audit log entries',
+  body_release: 'Body release register', counters: 'Number counters', settings: 'Settings',
+};
+function prettyTable(name: string): string {
+  if (TABLE_LABELS[name]) return TABLE_LABELS[name];
+  if (name.startsWith('wa_')) return 'WhatsApp · ' + name.slice(3).replace(/_/g, ' ');
+  return name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, ' ');
+}
 
 function formatBackupTimestamp(iso: string): string {
   try {
@@ -626,6 +640,10 @@ function BackupSettings() {
   });
   const installNow = useMutation({
     mutationFn: () => window.electronAPI.updates.installNow(),
+    onSuccess: (r: any) => {
+      if (r?.backup?.ok) toast('Backed up your data, then opened the installer download.', 'success');
+      else toast('Opened the installer download. Back up from here before installing.', 'info');
+    },
   });
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [restoreSource, setRestoreSource] = useState<string | null>(null);
@@ -983,14 +1001,17 @@ function BackupSettings() {
                       </tr>
                     </thead>
                     <tbody>
-                      {RESTORE_ROWS.map((r) => (
-                        <RestoreRow
-                          key={r.key}
-                          label={r.label}
-                          now={preview.current.counts[r.key] ?? 0}
-                          after={preview.backup.counts[r.key] ?? 0}
-                        />
-                      ))}
+                      {Array.from(new Set([...Object.keys(preview.backup.counts), ...Object.keys(preview.current.counts)]))
+                        .filter((k) => (preview.backup.counts[k] ?? 0) > 0 || (preview.current.counts[k] ?? 0) > 0)
+                        .sort((a, b) => prettyTable(a).localeCompare(prettyTable(b)))
+                        .map((k) => (
+                          <RestoreRow
+                            key={k}
+                            label={prettyTable(k)}
+                            now={preview.current.counts[k] ?? 0}
+                            after={preview.backup.counts[k] ?? 0}
+                          />
+                        ))}
                     </tbody>
                   </table>
                 </div>

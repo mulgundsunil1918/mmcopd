@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, Notification, Tray, Menu, nativeImage, she
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
-import { registerIpc, runFullBackup, isBackupServiceReady } from './main/ipc';
+import { registerIpc, runFullBackup, isBackupServiceReady, runConfiguredBackup } from './main/ipc';
 import { registerIpdBillingIpc } from './main/ipd-billing-ipc';
 import { registerPedsIpc } from './main/peds-ipc';
 import { installIpcRegistry, setReadOnlyMode } from './main/ipc-registry';
@@ -453,7 +453,23 @@ function createWindow() {
   // "Install" now = open the new Setup.exe download in the user's browser.
   // They double-click to install over the existing version. Their data
   // in %APPDATA%\CureDesk HMS\ is preserved.
-  ipcMain.handle('updates:installNow', () => { openDownloadPage(); return { ok: true }; });
+  //
+  // MANDATORY safety backup first: before sending them to install a new version,
+  // take a full backup (to their configured folder, else userData/backups). No
+  // data can be lost across an upgrade, even if a schema migration runs on next
+  // launch. Backup rarely fails (the default folder always works); if it does we
+  // report it so they can back up manually before installing.
+  ipcMain.handle('updates:installNow', async () => {
+    let backup: { ok: boolean; path?: string; error?: string };
+    try {
+      const r = await runConfiguredBackup('backup');
+      backup = { ok: true, path: r.bundleDir };
+    } catch (e: any) {
+      backup = { ok: false, error: e?.message || String(e) };
+    }
+    openDownloadPage();
+    return { ok: true, backup };
+  });
 
   // ===== Hard reset =====
   // Wipes %APPDATA%\CureDesk HMS\ (everything: SQLite, settings, localStorage).
