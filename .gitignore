@@ -15,3 +15,7 @@ license-keys/
 
 # activation server local code store (never commit)
 server/data/
+
+# Vendor licence admin — LOCAL ONLY, never push (private tool + customer data + machine IDs + codes)
+tools/keygen-server.mjs
+tools/.keygen-data/
