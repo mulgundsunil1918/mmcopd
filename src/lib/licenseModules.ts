@@ -4,14 +4,14 @@
  * and is never gated. A route not listed here is always available (Settings,
  * Users, core).  The licensed-module list comes from the signed licence.
  */
+// Only the PAID add-ons are licence-gated. The base bundle — Reception, OPD,
+// Laboratory, Pediatrics (free for paediatricians), Analytics, Billing — is
+// included in every plan and never gated. Paid add-ons: Pharmacy, IPD, WhatsApp.
 export const ROUTE_MODULE: Record<string, string> = {
   '/pharmacy': 'pharmacy',
   '/ipd': 'ipd',
   '/discharge-summary': 'ipd',
-  '/lab': 'lab',
-  '/pediatrics': 'peds',
   '/whatsapp': 'whatsapp',
-  '/analytics': 'analytics',
 };
 
 /**

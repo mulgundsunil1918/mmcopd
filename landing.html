@@ -532,7 +532,6 @@
       <div class="hero-ctas">
         <a href="#" class="enquiry-cta" onclick="event.preventDefault(); openEnquiry();">📩 Sales Enquiry</a>
         <a href="demo.html" class="btn-primary">▶ Try Live Demo</a>
-        <a href="#download" class="btn-secondary" onclick="event.preventDefault(); openDownload();">Download for Windows</a>
       </div>
       <div class="hero-trust">
         <span class="check-row"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> No internet required</span>
@@ -1010,10 +1009,10 @@
 
         <div class="addons-label">Optional add-ons — tick what you need</div>
 
-        <label class="calc-mod" data-price="1000" data-id="Pharmacy">
+        <label class="calc-mod" data-price="1999" data-id="Pharmacy">
           <span class="calc-check"><svg fill="none" stroke="currentColor" stroke-width="4" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
           <div class="calc-info"><h4>💊 Pharmacy</h4><p>FEFO inventory · Schedule H/H1 · mfg/expiry alerts · purchase invoices.</p></div>
-          <div class="calc-price">+₹1,000<small>/ yr</small></div>
+          <div class="calc-price">+₹1,999<small>/ yr</small></div>
         </label>
 
         <label class="calc-mod" data-price="4999" data-id="In-Patient (IPD)">
@@ -1022,15 +1021,15 @@
           <div class="calc-price">+₹4,999<small>/ yr</small></div>
         </label>
 
-        <label class="calc-mod" data-price="999" data-id="WhatsApp Business" data-group="wa">
+        <label class="calc-mod" data-price="999" data-id="WhatsApp Basic" data-group="wa">
           <span class="calc-check"><svg fill="none" stroke="currentColor" stroke-width="4" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
-          <div class="calc-info"><h4>💬 WhatsApp Business</h4><p>One-click messaging with smart, name-filled templates.</p><div class="excl">Pick this or Automation — not both.</div></div>
+          <div class="calc-info"><h4>💬 WhatsApp Basic</h4><p>One-click messaging with smart, name-filled templates.</p><div class="excl">Pick this or Pro — not both.</div></div>
           <div class="calc-price">+₹999<small>/ yr</small></div>
         </label>
 
-        <label class="calc-mod" data-price="1999" data-id="WhatsApp Automation" data-group="wa">
+        <label class="calc-mod" data-price="1999" data-id="WhatsApp Pro" data-group="wa">
           <span class="calc-check"><svg fill="none" stroke="currentColor" stroke-width="4" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></span>
-          <div class="calc-info"><h4>📲 WhatsApp Automation</h4><p>Meta Cloud API — auto reminders, 2-way inbox, receipts.</p><div class="excl">Pick this or Business — not both.</div></div>
+          <div class="calc-info"><h4>📲 WhatsApp Pro</h4><p>Meta Cloud API — auto reminders, 2-way inbox, receipts.</p><div class="excl">Pick this or Basic — not both.</div></div>
           <div class="calc-price">+₹1,999<small>/ yr</small></div>
         </label>
       </div>
@@ -1051,7 +1050,7 @@
         <p style="font-size:11px;color:rgba(255,255,255,.4);text-align:center;margin-top:10px;">Prices exclude GST. Unlimited patients &amp; users.</p>
       </div>
     </div>
-    <p class="price-foot">Pay for the year up front and the 12th month is on us — that's why the annual price is <b>₹8,999, not ₹9,816</b>. WhatsApp Automation's per-message cost is billed by Meta at actuals. Want an exact quote? <a href="#contact" style="color:#4338ca;font-weight:700;">Talk to us →</a></p>
+    <p class="price-foot">Pay for the year up front and the 12th month is on us — that's why the annual price is <b>₹8,999, not ₹9,816</b>. WhatsApp Pro's per-message cost is billed by Meta at actuals. Want an exact quote? <a href="#contact" style="color:#4338ca;font-weight:700;">Talk to us →</a></p>
   </div>
 </section>
 <script>
@@ -1307,6 +1306,14 @@
   .enq-field label{ font-size:12px; font-weight:700; color:#334155; }
   .enq-field input, .enq-field select{ padding:11px 12px; border:1px solid #cbd5e1; border-radius:9px; font-size:14px; font-family:inherit; background:#fff; color:#0f172a; width:100%; box-sizing:border-box; }
   .enq-field input:focus, .enq-field select:focus{ outline:none; border-color:#4f46e5; box-shadow:0 0 0 3px rgba(79,70,229,.16); }
+  .enq-opts{ display:flex; flex-direction:column; gap:8px; }
+  .enq-opt{ display:flex; align-items:center; gap:9px; font-size:14px; color:#0f172a; cursor:pointer; }
+  .enq-opt input{ width:16px; height:16px; accent-color:#4f46e5; flex:0 0 auto; }
+  .enq-checks{ display:grid; grid-template-columns:1fr 1fr; gap:9px 16px; margin-top:2px; }
+  @media (max-width:520px){ .enq-checks{ grid-template-columns:1fr; } }
+  .enq-chk{ display:flex; align-items:center; gap:9px; font-size:14px; color:#0f172a; cursor:pointer; }
+  .enq-chk input{ width:16px; height:16px; accent-color:#4f46e5; flex:0 0 auto; }
+  .enq-hint{ font-size:11.5px; color:#64748b; margin-top:9px; }
   .enq-status{ font-size:13px; min-height:18px; text-align:center; }
   .enq-status.ok{ color:#059669; font-weight:700; }
   .enq-status.err{ color:#dc2626; font-weight:600; }
@@ -1339,18 +1346,22 @@
         </div>
       </div>
       <div class="enq-field">
-        <label for="enqPlan">Subscription required</label>
-        <select id="enqPlan" name="subscription" required>
-          <option value="" disabled selected>Choose a plan…</option>
-          <option>Full HMS — all modules</option>
-          <option>Clinic / OPD essentials (Reception + Doctors + Billing)</option>
-          <option>OPD + Pharmacy</option>
-          <option>OPD + Pharmacy + Laboratory</option>
-          <option>In-Patient (IPD) add-on</option>
-          <option>Pediatrics add-on</option>
-          <option>WhatsApp add-on</option>
-          <option>Not sure — please advise</option>
-        </select>
+        <label>Plan</label>
+        <div class="enq-opts">
+          <label class="enq-opt"><input type="radio" name="plan" value="Full HMS (all modules)" checked onchange="toggleAddons()"> <span><b>Full HMS</b> — every module included</span></label>
+          <label class="enq-opt"><input type="radio" name="plan" value="Custom" onchange="toggleAddons()"> <span><b>Custom</b> — core + the add-ons I pick</span></label>
+          <label class="enq-opt"><input type="radio" name="plan" value="Not sure — please advise" onchange="toggleAddons()"> <span><b>Not sure</b> — please advise</span></label>
+        </div>
+      </div>
+      <div class="enq-field" id="addonsWrap" style="display:none;">
+        <label>Add-on modules <span style="font-weight:400;color:#64748b;">(tick what you need)</span></label>
+        <div class="enq-checks">
+          <label class="enq-chk"><input type="checkbox" name="addon" value="Pharmacy"> Pharmacy</label>
+          <label class="enq-chk"><input type="checkbox" name="addon" value="In-Patient (IPD)"> In-Patient (IPD)</label>
+          <label class="enq-chk"><input type="checkbox" name="addon" value="WhatsApp Basic"> WhatsApp Basic</label>
+          <label class="enq-chk"><input type="checkbox" name="addon" value="WhatsApp Pro"> WhatsApp Pro</label>
+        </div>
+        <div class="enq-hint">Core — Reception, OPD / Doctors, Laboratory, Analytics &amp; Billing — is included in every plan. <b>Pediatrics is always free.</b></div>
       </div>
       <div class="enq-row">
         <div class="enq-field">
@@ -1399,13 +1410,24 @@
   // ===== Sales enquiry =====
   function openEnquiry() { document.getElementById('enqModal').classList.add('open'); }
   function closeEnquiry() { document.getElementById('enqModal').classList.remove('open'); }
+  function toggleAddons() {
+    const sel = document.querySelector('input[name=plan]:checked');
+    document.getElementById('addonsWrap').style.display = (sel && sel.value === 'Custom') ? '' : 'none';
+  }
   async function submitEnquiry(e) {
     e.preventDefault();
     const form = e.target;
     const btn = document.getElementById('enqSubmit');
     const status = document.getElementById('enqStatus');
-    const d = Object.fromEntries(new FormData(form).entries());
+    const fd = new FormData(form);
+    const d = Object.fromEntries(fd.entries());
     if (d._honey) return false;                       // bot trap tripped — silently drop
+    // Compose the subscription line: base plan + any add-ons chosen separately.
+    const plan = fd.get('plan') || '';
+    const addons = fd.getAll('addon');
+    d.subscription = plan === 'Custom'
+      ? (addons.length ? 'Core + ' + addons.join(', ') : 'Core only (Reception / OPD / Billing)')
+      : plan;
     status.className = 'enq-status'; status.textContent = '';
     const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Sending…';
     const payload = {

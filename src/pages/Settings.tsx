@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Baby, Search, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle, Trash2, User as UserIcon, IndianRupee, PenTool, Power, AlertCircle, ArrowUp, ArrowDown, MessageCircle, Eye, FileText, MapPin, Syringe, RefreshCw, Sparkles, HardDrive, Sun, Copy, FlaskConical } from 'lucide-react';
+import { Building2, Baby, Search, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle, Trash2, User as UserIcon, IndianRupee, PenTool, Power, AlertCircle, ArrowUp, ArrowDown, MessageCircle, Eye, FileText, MapPin, Syringe, RefreshCw, Sparkles, HardDrive, Sun, Copy, FlaskConical, ShieldCheck, KeyRound, Lock, BadgeCheck } from 'lucide-react';
 import { DEFAULT_LAYOUT } from '../db/slip-templates';
 import type { SlipLayout } from '../db/slip-templates';
 import { format, parseISO } from 'date-fns';
@@ -27,7 +27,7 @@ import { KARNATAKA_PLACES, ALL_NEARBY_PLACES } from '../lib/places';
 import { DOCTOR_COLOR_OPTIONS, colorForDoctor } from '../lib/doctor-colors';
 import type { AppMode, Doctor, Settings } from '../types';
 
-type SettingsTab = 'clinic' | 'doctors' | 'workflow' | 'billing' | 'peds' | 'patients' | 'system' | 'comms';
+type SettingsTab = 'clinic' | 'doctors' | 'workflow' | 'billing' | 'peds' | 'patients' | 'system' | 'comms' | 'subscription';
 
 const SETTINGS_TAB_KEY = 'caredesk:settings-tab';
 
@@ -66,6 +66,7 @@ const SETTINGS_SEARCH: { tab: SettingsTab; label: string; hint: string; keywords
   { tab: 'system', label: 'Backup, Restore & Updates', hint: 'Backups, USB, app updates', keywords: 'backup restore update usb sqlite excel auto' },
   { tab: 'comms', label: 'WhatsApp Messaging', hint: 'Click-to-WhatsApp templates', keywords: 'whatsapp message template preview' },
   { tab: 'comms', label: 'AI Reply Suggestions', hint: 'Claude API key', keywords: 'ai claude api reply suggestion anthropic key' },
+  { tab: 'subscription', label: 'Subscription & Modules', hint: 'Active plan, expiry, upgrade / renew', keywords: 'subscription licence license plan modules upgrade renew activate activation code expiry machine id lock unlock' },
 ];
 
 export function SettingsPage() {
@@ -139,6 +140,7 @@ export function SettingsPage() {
           <SettingsTabBtn active={tab === 'patients'} onClick={() => setTab('patients')} icon={<UserIcon className="w-3.5 h-3.5" />}>Patients</SettingsTabBtn>
           <SettingsTabBtn active={tab === 'system'} onClick={() => setTab('system')} icon={<HardDrive className="w-3.5 h-3.5" />}>System</SettingsTabBtn>
           <SettingsTabBtn active={tab === 'comms'} onClick={() => setTab('comms')} icon={<MessageCircle className="w-3.5 h-3.5" />}>Communication</SettingsTabBtn>
+          <SettingsTabBtn active={tab === 'subscription'} onClick={() => setTab('subscription')} icon={<ShieldCheck className="w-3.5 h-3.5" />}>Subscription</SettingsTabBtn>
         </div>
 
         {settingsLoading && (
@@ -203,6 +205,8 @@ export function SettingsPage() {
           )}
 
           {tab === 'billing' && <BillingIpdTab />}
+
+          {tab === 'subscription' && <SubscriptionTab />}
 
           {tab === 'peds' && <PediatricsTab />}
 
@@ -4056,6 +4060,172 @@ function useSectionDraft<K extends keyof Settings>(
       mutation.mutate(patch);
     },
   };
+}
+
+// =====================================================================
+// Subscription & Modules — shows the active plan, which modules are on, and an
+// upgrade/renew flow (enter a fresh activation code / licence for THIS machine).
+const SUB_MODULES: { key: string; name: string; desc: string; base?: boolean }[] = [
+  // Base bundle — included in every plan (never locked).
+  { key: 'reception', name: 'Reception & Registration', desc: 'Patient registration, tokens, queue', base: true },
+  { key: 'opd', name: 'OPD / Consultation', desc: 'Doctor consultation & prescriptions', base: true },
+  { key: 'lab', name: 'Laboratory', desc: 'Test orders, results, 170+ catalog', base: true },
+  { key: 'peds', name: 'Pediatrics', desc: 'Growth charts, vaccines — free for paediatricians', base: true },
+  { key: 'analytics', name: 'Analytics & Reports', desc: 'Revenue, module P&L, insights', base: true },
+  // Paid add-ons — licence-gated.
+  { key: 'pharmacy', name: 'Pharmacy', desc: 'Dispensing, FEFO inventory, sales' },
+  { key: 'ipd', name: 'In-Patient (IPD)', desc: 'Admissions, wards, discharge, TPA' },
+  { key: 'whatsapp', name: 'WhatsApp Messaging', desc: 'Click-to-WhatsApp + automation' },
+];
+
+function SubscriptionTab() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState('');
+  const [token, setToken] = useState('');
+  const [busy, setBusy] = useState<'online' | 'paste' | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const { data: lic, isLoading } = useQuery({ queryKey: ['license'], queryFn: () => window.electronAPI.license.status() });
+
+  if (isLoading || !lic) {
+    return <SettingsGroup title="Subscription & Modules" subtitle="Loading your plan…"><div className="card p-6 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto text-gray-400" /></div></SettingsGroup>;
+  }
+
+  const modules: string[] = lic.modules || [];
+  const isDev = lic.state === 'dev';
+  const c: any = lic.contact || {};
+  const clinic = lic.payload?.clinic || '';
+  const expiry = lic.payload?.expires_at ? format(parseISO(lic.payload.expires_at), 'd MMM yyyy') : '—';
+  const machineId = lic.hardwareId || '';
+  const isActive = (k: string, base?: boolean) => isDev || base || modules.includes(k);
+
+  const planTone =
+    lic.state === 'locked' ? { bg: 'bg-red-50 dark:bg-red-900/20', text: 'text-red-700 dark:text-red-300', label: 'Expired — read-only' }
+    : lic.state === 'grace' ? { bg: 'bg-amber-50 dark:bg-amber-900/20', text: 'text-amber-700 dark:text-amber-300', label: `Expired — ${lic.graceDaysLeft} grace day(s) left` }
+    : isDev ? { bg: 'bg-slate-100 dark:bg-slate-800', text: 'text-slate-600 dark:text-slate-300', label: 'Development build — not enforced' }
+    : { bg: 'bg-emerald-50 dark:bg-emerald-900/20', text: 'text-emerald-700 dark:text-emerald-300', label: lic.daysLeft != null ? `Active — ${lic.daysLeft} day(s) left` : 'Active' };
+
+  const copyId = async () => { try { await navigator.clipboard.writeText(machineId); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* ignore */ } };
+
+  const done = (r: any) => {
+    if (r?.ok) {
+      qc.invalidateQueries({ queryKey: ['license'] });
+      qc.invalidateQueries({ queryKey: ['settings'] });
+      toast('Subscription updated — new modules unlocked', 'success');
+      setOpen(false); setCode(''); setToken(''); setErr(null);
+    } else {
+      setErr(r?.error || 'Activation failed.');
+    }
+  };
+  const applyOnline = async () => {
+    setErr(null); if (!code.trim()) { setErr('Enter the activation code you were given.'); return; }
+    setBusy('online');
+    try { done(await window.electronAPI.license.activateOnline(code.trim())); }
+    catch (e: any) { setErr(e?.message || 'Activation failed.'); }
+    finally { setBusy(null); }
+  };
+  const applyPaste = async () => {
+    setErr(null); if (!token.trim()) { setErr('Paste the licence code you were sent.'); return; }
+    setBusy('paste');
+    try { done(await window.electronAPI.license.activate(token.trim())); }
+    catch (e: any) { setErr(e?.message || 'Activation failed.'); }
+    finally { setBusy(null); }
+  };
+
+  return (
+    <>
+      <SettingsGroup title="Your Plan" subtitle="What this clinic is licensed for, and until when.">
+        <div className="card p-5 space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {clinic && <div className="text-[15px] font-bold text-gray-900 dark:text-slate-100">{clinic}</div>}
+            <span className={cn('text-[12px] font-semibold px-2.5 py-1 rounded-full', planTone.bg, planTone.text)}>{planTone.label}</span>
+          </div>
+          <div className="flex flex-wrap gap-x-8 gap-y-1 text-[12px] text-gray-600 dark:text-slate-300">
+            <div><span className="text-gray-400">Valid until:</span> <b>{expiry}</b></div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-gray-400">Machine ID:</span> <span className="font-mono text-[11px]">{machineId || '—'}</span>
+              {machineId && <button onClick={copyId} className="text-blue-600 hover:underline inline-flex items-center gap-0.5"><Copy className="w-3 h-3" />{copied ? 'Copied' : 'Copy'}</button>}
+            </div>
+          </div>
+          {!isDev && (
+            <button className="btn-primary" onClick={() => { setErr(null); setOpen(true); }}>
+              <KeyRound className="w-4 h-4" /> Enter upgrade / renewal code
+            </button>
+          )}
+          {isDev && <p className="text-[12px] text-gray-500 dark:text-slate-400">This is a development build — all modules are on and licensing isn’t enforced. On an installed copy, only the modules in the clinic’s licence appear active below.</p>}
+        </div>
+      </SettingsGroup>
+
+      <SettingsGroup title="Modules" subtitle="Green = included in your subscription. Locked ones can be switched on any time — just call us for an upgrade code.">
+        <div className="card p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {SUB_MODULES.map((m) => {
+            const on = isActive(m.key, m.base);
+            return (
+              <div key={m.key} className={cn('rounded-lg border p-3 flex items-start gap-3', on ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-900/10' : 'border-gray-200 dark:border-slate-700 bg-gray-50/60 dark:bg-slate-800/40')}>
+                {on ? <BadgeCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" /> : <Lock className="w-4 h-4 text-gray-400 shrink-0 mt-1" />}
+                <div className="min-w-0">
+                  <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-2">
+                    {m.name}
+                    {m.base && <span className="text-[10px] font-normal text-gray-400">(always included)</span>}
+                  </div>
+                  <div className="text-[11px] text-gray-500 dark:text-slate-400">{m.desc}</div>
+                  {!on && <button onClick={() => { setErr(null); setOpen(true); }} className="text-[11px] font-semibold text-blue-600 hover:underline mt-1">Upgrade to activate →</button>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </SettingsGroup>
+
+      <SettingsGroup title="Need to upgrade or renew?" subtitle="Adding a module or extending your licence takes under a minute — no reinstall, no data loss.">
+        <div className="card p-5 text-[13px] text-gray-700 dark:text-slate-200 space-y-2">
+          <p>Call or message us and tell us which modules you want (or that you’re renewing). We’ll generate an activation code tied to <b>this computer’s Machine ID</b> and send it over. Enter it above, and the new modules unlock instantly — your patients, bills and records stay exactly as they are.</p>
+          <div className="flex flex-wrap gap-4 pt-1 font-semibold">
+            {c.phone && <span>📞 {c.phone}</span>}
+            {c.email && <span>✉ {c.email}</span>}
+          </div>
+        </div>
+      </SettingsGroup>
+
+      <Modal open={open} onClose={() => busy === null && setOpen(false)} title="Upgrade / renew subscription" size="md">
+        <div className="space-y-4">
+          <p className="text-[13px] text-gray-600 dark:text-slate-300">Share this Machine ID when you call — your code is tied to it. Then enter the code we send you.</p>
+          <div>
+            <label className="label">Machine ID</label>
+            <div className="flex gap-2">
+              <input className="input font-mono text-xs" readOnly value={machineId} />
+              <button className="btn-secondary text-xs whitespace-nowrap" onClick={copyId}><Copy className="w-3.5 h-3.5" /> {copied ? 'Copied' : 'Copy'}</button>
+            </div>
+          </div>
+
+          {lic.onlineAvailable && (
+            <div>
+              <label className="label">Activation code</label>
+              <input className="input font-mono tracking-widest uppercase" value={code} placeholder="CURE-XXXX-XXXX-XXXX"
+                onChange={(e) => setCode(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === 'Enter') applyOnline(); }} />
+              <button className="btn-primary w-full justify-center mt-2" disabled={busy !== null || !code.trim()} onClick={applyOnline}>
+                {busy === 'online' ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />} Activate online
+              </button>
+            </div>
+          )}
+
+          <div className={lic.onlineAvailable ? 'pt-3 border-t border-gray-100 dark:border-slate-700' : ''}>
+            <label className="label">{lic.onlineAvailable ? 'Or paste a licence code' : 'Licence code'}</label>
+            <textarea className="input font-mono text-[11px] leading-tight" rows={3} value={token} placeholder="Paste the licence code you were sent…" onChange={(e) => setToken(e.target.value)} />
+            <button className="btn-primary w-full justify-center mt-2" disabled={busy !== null || !token.trim()} onClick={applyPaste}>
+              {busy === 'paste' ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />} Apply licence
+            </button>
+          </div>
+
+          {err && <div className="text-[12px] text-red-600 dark:text-red-400">{err}</div>}
+          <p className="text-[11px] text-gray-400 flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 shrink-0" /> Upgrading only swaps your licence — it never touches your data.</p>
+        </div>
+      </Modal>
+    </>
+  );
 }
 
 // =====================================================================
