@@ -1455,6 +1455,19 @@
     const fd = new FormData(form);
     const d = Object.fromEntries(fd.entries());
     if (d._honey) return false;                       // bot trap tripped — silently drop
+
+    // Required fields — enforced in JS too (not just the `required` attributes).
+    const fail = (msg, field) => {
+      status.className = 'enq-status err'; status.textContent = msg;
+      const f = form.querySelector('[name="' + field + '"]'); if (f) f.focus();
+      return false;
+    };
+    for (const [k, label] of [['name', 'Your name'], ['place', 'Place / City'], ['state', 'State'], ['contact', 'Contact number'], ['email', 'Email']]) {
+      if (!String(d[k] || '').trim()) return fail(label + ' is required.', k);
+    }
+    if (String(d.contact).replace(/\D/g, '').length < 10) return fail('Enter a valid 10-digit contact number.', 'contact');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(d.email).trim())) return fail('Enter a valid email address.', 'email');
+
     // Compose the subscription line + estimated annual total.
     const addons = fd.getAll('addon');
     if (fd.get('notsure')) {
@@ -1482,10 +1495,24 @@
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json().catch(() => ({}));
+      // FormSubmit needs a one-time activation: the FIRST submission emails a
+      // confirmation link to help@bridgr.co.in and does NOT deliver until it's
+      // clicked. Its JSON says success:"false" then — surface that honestly
+      // instead of a false "sent".
+      if (!r.ok || j.success === 'false' || j.success === false) {
+        const m = (j.message || '').toLowerCase();
+        if (m.includes('activat') || m.includes('confirm')) {
+          status.className = 'enq-status err';
+          status.textContent = 'Almost there — we need to confirm this form once. We’ve emailed a confirmation link to our team; enquiries will arrive right after.';
+          btn.disabled = false; btn.textContent = orig;
+          return false;
+        }
+        throw new Error(j.message || ('HTTP ' + r.status));
+      }
       status.className = 'enq-status ok';
       status.textContent = '✓ Thank you! Your enquiry has been sent — we’ll be in touch shortly.';
-      form.reset();
+      form.reset(); calcTotal();
       btn.textContent = 'Sent ✓';
       setTimeout(closeEnquiry, 2800);
     } catch (err) {
