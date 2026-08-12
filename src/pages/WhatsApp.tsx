@@ -2440,7 +2440,7 @@ function Module1Section() {
         <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0" style={{ background: '#25D366' }}>📱</div>
         <div>
           <p className="font-bold text-emerald-800 text-sm mb-1">Module 1 — WhatsApp Business</p>
-          <p className="text-xs text-emerald-700 leading-relaxed">
+          <p className="text-xs text-emerald-900 leading-relaxed">
             CureDesk opens WhatsApp with the message pre-typed — you just press <strong>Send</strong>.
             Click a button next to any patient below. No phone number to type, no form to fill.
           </p>
@@ -2448,7 +2448,7 @@ function Module1Section() {
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-800 font-semibold">✓ No setup</span>
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-800 font-semibold">✓ Existing number</span>
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-800 font-semibold">✓ Free forever</span>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-white text-emerald-700 font-semibold border border-emerald-300">You press Send in WhatsApp</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-600 text-white font-semibold">You press Send in WhatsApp</span>
           </div>
         </div>
       </div>
