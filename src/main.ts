@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Notification, Tray, Menu, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Notification, Tray, Menu, nativeImage, shell, clipboard } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
@@ -418,6 +418,13 @@ function createWindow() {
   });
   ipcMain.handle('app:getAutoLaunchStatus', () => readAutoLaunchStatus());
   ipcMain.handle('app:refreshTray', () => refreshTrayMenu());
+  // Native clipboard write — the renderer loads over file://, which is not a
+  // secure context, so navigator.clipboard is undefined there. Route copy
+  // through the main process so "Copy" (Machine ID, etc.) actually works.
+  ipcMain.handle('app:copyText', (_e, text: string) => {
+    try { clipboard.writeText(String(text ?? '')); return { ok: true }; }
+    catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+  });
   // Allowlisted external opener — used for "click-to-WhatsApp" (wa.me) + tel/mailto.
   ipcMain.handle('app:openExternal', async (_e, url: string) => {
     try {

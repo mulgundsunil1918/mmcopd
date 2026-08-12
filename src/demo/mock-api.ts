@@ -377,6 +377,10 @@ export function createMockElectronAPI(): any {
       getClinicName: () => r(settings.clinic_name),
       forceQuit: noop,
       openExternal: (url: string) => { window.open(url, '_blank'); return r({ ok: true }); },
+      // Demo runs in a real browser (secure https) where navigator.clipboard
+      // works, so the renderer's copyText() helper falls through to it. Report
+      // "not handled" here so the helper uses the browser clipboard path.
+      copyText: (_text: string) => r({ ok: false, error: 'demo' }),
       setAutoLaunch: () => r({ ok: false, reason: 'Demo mode — no OS access.' }),
       getAutoLaunchStatus: () => r({ supported: false, isPackaged: false, registered: false, exePath: null, reason: 'Demo mode (browser).' }),
       onCloseRequested: () => () => {},

@@ -716,6 +716,8 @@ const api = {
     forceQuit: () => ipcRenderer.invoke('app:forceQuit') as Promise<void>,
     openExternal: (url: string) =>
       ipcRenderer.invoke('app:openExternal', url) as Promise<{ ok: boolean; error?: string }>,
+    copyText: (text: string) =>
+      ipcRenderer.invoke('app:copyText', text) as Promise<{ ok: boolean; error?: string }>,
     setAutoLaunch: (enabled: boolean, startMinimized: boolean) =>
       ipcRenderer.invoke('app:setAutoLaunch', enabled, startMinimized) as Promise<{
         ok: boolean; reason?: string; registered?: boolean; exePath?: string;

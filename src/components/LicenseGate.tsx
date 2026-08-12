@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ShieldCheck, KeyRound, Loader2, Copy, Clock, AlertTriangle, X } from 'lucide-react';
+import { copyText } from '../lib/clipboard';
 
 /**
  * Licence gate. Reads the main-process licence status and:
@@ -80,7 +81,7 @@ function ActivationScreen({ status, onActivated }: { status: any; onActivated: (
   const machineId = status.hardwareId || '';
   const c = status.contact || {};
 
-  const copyId = async () => { try { await navigator.clipboard.writeText(machineId); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* ignore */ } };
+  const copyId = async () => { if (await copyText(machineId)) { setCopied(true); setTimeout(() => setCopied(false), 1500); } };
 
   const activateOnline = async () => {
     setErr(null);

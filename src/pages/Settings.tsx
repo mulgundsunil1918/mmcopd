@@ -6,6 +6,7 @@ import { DEFAULT_LAYOUT } from '../db/slip-templates';
 import type { SlipLayout } from '../db/slip-templates';
 import { format, parseISO } from 'date-fns';
 import { cn } from '../lib/utils';
+import { copyText } from '../lib/clipboard';
 import { Check } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { ImageUpload } from '../components/ImageUpload';
@@ -34,7 +35,7 @@ const SETTINGS_TAB_KEY = 'caredesk:settings-tab';
 
 const TAB_LABEL: Record<SettingsTab, string> = {
   clinic: 'Clinic', doctors: 'Doctors & Templates', workflow: 'Fees & Workflow', billing: 'Billing & IPD',
-  peds: 'Pediatrics', patients: 'Patients', system: 'System', comms: 'Communication',
+  peds: 'Pediatrics', patients: 'Patients', system: 'System', comms: 'Communication', subscription: 'Subscription',
 };
 
 /** Flat index of every settings section, so the search box can jump to its tab. */
@@ -4182,7 +4183,7 @@ function SubscriptionTab() {
     : isDev ? { bg: 'bg-slate-100 dark:bg-slate-800', text: 'text-slate-600 dark:text-slate-300', label: 'Development build — not enforced' }
     : { bg: 'bg-emerald-50 dark:bg-emerald-900/20', text: 'text-emerald-700 dark:text-emerald-300', label: lic.daysLeft != null ? `Active — ${lic.daysLeft} day(s) left` : 'Active' };
 
-  const copyId = async () => { try { await navigator.clipboard.writeText(machineId); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* ignore */ } };
+  const copyId = async () => { if (await copyText(machineId)) { setCopied(true); setTimeout(() => setCopied(false), 1500); } };
 
   const done = (r: any) => {
     if (r?.ok) {
