@@ -1423,7 +1423,9 @@
 </div>
 
 <script>
-  function openDownload() { document.getElementById('dlModal').classList.add('open'); }
+  // "Download" opens the Sales Enquiry form — we collect the lead and send the
+  // installer / early access after they enquire.
+  function openDownload() { openEnquiry(); }
   function closeDownload() { document.getElementById('dlModal').classList.remove('open'); }
 
   // ===== Sales enquiry =====
