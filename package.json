@@ -14,7 +14,8 @@
     "preview:demo": "vite preview --config vite.demo.config.ts",
     "make:installer": "electron-forge package && electron-builder --win nsis --x64 --prepackaged \"out/CureDesk HMS-win32-x64\"",
     "lint": "eslint --ext .ts,.tsx .",
-    "keygen": "node tools/keygen-server.mjs"
+    "keygen": "node tools/keygen-server.mjs",
+    "keygen:setup": "node tools/keygen-setup.mjs"
   },
   "keywords": [],
   "author": {

@@ -18,4 +18,8 @@ server/data/
 
 # Vendor licence admin — LOCAL ONLY, never push (private tool + customer data + machine IDs + codes)
 tools/keygen-server.mjs
+tools/keygen-setup.mjs
 tools/.keygen-data/
+tools/keygen.enc
+tools/keygen-vault.json
+keygen-portable/
