@@ -170,6 +170,13 @@ export function activateLicense(token: string): { ok: boolean; error?: string; s
   if (payload.hardware_id && payload.hardware_id !== hw) {
     return { ok: false, error: 'This licence is for a different computer. Send us your Machine ID for a matching licence.' };
   }
+  // Refuse UNBOUND (blank hardware_id) licences on real installs. An unbound
+  // code works on ANY PC, so accepting one would let a single code be reused
+  // across clinics. Dev builds aren't licence-gated, so this only bites when
+  // packaged. (Test on the packaged .dmg with a code bound to this Mac's ID.)
+  if (app.isPackaged && !payload.hardware_id) {
+    return { ok: false, error: 'This licence is not locked to a computer. Send us this PC’s Machine ID and we’ll issue a matching code.' };
+  }
   try {
     fs.writeFileSync(licensePath(), token.trim(), { mode: 0o600 });
     writeSeen(Date.now());
