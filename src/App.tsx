@@ -29,7 +29,7 @@ import { ForceAdminPasswordGate } from './components/ForceAdminPasswordGate';
 import { LicenseGate } from './components/LicenseGate';
 import { ForcePasswordChange } from './components/ForcePasswordChange';
 import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from './hooks/useAuth';
 import { useKeyboardShortcut } from './hooks/useKeyboardShortcut';
 import { useNetworkLive } from './hooks/useNetworkLive';
@@ -37,6 +37,19 @@ import { useNetworkLive } from './hooks/useNetworkLive';
 export default function App() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  // Keep the shared ['license'] cache in lock-step with the main process. Main
+  // broadcasts license:state on EVERY change (activation, upgrade, expiry tick,
+  // grace, lock); push it straight into the cache so module gating — Sidebar,
+  // RouteGuard, useLicensedModules, Settings — updates LIVE. Without this,
+  // activating a new code left the old module set active until an app restart
+  // (e.g. Lab kept working after activating an IPD-only code).
+  useEffect(() => {
+    const off = window.electronAPI.license.onState((s) => {
+      queryClient.setQueryData(['license'], s);
+    });
+    return () => { off(); };
+  }, [queryClient]);
   const { data: clinicName } = useQuery({
     queryKey: ['clinic-name-title'],
     queryFn: () => window.electronAPI.app.getClinicName(),
