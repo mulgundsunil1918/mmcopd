@@ -110,12 +110,20 @@ export default function App() {
   const wizardOverlay = wizardOpen ? <WelcomeWizard onClose={() => setWizardOpen(false)} /> : null;
   const needsSetupBanner = !!settings && !settings.clinic_name && settings.network_mode === 'local';
 
-  if (!user) return <><LicenseGate /><ForceAdminPasswordGate />{wizardOverlay}<Login /></>;
+  // Host/Client pick must come BEFORE the licence gate. While the first-run
+  // wizard is open (mode not yet chosen), suppress the activation screen so a
+  // fresh install can pick "Client" without ever seeing a key prompt — clients
+  // inherit the host's licence over the LAN. Once the wizard closes, the gate
+  // applies again: Host → activation screen; Client → licence comes from host
+  // (license:* is proxied), so it never blocks.
+  const licenseGate = wizardOpen ? null : <LicenseGate />;
+
+  if (!user) return <>{licenseGate}<ForceAdminPasswordGate />{wizardOverlay}<Login /></>;
   if (user.must_change_password) return <ForcePasswordChange />;
 
   return (
     <>
-      <LicenseGate />
+      {licenseGate}
       <ForceAdminPasswordGate />
       {wizardOverlay}
       {needsSetupBanner && !wizardOpen && (
