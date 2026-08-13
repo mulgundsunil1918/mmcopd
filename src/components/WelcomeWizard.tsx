@@ -32,6 +32,10 @@ export function WelcomeWizard({ onClose }: { onClose: () => void }) {
   // Station identity — what THIS PC is called in the clinic. Shown in sidebar
   // pill, audit logs, and (next session) the connected-clients list on the host.
   const [stationName, setStationName] = useState('');
+  // Host path collects the clinic name up front (piece 3); client path remembers
+  // which host it's connecting to so we can show it (piece 5).
+  const [clinicName, setClinicName] = useState('');
+  const [connectServer, setConnectServer] = useState<{ ip: string; port: number } | null>(null);
 
   // ----- HOST PATH -----
   const becomeHost = async () => {
@@ -43,6 +47,7 @@ export function WelcomeWizard({ onClose }: { onClose: () => void }) {
         network_mode: 'server',
         network_listen_port: 4321,
         station_name: stationName.trim() || 'Reception Desk',
+        ...(clinicName.trim() ? { clinic_name: clinicName.trim() } : {}),
       });
       try { localStorage.setItem('caredesk:network-mode', 'server'); } catch { /* ignore */ }
       await window.electronAPI.network.applyMode();
@@ -153,6 +158,8 @@ export function WelcomeWizard({ onClose }: { onClose: () => void }) {
             value={stationName}
             setValue={setStationName}
             placeholder="Reception Desk"
+            clinicName={clinicName}
+            setClinicName={setClinicName}
             onBack={() => setStep('pick')}
             onNext={() => { setStep('host-bootstrap'); becomeHost(); }}
           />
@@ -196,7 +203,7 @@ export function WelcomeWizard({ onClose }: { onClose: () => void }) {
             setCode={setCode}
             busy={busy}
             error={error}
-            onConnect={(server) => pairAndConnect(server, code)}
+            onConnect={(server) => { setConnectServer(server); pairAndConnect(server, code); }}
             onBack={() => setStep('connect-discover')}
           />
         )}
@@ -207,6 +214,7 @@ export function WelcomeWizard({ onClose }: { onClose: () => void }) {
             value={stationName}
             setValue={setStationName}
             placeholder="Cabin 1 — Dr. Patil"
+            serverLabel={connectServer ? `${connectServer.ip}:${connectServer.port}` : null}
             onBack={() => setStep('connect-enter-code')}
             onNext={async () => {
               try {
@@ -498,6 +506,7 @@ function ConnectCodeStep({
  *  Defaults to a useful placeholder if the user just clicks Continue. */
 function NameStep({
   kind, value, setValue, placeholder, onBack, onNext,
+  clinicName, setClinicName, serverLabel,
 }: {
   kind: 'host' | 'client';
   value: string;
@@ -505,30 +514,58 @@ function NameStep({
   placeholder: string;
   onBack: () => void;
   onNext: () => void;
+  clinicName?: string;
+  setClinicName?: (s: string) => void;
+  serverLabel?: string | null;
 }) {
   const isHost = kind === 'host';
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100">
-          {isHost ? 'Name this main PC' : 'Name this station'}
+          {isHost ? 'Set up this main PC' : 'Name this station'}
         </h1>
         <p className="text-sm text-gray-600 dark:text-slate-400 mt-1">
           {isHost
-            ? 'A friendly label so cabin PCs and audit logs can identify the host. Defaults to "Reception Desk" if blank.'
+            ? 'Your clinic name and a label for this host PC. Cabin PCs connect to it.'
             : 'Tell the clinic what to call this PC. Shown on the sidebar and in audit logs.'}
         </p>
       </div>
 
-      <label className="label">{isHost ? 'Main PC name' : 'Station / room name'}</label>
+      {!isHost && serverLabel && (
+        <div className="mb-4 rounded-lg border border-violet-200 dark:border-violet-800 bg-violet-50/60 dark:bg-violet-900/20 p-2.5 text-[12px] text-violet-800 dark:text-violet-200">
+          Connecting to main computer: <span className="font-mono font-semibold">{serverLabel}</span>
+        </div>
+      )}
+
+      {isHost && setClinicName && (
+        <div className="mb-4">
+          <label className="label">Clinic name</label>
+          <input
+            autoFocus
+            className="input text-base"
+            placeholder="e.g. Gadag Multispeciality Clinic"
+            value={clinicName || ''}
+            onChange={(e) => setClinicName(e.target.value)}
+          />
+          <div className="mt-1 text-[11px] text-gray-500">Appears on prescriptions, bills and reports. You can refine it later in Settings.</div>
+        </div>
+      )}
+
+      <label className="label">{isHost ? "This PC's name" : 'Station / room name'}</label>
       <input
-        autoFocus
+        autoFocus={!(isHost && !!setClinicName)}
         className="input text-base"
         placeholder={placeholder}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter') onNext(); }}
       />
+      {isHost && (
+        <div className="mt-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/20 p-2.5 text-[12px] text-blue-800 dark:text-blue-200">
+          💡 Tip: make your <b>reception / front-desk PC</b> the host — the one that stays on through clinic hours. Cabin PCs need it running to work.
+        </div>
+      )}
       {!isHost && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {['Cabin 1', 'Cabin 2', 'Cabin 3', 'Pharmacy', 'Lab', 'Billing'].map((p) => (
