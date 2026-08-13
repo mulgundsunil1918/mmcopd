@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Baby, Search, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle, Trash2, User as UserIcon, IndianRupee, PenTool, Power, AlertCircle, ArrowUp, ArrowDown, MessageCircle, Eye, FileText, MapPin, Syringe, RefreshCw, Sparkles, HardDrive, Sun, Copy, FlaskConical, ShieldCheck, KeyRound, Lock, BadgeCheck } from 'lucide-react';
+import { Building2, Baby, Search, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle, Trash2, User as UserIcon, IndianRupee, PenTool, Power, AlertCircle, ArrowUp, ArrowDown, MessageCircle, Eye, FileText, MapPin, Syringe, RefreshCw, Sparkles, HardDrive, Sun, Copy, FlaskConical, ShieldCheck, KeyRound, Lock, BadgeCheck, Wifi } from 'lucide-react';
 import { DEFAULT_LAYOUT } from '../db/slip-templates';
 import type { SlipLayout } from '../db/slip-templates';
 import { format, parseISO } from 'date-fns';
@@ -29,13 +29,13 @@ import { KARNATAKA_PLACES, ALL_NEARBY_PLACES } from '../lib/places';
 import { DOCTOR_COLOR_OPTIONS, colorForDoctor } from '../lib/doctor-colors';
 import type { AppMode, Doctor, Settings } from '../types';
 
-type SettingsTab = 'clinic' | 'doctors' | 'workflow' | 'billing' | 'peds' | 'patients' | 'system' | 'comms' | 'subscription';
+type SettingsTab = 'clinic' | 'doctors' | 'workflow' | 'billing' | 'peds' | 'patients' | 'system' | 'multisystem' | 'comms' | 'subscription';
 
 const SETTINGS_TAB_KEY = 'caredesk:settings-tab';
 
 const TAB_LABEL: Record<SettingsTab, string> = {
   clinic: 'Clinic', doctors: 'Doctors & Templates', workflow: 'Fees & Workflow', billing: 'Billing & IPD',
-  peds: 'Pediatrics', patients: 'Patients', system: 'System', comms: 'Communication', subscription: 'Subscription',
+  peds: 'Pediatrics', patients: 'Patients', system: 'System', multisystem: 'Multi-System', comms: 'Communication', subscription: 'Subscription',
 };
 
 /** Flat index of every settings section, so the search box can jump to its tab. */
@@ -64,7 +64,7 @@ const SETTINGS_SEARCH: { tab: SettingsTab; label: string; hint: string; keywords
   { tab: 'system', label: 'Security & Login', hint: 'Sign-in, idle sign-out', keywords: 'security login password idle signout user audit' },
   { tab: 'system', label: 'Role-Based Access', hint: 'Module access per staff role', keywords: 'role access permission module staff customisable' },
   { tab: 'system', label: 'Startup & Background', hint: 'Auto-launch, tray', keywords: 'startup background tray autolaunch windows minimize' },
-  { tab: 'system', label: 'Network Mode', hint: 'Multi-station LAN setup', keywords: 'network multi station lan server client cabin' },
+  { tab: 'multisystem', label: 'Multi-System Connection', hint: 'Host / client, join code, connected PCs', keywords: 'network multi station lan server client cabin host connect diagram' },
   { tab: 'system', label: 'Backup, Restore & Updates', hint: 'Backups, USB, app updates', keywords: 'backup restore update usb sqlite excel auto' },
   { tab: 'comms', label: 'WhatsApp Messaging', hint: 'Click-to-WhatsApp templates', keywords: 'whatsapp message template preview' },
   { tab: 'comms', label: 'AI Reply Suggestions', hint: 'Claude API key', keywords: 'ai claude api reply suggestion anthropic key' },
@@ -89,7 +89,7 @@ export function SettingsPage() {
   // Client PCs get clinic config FROM the host, so it's read-only here. Only the
   // System tab (network, backup, this-PC station) stays editable on a client.
   const { data: netStatus } = useQuery({ queryKey: ['network-status'], queryFn: () => window.electronAPI.network.status(), staleTime: 15_000 });
-  const lockClinic = netStatus?.mode === 'client' && tab !== 'system';
+  const lockClinic = netStatus?.mode === 'client' && tab !== 'system' && tab !== 'multisystem';
 
   return (
     <AdminGate title="Settings — Administrator area">
@@ -146,6 +146,7 @@ export function SettingsPage() {
           <SettingsTabBtn active={tab === 'peds'} onClick={() => setTab('peds')} icon={<Baby className="w-3.5 h-3.5" />}>Pediatrics</SettingsTabBtn>
           <SettingsTabBtn active={tab === 'patients'} onClick={() => setTab('patients')} icon={<UserIcon className="w-3.5 h-3.5" />}>Patients</SettingsTabBtn>
           <SettingsTabBtn active={tab === 'system'} onClick={() => setTab('system')} icon={<HardDrive className="w-3.5 h-3.5" />}>System</SettingsTabBtn>
+          <SettingsTabBtn active={tab === 'multisystem'} onClick={() => setTab('multisystem')} icon={<Wifi className="w-3.5 h-3.5" />}>Multi-System</SettingsTabBtn>
           <SettingsTabBtn active={tab === 'comms'} onClick={() => setTab('comms')} icon={<MessageCircle className="w-3.5 h-3.5" />}>Communication</SettingsTabBtn>
           <SettingsTabBtn active={tab === 'subscription'} onClick={() => setTab('subscription')} icon={<ShieldCheck className="w-3.5 h-3.5" />}>Subscription</SettingsTabBtn>
         </div>
@@ -245,19 +246,27 @@ export function SettingsPage() {
               <SettingsGroup title="Startup & Background" subtitle="Auto-launch with Windows, minimize to tray, start hidden.">
                 <StartupBehavior />
               </SettingsGroup>
-              <SettingsGroup title="Network Mode (multi-station)" subtitle="Run reception + doctor cabins as separate PCs sharing one CureDesk. Pick a server PC, others connect over the LAN.">
-                <RelaunchWizardButton />
-                <NetworkModeSettings />
-              </SettingsGroup>
-              <SettingsGroup title="Multi-Station Setup Guide" subtitle="Step-by-step walkthrough — what to buy, how to wire it up, how to connect each PC, and what to do when something breaks.">
-                <NetworkSetupGuide />
-              </SettingsGroup>
               <SettingsGroup title="Backup, Restore & Updates" subtitle="Where backups go, daily auto-backup, weekly USB reminder, restore, and app updates.">
                 <BackupSettings />
               </SettingsGroup>
               {/* "Reset all clinic data" (HardResetPanel) is intentionally hidden — too
                   destructive to expose in normal clinic Settings. Restore this block if a
                   supervised factory-reset is ever needed. */}
+            </>
+          )}
+
+          {tab === 'multisystem' && (
+            <>
+              <SettingsGroup title="Your Clinic Network" subtitle="Which computers are connected right now, and how this PC fits in.">
+                <NetworkDiagram />
+              </SettingsGroup>
+              <SettingsGroup title="Network Mode (multi-station)" subtitle="Run reception + doctor cabins as separate PCs sharing one CureDesk. Pick a Host PC; others connect over the LAN.">
+                <RelaunchWizardButton />
+                <NetworkModeSettings />
+              </SettingsGroup>
+              <SettingsGroup title="Multi-Station Setup Guide" subtitle="Step-by-step — what to buy, how to wire it up, how to connect each PC, and what to do when something breaks.">
+                <NetworkSetupGuide />
+              </SettingsGroup>
             </>
           )}
 
@@ -1905,6 +1914,80 @@ function RelaunchWizardButton() {
         </button>
       </div>
     </section>
+  );
+}
+
+/** Live schematic of the clinic network: the host in the middle, each connected
+ *  computer branching off. Reads network:status every 5s. (Named per-PC list +
+ *  role assignment lands with the server-side client registry — piece 4b/7.) */
+function NetworkDiagram() {
+  const { data: net } = useQuery({
+    queryKey: ['network-status'],
+    queryFn: () => window.electronAPI.network.status(),
+    refetchInterval: 5000,
+  });
+  const mode = (net?.mode || 'local') as 'local' | 'server' | 'client';
+  const clients = net?.clients ?? 0;
+  const lanIp = net?.lanIp || null;
+  const port = net?.listenPort || (net as any)?.port || 4321;
+  const serverUrl = (net as any)?.client?.serverUrl || net?.serverUrl || '';
+  const clientState = (net as any)?.client?.state;
+  const line = 'bg-slate-300 dark:bg-slate-600';
+  const borderLine = 'border-slate-300 dark:border-slate-600';
+
+  const Card = ({ emoji, title, sub, tone }: { emoji: string; title: string; sub?: string; tone: 'host' | 'client' | 'muted' }) => (
+    <div className={cn('rounded-xl border-2 px-4 py-3 text-center shadow-sm min-w-[132px]',
+      tone === 'host' && 'border-blue-400 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/25',
+      tone === 'client' && 'border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/20',
+      tone === 'muted' && 'border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/40')}>
+      <div className="text-2xl leading-none mb-1">{emoji}</div>
+      <div className="text-[12px] font-bold text-gray-900 dark:text-slate-100">{title}</div>
+      {sub && <div className="text-[10px] text-gray-500 dark:text-slate-400 font-mono mt-0.5 break-all">{sub}</div>}
+    </div>
+  );
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 overflow-x-auto">
+      {mode === 'local' && (
+        <div className="flex flex-col items-center gap-3 py-4">
+          <Card emoji="🖥️" title="This PC only" sub="single-station" tone="muted" />
+          <div className="text-[12px] text-gray-500 dark:text-slate-400 text-center">Not networked. Choose <b>Host</b> below to let other PCs connect to this one.</div>
+        </div>
+      )}
+
+      {mode === 'server' && (
+        <div className="flex flex-col items-center">
+          <Card emoji="🖥️" title="Main Computer (Host)" sub={lanIp ? `${lanIp}:${port}` : `port ${port}`} tone="host" />
+          <div className={cn('w-0.5 h-6', line)} />
+          {clients > 0 ? (
+            <div className={cn('flex flex-wrap justify-center gap-6 pt-6 border-t-2', borderLine)}>
+              {Array.from({ length: clients }).map((_, i) => (
+                <div key={i} className="relative">
+                  <div className={cn('absolute -top-6 left-1/2 -translate-x-1/2 w-0.5 h-6', line)} />
+                  <Card emoji="💻" title={`Computer ${i + 1}`} sub="connected" tone="client" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className={cn('pt-6 border-t-2 text-center max-w-xs', borderLine)}>
+              <div className="text-[12px] text-gray-500 dark:text-slate-400">No computers connected yet. Share the <b>join code</b> below on a cabin PC to connect it.</div>
+            </div>
+          )}
+          <div className="mt-4 text-[12px] font-semibold text-blue-700 dark:text-blue-300">{clients} computer{clients === 1 ? '' : 's'} connected</div>
+        </div>
+      )}
+
+      {mode === 'client' && (
+        <div className="flex flex-col items-center">
+          <Card emoji="🖥️" title="Main Computer (Host)" sub={serverUrl.replace(/^https?:\/\//, '') || 'the clinic host'} tone="host" />
+          <div className={cn('w-0.5 h-8', clientState === 'connected' ? 'bg-emerald-400' : 'bg-red-400')} />
+          <Card emoji="💻" title="This computer" sub={clientState === 'connected' ? 'connected' : 'reconnecting…'} tone="client" />
+          <div className={cn('mt-4 text-[12px] font-semibold', clientState === 'connected' ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600 dark:text-red-400')}>
+            {clientState === 'connected' ? 'Connected to the main computer' : 'Trying to reach the main computer…'}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
