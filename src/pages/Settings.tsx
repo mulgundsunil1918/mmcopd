@@ -86,6 +86,10 @@ export function SettingsPage() {
     staleTime: 30_000,
   });
   const { has } = useLicensedModules();
+  // Client PCs get clinic config FROM the host, so it's read-only here. Only the
+  // System tab (network, backup, this-PC station) stays editable on a client.
+  const { data: netStatus } = useQuery({ queryKey: ['network-status'], queryFn: () => window.electronAPI.network.status(), staleTime: 15_000 });
+  const lockClinic = netStatus?.mode === 'client' && tab !== 'system';
 
   return (
     <AdminGate title="Settings — Administrator area">
@@ -161,7 +165,13 @@ export function SettingsPage() {
           </div>
         )}
 
-        <div className={cn('space-y-6', settingsLoading && 'hidden')}>
+        {lockClinic && (
+          <div className="mb-4 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-300 flex items-start gap-2">
+            <Lock className="w-4 h-4 shrink-0 mt-0.5" />
+            <span><b>Managed on the main computer.</b> This is a client PC — clinic settings are set on the Host and are read-only here. You can still change <b>System</b> settings for this computer.</span>
+          </div>
+        )}
+        <fieldset disabled={lockClinic} className={cn('space-y-6 min-w-0 p-0 m-0 border-0', settingsLoading && 'hidden')}>
           {tab === 'clinic' && (
             <>
               <SettingsGroup title="Clinic Identity" subtitle="Name, logo, address, contact details printed on every OPD slip.">
@@ -272,7 +282,7 @@ export function SettingsPage() {
               </SettingsGroup>
             </>
           )}
-        </div>
+        </fieldset>
       </div>
     </AdminGate>
   );
