@@ -27,6 +27,7 @@ import { TPA } from './pages/TPA';
 import { WelcomeWizard } from './components/WelcomeWizard';
 import { ForceAdminPasswordGate } from './components/ForceAdminPasswordGate';
 import { LicenseGate } from './components/LicenseGate';
+import { HostOfflineOverlay } from './components/HostOfflineOverlay';
 import { ForcePasswordChange } from './components/ForcePasswordChange';
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -117,12 +118,17 @@ export default function App() {
   // applies again: Host → activation screen; Client → licence comes from host
   // (license:* is proxied), so it never blocks.
   const licenseGate = wizardOpen ? null : <LicenseGate />;
+  // Client PCs whose host is off/unreachable get a clear blocking screen instead
+  // of a broken app. Only ever shows in Client mode (its live status is the only
+  // one that goes disconnected/error).
+  const hostOffline = <HostOfflineOverlay offline={live.status === 'disconnected' || live.status === 'error'} />;
 
-  if (!user) return <>{licenseGate}<ForceAdminPasswordGate />{wizardOverlay}<Login /></>;
+  if (!user) return <>{hostOffline}{licenseGate}<ForceAdminPasswordGate />{wizardOverlay}<Login /></>;
   if (user.must_change_password) return <ForcePasswordChange />;
 
   return (
     <>
+      {hostOffline}
       {licenseGate}
       <ForceAdminPasswordGate />
       {wizardOverlay}
@@ -135,11 +141,6 @@ export default function App() {
           >
             Open Setup Wizard
           </button>
-        </div>
-      )}
-      {(live.status === 'disconnected' || live.status === 'error') && (
-        <div className="no-print fixed top-0 left-0 right-0 z-[150] bg-red-600 text-white px-4 py-1.5 text-xs text-center font-semibold shadow">
-          ⚠ Disconnected from clinic server — trying to reconnect every 5 seconds. Recent changes may not have synced.
         </div>
       )}
     <Routes>
