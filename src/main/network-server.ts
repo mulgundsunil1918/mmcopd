@@ -32,7 +32,9 @@ let activeSecret = '';
 let activeVersion = '';
 /** Operator-pinned adapter IP (settings.network_bind_ip). Empty = auto-pick. */
 let preferredIp = '';
-const wsClients = new Set<WebSocket>();
+// Connected cabins, keyed by socket → their reported name + IP + connect time,
+// so the host can show a named "Connected Computers" list, not just a count.
+const wsClients = new Map<WebSocket, { name: string; ip: string; since: number }>();
 
 /** Result of the last launch self-test — did the host answer on its own LAN IP? */
 export interface SelfTest { reachable: boolean; ip: string | null; port: number; error?: string; at: number; }
@@ -342,7 +344,9 @@ export async function startNetworkServer(port: number, secret: string, appVersio
         ws.close(4401, 'unauthorized');
         return;
       }
-      wsClients.add(ws);
+      const clientName = (url.searchParams.get('name') || '').slice(0, 60).trim() || 'Cabin PC';
+      const clientIp = (req.socket.remoteAddress || '').replace(/^::ffff:/, '') || 'unknown';
+      wsClients.set(ws, { name: clientName, ip: clientIp, since: Date.now() });
       try { ws.send(JSON.stringify({ event: 'hello', payload: { product: 'CureDesk HMS', version: appVersion, ts: Date.now() } })); } catch { /* ignore */ }
       ws.on('close', () => wsClients.delete(ws));
       ws.on('error', () => wsClients.delete(ws));
@@ -378,7 +382,7 @@ export async function startNetworkServer(port: number, secret: string, appVersio
 export function broadcastEvent(event: string, payload: any): void {
   if (!wss || wsClients.size === 0) return;
   const msg = JSON.stringify({ event, payload, ts: Date.now() });
-  wsClients.forEach((c) => {
+  wsClients.forEach((_meta, c) => {
     try { if (c.readyState === c.OPEN) c.send(msg); } catch { /* ignore */ }
   });
 }
@@ -388,6 +392,7 @@ export function networkServerStatus() {
     running: httpServer !== null,
     port: activePort,
     clients: wsClients.size,
+    clientList: [...wsClients.values()].map((c) => ({ name: c.name, ip: c.ip, since: c.since })),
     ipcChannels: ipcHandlers.size,
     lanIp: httpServer ? getLocalLanIP() : null,
     selfTest: lastSelfTest,

@@ -240,8 +240,10 @@ export function SettingsPage() {
               <SettingsGroup title="Security & Login" subtitle="Require each person to sign in as themselves, and auto sign-out an idle station.">
                 <SecurityLoginSettings />
               </SettingsGroup>
-              <SettingsGroup title="Role-Based Access" subtitle="Choose exactly which modules each staff role can open. Fully customisable — admin always sees everything.">
-                <RoleAccessEditor />
+              <SettingsGroup title="Role-Based Access" subtitle="Choose exactly which modules each staff role can open — applies across all connected computers. Fully customisable — admin always sees everything.">
+                {netStatus?.mode === 'client'
+                  ? <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-800 text-[13px] text-amber-800 dark:text-amber-300 flex items-start gap-2"><Lock className="w-4 h-4 shrink-0 mt-0.5" /><span><b>Managed on the main computer.</b> Staff role permissions are set on the Host PC and apply to every connected computer.</span></div>
+                  : <RoleAccessEditor />}
               </SettingsGroup>
               <SettingsGroup title="Startup & Background" subtitle="Auto-launch with Windows, minimize to tray, start hidden.">
                 <StartupBehavior />
@@ -259,6 +261,13 @@ export function SettingsPage() {
             <>
               <SettingsGroup title="Your Clinic Network" subtitle="Which computers are connected right now, and how this PC fits in.">
                 <NetworkDiagram />
+              </SettingsGroup>
+              <SettingsGroup title="What Each Computer Can Do" subtitle="Each connected PC shows only what its logged-in staff role allows — set once on the host, applies everywhere.">
+                <div className="rounded-xl border border-gray-200 dark:border-slate-700 p-4 text-[13px] text-gray-600 dark:text-slate-300 space-y-2">
+                  <p>A computer's access follows the <b>role of whoever signs in</b> there — Reception, Doctor, Nurse, Pharmacist or Lab Tech. The lab PC (lab tech signed in) shows only Lab; the reception PC shows reception; and so on.</p>
+                  <p>To choose <b>which role can open which module</b>, edit the permission matrix on the host — it applies to every connected computer.</p>
+                  <button className="btn-secondary text-xs" onClick={() => setTab('system')}>Open Role-Based Access →</button>
+                </div>
               </SettingsGroup>
               <SettingsGroup title="Network Mode (multi-station)" subtitle="Run reception + doctor cabins as separate PCs sharing one CureDesk. Pick a Host PC; others connect over the LAN.">
                 <RelaunchWizardButton />
@@ -1932,6 +1941,7 @@ function NetworkDiagram() {
   const port = net?.listenPort || (net as any)?.port || 4321;
   const serverUrl = (net as any)?.client?.serverUrl || net?.serverUrl || '';
   const clientState = (net as any)?.client?.state;
+  const clientList = (((net as any)?.clientList) || []) as { name: string; ip: string; since: number }[];
   const line = 'bg-slate-300 dark:bg-slate-600';
   const borderLine = 'border-slate-300 dark:border-slate-600';
 
@@ -1961,10 +1971,10 @@ function NetworkDiagram() {
           <div className={cn('w-0.5 h-6', line)} />
           {clients > 0 ? (
             <div className={cn('flex flex-wrap justify-center gap-6 pt-6 border-t-2', borderLine)}>
-              {Array.from({ length: clients }).map((_, i) => (
+              {(clientList.length ? clientList : Array.from({ length: clients }, (_, i) => ({ name: `Computer ${i + 1}`, ip: '', since: 0 }))).map((c, i) => (
                 <div key={i} className="relative">
                   <div className={cn('absolute -top-6 left-1/2 -translate-x-1/2 w-0.5 h-6', line)} />
-                  <Card emoji="💻" title={`Computer ${i + 1}`} sub="connected" tone="client" />
+                  <Card emoji="💻" title={c.name} sub={c.ip || 'connected'} tone="client" />
                 </div>
               ))}
             </div>
@@ -1974,6 +1984,19 @@ function NetworkDiagram() {
             </div>
           )}
           <div className="mt-4 text-[12px] font-semibold text-blue-700 dark:text-blue-300">{clients} computer{clients === 1 ? '' : 's'} connected</div>
+          {clientList.length > 0 && (
+            <div className="mt-4 w-full max-w-md">
+              <div className="text-[10px] uppercase tracking-wide font-bold text-gray-500 dark:text-slate-400 mb-1.5">Connected Computers</div>
+              <div className="rounded-lg border border-gray-200 dark:border-slate-700 divide-y divide-gray-100 dark:divide-slate-800">
+                {clientList.map((c, i) => (
+                  <div key={i} className="flex items-center justify-between px-3 py-2 text-[12px]">
+                    <span className="font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />{c.name}</span>
+                    <span className="font-mono text-gray-500 dark:text-slate-400">{c.ip}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

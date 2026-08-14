@@ -48,13 +48,15 @@ export function useNetworkLive() {
     let cancelled = false;
     const connect = async () => {
       // Read live status to find the right URL + secret.
-      let mode = 'local', serverUrl = '', secret = '';
+      let mode = 'local', serverUrl = '', secret = '', stationName = '';
       try {
         const s = await window.electronAPI.network.status();
         mode = s.mode;
         serverUrl = s.serverUrl;
         secret = '';  // secret isn't returned over IPC for safety; we read from localStorage mirror
         try { secret = localStorage.getItem('caredesk:network-secret') || ''; } catch { /* ignore */ }
+        // This PC's station name — sent to the host so it shows a NAMED connected list.
+        try { const st = await window.electronAPI.settings.get(); stationName = String((st as any)?.station_name || ''); } catch { /* ignore */ }
       } catch {
         setStatus('idle');
         return;
@@ -63,7 +65,11 @@ export function useNetworkLive() {
         setStatus('idle');
         return;
       }
-      const wsUrl = serverUrl.replace(/^http/i, 'ws').replace(/\/+$/, '') + '/ws' + (secret ? `?token=${encodeURIComponent(secret)}` : '');
+      const params = new URLSearchParams();
+      if (secret) params.set('token', secret);
+      if (stationName) params.set('name', stationName);
+      const qs = params.toString();
+      const wsUrl = serverUrl.replace(/^http/i, 'ws').replace(/\/+$/, '') + '/ws' + (qs ? `?${qs}` : '');
       setStatus('connecting');
       let ws: WebSocket;
       try {

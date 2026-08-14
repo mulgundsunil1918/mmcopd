@@ -659,6 +659,7 @@ const api = {
       running: boolean;
       port: number;
       clients: number;
+      clientList?: { name: string; ip: string; since: number }[];
       ipcChannels: number;
       lanIp: string | null;
       selfTest: { reachable: boolean; ip: string | null; port: number; error?: string; at: number } | null;
