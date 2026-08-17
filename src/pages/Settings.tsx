@@ -2083,53 +2083,89 @@ function NetworkDiagram() {
 }
 
 /**
- * Warn a HOST that Windows will put it to sleep.
+ * Show the HOST's sleep protection.
  *
- * The host holds the database, so when it sleeps every other PC in the clinic
- * loses everything at the same moment — and it looks to all of them like the
- * network died. Staff restart routers and cabins and get nowhere, because the
- * cause is a power setting on a machine nobody is standing next to.
+ * The host holds the database, so if it sleeps every other PC loses access at
+ * the same moment and it looks like the network died. CureDesk now blocks sleep
+ * automatically while it hosts (a runtime power-save block: the machine stays
+ * awake, the screen still turns off), so the normal state here is REASSURING,
+ * not a warning.
  *
- * Windows enables sleep by default, so this is not a rare misconfiguration: any
- * PC promoted to host inherits a timer that will eventually take the clinic
- * down mid-session. Far better to say so now, while someone is sitting here.
- *
- * The screen turning off is fine and is left alone — that is where the power
- * saving a clinic actually cares about comes from.
+ * The one gap the runtime block cannot cover is the window between the PC
+ * booting and CureDesk launching. If the Windows setting itself still says
+ * "sleep after N minutes", we offer to make it permanent so even that window is
+ * safe — but as a quiet secondary option, not an alarm, because the live block
+ * already has the clinic covered.
  */
 function HostSleepWarning() {
   const [busy, setBusy] = useState(false);
   const { data: power, refetch } = useQuery({
     queryKey: ['host-power'],
     queryFn: () => window.electronAPI.network.hostPower(),
+    refetchInterval: 15_000,
   });
-  if (!power?.known || !power.sleepsOnAC) return null;
-  return (
-    <div className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-[12px] text-amber-800 dark:text-amber-200">
-      <div className="font-semibold">⚠ This PC is set to sleep after {power.sleepAfterMinutes} minutes</div>
-      <div className="mt-0.5">
-        It hosts the clinic's records, so while it sleeps <b>every other computer loses access</b> — reception
-        can't register, the doctor can't open a file. It looks like the network broke, but it isn't the network.
+  if (!power) return null;
+
+  // Active runtime block — the everyday case for a running host.
+  if (power.preventionActive) {
+    return (
+      <div className="rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2 text-[12px] text-emerald-800 dark:text-emerald-200">
+        <div className="font-semibold">✓ This PC is being kept awake while it hosts the clinic</div>
+        <div className="mt-0.5">The screen still turns off to save power — only sleep is blocked, so the other computers never lose access.</div>
+        {power.known && power.sleepsOnAC && (
+          <div className="mt-2 flex items-center gap-2 flex-wrap opacity-90">
+            <span>Windows itself is still set to sleep after {power.sleepAfterMinutes} min, which only matters in the few seconds after this PC boots before CureDesk opens.</span>
+            <button
+              className="btn-secondary text-xs"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  const r = await window.electronAPI.network.disableHostSleep();
+                  if (!r.ok) alert(r.error || 'Could not change the Windows setting.');
+                  await refetch();
+                } finally { setBusy(false); }
+              }}
+            >
+              {busy ? 'Applying…' : 'Make it permanent too'}
+            </button>
+          </div>
+        )}
       </div>
-      <div className="mt-2 flex items-center gap-2 flex-wrap">
-        <button
-          className="btn-secondary text-xs"
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            try {
-              const r = await window.electronAPI.network.disableHostSleep();
-              if (!r.ok) alert(r.error || 'Could not change the setting.');
-              await refetch();
-            } finally { setBusy(false); }
-          }}
-        >
-          {busy ? 'Applying…' : 'Keep this PC awake'}
-        </button>
-        <span className="opacity-80">The monitor still turns off — only sleep is disabled.</span>
+    );
+  }
+
+  // Fallback: the block isn't active (server not started yet, or it failed) AND
+  // Windows will sleep. Then it IS a warning, with the direct fix.
+  if (power.known && power.sleepsOnAC) {
+    return (
+      <div className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-[12px] text-amber-800 dark:text-amber-200">
+        <div className="font-semibold">⚠ This PC is set to sleep after {power.sleepAfterMinutes} minutes</div>
+        <div className="mt-0.5">
+          It hosts the clinic's records, so while it sleeps <b>every other computer loses access</b>. Start hosting (Server mode) to
+          keep it awake automatically, or make the change permanent now.
+        </div>
+        <div className="mt-2 flex items-center gap-2 flex-wrap">
+          <button
+            className="btn-secondary text-xs"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const r = await window.electronAPI.network.disableHostSleep();
+                if (!r.ok) alert(r.error || 'Could not change the setting.');
+                await refetch();
+              } finally { setBusy(false); }
+            }}
+          >
+            {busy ? 'Applying…' : 'Keep this PC awake'}
+          </button>
+          <span className="opacity-80">The monitor still turns off — only sleep is disabled.</span>
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
+  return null;
 }
 
 function NetworkModeSettings() {

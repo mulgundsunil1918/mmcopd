@@ -1,7 +1,7 @@
 {
   "name": "curedesk-hms",
   "productName": "CureDesk HMS",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "OPD management software for Mulgund Multispeciality Clinic",
   "main": ".vite/build/main.js",
   "scripts": {
@@ -17,7 +17,7 @@
     "keygen": "node tools/keygen-server.mjs",
     "keygen:setup": "node tools/keygen-setup.mjs",
     "build:win": "bash scripts/build-windows.sh",
-    "test": "node --experimental-sqlite tests/patient-log-fanout.test.mjs && node tests/host-watchdog.test.mjs && npx esbuild src/main/host-power.ts --bundle --format=esm --platform=node --packages=external --outfile=.vite-test/host-power.mjs && node tests/host-power.test.mjs"
+    "test": "node --experimental-sqlite tests/patient-log-fanout.test.mjs && node tests/host-watchdog.test.mjs && npx esbuild src/main/host-power.ts --bundle --format=esm --platform=node --packages=external --outfile=.vite-test/host-power.mjs && node tests/host-power.test.mjs && npx esbuild src/main/ws-heartbeat.ts --bundle --format=esm --platform=node --packages=external --outfile=.vite-test/ws-heartbeat.mjs && node tests/ws-heartbeat.test.mjs"
   },
   "keywords": [],
   "author": {

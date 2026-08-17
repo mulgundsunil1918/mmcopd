@@ -161,6 +161,26 @@ html.dark .sidebar-divider { border-color: #1e293b; }
 html.dark .statusbar { background-color: #0b1220; border-top-color: #1e293b; color: #cbd5e1; }
 
 /* =========================================================================
+   GROWTH CHART — FIT ALL FOUR CHARTS ON ONE PRINTED A4 PAGE
+   =========================================================================
+   The chart SVG carries an inline min-width:480px so it stays readable on the
+   interactive screen. But the printed "all charts" view lays four of them out in
+   a two-column grid on a 210mm sheet: two 480px charts side by side are wider
+   than the page, so the sheet grew a horizontal scrollbar (the "everything
+   scrolls / doesn't fit" report), and the four stacked charts ran off the bottom
+   onto a second page, splitting a chart in half.
+
+   Inside the print wrapper only, drop that width floor so each chart shrinks to
+   its column, and flatten the card chrome (padding, shadow, overflow) so nothing
+   clips. Scoped to .growth-print-chart, so the interactive panel — where
+   scrolling a big chart is fine — is untouched. Width-constrained, the four
+   charts come to ~2 rows well within one A4 page. */
+.growth-print-chart svg { min-width: 0 !important; width: 100% !important; }
+.growth-print-chart .card { overflow: visible !important; padding: 6px 8px !important; box-shadow: none !important; }
+.growth-print-chart .grid { gap: 8px !important; }
+.growth-print-chart .card > .text-\[12px\] { font-size: 11px !important; margin-bottom: 2px !important; }
+
+/* =========================================================================
    DOCUMENT SURFACES ("paper") ARE EXEMPT FROM DARK MODE
    =========================================================================
    Everything above repaints the light palette for a dark screen, which is right

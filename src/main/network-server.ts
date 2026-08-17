@@ -25,12 +25,26 @@ import crypto from 'node:crypto';
 import { ipcHandlers } from './ipc-registry';
 import { listNetworkInterfaces, broadcastAddressFor } from './network-diagnostics';
 import { startHostWatchdog, stopHostWatchdog } from './host-watchdog';
+import { startSleepPrevention, stopSleepPrevention } from './host-power';
+import { trackLiveness, heartbeatSweep } from './ws-heartbeat';
 
 let httpServer: http.Server | null = null;
 let wss: WebSocketServer | null = null;
 let activePort = 0;
 let activeSecret = '';
 let activeVersion = '';
+/**
+ * Heartbeat timer that evicts dead client sockets.
+ *
+ * A WebSocket 'close' only fires on an ORDERLY disconnect. When a cabin PC drops
+ * off hard — WiFi lost, powered off, sleeps, cable pulled — the host's socket is
+ * never told, and TCP will not notice for ~2 hours. Without a heartbeat the dead
+ * client sat in wsClients forever, so the host kept showing "1 computer
+ * connected" long after the cabin was gone. This pings every client on an
+ * interval and terminates any that miss a beat.
+ */
+let wsHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+const WS_HEARTBEAT_MS = 15_000;
 /** Operator-pinned adapter IP (settings.network_bind_ip). Empty = auto-pick. */
 let preferredIp = '';
 // Connected cabins, keyed by socket → their reported name + IP + connect time,
@@ -252,7 +266,9 @@ async function readJsonBody(req: http.IncomingMessage): Promise<any> {
 
 export async function stopNetworkServer(): Promise<void> {
   stopHostWatchdog();
+  stopSleepPrevention();
   stopUdpBroadcast();
+  if (wsHeartbeatTimer) { clearInterval(wsHeartbeatTimer); wsHeartbeatTimer = null; }
   joinCode = null;
   if (wss) {
     try { wss.clients.forEach((c) => c.terminate()); } catch { /* ignore */ }
@@ -386,10 +402,18 @@ export async function startNetworkServer(port: number, secret: string, appVersio
       const clientName = (url.searchParams.get('name') || '').slice(0, 60).trim() || 'Cabin PC';
       const clientIp = (req.socket.remoteAddress || '').replace(/^::ffff:/, '') || 'unknown';
       wsClients.set(ws, { name: clientName, ip: clientIp, since: Date.now() });
+      // Heartbeat liveness: a fresh socket is alive; each pong marks it alive
+      // again. The sweep flips it to false and pings — a vanished client never
+      // pongs, so the next sweep terminates it.
+      trackLiveness(ws);
       try { ws.send(JSON.stringify({ event: 'hello', payload: { product: 'CureDesk HMS', version: appVersion, ts: Date.now() } })); } catch { /* ignore */ }
       ws.on('close', () => wsClients.delete(ws));
       ws.on('error', () => wsClients.delete(ws));
     });
+
+    // Start the eviction sweep once the server is up. Replaces any prior timer.
+    if (wsHeartbeatTimer) clearInterval(wsHeartbeatTimer);
+    wsHeartbeatTimer = setInterval(() => { if (wss) heartbeatSweep(wss, wsClients); }, WS_HEARTBEAT_MS);
 
     await new Promise<void>((resolve, reject) => {
       httpServer!.once('error', (err: any) => {
@@ -415,6 +439,9 @@ export async function startNetworkServer(port: number, secret: string, appVersio
     // what notices if we stop answering later, and it must run outside this
     // process to survive the blocked-event-loop case it exists to catch.
     startHostWatchdog(port);
+    // A host must never sleep while it serves the clinic. This blocks system
+    // suspend at runtime (screen still turns off) and reverts when we stop.
+    startSleepPrevention();
     return { ok: true, port, selfTest: lastSelfTest };
   } catch (err: any) {
     await stopNetworkServer();
