@@ -25,6 +25,25 @@
 ; out — they are by definition the exact keys uninstallOldVersion will read,
 ; and they keep working if the appId or guid ever changes.
 !macro customInit
+  ; ── Close any running CureDesk BEFORE we touch its files ──────────────────
+  ; Our customInit skips the normal uninstaller path (a damaged uninstaller was
+  ; blocking upgrades), but that path is ALSO where electron-builder would
+  ; normally stop the running app. Skipping it meant the installer replaced the
+  ; program files underneath a live 0.6.0 process: that process kept its LAN
+  ; socket open but could no longer serve — the whole clinic saw "network down"
+  ; and it never recovered on its own. So we must stop it ourselves.
+  ;
+  ; Graceful first: taskkill WITHOUT /F posts WM_CLOSE, which fires Electron's
+  ; before-quit and lets better-sqlite3 close the database cleanly. Then /F as a
+  ; backstop for a process that is already wedged and cannot answer WM_CLOSE
+  ; (exactly the state we are trying to cure), so the file locks are released
+  ; and the new files can be written. /T also takes the out-of-process watchdog.
+  DetailPrint "Closing CureDesk if it is running..."
+  nsExec::Exec 'taskkill /IM "CureDesk HMS.exe"'
+  Sleep 2500
+  nsExec::Exec 'taskkill /F /T /IM "CureDesk HMS.exe"'
+  Sleep 1200
+
   ; Both hives and both views — a per-machine install writes HKLM, an older
   ; per-user one writes HKCU, and 32/64-bit views keep separate copies.
   SetRegView 64
