@@ -17,16 +17,34 @@
 ; under Program Files. It never goes near %APPDATA%\CureDesk HMS\, where the
 ; patient database, settings and backups live.
 ; ---------------------------------------------------------------------------
+; NOTE ON THE KEY NAME: the uninstall entry is NOT named after the appId.
+; electron-builder derives a UUID-v5 from it (com.curedesk.hms becomes
+; 830b29be-469c-5d72-a840-4d0d3026568e), so deleting a key named after the
+; appId silently removes nothing and the damaged uninstaller still runs.
+; Use electron-builder's own compile-time defines instead of spelling the key
+; out — they are by definition the exact keys uninstallOldVersion will read,
+; and they keep working if the appId or guid ever changes.
 !macro customInit
   ; Both hives and both views — a per-machine install writes HKLM, an older
   ; per-user one writes HKCU, and 32/64-bit views keep separate copies.
   SetRegView 64
-  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.curedesk.hms"
-  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.curedesk.hms"
+  DeleteRegKey HKLM "${UNINSTALL_REGISTRY_KEY}"
+  DeleteRegKey HKCU "${UNINSTALL_REGISTRY_KEY}"
   SetRegView 32
-  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.curedesk.hms"
-  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.curedesk.hms"
+  DeleteRegKey HKLM "${UNINSTALL_REGISTRY_KEY}"
+  DeleteRegKey HKCU "${UNINSTALL_REGISTRY_KEY}"
   SetRegView lastused
+
+  ; The legacy GUID-named key, defined only when it differs from the one above.
+  !ifdef UNINSTALL_REGISTRY_KEY_2
+    SetRegView 64
+    DeleteRegKey HKLM "${UNINSTALL_REGISTRY_KEY_2}"
+    DeleteRegKey HKCU "${UNINSTALL_REGISTRY_KEY_2}"
+    SetRegView 32
+    DeleteRegKey HKLM "${UNINSTALL_REGISTRY_KEY_2}"
+    DeleteRegKey HKCU "${UNINSTALL_REGISTRY_KEY_2}"
+    SetRegView lastused
+  !endif
 
   ; Remove a damaged uninstaller so nothing can try to run it later.
   Delete "$PROGRAMFILES64\CureDesk HMS\Uninstall CureDesk HMS.exe"
