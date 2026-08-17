@@ -59,19 +59,19 @@ export function PedsGrowthField({ value, onChange, patient, defaultStandard = 'a
 
   // Assess one metric. Primary reference follows the child's age; if the value
   // falls outside the primary chart's range we try the other so a dot still lands.
-  const assess = (whoChart: GrowthChart, iapMetric: IapMetric | null, raw?: string): { band: string; flag: string; std: string } | null => {
+  const assess = (whoChart: GrowthChart, iapMetric: IapMetric | null, raw?: string): { band: string; flag: string; std: string; z: number } | null => {
     const n = Number(raw);
     if (!haveAge || !(n > 0)) return null;
     const tryWho = () => {
       const r = assessGrowth(whoChart, sex, ageDays, n);
       // r.band is the clinical band from the WHO reference ("< 3rd", "3rd–15th",
       // "> 97th"…) — never a raw "100th"/"0th" number.
-      return r.inRange ? { band: r.band, flag: r.flag, std: 'WHO' } : null;
+      return r.inRange ? { band: r.band, flag: r.flag, std: 'WHO', z: r.z } : null;
     };
     const tryIap = () => {
       if (!iapMetric) return null;
       const r = iapAssess(iapMetric, sex, ageY, n);
-      return r.inRange ? { band: r.band, flag: r.flag, std: 'IAP' } : null;
+      return r.inRange ? { band: r.band, flag: r.flag, std: 'IAP', z: NaN } : null;
     };
     return std === 'who' ? (tryWho() || tryIap()) : (tryIap() || tryWho());
   };
@@ -94,7 +94,32 @@ export function PedsGrowthField({ value, onChange, patient, defaultStandard = 'a
     bmi: bmiVal ?? null,
   }] : [];
 
-  const Result = ({ label, res }: { label: string; res: { band: string; flag: string; std: string } | null }) => {
+
+  /**
+   * Flag a measurement that is almost certainly a typo rather than a finding.
+   *
+   * A 23-month-old was recorded at 145 cm — an adult's height. Nothing objected,
+   * and the growth chart then plotted it faithfully, producing an authoritative
+   * looking sheet showing a wildly stunted BMI (7.2, because BMI divides by the
+   * square of that height). A chart a parent takes home has to be trustworthy,
+   * so an impossible input must announce itself at the point of entry.
+   *
+   * Beyond +/-5 SD is the threshold: real outliers (severe malnutrition, genuine
+   * gigantism) sit inside it, while digit slips (85 -> 145, 8.5 -> 85) land far
+   * outside. This WARNS and never blocks — a clinician may legitimately be
+   * recording an extreme case, and refusing to save clinical data is worse than
+   * showing a caution.
+   */
+  const Implausible = ({ res }: { res: { z: number } | null }) => {
+    if (!res || !Number.isFinite(res.z) || Math.abs(res.z) <= 5) return null;
+    return (
+      <div className="text-[11px] mt-0.5 font-medium text-amber-600 dark:text-amber-400">
+        Please re-check — far outside the range for this age.
+      </div>
+    );
+  };
+
+  const Result = ({ label, res }: { label: string; res: { band: string; flag: string; std: string; z: number } | null }) => {
     if (!res) return null;
     return (
       <div className="text-[11px] mt-0.5">
@@ -125,17 +150,20 @@ export function PedsGrowthField({ value, onChange, patient, defaultStandard = 'a
           <label className="label">Weight (kg)</label>
           <input className="input" inputMode="decimal" value={vals.weight || ''} onChange={(e) => set({ weight: e.target.value.replace(/[^0-9.]/g, '') })} />
           <Result label="Weight centile" res={wRes} />
+          <Implausible res={wRes} />
         </div>
         <div>
           <label className="label">Height (cm)</label>
           <input className="input" inputMode="decimal" value={vals.height || ''} onChange={(e) => set({ height: e.target.value.replace(/[^0-9.]/g, '') })} />
           <Result label="Height centile" res={hRes} />
+          <Implausible res={hRes} />
         </div>
         {under5 && (
           <div>
             <label className="label">Head circ. (cm)</label>
             <input className="input" inputMode="decimal" value={vals.hc || ''} onChange={(e) => set({ hc: e.target.value.replace(/[^0-9.]/g, '') })} />
             <Result label="Head-circ centile" res={hcRes} />
+            <Implausible res={hcRes} />
           </div>
         )}
         <div>

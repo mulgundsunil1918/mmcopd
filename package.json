@@ -16,7 +16,8 @@
     "lint": "eslint --ext .ts,.tsx .",
     "keygen": "node tools/keygen-server.mjs",
     "keygen:setup": "node tools/keygen-setup.mjs",
-    "build:win": "bash scripts/build-windows.sh"
+    "build:win": "bash scripts/build-windows.sh",
+    "test": "node --experimental-sqlite tests/patient-log-fanout.test.mjs"
   },
   "keywords": [],
   "author": {

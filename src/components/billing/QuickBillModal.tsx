@@ -337,7 +337,9 @@ function PreviewOverlay({ clinic, payerName, payerSub, lines, gstOn, money, onCl
 
   return (
     <div className="fixed inset-0 z-[210] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white text-slate-900 rounded-lg shadow-2xl w-full max-w-lg p-6" onClick={(e) => e.stopPropagation()}>
+      {/* `paper`: this is a picture of the printed bill, so it stays white with
+          dark ink in dark mode too — see the document-surface rules in index.css. */}
+      <div className="paper bg-white text-slate-900 rounded-lg shadow-2xl w-full max-w-lg p-6" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b-2 pb-2" style={{ borderColor: '#1e3a8a' }}>
           <div className="font-extrabold uppercase" style={{ color: '#1e3a8a', fontSize: 18 }}>{clinic?.clinic_name || 'CureDesk HMS'}</div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X className="w-4 h-4" /></button>

@@ -10,6 +10,14 @@ import { DEFAULT_LAYOUT } from '../db/slip-templates';
 
 const RESERVED_KEYS = new Set(['history', 'examination', 'impression', 'advice']);
 
+/**
+ * A lab order as the slip receives it: the header, plus the char(31)-joined
+ * test names that lab:listOrders attaches so the slip can print what was
+ * actually ordered rather than just the order number.
+ */
+type SlipLabOrder = LabOrder & { test_names?: string | null };
+
+
 /** Read a section's value from the consultation — well-known fields from columns,
  *  everything else from extra_fields. Undefined / empty returns ''. */
 function readSection(consultation: Consultation | null, key: string): string {
@@ -71,7 +79,7 @@ export function OpdSlip({
   doctor: Doctor;
   settings: Settings;
   rxItems?: PrescriptionItem[];
-  labOrders?: LabOrder[];
+  labOrders?: SlipLabOrder[];
   onClose: () => void;
   /** Override layout — e.g. from the template slot picker. Defaults to template.layout ?? DEFAULT_LAYOUT. */
   layoutOverride?: Partial<SlipLayout>;
@@ -217,6 +225,18 @@ function Page({ children, fontSize = 13 }: { children: React.ReactNode; fontSize
         width: '210mm',
         height: '297mm',
         padding: '14mm 14mm 12mm',
+        /*
+         * border-box + hidden make the PREVIEW behave exactly like the printed
+         * sheet, which already sets both in the @media print block.
+         *
+         * Without them the preview let long content spill past the padding and
+         * run to the very edge of the paper, so the slip looked as though it had
+         * no bottom margin at all — while the real printout, being clipped, did
+         * have one. A preview that disagrees with the printer is worse than no
+         * preview, because the user trusts it and only finds out after printing.
+         */
+        boxSizing: 'border-box',
+        overflow: 'hidden',
         backgroundColor: '#ffffff',
         color: '#0f172a',
         display: 'flex',
@@ -592,6 +612,44 @@ function RxTable({ rxItems }: { rxItems: PrescriptionItem[] }) {
   );
 }
 
+/**
+ * The tests the doctor ordered, by name.
+ *
+ * This used to print the order NUMBER — a patient walked out holding a slip that
+ * read "LAB-20260817-0001 (ordered)", which tells them nothing about what was
+ * asked for and is useless at any outside lab. The names are what the slip is
+ * for; the order number is only an internal handle.
+ *
+ * Names arrive char(31)-joined from lab:listOrders (a comma would be ambiguous —
+ * "Vitamin D, 25-Hydroxy" is one test). If an order somehow has no items we fall
+ * back to the number rather than rendering an empty bullet.
+ */
+function InvestigationsList({ labOrders, fontSize }: { labOrders: SlipLabOrder[]; fontSize?: string }) {
+  return (
+    <ul style={{ marginLeft: 14, listStyle: 'disc', ...(fontSize ? { fontSize } : {}) }} className={fontSize ? undefined : 'text-[12px]'}>
+      {labOrders.flatMap((o) => {
+        const tests = (o.test_names || '').split('\u001f').map((t) => t.trim()).filter(Boolean);
+        if (tests.length === 0) {
+          return [(
+            <li key={o.id}>
+              <span className="font-mono" style={{ color: '#1e40af' }}>{o.order_number}</span> ({o.status.replace('_', ' ')})
+            </li>
+          )];
+        }
+        return tests.map((name, i) => (
+          <li key={`${o.id}-${i}`}>
+            <span style={{ color: '#0f172a' }}>{name}</span>
+            {/* Status belongs on the order, so state it once — on the last test. */}
+            {i === tests.length - 1 && (
+              <span style={{ color: '#64748b' }}> ({o.status.replace('_', ' ')})</span>
+            )}
+          </li>
+        ));
+      })}
+    </ul>
+  );
+}
+
 function SignatureBlock({ doctor, appointment }: { doctor: Doctor; appointment: AppointmentWithJoins }) {
   return (
     <div className="grid grid-cols-2 gap-4 mt-3 pt-3" style={{ borderTop: '1px solid #cbd5e1' }}>
@@ -601,11 +659,24 @@ function SignatureBlock({ doctor, appointment }: { doctor: Doctor; appointment: 
         <div className="text-[12px] font-mono" style={{ color: '#0f172a' }}>Visit ID: {appointment.patient_uhid}/V{appointment.id}</div>
       </div>
       <div className="text-right">
-        <div className="inline-block text-center">
+        {/*
+          The rule and the caption must derive from ONE width, or they drift apart.
+          A fixed-width rule with a free-flowing caption meant a doctor with long
+          qualifications ("MBBS, MD (RGUHS Gold Medalist), DNB, FIPN") stretched
+          this box to the caption's width while the rule stayed pinned at its left
+          edge — the signature line sat visibly off-centre from the name under it.
+
+          Now the box shrink-wraps the caption between a floor and a ceiling, and
+          the rule spans w-full, so the two are concentric at any name length. The
+          ceiling also forces a long caption to wrap instead of running off the
+          page, and `balance` splits it into even lines rather than leaving a
+          stranded ", FIPN — Signature" on its own.
+        */}
+        <div className="inline-block text-center min-w-[12rem] max-w-[17rem]">
           {doctor.signature
-            ? <img src={doctor.signature} alt="Signature" className="h-12 w-48 object-contain ml-auto" />
-            : <div className="border-b border-gray-900 h-12 w-48" />}
-          <div className="text-[12px] mt-1" style={{ color: '#475569' }}>
+            ? <img src={doctor.signature} alt="Signature" className="h-12 w-full object-contain" />
+            : <div className="border-b border-gray-900 h-12 w-full" />}
+          <div className="text-[12px] mt-1" style={{ color: '#475569', textWrap: 'balance' }}>
             {doctor.name}{doctor.qualifications ? `, ${doctor.qualifications}` : ''} — Signature
           </div>
         </div>
@@ -622,7 +693,7 @@ function PageTwo({
   doctor: Doctor;
   settings: Settings;
   rxItems: PrescriptionItem[];
-  labOrders: LabOrder[];
+  labOrders: SlipLabOrder[];
   followup: FollowupSummary | null;
   sections: SlipTemplateSection[];
   layout: SlipLayout;
@@ -639,13 +710,7 @@ function PageTwo({
 
       {labOrders.length > 0 && (
         <Section title="Investigations Ordered">
-          <ul style={{ marginLeft: 14, listStyle: 'disc' }} className="text-[12px]">
-            {labOrders.map((o) => (
-              <li key={o.id}>
-                <span className="font-mono" style={{ color: '#1e40af' }}>{o.order_number}</span> ({o.status.replace('_', ' ')})
-              </li>
-            ))}
-          </ul>
+          <InvestigationsList labOrders={labOrders} />
         </Section>
       )}
 
@@ -675,7 +740,7 @@ function SinglePageContent({
   settings: Settings;
   vitals: Vitals;
   rxItems: PrescriptionItem[];
-  labOrders: LabOrder[];
+  labOrders: SlipLabOrder[];
   followup: FollowupSummary | null;
   sections: SlipTemplateSection[];
   layout: SlipLayout;
@@ -699,13 +764,7 @@ function SinglePageContent({
 
       {labOrders.length > 0 && (
         <Section title="Investigations Ordered">
-          <ul style={{ marginLeft: 14, listStyle: 'disc', fontSize: '0.9em' }}>
-            {labOrders.map((o) => (
-              <li key={o.id}>
-                <span className="font-mono" style={{ color: '#1e40af' }}>{o.order_number}</span> ({o.status.replace('_', ' ')})
-              </li>
-            ))}
-          </ul>
+          <InvestigationsList labOrders={labOrders} fontSize="0.9em" />
         </Section>
       )}
 

@@ -1852,7 +1852,19 @@ export function registerIpc() {
     const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
     return db
       .prepare(
-        `SELECT o.*, (p.first_name || ' ' || p.last_name) as patient_name, p.uhid as patient_uhid, d.name as doctor_name
+        /*
+         * test_names rides along with the header so callers that must SHOW the
+         * investigations — the OPD slip above all — don't have to fan out a
+         * getOrderItems call per order. Without it the slip could only print the
+         * order number, so a patient went home holding a prescription that said
+         * "LAB-20260817-0001" instead of the tests the doctor actually ordered.
+         *
+         * Joined on char(31) (ASCII unit separator) rather than a comma: real
+         * test names contain commas ("Vitamin D, 25-Hydroxy"), so a comma-joined
+         * string cannot be split back apart correctly.
+         */
+        `SELECT o.*, (p.first_name || ' ' || p.last_name) as patient_name, p.uhid as patient_uhid, d.name as doctor_name,
+                (SELECT group_concat(i.test_name, char(31)) FROM lab_order_items i WHERE i.lab_order_id = o.id) AS test_names
          FROM lab_orders o
          JOIN patients p ON p.id=o.patient_id
          LEFT JOIN doctors d ON d.id=o.doctor_id
@@ -2819,12 +2831,33 @@ export function registerIpc() {
            p.phone as patient_phone, p.blood_group as patient_blood_group,
            p.created_at as patient_created_at,
            d.name as doctor_name, d.specialty as doctor_specialty, d.room_number as doctor_room,
-           b.total as bill_total, b.payment_mode as bill_payment_mode, b.bill_number
+           /*
+            * One row per VISIT, not per bill.
+            *
+            * This joined bills straight onto appointments, so a visit carrying
+            * two bills (a zero-rupee consultation plus a ₹300 charge, say) came
+            * back TWICE — the log showed the same patient, same token and same
+            * time on two lines. Worse, everything counted off these rows was
+            * inflated with it: the per-day "N visits" heading, avgPerDay, and
+            * the per-doctor tallies all counted bills while claiming to count
+            * visits.
+            *
+            * SUM collapses the money back onto the visit. MAX(b.id) is what
+            * makes the bare b.payment_mode / b.bill_number well-defined: with a
+            * min/max aggregate present, SQLite takes the bare columns from the
+            * row that produced it — so they describe the most recent bill
+            * rather than an arbitrary one.
+            */
+           SUM(b.total) as bill_total,
+           COUNT(b.id) as bill_count,
+           MAX(b.id) as latest_bill_id,
+           b.payment_mode as bill_payment_mode, b.bill_number
          FROM appointments a
          JOIN patients p ON p.id = a.patient_id
          JOIN doctors d ON d.id = a.doctor_id
          LEFT JOIN bills b ON b.appointment_id = a.id
          ${where}
+         GROUP BY a.id
          ORDER BY a.appointment_date DESC, a.appointment_time ASC`
       )
       .all(...params) as any[];

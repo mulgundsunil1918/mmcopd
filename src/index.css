@@ -11,6 +11,25 @@
   html:not(.dark) body { background-color: #f1f5f9; color: #0f172a; }
   html.dark body { background-color: #0f172a; color: #f1f5f9; }
 
+  /* ---------------------------------------------------------------------
+     CHART INK
+     The growth chart draws the child's own measurements as an SVG dot and
+     trend line. Those were flipped to white under .dark so they'd show on a
+     dark screen — but the chart also renders inside the PRINT sheet, which is
+     always white paper. In dark mode the child's plotted point therefore
+     disappeared, both in the preview and on the printed page: a doctor would
+     hand a parent a growth chart with the reference curves but no child on it.
+     The @media print block could not save it either, because `color` does not
+     affect SVG fill or stroke.
+     Ink is a token so it follows the SURFACE, not the app theme: dark screens
+     get white ink, and .paper pins it back to near-black whatever the theme.
+     Keyed off .print-area, which every print sheet already carries, so a new
+     printable screen inherits the correct behaviour without opting in.
+     --------------------------------------------------------------------- */
+  :root { --chart-ink: #0f172a; --chart-paper: #ffffff; }
+  html.dark { --chart-ink: #ffffff; --chart-paper: #0f172a; }
+  .print-area, .print-area * { --chart-ink: #0f172a; --chart-paper: #ffffff; }
+
   /* Kill the up/down spinner buttons on every number input — receptionists kept
      accidentally scroll-changing values on focused fields. The matching JS
      handler in renderer.tsx prevents mouse-wheel from changing the value too. */
@@ -140,6 +159,47 @@ html.dark .sidebar-divider { border-color: #1e293b; }
    ======================= */
 .statusbar { background-color: #f8fafc; border-top: 1px solid #e5e7eb; color: #475569; }
 html.dark .statusbar { background-color: #0b1220; border-top-color: #1e293b; color: #cbd5e1; }
+
+/* =========================================================================
+   DOCUMENT SURFACES ("paper") ARE EXEMPT FROM DARK MODE
+   =========================================================================
+   Everything above repaints the light palette for a dark screen, which is right
+   for the APP but wrong for anything that represents a printed page. A bill
+   preview, an OPD slip, a lab report or a growth chart is a picture of paper:
+   it is white with dark ink in both themes, because that is what comes out of
+   the printer.
+
+   Without this, .bg-white flipped to slate while the text stayed .text-slate-900
+   — dark ink on a dark sheet. The bill preview was literally unreadable in dark
+   mode: "Bill to:", the totals and "No lines yet." all vanished.
+
+   These rules sit AFTER the blanket overrides and match their (0,1,1)
+   specificity, so later-wins puts paper back to white. Local dark: utilities
+   still beat both, so a component can opt out deliberately if it ever needs to.
+
+   .print-area is on every print sheet already; .paper is for on-screen document
+   previews (like the Quick Bill draft) that are not themselves printed. */
+html.dark :where(.paper, .print-area) { background-color: #ffffff; color: #0f172a; }
+html.dark :where(.paper, .print-area) :where(.bg-white) { background-color: #ffffff; }
+html.dark :where(.paper, .print-area) :where(.bg-gray-50, .bg-slate-50) { background-color: #f8fafc; }
+html.dark :where(.paper, .print-area) :where(.bg-gray-100, .bg-slate-100) { background-color: #f1f5f9; }
+html.dark :where(.paper, .print-area) :where(.text-gray-900, .text-gray-800) { color: #0f172a; }
+html.dark :where(.paper, .print-area) :where(.text-gray-700) { color: #334155; }
+html.dark :where(.paper, .print-area) :where(.text-gray-600) { color: #475569; }
+html.dark :where(.paper, .print-area) :where(.text-gray-500) { color: #64748b; }
+html.dark :where(.paper, .print-area) :where(.text-gray-400) { color: #94a3b8; }
+html.dark :where(.paper, .print-area) :where(.border-gray-100) { border-color: #f1f5f9; }
+html.dark :where(.paper, .print-area) :where(.border-gray-200) { border-color: #e2e8f0; }
+html.dark :where(.paper, .print-area) :where(.border-gray-300) { border-color: #cbd5e1; }
+html.dark :where(.paper, .print-area) :where(.divide-gray-100 > * + *) { border-color: #f1f5f9; }
+html.dark :where(.paper, .print-area) :where(.divide-gray-200 > * + *) { border-color: #e2e8f0; }
+/* Tinted badges on paper print as their light originals, not the dark remaps. */
+html.dark :where(.paper, .print-area) :where(.bg-blue-50) { background-color: #eff6ff; color: #1e3a8a; }
+html.dark :where(.paper, .print-area) :where(.bg-blue-100) { background-color: #dbeafe; color: #1e3a8a; }
+html.dark :where(.paper, .print-area) :where(.bg-green-50) { background-color: #f0fdf4; color: #14532d; }
+html.dark :where(.paper, .print-area) :where(.bg-amber-50) { background-color: #fffbeb; color: #78350f; }
+html.dark :where(.paper, .print-area) :where(.bg-red-50) { background-color: #fef2f2; color: #7f1d1d; }
+
 
 /* =======================
    PRINT-LIKE PREVIEW (on-screen)

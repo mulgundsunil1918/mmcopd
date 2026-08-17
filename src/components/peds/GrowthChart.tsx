@@ -106,9 +106,9 @@ export function GrowthChart({ chart, sex, points }: {
             <path
               d={points.filter((p) => p.ageDays <= maxAgeM * 30.44).sort((a, b) => a.ageDays - b.ageDays)
                 .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xOf(p.ageDays / 30.44).toFixed(1)} ${yOf(p.value).toFixed(1)}`).join(' ')}
-              fill="none" stroke="#0f172a" strokeWidth={1.6} className="dark:stroke-white" />
+              fill="none" stroke="var(--chart-ink)" strokeWidth={1.6} />
             {points.filter((p) => p.ageDays <= maxAgeM * 30.44).map((p, i) => (
-              <circle key={i} cx={xOf(p.ageDays / 30.44)} cy={yOf(p.value)} r={3.2} fill="#0f172a" className="dark:fill-white" stroke="#fff" strokeWidth={1} />
+              <circle key={i} cx={xOf(p.ageDays / 30.44)} cy={yOf(p.value)} r={3.2} fill="var(--chart-ink)" stroke="var(--chart-paper)" strokeWidth={1} />
             ))}
           </>
         )}
@@ -120,7 +120,7 @@ export function GrowthChart({ chart, sex, points }: {
             <span className="inline-block w-4 h-0.5" style={{ background: Z_STYLE[z].colour }} /> {Z_STYLE[z].label}
           </span>
         ))}
-        <span className="inline-flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full bg-slate-900 dark:bg-white" /> This child</span>
+        <span className="inline-flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: 'var(--chart-ink)' }} /> This child</span>
       </div>
     </div>
   );
