@@ -2082,6 +2082,56 @@ function NetworkDiagram() {
   );
 }
 
+/**
+ * Warn a HOST that Windows will put it to sleep.
+ *
+ * The host holds the database, so when it sleeps every other PC in the clinic
+ * loses everything at the same moment — and it looks to all of them like the
+ * network died. Staff restart routers and cabins and get nowhere, because the
+ * cause is a power setting on a machine nobody is standing next to.
+ *
+ * Windows enables sleep by default, so this is not a rare misconfiguration: any
+ * PC promoted to host inherits a timer that will eventually take the clinic
+ * down mid-session. Far better to say so now, while someone is sitting here.
+ *
+ * The screen turning off is fine and is left alone — that is where the power
+ * saving a clinic actually cares about comes from.
+ */
+function HostSleepWarning() {
+  const [busy, setBusy] = useState(false);
+  const { data: power, refetch } = useQuery({
+    queryKey: ['host-power'],
+    queryFn: () => window.electronAPI.network.hostPower(),
+  });
+  if (!power?.known || !power.sleepsOnAC) return null;
+  return (
+    <div className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-[12px] text-amber-800 dark:text-amber-200">
+      <div className="font-semibold">⚠ This PC is set to sleep after {power.sleepAfterMinutes} minutes</div>
+      <div className="mt-0.5">
+        It hosts the clinic's records, so while it sleeps <b>every other computer loses access</b> — reception
+        can't register, the doctor can't open a file. It looks like the network broke, but it isn't the network.
+      </div>
+      <div className="mt-2 flex items-center gap-2 flex-wrap">
+        <button
+          className="btn-secondary text-xs"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              const r = await window.electronAPI.network.disableHostSleep();
+              if (!r.ok) alert(r.error || 'Could not change the setting.');
+              await refetch();
+            } finally { setBusy(false); }
+          }}
+        >
+          {busy ? 'Applying…' : 'Keep this PC awake'}
+        </button>
+        <span className="opacity-80">The monitor still turns off — only sleep is disabled.</span>
+      </div>
+    </div>
+  );
+}
+
 function NetworkModeSettings() {
   const qc = useQueryClient();
   const toast = useToast();
@@ -2238,6 +2288,7 @@ function NetworkModeSettings() {
             }
             return <div className="text-[12px] text-gray-500 dark:text-slate-400">Checking whether other PCs can reach this host…</div>;
           })()}
+          <HostSleepWarning />
           <ServerJoinCodePanel />
           <MigrationHelper />
         </>

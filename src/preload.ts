@@ -731,6 +731,11 @@ const api = {
         steps: { id: string; label: string; ok: boolean; detail: string; hint?: string; ms?: number }[];
         interfaces: { name: string; address: string; kind: string }[];
       }>,
+    /** Does this HOST sleep? Sleeping takes every other PC offline with it. */
+    hostPower: () => ipcRenderer.invoke('network:hostPower') as Promise<{
+      known: boolean; sleepsOnAC: boolean; sleepAfterMinutes: number; fixCommand: string; detail: string;
+    }>,
+    disableHostSleep: () => ipcRenderer.invoke('network:disableHostSleep') as Promise<{ ok: boolean; error?: string }>,
     reconnect: () => ipcRenderer.invoke('network:reconnect') as Promise<{ ok: boolean; latencyMs?: number; error?: string }>,
     forget: () => ipcRenderer.invoke('network:forget') as Promise<{ ok: boolean }>,
     /** Live connection-state pushes from the main process (client mode). */

@@ -20,6 +20,7 @@ import { listNetworkInterfaces, runDiagnostics, scanLanForHosts } from './main/n
 import splashHtml from './splash.html?raw';
 import { getDb, closeDb } from './db/db';
 import { getAllSettings, saveSettings } from './db/settings';
+import { checkHostPower, disableHostSleep } from './main/host-power';
 
 // Update mechanism: poll GitHub Releases API on demand and on a daily timer.
 // We ship via NSIS (electron-builder) so Electron's built-in Squirrel autoUpdater
@@ -613,6 +614,24 @@ function createWindow() {
     } catch (err: any) {
       return { ok: false as const, hosts: [], error: err?.message || String(err) };
     }
+  });
+
+  /**
+   * Will this host PC put itself to sleep and take the clinic offline?
+   *
+   * Windows enables sleep by default, so a PC promoted to host silently
+   * inherits a timer that will drop every other computer mid-session. To the
+   * staff that looks like the network broke, and they go restarting routers.
+   * Catching it while someone is at the host is the whole point.
+   */
+  ipcMain.handle('network:hostPower', async () => {
+    try { return await checkHostPower(); }
+    catch (err: any) { return { known: false, sleepsOnAC: false, sleepAfterMinutes: 0, fixCommand: '', detail: err?.message || String(err) }; }
+  });
+
+  ipcMain.handle('network:disableHostSleep', async () => {
+    try { return await disableHostSleep(); }
+    catch (err: any) { return { ok: false, error: err?.message || String(err) }; }
   });
 
   // Force an immediate reconnect attempt (the "Reconnect now" button).
