@@ -17,6 +17,14 @@ import {
 } from './demo-data';
 import { LAB_CATALOG } from '../data/lab-catalog';
 
+/**
+ * Injected by vite.demo.config.ts from package.json at build time, so the
+ * showcase always reports the version it was built from rather than a literal
+ * someone forgot to bump.
+ */
+declare const __DEMO_VERSION__: string;
+const DEMO_VERSION = typeof __DEMO_VERSION__ === 'string' ? __DEMO_VERSION__ : 'demo';
+
 // Full lab catalog for the demo, priced by department so the showcase looks real.
 const DEMO_LAB_PRICE: Record<string, number> = {
   haematology: 200, biochemistry: 300, serology: 450, microbiology: 350,
@@ -422,14 +430,14 @@ export function createMockElectronAPI(): any {
       pickFile: () => r(null),
     },
     updates: {
-      state: () => r({ state: 'idle', appVersion: '0.3.0-demo', isPackaged: false }),
+      state: () => r({ state: 'idle', appVersion: DEMO_VERSION, isPackaged: false }),
       checkNow: () => r({ ok: false, isPackaged: false }),
       installNow: () => r({ ok: false }),
       onState: () => () => {},
       onPromptInstall: () => () => {},
     },
     network: {
-      status: () => r({ mode: 'local', listenPort: 4321, serverUrl: '', hasSecret: false, running: false, port: 0, clients: 0, ipcChannels: 0, appVersion: '0.3.0-demo' }),
+      status: () => r({ mode: 'local', listenPort: 4321, serverUrl: '', hasSecret: false, running: false, port: 0, clients: 0, ipcChannels: 0, appVersion: DEMO_VERSION }),
       applyMode: () => r({ ok: true, running: false, port: 0, clients: 0, ipcChannels: 0 }),
       probe: () => r({ ok: false, error: 'Demo build — network mode not available in showcase' }),
       joinCode: () => r({ code: null, expiresAt: null, lanIp: null, port: 0 }),

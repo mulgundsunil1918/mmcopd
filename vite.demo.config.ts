@@ -44,8 +44,19 @@ function postBuildPlugin() {
   };
 }
 
+/**
+ * The demo advertises its own version, so it must never be typed by hand — a
+ * stale literal told every visitor the product was still on 0.3.0 while 0.6.0
+ * was shipping. Read it from package.json so the showcase can only ever claim
+ * the version it was actually built from.
+ */
+const appVersion = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf8'),
+).version as string;
+
 export default defineConfig({
   base: '/mmcopd/',
+  define: { __DEMO_VERSION__: JSON.stringify(`${appVersion}-demo`) },
   plugins: [react(), postBuildPlugin()],
   build: {
     outDir: 'dist-demo',
