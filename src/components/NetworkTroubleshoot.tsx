@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Activity, AlertTriangle, Cable, CheckCircle2, Copy, Loader2, RefreshCw,
-  Stethoscope, Unlink, Wifi, XCircle, HelpCircle,
+  Stethoscope, Unlink, Wifi, XCircle, HelpCircle, Search,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
@@ -23,6 +23,20 @@ export function NetworkTroubleshoot({ mode }: { mode: 'local' | 'server' | 'clie
   const qc = useQueryClient();
   const [report, setReport] = useState<DiagReport | null>(null);
   const [running, setRunning] = useState(false);
+  // "Find the host PC" — sweeps the LAN so a clinic never has to run ipconfig
+  // and guess which of several addresses is the real one. The address a host
+  // advertises can be a virtual adapter that nothing else can reach.
+  const [scanning, setScanning] = useState(false);
+  const [found, setFound] = useState<{ ip: string; version?: string }[] | null>(null);
+
+  const findHosts = async () => {
+    setScanning(true); setFound(null);
+    try {
+      const r = await window.electronAPI.network.findHosts();
+      setFound(r.ok ? r.hosts : []);
+    } catch { setFound([]); }
+    finally { setScanning(false); }
+  };
   const [reconnecting, setReconnecting] = useState(false);
   const [confirmForget, setConfirmForget] = useState(false);
   const [liveState, setLiveState] = useState<ConnState | null>(null);
@@ -251,11 +265,46 @@ export function NetworkTroubleshoot({ mode }: { mode: 'local' | 'server' | 'clie
         </div>
       )}
 
+      {found !== null && (
+        <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/70 dark:bg-blue-900/20 p-3">
+          {found.length === 0 ? (
+            <div className="text-[12px] text-blue-900 dark:text-blue-100 leading-relaxed">
+              <b>No CureDesk host found on this network.</b> That means no computer here is currently accepting
+              connections. On the main computer: open CureDesk, go to Settings → Multi-System, and check it says
+              <b> &ldquo;Hosting on port 4321&rdquo;</b> — it only accepts connections while the app is open. Also make
+              sure both computers are on the same Wi-Fi, and allow CureDesk through the firewall on the main PC.
+            </div>
+          ) : (
+            <>
+              <div className="text-[11px] uppercase tracking-wide font-bold text-blue-800 dark:text-blue-200 mb-1.5">
+                Found {found.length} CureDesk host{found.length === 1 ? '' : 's'} — use this address
+              </div>
+              {found.map((h) => (
+                <div key={h.ip} className="flex items-center justify-between gap-2 text-[12.5px] py-0.5">
+                  <span className="font-mono font-bold text-blue-900 dark:text-blue-100">{h.ip}</span>
+                  <span className="text-[11px] text-blue-800/70 dark:text-blue-200/70">
+                    {h.version ? `CureDesk ${h.version}` : 'CureDesk'}
+                  </span>
+                </div>
+              ))}
+              <div className="text-[11px] text-blue-800/80 dark:text-blue-200/80 mt-1.5">
+                Type this address on the cabin PC with port 4321. Ignore any address starting <b>192.168.56.</b> —
+                that is a virtual adapter no other computer can reach.
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* ── Actions ─────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2 pt-1">
         <button className="btn-primary text-xs" onClick={runDiagnostics} disabled={running}>
           {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Stethoscope className="w-3.5 h-3.5" />}
           {running ? 'Checking…' : 'Run full diagnostics'}
+        </button>
+        <button className="btn-secondary text-xs" onClick={findHosts} disabled={scanning}>
+          {scanning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+          {scanning ? 'Searching the network…' : 'Find the host PC'}
         </button>
         {report && (
           <button className="btn-ghost text-xs" onClick={copyReport}>

@@ -719,6 +719,9 @@ const api = {
       pinned: string;
     }>,
     /** Staged connectivity check with a plain-English fix per failing step. */
+    /** Sweep the LAN for a CureDesk host so the clinic never has to run ipconfig. */
+    findHosts: (port?: number) =>
+      ipcRenderer.invoke('network:findHosts', port) as Promise<{ ok: boolean; hosts: { ip: string; version?: string; product?: string }[]; error?: string }>,
     diagnose: (payload?: { url?: string; secret?: string }) =>
       ipcRenderer.invoke('network:diagnose', payload || {}) as Promise<{
         ok: boolean;

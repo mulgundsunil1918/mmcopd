@@ -84,6 +84,7 @@ const SKIP_PROXY_CHANNELS = new Set([
   'network:discover',
   'network:pair',
   'network:diagnose',
+  'network:findHosts',   // must run on THIS PC's own network, never proxied to the host
   'network:interfaces',
   'network:reconnect',
   'network:forget',

@@ -13,7 +13,7 @@ import { runAutomationScheduler } from './services/whatsapp/scheduler';
 import { startNetworkServer, stopNetworkServer, networkServerStatus, getJoinCode, regenerateJoinCode, getLocalLanIP, setPreferredIp, runSelfTest } from './main/network-server';
 import { discoverServers, pairWithCode, addWindowsFirewallRule } from './main/network-discovery';
 import { installNetworkClient, networkClientStatus, uninstallNetworkClient, reconnectNow, setClientStateListener, setUrlPersister } from './main/network-client';
-import { listNetworkInterfaces, runDiagnostics } from './main/network-diagnostics';
+import { listNetworkInterfaces, runDiagnostics, scanLanForHosts } from './main/network-diagnostics';
 // Vite's ?raw import bundles the splash HTML as a string at build time so the
 // main process can show it before the main BrowserWindow is ready.
 // @ts-ignore — Vite ?raw import has no built-in TS shim
@@ -591,7 +591,28 @@ function createWindow() {
     const s = getAllSettings(getDb());
     const url = payload?.url ?? s.network_server_url ?? '';
     const secret = payload?.secret ?? s.network_secret ?? '';
-    return runDiagnostics(url, secret);
+    // When this PC is the host, also verify its own server is actually
+    // listening — "nothing on port 4321" is a common and previously invisible
+    // cause that no amount of checking from the other PC can reveal.
+    const selfPort = s.network_mode === 'server' ? (s.network_listen_port || 4321) : undefined;
+    return runDiagnostics(url, secret, selfPort);
+  });
+
+  /**
+   * Find the main computer on this network.
+   *
+   * A clinic should never have to run ipconfig and work out which of several
+   * addresses is the real one. This sweeps the local subnet for a CureDesk
+   * host and reports exactly what to use.
+   */
+  ipcMain.handle('network:findHosts', async (_e, port?: number) => {
+    try {
+      const s2 = getAllSettings(getDb());
+      const hosts = await scanLanForHosts(port || s2.network_listen_port || 4321);
+      return { ok: true as const, hosts };
+    } catch (err: any) {
+      return { ok: false as const, hosts: [], error: err?.message || String(err) };
+    }
   });
 
   // Force an immediate reconnect attempt (the "Reconnect now" button).

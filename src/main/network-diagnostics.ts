@@ -54,6 +54,27 @@ function scoreOf(kind: InterfaceKind, address: string): number {
   return s;
 }
 
+/**
+ * Address ranges that are never a real clinic LAN.
+ *
+ *   192.168.56.x  VirtualBox host-only (the default, and the one seen in the field)
+ *   172.16-31.x   Docker / container bridges
+ *   169.254.x     APIPA — the address Windows self-assigns when DHCP fails, so it
+ *                 means "no network", not "this network"
+ *   100.64-127.x  CGNAT, used by Tailscale
+ *   198.18-19.x   benchmark range some VPNs borrow
+ */
+function isVirtualSubnet(addr: string): boolean {
+  const p = addr.split('.').map(Number);
+  if (p.length !== 4 || p.some((n) => !Number.isFinite(n))) return true;
+  if (p[0] === 169 && p[1] === 254) return true;                 // APIPA
+  if (p[0] === 192 && p[1] === 168 && p[2] === 56) return true;  // VirtualBox host-only
+  if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return true;     // Docker
+  if (p[0] === 100 && p[1] >= 64 && p[1] <= 127) return true;    // CGNAT / Tailscale
+  if (p[0] === 198 && (p[1] === 18 || p[1] === 19)) return true; // benchmark range
+  return false;
+}
+
 export function listNetworkInterfaces(): NetInterface[] {
   const nets = os.networkInterfaces();
   const out: NetInterface[] = [];
@@ -63,6 +84,12 @@ export function listNetworkInterfaces(): NetInterface[] {
       // Skip virtual adapters — VMware/Hyper-V/Docker/VirtualBox host-only nets
       // advertise addresses that no other PC on the clinic LAN can reach.
       if (/(virtual|vmware|hyper-?v|loopback|docker|vethernet|vbox|tailscale|zerotier|utun|tun\d|tap\d)/i.test(name)) continue;
+      // ...and by ADDRESS RANGE, because the name check alone is not enough.
+      // Windows frequently names a VirtualBox host-only adapter plain "Ethernet 2",
+      // which passes the filter above and then gets advertised to the clinic as
+      // the host address. A cabin PC dialling 192.168.56.1 reaches nothing (often
+      // itself), and the only symptom is a bare "fetch failed".
+      if (isVirtualSubnet(info.address)) continue;
       const kind = classify(name);
       out.push({
         name,
@@ -128,7 +155,62 @@ function tcpProbe(host: string, port: number, timeoutMs = 4000): Promise<{ ok: b
   });
 }
 
-export async function runDiagnostics(serverUrl: string, secret: string): Promise<DiagReport> {
+/**
+ * Sweep this PC's own subnet looking for a CureDesk host.
+ *
+ * The single most common multi-PC failure is not knowing — or being told the
+ * wrong — address for the main computer. A host that advertises a virtual
+ * adapter (VirtualBox's 192.168.56.x is the classic) hands the cabin PC an
+ * address nothing can reach, and the only symptom is "fetch failed". Rather
+ * than ask a clinic to run ipconfig and interpret it, find the host for them.
+ *
+ * Probes every address on the local /24 in parallel, then asks each responder
+ * for /api/info so only a genuine CureDesk host is reported — not some other
+ * service that happens to use the port.
+ */
+export async function scanLanForHosts(port = 4321): Promise<{ ip: string; version?: string; product?: string }[]> {
+  const ifaces = listNetworkInterfaces();
+  const found: { ip: string; version?: string; product?: string }[] = [];
+  const seen = new Set<string>();
+
+  for (const iface of ifaces) {
+    const parts = iface.address.split('.');
+    if (parts.length !== 4) continue;
+    const base = parts.slice(0, 3).join('.');
+    if (seen.has(base)) continue;
+    seen.add(base);
+
+    const candidates: string[] = [];
+    for (let i = 1; i <= 254; i++) {
+      const ip = `${base}.${i}`;
+      if (ip !== iface.address) candidates.push(ip);
+    }
+
+    // Probe in batches so we do not open 254 sockets at once on a weak PC.
+    const BATCH = 48;
+    for (let i = 0; i < candidates.length; i += BATCH) {
+      const slice = candidates.slice(i, i + BATCH);
+      const hits = await Promise.all(
+        slice.map(async (ip) => ((await tcpProbe(ip, port, 900)).ok ? ip : null)),
+      );
+      for (const ip of hits) {
+        if (!ip) continue;
+        // Confirm it is really CureDesk before offering it to the user.
+        try {
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 1500);
+          const res = await fetch(`http://${ip}:${port}/api/info`, { signal: ctrl.signal });
+          clearTimeout(t);
+          const j = (await res.json()) as any;
+          if (j?.product) found.push({ ip, version: j.version, product: j.product });
+        } catch { /* something else on the port — ignore */ }
+      }
+    }
+  }
+  return found;
+}
+
+export async function runDiagnostics(serverUrl: string, secret: string, hostSelfCheckPort?: number): Promise<DiagReport> {
   const steps: DiagStep[] = [];
   const interfaces = listNetworkInterfaces();
   const push = (s: DiagStep) => { steps.push(s); return s.ok; };
@@ -151,6 +233,31 @@ export async function runDiagnostics(serverUrl: string, secret: string): Promise
     return { ok: false, ranAt: new Date().toISOString(), target: serverUrl, steps, interfaces };
   }
 
+  /**
+   * ── 1b. Is the ADDRESS WE ARE DIALLING even a real one? ──────────────────
+   *
+   * A host running VirtualBox, Docker or Tailscale used to advertise a virtual
+   * adapter's address. The cabin PC then dialled a network that exists only
+   * inside the other machine and got a bare "fetch failed" — with nothing on
+   * screen to suggest the address itself was the problem. Say so plainly.
+   */
+  {
+    const h = url.hostname;
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h) && isVirtualSubnet(h)) {
+      const what =
+        /^192\.168\.56\./.test(h) ? 'a VirtualBox host-only adapter'
+        : /^169\.254\./.test(h) ? 'a self-assigned address, which means that PC never got an IP from the router'
+        : /^172\.(1[6-9]|2\d|3[01])\./.test(h) ? 'a Docker network'
+        : /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h) ? 'a Tailscale/VPN address'
+        : 'a virtual network';
+      push({
+        id: 'virtual-address', label: 'The host address is a real network address', ok: false,
+        detail: `${h} is ${what} — it exists only inside the other computer and can never be reached from here.`,
+        hint: 'On the main computer open Command Prompt and run "ipconfig". Use the IPv4 Address under your Wi-Fi or Ethernet adapter — it usually starts 192.168. or 10. — and ignore anything starting 192.168.56. Or press "Find the host PC" below and CureDesk will locate it for you.',
+      });
+    }
+  }
+
   // ── 2. This PC has a usable LAN adapter ──────────────────────────────────
   const usable = interfaces.filter((i) => !/^169\.254\./.test(i.address));
   if (usable.length === 0) {
@@ -165,6 +272,28 @@ export async function runDiagnostics(serverUrl: string, secret: string): Promise
       id: 'adapter', label: 'This PC has a network connection', ok: true,
       detail: `${best.name} · ${best.address}${best.kind !== 'other' ? ` (${best.kind})` : ''}${usable.length > 1 ? ` · +${usable.length - 1} more` : ''}`,
     });
+  }
+
+  /**
+   * ── 2b. If THIS PC is meant to be the host, is it actually listening? ────
+   *
+   * "Nothing is listening on 4321" was the real cause of a support case that
+   * took hours: the app had been left in Local mode, so there was simply no
+   * server to connect to, and every check on the cabin PC pointed outward.
+   */
+  {
+    const selfPort = hostSelfCheckPort;
+    if (selfPort) {
+      const self = await tcpProbe('127.0.0.1', selfPort, 1200);
+      push({
+        id: 'hosting', label: 'This computer is accepting connections', ok: self.ok,
+        detail: self.ok
+          ? `Listening on port ${selfPort}`
+          : `Nothing is listening on port ${selfPort} on this PC`,
+        hint: self.ok ? undefined
+          : 'This PC is set as the main computer but its server is not running. Make sure CureDesk is OPEN (it only accepts connections while running) and that Settings → Multi-System still shows "Hosting". Closing the app disconnects every other computer.',
+      });
+    }
   }
 
   // ── 3. Same subnet sanity check ──────────────────────────────────────────

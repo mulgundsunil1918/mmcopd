@@ -70,7 +70,28 @@ export async function pairWithCode(serverUrl: string, code: string): Promise<{ o
     }
     return { ok: true, secret: json.secret, port: json.port, version: json.version };
   } catch (err: any) {
-    return { ok: false, error: err?.message || String(err) };
+    /**
+     * Turn Node's bare "fetch failed" into something a clinic can act on.
+     *
+     * A network-level failure means the request never reached the host at all —
+     * a completely different problem from a wrong code, which comes back as a
+     * clear "Invalid join code". Reporting the raw message told the user nothing
+     * and sent them checking the code they had typed correctly.
+     */
+    const raw = String(err?.message || err);
+    const host = (() => { try { return new URL(serverUrl).hostname; } catch { return serverUrl; } })();
+    if (/fetch failed|ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|ENOTFOUND|AbortError/i.test(raw)) {
+      return {
+        ok: false,
+        error:
+          `Could not reach ${host}. The join code was never checked — this is a network problem, not a wrong code.\n\n` +
+          `• Is CureDesk OPEN on the main computer, showing "Hosting on port"? It only accepts connections while running.\n` +
+          `• Is ${host} still the main computer's address? It can change when the router restarts — check Settings → Multi-System there.\n` +
+          `• Are both PCs on the same Wi-Fi/LAN?\n` +
+          `• On the main computer, allow CureDesk through the firewall for Private networks.`,
+      };
+    }
+    return { ok: false, error: raw };
   }
 }
 
