@@ -3,7 +3,7 @@ import { formatINR } from '../lib/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileText, Printer, Save, Send, Plus, Trash2, FlaskConical, Sparkles, X } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
-import { OpdSlip } from './OpdSlip';
+import { OpdSlipFor } from './OpdSlipFor';
 import { Modal } from './Modal';
 import { RequestAdmissionButton } from './ipd/AdmissionRequests';
 import { PedsGrowthField } from './peds/PedsGrowthField';
@@ -206,14 +206,6 @@ export function ConsultationPanel({
 
   const addRxRow = () => setRxRows((rows) => [...rows, { ...EMPTY_RX }]);
   const removeRxRow = (idx: number) => setRxRows((rows) => rows.length > 1 ? rows.filter((_, i) => i !== idx) : rows);
-
-  const vitalsPreview: Consultation = {
-    appointment_id: appointment.id,
-    patient_id: appointment.patient_id,
-    doctor_id: appointment.doctor_id,
-    history, examination, impression, advice,
-    vitals, follow_up_date: followUp || null,
-  };
 
   // Pediatric growth — shown for a pediatrician (module on) treating a child
   // under 18. Reference follows the child's age (WHO 0–5y, IAP 5–18y) unless the
@@ -477,12 +469,25 @@ export function ConsultationPanel({
         />
       )}
 
-      {showSlip && settings && (
-        <OpdSlip
+      {/*
+        Print through OpdSlipFor, the same path reception uses.
+
+        This rendered <OpdSlip> directly and passed no rxItems, and OpdSlip
+        defaults that prop to [] — so the doctor's own "Print OPD Slip" always
+        produced a slip with NO prescription on it. RxTable returns null on an
+        empty list, so the drug, dose, frequency, duration, instructions and the
+        Kannada line all disappeared together, leaving only whatever had been
+        typed into Advice. Lab orders and the follow-up box were missing for the
+        same reason. The patient walked out with a prescription that did not
+        list the medicine.
+
+        onPrint awaits the save before opening this, so the database is already
+        current and fetching is not just equivalent but more accurate than the
+        in-memory preview — it prints exactly what was stored.
+      */}
+      {showSlip && (
+        <OpdSlipFor
           appointment={appointment}
-          consultation={vitalsPreview}
-          doctor={doctor}
-          settings={settings}
           onClose={() => setShowSlip(false)}
         />
       )}
