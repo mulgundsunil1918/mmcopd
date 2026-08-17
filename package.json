@@ -17,7 +17,7 @@
     "keygen": "node tools/keygen-server.mjs",
     "keygen:setup": "node tools/keygen-setup.mjs",
     "build:win": "bash scripts/build-windows.sh",
-    "test": "node --experimental-sqlite tests/patient-log-fanout.test.mjs"
+    "test": "node --experimental-sqlite tests/patient-log-fanout.test.mjs && node tests/host-watchdog.test.mjs"
   },
   "keywords": [],
   "author": {

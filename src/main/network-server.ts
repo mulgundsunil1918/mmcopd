@@ -24,6 +24,7 @@ import dgram from 'node:dgram';
 import crypto from 'node:crypto';
 import { ipcHandlers } from './ipc-registry';
 import { listNetworkInterfaces, broadcastAddressFor } from './network-diagnostics';
+import { startHostWatchdog, stopHostWatchdog } from './host-watchdog';
 
 let httpServer: http.Server | null = null;
 let wss: WebSocketServer | null = null;
@@ -250,6 +251,7 @@ async function readJsonBody(req: http.IncomingMessage): Promise<any> {
 // ===== Lifecycle =====
 
 export async function stopNetworkServer(): Promise<void> {
+  stopHostWatchdog();
   stopUdpBroadcast();
   joinCode = null;
   if (wss) {
@@ -409,6 +411,10 @@ export async function startNetworkServer(port: number, secret: string, appVersio
     startUdpBroadcast();
     // Confirm we're actually reachable on our own LAN address (fire-and-store).
     await runSelfTest();
+    // runSelfTest only ever proves we were healthy at STARTUP. The watchdog is
+    // what notices if we stop answering later, and it must run outside this
+    // process to survive the blocked-event-loop case it exists to catch.
+    startHostWatchdog(port);
     return { ok: true, port, selfTest: lastSelfTest };
   } catch (err: any) {
     await stopNetworkServer();
