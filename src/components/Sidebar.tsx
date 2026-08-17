@@ -359,8 +359,21 @@ function NetworkStatusPill() {
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   if (!status || status.mode === 'local') return null;
   const isServer = status.mode === 'server';
-  const ok = isServer ? status.running : true;
-  const dot = ok ? '#10b981' : '#ef4444';
+  /*
+   * A CLIENT's light used to be hardcoded green — `isServer ? running : true`.
+   * It reported the CONFIGURED mode, never the actual connection, so when the
+   * host went unreachable the sidebar sat there showing a healthy green dot
+   * while every screen in the app was failing to load. A status light that
+   * cannot go red is worse than no light: it actively tells the user the one
+   * thing that isn't true, and sends them looking anywhere but at the host.
+   *
+   * The main process already tracks the real thing (network-client's connState,
+   * surfaced as client.state). Ask it, rather than assuming.
+   */
+  const clientState = (status as any).client?.state as 'idle' | 'connected' | 'degraded' | 'offline' | undefined;
+  const ok = isServer ? status.running : clientState === 'connected';
+  const degraded = !isServer && clientState === 'degraded';
+  const dot = ok ? '#10b981' : degraded ? '#f59e0b' : '#ef4444';
   const Icon = isServer ? Server : Wifi;
   const station = settings?.station_name || (isServer ? 'Reception Desk' : 'This Cabin');
   return (
@@ -369,7 +382,13 @@ function NetworkStatusPill() {
       <div className="flex-1 min-w-0">
         <div className="text-[11px] font-semibold truncate">{station}</div>
         <div className="text-[9px] opacity-80 uppercase tracking-wider truncate">
-          {isServer ? `Hosting · ${status.clients} clients` : `Client → ${status.serverUrl || '(not set)'}`}
+          {isServer
+            ? `Hosting · ${status.clients} clients`
+            : ok
+              ? `Client → ${status.serverUrl || '(not set)'}`
+              // Say the problem, not the address — the address is no use to
+              // someone whose screens have just gone blank.
+              : degraded ? 'Host slow to respond' : 'Host unreachable — reconnecting'}
         </div>
       </div>
       <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: dot }} />

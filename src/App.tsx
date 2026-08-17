@@ -107,6 +107,17 @@ export default function App() {
   // / Server). Status drives the offline banner below.
   const live = useNetworkLive();
 
+  // The main process's own view of the link — the authoritative one, shared with
+  // the sidebar light and the diagnostics panel. Polled on the same 5s cadence
+  // as the sidebar so the two can never show different things. This call is
+  // handled locally in main and does NOT go over the LAN, so it keeps answering
+  // even while the host is unreachable — which is exactly when it matters.
+  const { data: netStatus } = useQuery({
+    queryKey: ['network-status'],
+    queryFn: () => window.electronAPI.network.status(),
+    refetchInterval: 5_000,
+  });
+
   // Wizard renders ABOVE the login gate so a fresh install shows the host /
   // client picker immediately — user doesn't have to log in first. The setup
   // banner reminds them on every page after login if clinic isn't configured.
@@ -123,7 +134,34 @@ export default function App() {
   // Client PCs whose host is off/unreachable get a clear blocking screen instead
   // of a broken app. Only ever shows in Client mode (its live status is the only
   // one that goes disconnected/error).
-  const hostOffline = <HostOfflineOverlay offline={live.status === 'disconnected' || live.status === 'error'} />;
+  /*
+   * Offline is decided by the MAIN PROCESS's view of the connection, not the
+   * renderer's WebSocket.
+   *
+   * Keying it on the socket meant the overlay hid itself every five seconds:
+   * the reconnect loop flips status to 'connecting', which is neither
+   * 'disconnected' nor 'error', so the gate lifted on each retry and exposed a
+   * blank, unusable app. The very early failure path sets 'idle', which also
+   * slipped through. The user saw an empty window with a green light and no
+   * explanation — the app knew the host was gone and said nothing.
+   *
+   * client.state is the same signal the diagnostics panel reports, so the
+   * sidebar light, this gate and Settings can no longer disagree with each
+   * other. 'degraded' deliberately does NOT gate: the host is answering slowly
+   * but still answering, and blocking the whole app would be worse than
+   * letting a slow clinic keep working.
+   */
+  const clientState = (netStatus as any)?.client?.state as 'idle' | 'connected' | 'degraded' | 'offline' | undefined;
+  const isClient = (netStatus as any)?.mode === 'client';
+  const hostOffline = (
+    <HostOfflineOverlay
+      offline={
+        (isClient && clientState === 'offline') ||
+        live.status === 'disconnected' ||
+        live.status === 'error'
+      }
+    />
+  );
 
   if (!user) return <>{hostOffline}{licenseGate}<ForceAdminPasswordGate />{wizardOverlay}<Login /></>;
   if (user.must_change_password) return <ForcePasswordChange />;
