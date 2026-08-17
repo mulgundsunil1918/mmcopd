@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { PREVIEW_APPOINTMENT_ID } from '../db/slip-templates';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Eye, FileText, Printer } from 'lucide-react';
 import { OpdSlip } from './OpdSlip';
@@ -75,7 +76,7 @@ export function SlipPreviewLauncher() {
   const today = new Date();
   const dobYears3 = new Date(today.getFullYear() - 3, today.getMonth(), today.getDate() - 12);
   const sampleAppointment: AppointmentWithJoins = {
-    id: 9999,
+    id: PREVIEW_APPOINTMENT_ID,
     patient_id: 9999,
     doctor_id: pickedDoctor.id,
     appointment_date: today.toISOString().slice(0, 10),
@@ -99,7 +100,7 @@ export function SlipPreviewLauncher() {
 
   const sampleConsultation: Consultation = {
     id: 9999,
-    appointment_id: 9999,
+    appointment_id: PREVIEW_APPOINTMENT_ID,
     patient_id: 9999,
     doctor_id: pickedDoctor.id,
     history: 'Fever since 3 days, cough, body ache. No vomiting or loose stools. Eating reduced since yesterday.',

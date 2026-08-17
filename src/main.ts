@@ -570,7 +570,7 @@ function createWindow() {
     return list;
   });
 
-  // Trade a 6-char join code for the server's secret + port. On success, the
+  // Trade a 5-char join code for the server's secret + port. On success, the
   // renderer saves the result into settings and reloads in Client mode.
   ipcMain.handle('network:pair', async (_e, payload: { url: string; code: string }) => {
     return pairWithCode(payload.url, payload.code);

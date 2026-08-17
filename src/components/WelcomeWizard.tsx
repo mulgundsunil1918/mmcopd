@@ -93,7 +93,7 @@ export function WelcomeWizard({ onClose }: { onClose: () => void }) {
       const url = `http://${server.ip}:${server.port}`;
       // Case matters — strip separators only, never change the letters.
       const cleaned = joinCode.replace(/[^A-Za-z0-9]/g, '');
-      if (cleaned.length !== 6) {
+      if (cleaned.length !== 5) {
         setError('Join code is 5 characters, and capital letters matter');
         setBusy(false);
         return;
@@ -545,7 +545,7 @@ function ConnectCodeStep({
         onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
         autoFocus
       />
-      <div className="text-[11px] text-gray-500 mt-1">Shown on the host PC's screen — 6 letters/digits.</div>
+      <div className="text-[11px] text-gray-500 mt-1">Shown on the host PC&rsquo;s screen — 5 characters. <b>Capital and small letters are different</b>, so type it exactly.</div>
 
       {error && (
         <div className="mt-3 text-[12px] text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-2">
@@ -555,7 +555,7 @@ function ConnectCodeStep({
 
       <div className="mt-6 flex items-center justify-between gap-2">
         <button className="btn-ghost text-xs" onClick={onBack} disabled={busy}>← Back</button>
-        <button className="btn-primary" onClick={submit} disabled={busy || code.replace(/-/g, '').length !== 6}>
+        <button className="btn-primary" onClick={submit} disabled={busy || code.replace(/[^A-Za-z0-9]/g, '').length !== 5}>
           {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> Connecting…</> : <>Connect <ArrowRight className="w-4 h-4" /></>}
         </button>
       </div>

@@ -242,3 +242,14 @@ export const DEFAULT_SLIP_TEMPLATES: SlipTemplate[] = [
   { id: 15, name: 'Urology',          specialty_hint: 'KUB, USG, PSA', sections: urologySections },
   { id: 16, name: 'General Surgery',  specialty_hint: 'Pre-op / post-op — procedure, wound status', sections: surgerySections },
 ];
+
+/**
+ * The synthetic appointment id used by the slip preview.
+ *
+ * Lives here rather than in either component because both need it and importing
+ * one from the other made a cycle. The slip checks for it so a preview can show
+ * sample data for anything that would otherwise need a real database row — the
+ * bilingual FOLLOW-UP / ಮರು ಭೇಟಿ box in particular, which silently disappeared
+ * from previews and looked like a removed feature.
+ */
+export const PREVIEW_APPOINTMENT_ID = 9999;

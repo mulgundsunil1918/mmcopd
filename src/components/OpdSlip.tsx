@@ -1,4 +1,5 @@
 import { format, parseISO } from 'date-fns';
+import { PREVIEW_APPOINTMENT_ID } from '../db/slip-templates';
 import { Printer, X, MapPin, Phone, Mail, HeartPulse } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -77,17 +78,40 @@ export function OpdSlip({
 }) {
   const v = consultation?.vitals ?? {};
 
+
   // Pull the follow-up summary so the FOLLOW-UP / ಮರು ಭೇಟಿ box on Page 2 can show
   // exactly how many free visits remain and till what date.
   const [followup, setFollowup] = useState<FollowupSummary | null>(null);
   useEffect(() => {
     if (!settings.followup_enabled) return;
     let cancelled = false;
+
+    /**
+     * The PREVIEW uses a synthetic appointment (id 9999) that does not exist in
+     * the database, so the real lookup returns nothing and the whole bilingual
+     * FOLLOW-UP / ಮರು ಭೇಟಿ box silently vanished from the preview — making it
+     * look as though the feature had been removed. A preview whose job is to
+     * show what will print must not drop a section, so it renders the box with
+     * clearly-marked example figures instead.
+     */
+    if (appointment.id === PREVIEW_APPOINTMENT_ID) {
+      const till = new Date();
+      till.setDate(till.getDate() + (settings.followup_window_days || 7));
+      setFollowup({
+        enabled: true,
+        mode: 'today_paid',
+        doctor_name: doctor?.name ? `Dr. ${doctor.name}` : 'Dr. (example)',
+        free_remaining: settings.followup_free_visits || 2,
+        valid_till: till.toISOString().slice(0, 10),
+      });
+      return;
+    }
+
     window.electronAPI.followup.summaryForAppointment(appointment.id).then((s) => {
       if (!cancelled) setFollowup(s);
     });
     return () => { cancelled = true; };
-  }, [appointment.id, settings.followup_enabled]);
+  }, [appointment.id, settings.followup_enabled, settings.followup_window_days, settings.followup_free_visits, doctor?.name]);
 
   // Pull the doctor's body template (drives Page 1 + Page 2 dynamic sections).
   // Use react-query so it's invalidatable from the preview launcher's "Preview"

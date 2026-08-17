@@ -4,7 +4,7 @@
  *     CureDesk server PC that's broadcasting on the LAN. The Welcome wizard
  *     uses this to show "Servers found on your network" buttons so the user
  *     doesn't have to type an IP.
- *   - pairWithCode(): trades a 6-char join code for the server's secret +
+ *   - pairWithCode(): trades a 5-char join code for the server's secret +
  *     port via POST /api/pair. The renderer then saves these and reloads in
  *     Network=Client mode.
  *   - addWindowsFirewallRule(): one-shot PowerShell call to allow the listen

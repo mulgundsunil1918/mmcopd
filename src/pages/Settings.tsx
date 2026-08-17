@@ -2275,7 +2275,7 @@ function NetworkModeSettings() {
   );
 }
 
-/** Friendly Client setup panel — auto-discovery + 6-char join code, with
+/** Friendly Client setup panel — auto-discovery + 5-char join code, with
  *  the manual URL/secret fields tucked under an "Advanced" toggle. */
 function ClientConnectPanel({
   currentUrl, currentSecret, onSavedConfig,
@@ -2313,7 +2313,7 @@ function ClientConnectPanel({
     if (!pickedServer) { setMsg({ ok: false, text: 'Pick a discovered server first (or enter URL manually below).' }); return; }
     // Case matters — strip separators only, never change the letters.
     const cleaned = code.replace(/[^A-Za-z0-9]/g, '');
-    if (cleaned.length !== 6) { setMsg({ ok: false, text: 'Join code must be 6 letters/digits.' }); return; }
+    if (cleaned.length !== 5) { setMsg({ ok: false, text: 'Join code is 5 characters, and capital and small letters are different.' }); return; }
     setBusy(true);
     setMsg(null);
     try {
@@ -2429,7 +2429,7 @@ function ClientConnectPanel({
               type="button"
               className="btn-primary"
               onClick={connectWithCode}
-              disabled={busy || code.replace(/-/g, '').length !== 6}
+              disabled={busy || code.replace(/[^A-Za-z0-9]/g, '').length !== 5}
             >
               {busy ? 'Connecting…' : '🚀 Connect'}
             </button>
