@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Baby, Search, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle, Trash2, User as UserIcon, IndianRupee, PenTool, Power, AlertCircle, ArrowUp, ArrowDown, MessageCircle, Eye, FileText, MapPin, Syringe, RefreshCw, Sparkles, HardDrive, Sun, Copy, FlaskConical, ShieldCheck, KeyRound, Lock, BadgeCheck, Wifi } from 'lucide-react';
+import { Building2, Baby, Search, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle, Trash2, User as UserIcon, IndianRupee, PenTool, Power, AlertCircle, ArrowUp, ArrowDown, Eye, FileText, MapPin, Syringe, RefreshCw, Sparkles, HardDrive, Sun, Copy, FlaskConical, ShieldCheck, KeyRound, Lock, BadgeCheck, Wifi, Download } from 'lucide-react';
 import { DEFAULT_LAYOUT } from '../db/slip-templates';
 import type { SlipLayout } from '../db/slip-templates';
 import { format, parseISO } from 'date-fns';
@@ -10,7 +10,6 @@ import { copyText } from '../lib/clipboard';
 import { Check } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { ImageUpload } from '../components/ImageUpload';
-import { WhatsAppMessaging } from '../components/WhatsAppMessaging';
 import { SlipPreviewLauncher } from '../components/SlipPreviewLauncher';
 import { OpdSlip } from '../components/OpdSlip';
 import { promptDialog } from '../lib/promptDialog';
@@ -24,18 +23,54 @@ import { ModuleTutorialButton } from '../components/ModuleTutorial';
 import { BillingSettings } from '../components/settings/BillingSettings';
 import { useToast } from '../hooks/useToast';
 import { useLicensedModules } from '../hooks/useLicensedModules';
+import { HelpTip } from '../components/HelpTip';
+import { STATION_ROLES, STATION_LABEL, stationShows, type StationRole } from '../lib/moduleAccess';
+import { moduleState } from '../lib/moduleAccess';
+import { ACCESS_MODULES, ASSIGNABLE_ROLES, parseRoleAccess } from '../lib/accessModules';
+import type { Role } from '../hooks/useAuth';
+
+/**
+ * Which app modes each route belongs to. Mirrors the sidebar's NAV table and
+ * RouteGuard's ROUTE_MODES so the Settings previews below judge a module the
+ * same way the real menu does — a preview that disagreed with the app would be
+ * worse than no preview at all.
+ */
+const PHARMACY_MODES = new Set<AppMode>(['reception_pharmacy', 'reception_pharmacy_doctor', 'reception_pharmacy_doctor_lab', 'full']);
+const DOCTOR_MODES = new Set<AppMode>(['reception_doctor', 'reception_pharmacy_doctor', 'reception_pharmacy_doctor_lab', 'full']);
+const LAB_MODES = new Set<AppMode>(['reception_pharmacy_doctor_lab', 'full']);
+const IPD_MODES = new Set<AppMode>(['full']);
+const MODE_ROUTES: Record<string, Set<AppMode>> = {
+  '/doctor-select': DOCTOR_MODES,
+  '/lab': LAB_MODES,
+  '/pharmacy': PHARMACY_MODES,
+  '/ipd': IPD_MODES,
+  '/discharge-summary': IPD_MODES,
+};
+
+/** Menu items shown in the "This computer will show" preview, in sidebar order. */
+const MENU_PREVIEW: { path: string; label: string }[] = [
+  { path: '/reception', label: 'Reception' }, { path: '/appointments', label: 'Appointments' },
+  { path: '/whatsapp', label: 'Communication' }, { path: '/doctor-select', label: 'Doctors' },
+  { path: '/lab', label: 'Laboratory' }, { path: '/pharmacy', label: 'Pharmacy' },
+  { path: '/ipd', label: 'IPD' }, { path: '/discharge-summary', label: 'Discharge Summary' },
+  { path: '/pediatrics', label: 'Pediatrics' }, { path: '/print-jobs', label: 'Print Jobs' },
+  { path: '/tpa', label: 'Insurance / TPA' }, { path: '/patient-log', label: 'Patient Log' },
+  { path: '/origin', label: 'Patient Origin' }, { path: '/billing', label: 'Billing' },
+  { path: '/miscellaneous', label: 'Services' }, { path: '/accounts', label: 'Accounts' },
+  { path: '/analytics', label: 'Analytics' }, { path: '/notifications', label: 'Notifications' },
+];
 import { INDIAN_STATES } from '../lib/india';
 import { KARNATAKA_PLACES, ALL_NEARBY_PLACES } from '../lib/places';
 import { DOCTOR_COLOR_OPTIONS, colorForDoctor } from '../lib/doctor-colors';
 import type { AppMode, Doctor, Settings } from '../types';
 
-type SettingsTab = 'clinic' | 'doctors' | 'workflow' | 'billing' | 'peds' | 'patients' | 'system' | 'multisystem' | 'comms' | 'subscription';
+type SettingsTab = 'clinic' | 'doctors' | 'workflow' | 'billing' | 'peds' | 'patients' | 'system' | 'multisystem' | 'subscription';
 
 const SETTINGS_TAB_KEY = 'caredesk:settings-tab';
 
 const TAB_LABEL: Record<SettingsTab, string> = {
   clinic: 'Clinic', doctors: 'Doctors & Templates', workflow: 'Fees & Workflow', billing: 'Billing & IPD',
-  peds: 'Pediatrics', patients: 'Patients', system: 'System', multisystem: 'Multi-System', comms: 'Communication', subscription: 'Subscription',
+  peds: 'Pediatrics', patients: 'Patients', system: 'System', multisystem: 'Multi-System', subscription: 'Subscription',
 };
 
 /** Flat index of every settings section, so the search box can jump to its tab. */
@@ -66,8 +101,6 @@ const SETTINGS_SEARCH: { tab: SettingsTab; label: string; hint: string; keywords
   { tab: 'system', label: 'Startup & Background', hint: 'Auto-launch, tray', keywords: 'startup background tray autolaunch windows minimize' },
   { tab: 'multisystem', label: 'Multi-System Connection', hint: 'Host / client, join code, connected PCs', keywords: 'network multi station lan server client cabin host connect diagram' },
   { tab: 'system', label: 'Backup, Restore & Updates', hint: 'Backups, USB, app updates', keywords: 'backup restore update usb sqlite excel auto' },
-  { tab: 'comms', label: 'WhatsApp Messaging', hint: 'Click-to-WhatsApp templates', keywords: 'whatsapp message template preview' },
-  { tab: 'comms', label: 'AI Reply Suggestions', hint: 'Claude API key', keywords: 'ai claude api reply suggestion anthropic key' },
   { tab: 'subscription', label: 'Subscription & Modules', hint: 'Active plan, expiry, upgrade / renew', keywords: 'subscription licence license plan modules upgrade renew activate activation code expiry machine id lock unlock' },
 ];
 
@@ -147,7 +180,6 @@ export function SettingsPage() {
           <SettingsTabBtn active={tab === 'patients'} onClick={() => setTab('patients')} icon={<UserIcon className="w-3.5 h-3.5" />}>Patients</SettingsTabBtn>
           <SettingsTabBtn active={tab === 'system'} onClick={() => setTab('system')} icon={<HardDrive className="w-3.5 h-3.5" />}>System</SettingsTabBtn>
           <SettingsTabBtn active={tab === 'multisystem'} onClick={() => setTab('multisystem')} icon={<Wifi className="w-3.5 h-3.5" />}>Multi-System</SettingsTabBtn>
-          <SettingsTabBtn active={tab === 'comms'} onClick={() => setTab('comms')} icon={<MessageCircle className="w-3.5 h-3.5" />}>Communication</SettingsTabBtn>
           <SettingsTabBtn active={tab === 'subscription'} onClick={() => setTab('subscription')} icon={<ShieldCheck className="w-3.5 h-3.5" />}>Subscription</SettingsTabBtn>
         </div>
 
@@ -279,27 +311,6 @@ export function SettingsPage() {
             </>
           )}
 
-          {tab === 'comms' && (
-            <>
-              {has('whatsapp') ? (
-                <SettingsGroup title="WhatsApp Messaging" subtitle="Click-to-WhatsApp template editor + live preview.">
-                  <WhatsAppMessaging />
-                </SettingsGroup>
-              ) : (
-                <SettingsGroup title="WhatsApp Messaging" subtitle="Not in your subscription.">
-                  <div className="card p-5 text-[13px] text-gray-600 dark:text-slate-300">🔒 WhatsApp isn’t part of your plan. Add <b>WhatsApp Basic</b> (click-to-send) or <b>WhatsApp Pro</b> (Meta-API automation) from the <b>Subscription</b> tab.</div>
-                </SettingsGroup>
-              )}
-              {has('whatsapp_pro') && (
-                <SettingsGroup title="AI Reply Suggestions" subtitle="Anthropic (Claude) API key for one-tap reply suggestions in the WhatsApp inbox.">
-                  <AiSettings />
-                </SettingsGroup>
-              )}
-              <SettingsGroup title="Support the Developer" subtitle="If CureDesk is helping your clinic, consider supporting continued development.">
-                <SupportDeveloperPanel />
-              </SettingsGroup>
-            </>
-          )}
         </fieldset>
       </div>
     </AdminGate>
@@ -331,11 +342,53 @@ function SettingsTabBtn({
   );
 }
 
+/**
+ * A titled settings section. Every group carries a "?" that explains, in plain
+ * language, what this part of the app is for — looked up by title from
+ * SETTINGS_HELP so the copy lives in one place and stays consistent.
+ */
+
+/**
+ * Plain-language "what does this do?" for every settings section, shown by the
+ * "?" beside each heading. Written for a clinic owner, not a developer: what it
+ * is, when you'd use it, and what happens if it's wrong.
+ */
+const SETTINGS_HELP: Record<string, React.ReactNode> = {
+  'Clinic Identity': <><p>Your clinic's name, address, phone, logo and registration number.</p><p><b>Where it shows:</b> printed on every OPD slip, prescription, bill and discharge summary — the letterhead at the top.</p><p>Fill this in first; everything you print looks unfinished until you do.</p></>,
+  'Doctors': <><p>The doctors who see patients here. Each one gets a name, specialty, room number and default consultation fee.</p><p>A doctor added here appears in the appointment booking screen and on printed slips. Marking one inactive hides them from new bookings without deleting their past records.</p></>,
+  'Fees, Queue Flow & Display': <><p>Default consultation fee, the follow-up "special" price, and whether reception uses the <b>queue flow</b> (send-to-billing) or takes payment upfront.</p><p>Turn queue flow OFF if your clinic collects money at registration — the Billing screen then stays mostly empty by design.</p></>,
+  'Patient Registration Fee': <><p>A one-time charge for registering a brand-new patient (a "case paper" or file charge).</p><p>Set the amount and whether reception is asked about it every time, always charges it, or never does.</p></>,
+  'Free Follow-up Policy': <><p>How long after a paid visit a patient may return free, and how many free visits they get.</p><p>CureDesk applies this automatically — when a returning patient is inside the window, the bill shows ₹0 and is marked a free follow-up, so your revenue reports stay honest.</p></>,
+  'Patients & Locations': <><p>Your default state and district, plus the villages/areas you serve.</p><p>These pre-fill the registration form so reception types less, and they power the <b>Patient Origin</b> report showing which villages your patients come from.</p></>,
+  'Services': <><p>The list of extra services you charge for — injections, dressings, nebulisation, vaccination and so on.</p><p>Whatever you list here appears as quick buttons on the <b>Services</b> screen for one-tap billing.</p></>,
+  'Consultation Quick-Fill Templates': <><p>Saved blocks of text a doctor can insert into a consultation with one click — common complaints, examinations, advice.</p><p>Saves a busy doctor from retyping the same paragraph twenty times a day. Group them by department so each doctor sees their own.</p></>,
+  'OPD Slip Body Templates': <><p>Controls what the printed OPD slip / prescription looks like below the letterhead — which sections appear and in what order.</p><p>Each doctor can be given a different template, so a paediatrician's slip can differ from an orthopaedic one.</p></>,
+  'Prescription QR Codes': <><p>Up to two QR codes printed on your slips — typically a UPI payment code and a Google review link.</p><p>Patients scan to pay or to leave a review, without you printing anything separately.</p></>,
+  'List Window (keeps big lists fast)': <><p>How far back the Reception and Discharge lists load by default — a week, a month, a quarter, or everything.</p><p>A clinic with years of history stays fast on a modest PC by loading a shorter window. Searching always reaches every record regardless of this setting.</p></>,
+  'App Mode': <><p>A layout preset for the <b>base</b> modules — Reception, Pharmacy, Doctor, Lab.</p><p><b>Note:</b> paid add-ons you've activated (Laboratory, Pharmacy, IPD, Communication) always show regardless of this. To shape one computer's menu, use <b>This computer</b> in the System tab instead — it's clearer and applies per-PC.</p></>,
+  'Modules': <><p>Which parts of CureDesk your subscription includes. Green = active, locked = not in your plan.</p><p>Locked modules aren't crippled trials — they're simply not part of what you bought. Adding one takes a minute and never touches your data.</p></>,
+  'Subscription & Modules': <><p>Your current plan, when it expires, and this computer's Machine ID.</p><p>To add a module or renew, share the Machine ID with us and paste back the code we send. New modules unlock instantly; patients, bills and records are untouched.</p></>,
+  'Your Plan': <><p>What this clinic is licensed for and until when.</p><p>The <b>Machine ID</b> identifies this computer — a licence key is tied to it, so a key issued for one PC won't work on another. That's what stops one purchased key being shared between clinics.</p></>,
+  'Need to upgrade or renew?': <><p>How to get more modules or extend your licence: call us with your Machine ID, and enter the code we send.</p><p>No reinstall, no data migration, no downtime.</p></>,
+  'Security & Login': <><p><b>Require everyone to sign in</b> is the switch that makes staff accounts and roles actually do something.</p><p>Leave it OFF for a single shared PC where everyone is trusted. Turn it ON to give each person their own username, restrict what they can open, and attribute every action to a name in the audit trail.</p><p><b>Until this is on, the roles you assign have no effect.</b></p></>,
+  'Role-Based Access': <><p>Which staff roles may open which screens — the matrix behind Reception / Doctor / Nurse / Pharmacist / Lab Tech.</p><p>Only meaningful when staff sign-in is on. Set it once on the main computer and it applies to every connected station.</p></>,
+  'What Each Computer Can Do': <><p>In a multi-PC clinic, what someone sees depends on two things: <b>which computer</b> they're at, and <b>who signed in</b>.</p><p>Set the computer's job under System → This computer; set the person's powers with roles here.</p></>,
+  'Your Clinic Network': <><p>A live picture of the computers connected right now — which one is the main computer (host) and which are stations.</p><p>If a station is missing here, it can't reach the host: check that both are on the same Wi-Fi and the host is switched on.</p></>,
+  'Network Mode (multi-station)': <><p>Whether this PC runs alone (<b>Local</b>), acts as the <b>main computer</b> other PCs connect to, or is a <b>station</b> connecting to one.</p><p>Only one computer should be the main computer. It holds all the data, the licence and the backups — keep it switched on during clinic hours.</p></>,
+  'Multi-Station Setup Guide': <><p>Step-by-step instructions for running CureDesk on several computers: what to buy, how to connect them, how staff accounts work across PCs, and what to do when something breaks.</p><p>Read the sections in order the first time — each takes 2-3 minutes.</p></>,
+  'Backup, Restore & Updates': <><p>Where your backups are saved, how often they run automatically, and how to restore one.</p><p><b>Choose a Google Drive or OneDrive folder</b> so a copy also lives outside this computer — a disk failure would otherwise take your records and the backups together. Each backup is a full database copy plus an Excel file readable without CureDesk.</p></>,
+  'Startup & Background': <><p>Whether CureDesk opens automatically when the computer starts, and whether it hides in the system tray instead of closing.</p><p>Handy on a reception PC that should always be running.</p></>,
+};
+
 function SettingsGroup({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+  const help = SETTINGS_HELP[title];
   return (
     <div className="space-y-2">
       <div className="px-1">
-        <div className="text-[11px] font-bold uppercase tracking-widest text-blue-700 dark:text-blue-300">{title}</div>
+        <div className="text-[11px] font-bold uppercase tracking-widest text-blue-700 dark:text-blue-300 flex items-center gap-1.5">
+          {title}
+          {help && <HelpTip title={title}>{help}</HelpTip>}
+        </div>
         <div className="text-[11px] text-gray-500 dark:text-slate-400">{subtitle}</div>
       </div>
       {children}
@@ -983,6 +1036,38 @@ function BackupSettings() {
         )}
       </div>
 
+      {/* About */}
+      <div className="mt-6 pt-5 border-t border-gray-200 dark:border-slate-700">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-2">About</h3>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="text-[12px] text-gray-600 dark:text-slate-400">
+            CureDesk HMS
+            {(updateState as any)?.appVersion ? <> · <span className="font-mono">v{(updateState as any).appVersion}</span></> : null}
+            <span className="mx-1">·</span> Part of the <b>Bridgr</b> ecosystem.
+          </div>
+          <button
+            type="button"
+            onClick={() => window.electronAPI.app.openExternal('https://bridgr.co.in').catch(() => { /* ignore */ })}
+            className="btn-secondary text-xs whitespace-nowrap"
+          >
+            Explore the Bridgr ecosystem
+          </button>
+        </div>
+      </div>
+
+      {/* This computer */}
+      <ThisComputerPanel />
+
+      {/* What this clinic can use, and what a given role will actually see */}
+      <ModulesInUsePanel />
+      <PreviewAsRolePanel />
+
+      {/* Coming from paper / another system */}
+      <MigrationPanel />
+
+      {/* Standard drug catalogue (+ dev-only sample data) */}
+      <SampleDataPanel />
+
       {/* Restore / Import */}
       <div className="mt-6 pt-5 border-t-2 border-red-200 dark:border-red-900">
         <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
@@ -1396,37 +1481,6 @@ function PrescriptionQr() {
   );
 }
 
-function AiSettings() {
-  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
-  const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, ['anthropic_api_key']);
-  const [show, setShow] = useState(false);
-  return (
-    <div className="space-y-4">
-      <p className="text-xs text-gray-500 dark:text-slate-400">
-        When an Anthropic API key is set, a ✨ button appears in the WhatsApp inbox. Clicking it sends the last few messages to Claude and returns 3 ready-to-send reply chips. The key is stored locally only.
-      </p>
-      <div>
-        <label className="label">Anthropic API Key</label>
-        <div className="flex gap-2">
-          <input
-            className="input flex-1"
-            type={show ? 'text' : 'password'}
-            placeholder="sk-ant-…"
-            value={draft.anthropic_api_key ?? ''}
-            onChange={(e) => set('anthropic_api_key', e.target.value)}
-          />
-          <button className="btn-ghost text-xs" onClick={() => setShow((v) => !v)}>{show ? 'Hide' : 'Show'}</button>
-        </div>
-      </div>
-      <div className="flex gap-3">
-        <button className="btn-primary text-sm" disabled={!dirty || saving} onClick={() => save()}>
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-        {dirty && <button className="btn-ghost text-sm" onClick={() => reset()}>Discard</button>}
-      </div>
-    </div>
-  );
-}
 
 function StartupBehavior() {
   const qc = useQueryClient();
@@ -1636,7 +1690,7 @@ function FeesAndFlow() {
         <div className="flex items-start gap-3">
           <ListChecks className="w-4 h-4 text-indigo-600 mt-0.5" />
           <div>
-            <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Queue Flow (Waiting / In Progress / Done)</div>
+            <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">Queue Flow (Waiting / In Progress / Done)<HelpTip title="Queue Flow"><><p>Turns the appointment list into a three-stage queue instead of a plain list.</p><p>Useful when several people are working the same queue and need to see who is already with the doctor. A single-doctor clinic usually does not need it.</p></></HelpTip></div>
             <div className="text-[11px] text-gray-500 dark:text-slate-400 max-w-md">
               When off, every appointment is marked Done on booking — status counters and doctor-side queue buttons hide. Turn on if you want to track the live queue during the day.
             </div>
@@ -1756,7 +1810,7 @@ function FollowupPolicy() {
   return (
     <section className="card p-5 space-y-4">
       <div className="flex items-center justify-between">
-        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Free Follow-up Policy</div>
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">Free Follow-up Policy<HelpTip title="Free Follow-up Policy"><><p>Whether a patient returning soon after a visit is seen again without paying a second consultation fee.</p><p>Set the window in days and how many free repeat visits it covers. Reception sees the free-visit status automatically, so nobody has to remember who is entitled to what.</p></></HelpTip></div>
         <div className="flex items-center gap-2">
           {dirty && <button className="btn-ghost text-xs" onClick={reset}>Reset</button>}
           <button className="btn-primary text-xs" disabled={!dirty || saving} onClick={save}>{saving ? 'Saving…' : dirty ? 'Save changes' : 'All changes saved'}</button>
@@ -1941,7 +1995,8 @@ function NetworkDiagram() {
   const port = net?.listenPort || (net as any)?.port || 4321;
   const serverUrl = (net as any)?.client?.serverUrl || net?.serverUrl || '';
   const clientState = (net as any)?.client?.state;
-  const clientList = (((net as any)?.clientList) || []) as { name: string; ip: string; since: number }[];
+  const clientList = (((net as any)?.clientList) || []) as { name: string; ip: string; since: number; live?: boolean }[];
+  const liveClients = ((net as any)?.liveClients ?? clients) as number;
   const line = 'bg-slate-300 dark:bg-slate-600';
   const borderLine = 'border-slate-300 dark:border-slate-600';
 
@@ -1984,13 +2039,26 @@ function NetworkDiagram() {
             </div>
           )}
           <div className="mt-4 text-[12px] font-semibold text-blue-700 dark:text-blue-300">{clients} computer{clients === 1 ? '' : 's'} connected</div>
+          {clients > 0 && liveClients < clients && (
+            <div className="mt-1 text-[11px] text-amber-700 dark:text-amber-300 max-w-sm text-center leading-relaxed">
+              {clients - liveClients} of them {clients - liveClients === 1 ? 'is' : 'are'} working normally but not receiving
+              <b> live updates</b> — their screens refresh on their own schedule instead of the instant something changes here.
+              Usually harmless; re-pairing that PC restores it.
+            </div>
+          )}
           {clientList.length > 0 && (
             <div className="mt-4 w-full max-w-md">
               <div className="text-[10px] uppercase tracking-wide font-bold text-gray-500 dark:text-slate-400 mb-1.5">Connected Computers</div>
               <div className="rounded-lg border border-gray-200 dark:border-slate-700 divide-y divide-gray-100 dark:divide-slate-800">
                 {clientList.map((c, i) => (
                   <div key={i} className="flex items-center justify-between px-3 py-2 text-[12px]">
-                    <span className="font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />{c.name}</span>
+                    <span className="font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">
+                      <span className={cn('w-1.5 h-1.5 rounded-full', (c as any).live === false ? 'bg-amber-500' : 'bg-emerald-500')}
+                        title={(c as any).live === false
+                          ? 'Working, but not receiving live updates — its screens refresh a little slower'
+                          : 'Connected with live updates'} />
+                      {c.name}
+                    </span>
                     <span className="font-mono text-gray-500 dark:text-slate-400">{c.ip}</span>
                   </div>
                 ))}
@@ -2080,7 +2148,7 @@ function NetworkModeSettings() {
   return (
     <section className="card p-5 space-y-4">
       <div className="flex items-center justify-between">
-        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Network Mode</div>
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">Network Mode<HelpTip title="Network Mode"><><p>What this computer is in a multi-PC clinic: on its own, the <b>main computer</b> other PCs connect to, or a <b>station</b> that connects to the main one.</p><p>Only one PC should be the main computer — it holds the database everyone shares.</p></></HelpTip></div>
         <div className="flex items-center gap-2">
           {dirty && <button className="btn-ghost text-xs" onClick={reset}>Reset</button>}
           <button className="btn-primary text-xs" disabled={!dirty || saving} onClick={save}>{saving ? 'Saving…' : dirty ? 'Save changes' : 'All saved'}</button>
@@ -2243,7 +2311,8 @@ function ClientConnectPanel({
 
   const connectWithCode = async () => {
     if (!pickedServer) { setMsg({ ok: false, text: 'Pick a discovered server first (or enter URL manually below).' }); return; }
-    const cleaned = code.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    // Case matters — strip separators only, never change the letters.
+    const cleaned = code.replace(/[^A-Za-z0-9]/g, '');
     if (cleaned.length !== 6) { setMsg({ ok: false, text: 'Join code must be 6 letters/digits.' }); return; }
     setBusy(true);
     setMsg(null);
@@ -2346,9 +2415,12 @@ function ClientConnectPanel({
           <div className="flex gap-2">
             <input
               type="text"
-              className="input font-mono text-2xl tracking-[0.3em] text-center uppercase flex-1"
-              placeholder="XXXXXX"
-              maxLength={7}
+              className="input font-mono text-2xl tracking-[0.3em] text-center flex-1"
+              placeholder="5-character code"
+              maxLength={5}
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
               value={code}
               onChange={(e) => setCode(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') connectWithCode(); }}
@@ -2523,7 +2595,7 @@ function NetworkSetupGuide() {
             (e.g. <span className="font-mono">CureDesk HMS · v0.3.0 · 192.168.1.100:4321</span>). Click it.</li>
           <li>If the scan finds nothing, click <b>"Type code manually"</b> instead and enter the main PC's IP
             (find it on the main PC's join-code screen — bottom row, "This PC's IP").</li>
-          <li>Type the 6-character join code from the main PC's screen (e.g. <span className="font-mono">7K3P-QM</span>) → click <b>Connect</b>.</li>
+          <li>Type the 5-character join code from the main PC&rsquo;s screen (e.g. <span className="font-mono">7k3Pq</span>) → click <b>Connect</b>. <b>Capital and small letters are different</b> — type it exactly as shown.</li>
           <li>Wizard asks for a name for THIS station. Type <b>Cabin 1</b>, <b>Cabin 2</b>, <b>Pharmacy</b>, etc.
             (Or click one of the quick chips.) Click Continue.</li>
           <li>You'll see <b>"✓ Connected!"</b>. Click Continue. <b>Restart the app once</b> (close + reopen)
@@ -2558,6 +2630,79 @@ function NetworkSetupGuide() {
         </ol>
         <p className="mt-2">All this happens with <b>no manual file copying</b>, no shared drives — just live data
           flowing between the PCs over your Wi-Fi.</p>
+      </GuideSection>
+
+      <GuideSection
+        id="accounts" open={open === 'accounts'} onToggle={toggle}
+        title="Staff accounts across computers — create each person ONCE"
+        tone="violet"
+      >
+        <p>Staff accounts live on the <b>main computer</b>. Create a person once there and they can sign in
+          at <b>any</b> station — reception, cabin, pharmacy, lab.</p>
+        <div className="mt-2 rounded-lg border border-violet-200 dark:border-violet-800 p-3 space-y-1.5">
+          <div><b>To add a staff member:</b> on the MAIN PC → Users &amp; Access → <b>Add User</b> → pick their role.</div>
+          <div><b>To let them actually sign in:</b> Settings → System → <b>Security &amp; Login</b> → turn on
+            <b> "Require everyone to sign in"</b>. Until this is on, every computer shares one anonymous
+            session and roles do nothing — this is the single most common point of confusion.</div>
+          <div><b>To remove someone:</b> set their status to Inactive on the main PC. It applies everywhere at once.</div>
+        </div>
+        <p className="mt-2"><b>If the main computer is unreachable</b>, a station can still sign in with an account
+          created on <i>that</i> PC — an emergency login so you can reach Settings and repair the connection.
+          A wrong password never falls back to it; that only happens when the host genuinely can't be reached.</p>
+        <p className="mt-2">The <b>admin PIN</b> stays on each computer deliberately, so any station can unlock
+          Settings to fix its own network configuration even when the host is down.</p>
+      </GuideSection>
+
+      <GuideSection
+        id="station" open={open === 'station'} onToggle={toggle}
+        title="Giving each computer its own menu (reception / pharmacy / lab…)"
+        tone="blue"
+      >
+        <p>A pharmacy counter doesn't need the IPD ward map; a lab bench doesn't need Accounts. Tell each PC
+          what it's for and its menu shrinks to match.</p>
+        <p className="mt-2"><b>Where:</b> Settings → System → <b>This computer</b> → pick a card
+          (Everything / Reception desk / Doctor cabin / Pharmacy counter / Lab bench / Ward station).
+          A live preview shows exactly what that PC will show before you commit.</p>
+        <div className="mt-2 rounded-lg bg-blue-50/60 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-3 space-y-1">
+          <div>✔ It affects <b>only that computer</b> — nobody else's screen changes.</div>
+          <div>✔ <b>Settings and Users are never hidden</b>, so you can always undo it on the machine itself.</div>
+          <div>✔ Default is <b>Everything</b>, so nothing disappears unless you choose it.</div>
+        </div>
+        <p className="mt-2">This is separate from <b>roles</b>: the computer decides the menu, the person's role
+          decides what they may do. Use both together — a pharmacy PC where the pharmacist signs in.</p>
+      </GuideSection>
+
+      <GuideSection
+        id="licence-backup" open={open === 'licence-backup'} onToggle={toggle}
+        title="Subscription & backups in a multi-PC clinic"
+        tone="emerald"
+      >
+        <p><b>One subscription covers the whole clinic.</b> The licence key is activated on the
+          <b> main computer</b> only. Connected stations inherit it automatically — they never ask for a key,
+          and you never buy extra licences per PC.</p>
+        <p className="mt-2"><b>Backups run on the main computer</b>, because that's where the clinic's data
+          actually lives. Set the backup folder there (ideally a Google Drive / OneDrive folder) using the
+          <b> Backup</b> button in the sidebar. Backing up on a client PC would only save a copy of that PC's
+          local settings — not your patient records.</p>
+        <p className="mt-2">So: <b>licence on the host, backups on the host.</b> Stations need neither.</p>
+      </GuideSection>
+
+      <GuideSection
+        id="hostdown" open={open === 'hostdown'} onToggle={toggle}
+        title="What happens if the main computer is switched off?"
+        tone="amber"
+      >
+        <p>Every station reads and writes its data from the main computer. If that PC is off or off-network,
+          each station shows a full-screen <b>"Can't reach the main computer"</b> message and waits, retrying
+          automatically. It reconnects on its own the moment the host is back — nothing is lost.</p>
+        <div className="mt-2 space-y-1">
+          <div><b>So keep the main computer on</b> during clinic hours. Treat it like the server it is:
+            plugged in, not sleeping, ideally on a UPS.</div>
+          <div><b>Tip:</b> set the main PC to never sleep (Windows → Power &amp; sleep → Sleep: Never).
+            A sleeping host looks identical to a broken network to every station.</div>
+          <div><b>If the host is dead for good:</b> restore its latest backup onto any PC, set that PC to
+            Host, and re-pair the stations with a fresh join code.</div>
+        </div>
       </GuideSection>
 
       <GuideSection
@@ -2636,7 +2781,7 @@ function NetworkSetupGuide() {
             CureDesk only opens an internet connection for daily update checks (which can be turned off).</li>
           <li>The main PC's server requires a <b>shared secret token</b>. Cabin PCs without the token can't
             read or write data. The token is auto-generated and stored on each PC after pairing.</li>
-          <li>The 6-character join code is <b>short-lived (10 minutes)</b> and rotates — so even if a code
+          <li>The 5-character join code is <b>short-lived (10 minutes)</b> and rotates — so even if a code
             is overheard, it can't be used after expiry.</li>
           <li><b>Anyone on the same Wi-Fi with the token can use any feature.</b> Per-station role enforcement
             (e.g. "this cabin can only see Dr. X's patients") isn't built yet — keep your clinic Wi-Fi
@@ -2695,41 +2840,6 @@ function Trouble({ q, children }: { q: string; children: React.ReactNode }) {
   );
 }
 
-/** Support button — opens the developer's support page in the user's browser. */
-function SupportDeveloperPanel() {
-  const SUPPORT_URL = 'https://bridgr.co.in/support?from=curedesk';
-  const open = () => { window.electronAPI.app.openExternal(SUPPORT_URL).catch(() => { /* ignore */ }); };
-  return (
-    <section className="card p-5">
-      <div className="flex items-start gap-4 flex-wrap">
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-bold text-gray-900 dark:text-slate-100 mb-1 inline-flex items-center gap-2">
-            <span className="text-pink-600">❤</span> Support keeps CureDesk free
-          </div>
-          <p className="text-[12px] text-gray-600 dark:text-slate-400 max-w-xl">
-            CureDesk HMS is built and maintained for Indian clinics. Free to install, free to use,
-            no subscriptions, no per-patient fees, your data stays on your computer.
-            If it's saving your clinic time, a one-time contribution helps fund new features
-            (lab reports, IPD billing, mobile receptionist app) and lets us keep it free for everyone.
-          </p>
-          <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-2 font-mono break-all">
-            {SUPPORT_URL}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={open}
-          className="px-5 py-3 rounded-lg text-white font-semibold inline-flex items-center gap-2 shadow-md hover:shadow-lg transition"
-          style={{ background: 'linear-gradient(135deg, #ec4899, #db2777)' }}
-        >
-          <span>❤</span>
-          <span>Open Support Page</span>
-        </button>
-      </div>
-    </section>
-  );
-}
-
 /** Migration helper — guides the user through getting an existing local DB
  *  onto the chosen server PC. We can't auto-push the file across the LAN
  *  safely (it'd require server endpoints + careful FK ordering), so we hand
@@ -2781,7 +2891,8 @@ function ServerJoinCodePanel() {
     const sec = Math.max(0, Math.round((jc.expiresAt - Date.now()) / 1000));
     return `${Math.floor(sec / 60)}m ${sec % 60}s`;
   })();
-  const display = jc?.code ? `${jc.code.slice(0, 4)}-${jc.code.slice(4)}` : '······';
+  // No dash, case preserved — see WelcomeWizard.
+  const display = jc?.code || '·····';
   const regen = async () => {
     const r = await window.electronAPI.network.regenJoinCode();
     if ((r as any).ok) { toast('New join code minted'); await refetch(); }
@@ -2801,6 +2912,7 @@ function ServerJoinCodePanel() {
       <div className="text-5xl font-extrabold tracking-[0.3em] font-mono text-blue-900 dark:text-blue-100 text-center my-4">
         {display}
       </div>
+      <div className="text-[11px] text-blue-800/80 dark:text-blue-200/80 text-center -mt-2 mb-1">Type it exactly — <b>capital and small letters are different</b>.</div>
       <div className="flex items-center justify-between text-[11px] text-blue-800 dark:text-blue-300">
         <span>{remaining ? `Valid for ${remaining}` : 'Code not minted yet'}</span>
         <span>Host: <span className="font-mono">{jc?.lanIp || '—'}:{jc?.port || '—'}</span></span>
@@ -2885,7 +2997,7 @@ function MiscServicesEditor() {
   return (
     <section id="misc-services" className="card p-5 space-y-4">
       <div className="flex items-center justify-between">
-        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Quick-pick services</div>
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">Quick-pick services<HelpTip title="Quick-pick services"><><p>The buttons that appear on the Services screen — injections, dressings, vaccination and anything else you charge for regularly.</p><p>Putting your common ones here saves reception typing the same description several times a day.</p></></HelpTip></div>
         <button className="btn-primary text-xs" disabled={!dirty || saving} onClick={save}>
           {saving ? 'Saving…' : dirty ? 'Save changes' : 'All changes saved'}
         </button>
@@ -3079,7 +3191,7 @@ function SlipTemplatesEditor() {
   return (
     <section className="card p-5 space-y-4">
       <div className="flex items-center justify-between">
-        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Slip Body Templates</div>
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">Slip Body Templates<HelpTip title="Slip Body Templates"><><p>What gets printed on the patient slip below the clinic letterhead.</p><p>Use this for standing instructions, timings or anything you want on every slip without writing it each time.</p></></HelpTip></div>
         <div className="flex items-center gap-2">
           {active && (
             <button
@@ -3398,7 +3510,7 @@ function RegistrationFeePolicy() {
   return (
     <section className="card p-5 space-y-4">
       <div className="flex items-center justify-between">
-        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Patient Registration Fee</div>
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">Patient Registration Fee<HelpTip title="Patient Registration Fee"><><p>A one-time charge when a brand-new patient is registered, separate from the consultation fee.</p><p>Charged only on the first ever visit. Leave it off if your clinic does not charge for making a file.</p></></HelpTip></div>
         <div className="flex items-center gap-2">
           {dirty && <button className="btn-ghost text-xs" onClick={reset}>Reset</button>}
           <button className="btn-primary text-xs" disabled={!dirty || saving} onClick={save}>{saving ? 'Saving…' : dirty ? 'Save changes' : 'All changes saved'}</button>
@@ -4012,6 +4124,417 @@ type UpdateState = {
 /** Honest status panel for the update check. Colored card per state, real
  *  version numbers, and a real "Download & Install" button when an update
  *  is available (opens the new Setup.exe in the user's browser). */
+/**
+ * "What does this computer do?" — the one control that shapes this PC's menu.
+ * Station-local (never synced from the host), so the pharmacy counter can be a
+ * pharmacy counter without changing anybody else's screen. Owner screens are
+ * never hidden by it, so the fix is always reachable on the machine itself.
+ */
+function ThisComputerPanel() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const current = ((settings as any)?.station_role || 'everything') as StationRole;
+  const [busy, setBusy] = useState(false);
+
+  const pick = async (role: StationRole) => {
+    setBusy(true);
+    try {
+      await window.electronAPI.settings.save({ station_role: role } as any);
+      qc.invalidateQueries();
+      toast(`This computer is now set to: ${STATION_LABEL[role]}`, 'success');
+    } catch (e: any) { toast(e?.message || 'Could not save', 'error'); }
+    finally { setBusy(false); }
+  };
+
+  // Live preview of the menu this station produces.
+  const preview = MENU_PREVIEW.filter((m) => stationShows(m.path, current)).map((m) => m.label);
+
+  return (
+    <div className="mt-6 pt-5 border-t border-gray-200 dark:border-slate-700">
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">This computer</h3>
+      <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-3">
+        What is this PC used for? It decides which menu items appear <b>on this computer only</b> —
+        other computers in the clinic are unaffected. Settings and Users are never hidden.
+      </p>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+        {STATION_ROLES.map((r) => (
+          <button key={r} type="button" disabled={busy} onClick={() => pick(r)}
+            className={cn('rounded-lg border-2 p-2.5 text-left text-[12px] transition disabled:opacity-50',
+              current === r ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/25' : 'border-gray-200 dark:border-slate-700 hover:border-blue-400')}>
+            <div className="font-bold text-gray-900 dark:text-slate-100">{STATION_LABEL[r]}</div>
+            {current === r && <div className="text-[10px] text-blue-700 dark:text-blue-300 mt-0.5">✓ current</div>}
+          </button>
+        ))}
+      </div>
+      <div className="mt-3 rounded-lg bg-gray-50 dark:bg-slate-800/60 p-3">
+        <div className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-slate-400 mb-1">This computer will show</div>
+        <div className="text-[12px] text-gray-700 dark:text-slate-200 leading-relaxed">
+          {preview.join(' · ')}{current !== 'everything' ? <span className="text-gray-400"> · (plus Settings &amp; Users for the owner)</span> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Loads the standard drug catalogue — a real setup action for a real clinic.
+ *
+ *  The fictional-sample-data loader used to live here too, one button away from
+ *  a live database. A clinic that clicked it would have 50 invented patients and
+ *  103 invented bills mixed into its real records with no way to tell them apart.
+ *  It is now dev-only: it still exists for our own demos when the app is run from
+ *  source, and simply is not present in a build a clinic installs. */
+function SampleDataPanel() {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState<'sample' | 'catalog' | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+
+  /**
+   * The undo for demo data. Unlike the loader, this IS shown in clinic builds —
+   * a clinic that loaded fictional patients before going live is exactly who
+   * needs to get rid of them, and refusing to help would leave them stuck with
+   * invented records in their real database forever. It only ever appears when
+   * such records actually exist.
+   */
+  const { data: sampleCount } = useQuery({
+    queryKey: ['sample-data-count'],
+    queryFn: () => window.electronAPI.admin.sampleDataCount(),
+  });
+  const fakePatients = sampleCount?.ok ? (sampleCount.patients ?? 0) : 0;
+
+  const removeSample = async () => {
+    if (!window.confirm(
+      `Permanently remove ${fakePatients} fictional sample patient(s) and every bill, pharmacy sale, lab order and IPD admission belonging to them?\n\n` +
+      'Only records with an MMC#### number are removed — your real patients (PT-…) are not touched.\n\nThis cannot be undone.'
+    )) return;
+    setBusy('sample');
+    try {
+      const r = await window.electronAPI.admin.removeSampleData();
+      if (r.ok) {
+        setResult(`\u2705 ${r.note}`);
+        qc.invalidateQueries();
+        toast(`Removed ${r.removed} sample patients`, 'success');
+      } else { setResult('\u274c ' + (r.error || 'Failed')); toast(r.error || 'Failed', 'error'); }
+    } catch (e: any) { setResult('\u274c ' + (e?.message || 'Failed')); }
+    finally { setBusy(null); }
+  };
+
+  const loadSample = async () => {
+    // Typed confirmation rather than a plain OK: this ships in the real installer
+    // so demos can use it, which means a clinic can also reach it. One careless
+    // click should not put 50 invented patients into live records.
+    // NOT window.prompt(): Electron does not implement it and throws
+    // "prompt() is not supported", which took down the whole renderer.
+    // promptDialog is the app's own in-window replacement.
+    const typed = await promptDialog(
+      'This adds ~50 FICTIONAL patients with visits, bills, pharmacy sales, lab orders and IPD admissions.\n\n' +
+      'It is for demos only — never run it on a clinic that has started using CureDesk for real.\n' +
+      'You can undo it afterwards with "Remove sample patients" just below.\n\n' +
+      'Type DEMO to confirm:',
+      { placeholder: 'DEMO', confirmLabel: 'Load demo data' }
+    );
+    if ((typed || '').trim().toUpperCase() !== 'DEMO') return;
+    setBusy('sample');
+    try {
+      const r = await window.electronAPI.admin.loadSampleData();
+      if (r.ok) {
+        setResult(`✅ Added ${r.patients} patients · ${r.bills} bills · ${r.sales} pharmacy sales · ${r.labOrders} lab orders · ${r.admissions} IPD admissions. Open Analytics to see the charts.`);
+        qc.invalidateQueries();
+        toast('Sample data loaded', 'success');
+      } else { setResult('❌ ' + (r.error || 'Failed')); toast(r.error || 'Failed', 'error'); }
+    } catch (e: any) { setResult('❌ ' + (e?.message || 'Failed')); }
+    finally { setBusy(null); }
+  };
+
+  const loadCatalog = async () => {
+    setBusy('catalog');
+    try {
+      const r = await window.electronAPI.pharmacy.loadStandardCatalog();
+      setResult(`✅ Drug catalogue: added ${r.added} new drug(s) of ${r.total}.`);
+      qc.invalidateQueries({ queryKey: ['pharmacy-drugs'] });
+      toast(`Added ${r.added} drugs`, 'success');
+    } catch (e: any) { setResult('❌ ' + (e?.message || 'Failed')); toast('Failed', 'error'); }
+    finally { setBusy(null); }
+  };
+
+  return (
+    <div className="mt-6 pt-5 border-t border-gray-200 dark:border-slate-700">
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Standard drug catalogue</h3>
+      <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-3">
+        Adds the built-in list of commonly dispensed medicines to your Drug Master. Only drugs you don’t already
+        have are added — nothing you’ve edited is overwritten, and prices and stock stay yours to set.
+      </p>
+      <div className="flex gap-2 flex-wrap">
+        <button className="btn-secondary text-xs" onClick={loadCatalog} disabled={busy !== null}>{busy === 'catalog' ? 'Loading…' : 'Load standard drug catalogue'}</button>
+      </div>
+
+      {/* Always rendered, whatever the count. Hiding this when nothing was found
+          made "no demo data here" indistinguishable from "the feature is
+          missing" — which is exactly how it read to someone hunting for it. */}
+      <div className="mt-4 pt-4 border-t border-gray-200 dark:border-slate-700">
+        <div className="text-[12.5px] font-semibold text-gray-900 dark:text-slate-100">Demo / sample data</div>
+        {sampleCount && !sampleCount.ok ? (
+          <p className="text-[11.5px] text-red-600 dark:text-red-400 mt-1">
+            Could not check for sample data: {sampleCount.error || 'unknown error'}
+          </p>
+        ) : fakePatients > 0 ? (
+          <div className="mt-2 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3">
+            <div className="text-[12px] font-bold text-amber-900 dark:text-amber-100">
+              {fakePatients} fictional sample patient{fakePatients === 1 ? '' : 's'} found
+            </div>
+            <p className="text-[11.5px] text-amber-900/90 dark:text-amber-100/90 mt-1 leading-relaxed">
+              These are demo records (numbered <code>MMC1000</code> onward), not real patients. They inflate your
+              Analytics and your revenue figures. Removing them deletes their bills, pharmacy sales, lab orders and
+              admissions too — your real patients (<code>PT-…</code>) are never touched.
+            </p>
+            <button className="btn-secondary text-xs mt-2 border-amber-400 text-amber-900 dark:text-amber-100"
+              onClick={removeSample} disabled={busy !== null}>
+              {busy === 'sample' ? 'Removing…' : `Remove ${fakePatients} sample patient${fakePatients === 1 ? '' : 's'}`}
+            </button>
+          </div>
+        ) : (
+          <p className="text-[11.5px] text-gray-500 dark:text-slate-400 mt-1 leading-relaxed">
+            No sample patients in this database. Demo records are numbered
+            <code className="mx-1">MMC1000</code> onward; real patients are <code>PT-…</code>.
+          </p>
+        )}
+
+        {/* Loading demo data — for showing the app to a prospective clinic. */}
+        <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+          <button className="btn-secondary text-xs" onClick={loadSample} disabled={busy !== null}>
+            {busy === 'sample' ? 'Working…' : 'Load 50 demo patients + activity'}
+          </button>
+          <span className="text-[11px] text-gray-500 dark:text-slate-400">
+            For demos only — asks you to type <b>DEMO</b> first, and is fully removable above.
+          </span>
+        </div>
+      </div>
+      {result && <div className="text-[11px] text-gray-600 dark:text-slate-300 mt-2 leading-relaxed">{result}</div>}
+    </div>
+  );
+}
+
+
+/**
+ * "Modules this clinic uses" — the whole picture on one screen.
+ *
+ * A module can be missing for four different reasons (not in the plan, switched
+ * off for the clinic, not part of this computer's layout, or narrowed by this
+ * PC's station role) and each has a different fix. Owners were left guessing
+ * which one applied. This lists every module with its state and the actual
+ * reason, so "why can't I see Pharmacy?" is answered in one glance.
+ */
+function ModulesInUsePanel() {
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { data: license } = useQuery({ queryKey: ['license'], queryFn: () => window.electronAPI.license.status(), staleTime: 60_000 });
+
+  const overrides = parseRoleAccess((settings as any)?.role_access_json);
+  const currentMode = ((settings as any)?.app_mode || 'reception_pharmacy_doctor') as AppMode;
+
+  const REASON_TEXT: Record<string, { label: string; tone: string; fix: string }> = {
+    ok:         { label: 'In use',        tone: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200', fix: '' },
+    licence:    { label: 'Not in plan',   tone: 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200',    fix: 'Paid add-on — add it to your subscription to switch it on.' },
+    module_off: { label: 'Switched off',  tone: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',        fix: 'You turned this off for the clinic. Turn it back on in its settings section.' },
+    app_mode:   { label: 'Not in layout', tone: 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',                fix: 'Your app mode does not include this module.' },
+    station:    { label: 'Hidden here',   tone: 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',                fix: 'This computer is set to a specific job, so this module is hidden on THIS PC only.' },
+    owner_only: { label: 'Owner only',    tone: 'bg-gray-100 text-gray-700 dark:bg-slate-800 dark:text-slate-300',             fix: '' },
+    role:       { label: 'Role limited',  tone: 'bg-gray-100 text-gray-700 dark:bg-slate-800 dark:text-slate-300',             fix: '' },
+    no_user:    { label: 'Signed out',    tone: 'bg-gray-100 text-gray-700 dark:bg-slate-800 dark:text-slate-300',             fix: '' },
+  };
+
+  // Evaluated as the OWNER, so this reports the clinic's configuration rather
+  // than whatever the person reading it happens to be allowed to open.
+  const rows = ACCESS_MODULES.map((m) => {
+    const st = moduleState(m.path, {
+      user: { role: 'admin', id: 1 },
+      adminUnlocked: true,
+      licensedModules: license?.modules,
+      settings,
+      overrides,
+      defaults: m.defaults,
+      inCurrentMode: MODE_ROUTES[m.path] ? MODE_ROUTES[m.path]!.has(currentMode) : true,
+    });
+    return { ...m, state: st };
+  });
+  const live = rows.filter((r) => r.state.allowed).length;
+
+  return (
+    <div className="mt-6 pt-5 border-t border-gray-200 dark:border-slate-700">
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">
+        Modules this clinic uses
+        <HelpTip title="Modules this clinic uses">
+          <p>Every module in CureDesk and whether this clinic can use it right now.</p>
+          <p>A module can be unavailable for different reasons — not in your subscription, switched off by you, or hidden on this particular computer. This names which one applies, so you know what to change.</p>
+        </HelpTip>
+      </h3>
+      <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-3">
+        <b>{live}</b> of {rows.length} available to this clinic. Shown as the owner sees them — an individual staff
+        member may see fewer, depending on their role.
+      </p>
+      <div className="grid sm:grid-cols-2 gap-1.5">
+        {rows.map((r) => {
+          const info = REASON_TEXT[r.state.reason] || REASON_TEXT.ok;
+          return (
+            <div key={r.path}
+              className={cn('rounded-lg border p-2.5 flex items-start gap-2',
+                r.state.allowed ? 'border-gray-200 dark:border-slate-700' : 'border-dashed border-gray-300 dark:border-slate-700 bg-gray-50/60 dark:bg-slate-900/40')}>
+              <span className={cn('shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded', info.tone)}>{info.label}</span>
+              <div className="min-w-0">
+                <div className={cn('text-[12.5px] font-semibold', r.state.allowed ? 'text-gray-900 dark:text-slate-100' : 'text-gray-500 dark:text-slate-400')}>
+                  {r.label}
+                </div>
+                {!r.state.allowed && info.fix && (
+                  <div className="text-[11px] text-gray-500 dark:text-slate-400 leading-relaxed mt-0.5">{info.fix}</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "Preview as role" — what a staff account will actually be able to open.
+ *
+ * Handing someone an account was previously an act of faith: you picked a role,
+ * saved, and found out what it could reach when that person told you. This runs
+ * the SAME evaluator the sidebar and URL guard use, so what it shows is exactly
+ * what they will get — including modules blocked by licence or by this
+ * computer's station role, which role settings alone would not reveal.
+ */
+function PreviewAsRolePanel() {
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { data: license } = useQuery({ queryKey: ['license'], queryFn: () => window.electronAPI.license.status(), staleTime: 60_000 });
+  const [role, setRole] = useState<Role>('receptionist');
+
+  const overrides = parseRoleAccess((settings as any)?.role_access_json);
+  const currentMode = ((settings as any)?.app_mode || 'reception_pharmacy_doctor') as AppMode;
+
+  const rows = ACCESS_MODULES.map((m) => {
+    const st = moduleState(m.path, {
+      user: { role, id: 2 },
+      adminUnlocked: false,
+      licensedModules: license?.modules,
+      settings,
+      overrides,
+      defaults: m.defaults,
+      inCurrentMode: MODE_ROUTES[m.path] ? MODE_ROUTES[m.path]!.has(currentMode) : true,
+    });
+    return { ...m, allowed: st.allowed, reason: st.reason };
+  });
+  const can = rows.filter((r) => r.allowed);
+  const cannot = rows.filter((r) => !r.allowed);
+
+  return (
+    <div className="mt-6 pt-5 border-t border-gray-200 dark:border-slate-700">
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">
+        Preview as role
+        <HelpTip title="Preview as role">
+          <p>Pick a role to see exactly which screens someone with that role will be able to open on this computer.</p>
+          <p>Check this before you hand out an account — it saves creating a login, signing in as them, and discovering something is missing.</p>
+        </HelpTip>
+      </h3>
+      <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-2">
+        Exactly what a staff member with this role will see when they sign in <b>on this computer</b>.
+      </p>
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {ASSIGNABLE_ROLES.map((r) => (
+          <button key={r.role} onClick={() => setRole(r.role)}
+            className={cn('px-2.5 py-1 rounded-full text-[11.5px] font-semibold border transition',
+              role === r.role
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-200 hover:border-blue-400')}>
+            {r.label}
+          </button>
+        ))}
+      </div>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/60 dark:bg-emerald-900/20 p-3">
+          <div className="text-[11px] font-bold uppercase tracking-wide text-emerald-800 dark:text-emerald-200 mb-1.5">Can open ({can.length})</div>
+          {can.length === 0
+            ? <div className="text-[11.5px] text-emerald-900/70 dark:text-emerald-100/70">Nothing — this role cannot open any module here.</div>
+            : <div className="flex flex-wrap gap-1">
+                {can.map((r) => <span key={r.path} className="text-[11px] bg-white dark:bg-slate-800 rounded px-1.5 py-0.5 text-emerald-900 dark:text-emerald-100">{r.label}</span>)}
+              </div>}
+        </div>
+        <div className="rounded-lg border border-gray-200 dark:border-slate-700 p-3">
+          <div className="text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-slate-400 mb-1.5">Cannot open ({cannot.length})</div>
+          {cannot.length === 0
+            ? <div className="text-[11.5px] text-gray-500">Nothing is hidden from this role.</div>
+            : <div className="flex flex-wrap gap-1">
+                {cannot.map((r) => (
+                  <span key={r.path} title={`Reason: ${r.reason}`}
+                    className="text-[11px] bg-gray-100 dark:bg-slate-800 rounded px-1.5 py-0.5 text-gray-500 dark:text-slate-400">{r.label}</span>
+                ))}
+              </div>}
+        </div>
+      </div>
+      <p className="text-[10.5px] text-gray-400 mt-2">
+        Settings and Users &amp; Access are always owner-only and are never part of a staff role.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Bringing an existing clinic's patient list in.
+ *
+ * A clinic switching from paper or another system has years of patients, and
+ * "start typing them again" is the reason software gets abandoned in week one.
+ * This gives them the exact column layout to prepare and points at the import.
+ */
+function MigrationPanel() {
+  const toast = useToast();
+
+  const downloadTemplate = () => {
+    const header = 'first_name,last_name,phone,gender,dob,place,district,blood_group,notes';
+    const example = [
+      'Ramesh,Kulkarni,9812345678,M,1980-05-14,Mulgund,Gadag,B+,Long-standing hypertension',
+      'Sunita,Patil,9845012345,F,1992-11-02,Gadag,Gadag,O+,',
+    ];
+    const blob = new Blob([[header, ...example].join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'curedesk-patient-import-template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('Template downloaded — fill it in, keeping the first row exactly as it is', 'success');
+  };
+
+  return (
+    <div className="mt-6 pt-5 border-t border-gray-200 dark:border-slate-700">
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">
+        Moving your existing patients in
+        <HelpTip title="Moving your existing patients in">
+          <p>If you are switching from paper registers or other software, you do not have to retype your patient list.</p>
+          <p>Download the template, fill in one patient per row, and send it to us — we load it for you and check it before it goes anywhere near your live data.</p>
+        </HelpTip>
+      </h3>
+      <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-3 leading-relaxed max-w-2xl">
+        Coming from paper registers or other software? You don&rsquo;t have to retype anything. Prepare your patient
+        list in the template below — one patient per row — and we&rsquo;ll import it for you.
+        <b> UHIDs are generated by CureDesk</b>, so leave numbering to us; everything else carries across.
+      </p>
+      <div className="flex flex-wrap gap-2 items-center">
+        <button className="btn-secondary text-xs" onClick={downloadTemplate}>
+          <Download className="w-3.5 h-3.5" /> Download CSV template
+        </button>
+        <span className="text-[11px] text-gray-500 dark:text-slate-400">
+          Then email it to <b>mulgundsunil@gmail.com</b> — or send it over WhatsApp.
+        </span>
+      </div>
+      <div className="mt-3 rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-900/20 p-3 text-[11.5px] text-blue-900 dark:text-blue-100 leading-relaxed">
+        <b>Before you import into a live clinic:</b> take a backup first (the Backup button in the sidebar). An import
+        adds records; a backup is what lets you undo it if the file turns out to have a problem.
+      </div>
+    </div>
+  );
+}
+
 function UpdateStatusPanel({
   state, checking, onCheck, onInstall,
 }: {
@@ -4495,7 +5018,7 @@ function BillingIpdTab() {
       {/* IPD auto-accrual */}
       <div className="card p-5 space-y-4">
         <div>
-          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">IPD Charges &amp; Accrual</div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">IPD Charges &amp; Accrual<HelpTip title="IPD Charges & Accrual"><><p>Which charges post themselves to an admitted patient&rsquo;s running bill, and when.</p><p>Anything posted automatically can still be edited or removed on the bill itself, so these switches set the default rather than locking anything in.</p></></HelpTip></div>
           <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
             Which charges post themselves to an admitted patient's running bill, and how. Anything auto-posted can still
             be edited or removed on the bill.
@@ -4692,6 +5215,9 @@ function LabSettingsCard() {
   const [busy, setBusy] = useState(false);
   const { data: tests = [] } = useQuery({ queryKey: ['lab-tests', false], queryFn: () => window.electronAPI.lab.listTests(false) });
   const active = tests.filter((t: any) => t.is_active === 1).length;
+  // A test left at zero is carried out but never billed — worth counting out
+  // loud, because the standard catalogue ships deliberately unpriced.
+  const unpriced = tests.filter((t: any) => t.is_active === 1 && !(t.price > 0)).length;
 
   const loadStd = async () => {
     setBusy(true);
@@ -4711,6 +5237,13 @@ function LabSettingsCard() {
           The tests your lab offers, with prices — used across OPD/IPD orders, billing and analytics.
           {tests.length > 0 ? <> Currently <b>{tests.length}</b> tests · <b>{active}</b> active.</> : <> No tests loaded yet.</>}
         </div>
+        {unpriced > 0 && (
+          <div className="mt-2 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-2.5 text-[11.5px] text-amber-900 dark:text-amber-100 leading-relaxed">
+            <b>{unpriced} active test{unpriced === 1 ? '' : 's'} still priced at ₹0.</b> The standard catalogue ships without prices
+            because every clinic charges its own rates. A ₹0 test is carried out but never added to the patient&rsquo;s bill —
+            set your rates below for the tests you actually offer, and switch the rest off.
+          </div>
+        )}
       </div>
       <div className="flex flex-wrap gap-2">
         <button className="btn-secondary text-xs" disabled={busy} onClick={loadStd} title="Adds the ~160 common Indian pathology + radiology tests (skips ones you already have)">

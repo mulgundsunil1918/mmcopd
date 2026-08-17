@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ShieldCheck, KeyRound, Loader2, Copy, Clock, AlertTriangle, X } from 'lucide-react';
+import { ShieldCheck, KeyRound, Loader2, Copy, Clock, AlertTriangle, X, Network } from 'lucide-react';
 import { copyText } from '../lib/clipboard';
 
 /**
@@ -15,16 +15,29 @@ import { copyText } from '../lib/clipboard';
 export function LicenseGate() {
   const [st, setSt] = useState<any>(null);
   const [dismissed, setDismissed] = useState(false);
+  // Network mode gates the activation screen. A client (cabin/pharmacy/billing) PC
+  // never needs its own licence — it inherits the host's over the LAN — so it must
+  // NEVER see a key prompt. `undefined` = still loading (don't flash activation yet).
+  const [netMode, setNetMode] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     let alive = true;
     (window as any).electronAPI?.license?.status?.().then((s: any) => { if (alive) setSt(s); }).catch(() => {});
     const off = (window as any).electronAPI?.license?.onState?.((s: any) => setSt(s));
+    // Resolve this PC's role; on any error fall back to 'local' so a genuine host
+    // still gets its activation screen.
+    (window as any).electronAPI?.network?.status?.()
+      .then((n: any) => { if (alive) setNetMode(n?.mode || 'local'); })
+      .catch(() => { if (alive) setNetMode('local'); });
     return () => { alive = false; off?.(); };
   }, []);
 
   if (!st || st.state === 'dev') return null;
-  if (st.needsActivation) return <ActivationScreen status={st} onActivated={setSt} />;
+  if (st.needsActivation) {
+    if (netMode === undefined) return null;      // wait until we know the role — no flash
+    if (netMode === 'client') return null;       // client inherits the host's licence; never prompt
+    return <ActivationScreen status={st} onActivated={setSt} />;
+  }
   if (st.state === 'clock_tampered') return <ClockScreen status={st} />;
 
   const c = st.contact || {};
@@ -152,6 +165,22 @@ function ActivationScreen({ status, onActivated }: { status: any; onActivated: (
             </button>
           </div>
         )}
+
+        {/* Escape hatch: a cabin / pharmacy / billing PC has no licence of its own —
+            it connects to the main computer and shares that one subscription. This
+            opens the setup wizard's Host/Client picker so they never get stuck here. */}
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new Event('caredesk:openWelcomeWizard'))}
+          className="w-full mt-4 rounded-xl border-2 border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/25 px-3 py-2.5 text-left hover:border-blue-400 transition"
+        >
+          <div className="flex items-center gap-2 text-[13px] font-bold text-blue-900 dark:text-blue-100">
+            <Network className="w-4 h-4" /> This is an extra PC (cabin / pharmacy / billing)
+          </div>
+          <div className="text-[11px] text-blue-700 dark:text-blue-300 mt-0.5">
+            No licence key needed — connect it to your main computer and it shares that subscription.
+          </div>
+        </button>
 
         <div className="mt-4 pt-3 border-t border-gray-100 dark:border-slate-700 text-[11px] text-gray-500 dark:text-slate-400 flex items-center gap-2">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0" />

@@ -14,11 +14,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Hospital, Wifi, Server, ArrowRight, Loader2, RefreshCw, X, Check, AlertTriangle } from 'lucide-react';
+import { Hospital, Wifi, Server, ArrowRight, Loader2, RefreshCw, X, Check, AlertTriangle, Monitor } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
 import { cn } from '../lib/utils';
+import { STATION_ROLES, STATION_LABEL, type StationRole } from '../lib/moduleAccess';
 
-type Step = 'pick' | 'host-name' | 'host-bootstrap' | 'host-show-code' | 'connect-discover' | 'connect-enter-code' | 'connect-name' | 'connect-success';
+type Step = 'pick' | 'host-name' | 'host-bootstrap' | 'host-show-code' | 'connect-discover' | 'connect-enter-code' | 'connect-name' | 'connect-success' | 'station';
 
 export function WelcomeWizard({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
@@ -90,9 +91,10 @@ export function WelcomeWizard({ onClose }: { onClose: () => void }) {
     setError(null);
     try {
       const url = `http://${server.ip}:${server.port}`;
-      const cleaned = joinCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      // Case matters — strip separators only, never change the letters.
+      const cleaned = joinCode.replace(/[^A-Za-z0-9]/g, '');
       if (cleaned.length !== 6) {
-        setError('Join code must be 6 characters');
+        setError('Join code is 5 characters, and capital letters matter');
         setBusy(false);
         return;
       }
@@ -180,7 +182,7 @@ export function WelcomeWizard({ onClose }: { onClose: () => void }) {
             port={joinCodeInfo?.port || 4321}
             expiresAt={joinCodeInfo?.expiresAt || null}
             onRefresh={async () => { await window.electronAPI.network.regenJoinCode(); await refetchJoin(); toast('New join code minted'); }}
-            onDone={dismiss}
+            onDone={() => setStep('station')}
           />
         )}
 
@@ -226,6 +228,20 @@ export function WelcomeWizard({ onClose }: { onClose: () => void }) {
           />
         )}
 
+        {step === 'station' && (
+          <StationStep
+            onPick={async (role) => {
+              try {
+                await window.electronAPI.settings.save({ station_role: role } as any);
+                await qc.invalidateQueries({ queryKey: ['settings'] });
+                toast(`This computer is set to: ${STATION_LABEL[role]}`, 'success');
+              } catch { /* non-fatal — it can be changed in Settings */ }
+              dismiss();
+            }}
+            onSkip={dismiss}
+          />
+        )}
+
         {step === 'connect-success' && (
           <div className="text-center py-12">
             <div className="w-16 h-16 mx-auto rounded-full bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center mb-4">
@@ -233,9 +249,48 @@ export function WelcomeWizard({ onClose }: { onClose: () => void }) {
             </div>
             <div className="text-lg font-semibold text-gray-900 dark:text-slate-100">Connected!</div>
             <div className="text-xs text-gray-500 mt-1 mb-6">This PC is now a CureDesk client. The renderer-side data routing ships in the next update — for now reload to see the connected status.</div>
-            <button className="btn-primary" onClick={dismiss}>Continue</button>
+            <button className="btn-primary" onClick={() => setStep('station')}>Continue</button>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "What is this computer for?" — asked once, at setup, on the machine itself.
+ *
+ * Without this a newly connected PC shows every module to everyone, and the
+ * clinic only discovers the pharmacy counter is displaying the ward round (or
+ * the doctor's cabin is showing the day's takings) after staff are already
+ * using it. Asking here costs one click and is the difference between a
+ * multi-PC clinic that is configured and one that merely works.
+ *
+ * Skippable on purpose: a single-computer clinic should not be made to answer.
+ */
+function StationStep({ onPick, onSkip }: { onPick: (r: StationRole) => void; onSkip: () => void }) {
+  return (
+    <div className="py-2">
+      <div className="text-center mb-5">
+        <div className="w-12 h-12 mx-auto rounded-xl bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center mb-3">
+          <Monitor className="w-6 h-6 text-blue-600 dark:text-blue-300" />
+        </div>
+        <div className="text-lg font-semibold text-gray-900 dark:text-slate-100">What is this computer for?</div>
+        <div className="text-xs text-gray-500 dark:text-slate-400 mt-1 max-w-md mx-auto leading-relaxed">
+          This sets which modules appear in the menu <b>on this PC only</b> — nobody else&rsquo;s screen changes.
+          Settings always stays reachable, so you can change this later.
+        </div>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-2">
+        {STATION_ROLES.map((r) => (
+          <button key={r} onClick={() => onPick(r)}
+            className="text-left rounded-xl border-2 border-gray-200 dark:border-slate-700 hover:border-blue-500 p-3 transition">
+            <div className="font-bold text-[13px] text-gray-900 dark:text-slate-100">{STATION_LABEL[r]}</div>
+          </button>
+        ))}
+      </div>
+      <div className="text-center mt-4">
+        <button className="btn-ghost text-xs" onClick={onSkip}>Skip — show everything on this computer</button>
       </div>
     </div>
   );
@@ -300,7 +355,9 @@ function HostCodeStep({
     return `${m}m ${s}s`;
   }, [expiresAt, joinCode]);
 
-  const display = joinCode ? `${joinCode.slice(0, 4)}-${joinCode.slice(4)}` : '······';
+  // Shown exactly as generated: no dash, and case preserved — the code is
+  // case-sensitive, so a cosmetic transform here would be a typo generator.
+  const display = joinCode || '·····';
 
   return (
     <div>
@@ -319,6 +376,7 @@ function HostCodeStep({
         <div className="text-6xl font-extrabold tracking-[0.3em] font-mono text-blue-900 dark:text-blue-100 mb-3">
           {display}
         </div>
+      <div className="text-[11px] text-blue-800/80 dark:text-blue-200/80 text-center -mt-2 mb-1">Type it exactly — <b>capital and small letters are different</b>.</div>
         <div className="text-[12px] text-blue-700 dark:text-blue-300">
           {remaining ? `Valid for ${remaining}` : 'Code not minted yet'}
         </div>
@@ -476,9 +534,12 @@ function ConnectCodeStep({
 
       <label className="label">Join code</label>
       <input
-        className="input font-mono text-2xl tracking-[0.3em] text-center uppercase"
-        placeholder="XXXX-XX"
-        maxLength={7} // 6 chars + 1 dash
+        className="input font-mono text-2xl tracking-[0.3em] text-center"
+        placeholder="5-character code"
+        maxLength={5}   // exactly 5, no separator
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
         value={code}
         onChange={(e) => setCode(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}

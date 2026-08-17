@@ -1,12 +1,16 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { LogOut, BedDouble, User, Phone, Calendar, ShieldAlert, Printer } from 'lucide-react';
+import { LogOut, BedDouble, User, Phone, Calendar, ShieldAlert, Printer, ArrowRightLeft } from 'lucide-react';
 import { Modal } from '../Modal';
+import { useAuth } from '../../hooks/useAuth';
 import { WardCare } from './WardCare';
 import { BillPreview } from '../billing/BillPreview';
 import { BillPrint } from '../billing/BillPrint';
 import { DischargeModal } from './DischargeModal';
+import { DischargeApproval } from './DischargeApproval';
 import { fmtDateTime } from '../../lib/utils';
+import { canSeeMoney } from '../../lib/billingAccess';
+import { TransferBedModal } from './TransferBedModal';
 
 /**
  * The hub for one admitted patient: header, the in-ward clinical record, the
@@ -15,7 +19,17 @@ import { fmtDateTime } from '../../lib/utils';
  */
 export function AdmissionDetail({ admissionId, onClose }: { admissionId: number; onClose: () => void }) {
   const [discharging, setDischarging] = useState(false);
+  const [transferring, setTransferring] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const { user, adminUnlocked } = useAuth();
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+
+  // One shared decision — see lib/billingAccess.ts.
+  const canBill = canSeeMoney({
+    role: user?.role,
+    adminUnlocked,
+    stationRole: (settings as any)?.station_role,
+  });
 
   // The admitted list already carries the joined patient fields; fetch the row.
   const { data: admissions = [] } = useQuery({
@@ -41,7 +55,7 @@ export function AdmissionDetail({ admissionId, onClose }: { admissionId: number;
 
   return (
     <>
-      <Modal open onClose={onClose} title={`${admission.patient_name} · ${admission.admission_number}`} size="xl">
+      <Modal open onClose={onClose} title={`${admission.patient_name} · ${admission.admission_number}`} size="2xl">
         <div className="space-y-4">
           {/* Header */}
           <div className="flex items-center justify-between flex-wrap gap-3 pb-3 border-b dark:border-slate-700">
@@ -54,25 +68,58 @@ export function AdmissionDetail({ admissionId, onClose }: { admissionId: number;
               {admission.is_mlc ? <span className="inline-flex items-center gap-1 text-amber-600 font-semibold"><ShieldAlert className="w-3.5 h-3.5" /> MLC</span> : null}
             </div>
             <div className="flex gap-2">
-              <button className="btn-secondary text-xs" onClick={() => setPrinting(true)}>
-                <Printer className="w-3.5 h-3.5" /> Print bill
-              </button>
-              <button className="btn-primary text-xs" onClick={() => setDischarging(true)}>
-                <LogOut className="w-3.5 h-3.5" /> Discharge
-              </button>
+              {canBill && (
+                <button className="btn-secondary text-xs" onClick={() => setPrinting(true)}>
+                  <Printer className="w-3.5 h-3.5" /> Print bill
+                </button>
+              )}
+              {/* Moving a patient between beds/wards — the action the mid-day
+                  billing rule in Settings was written for. */}
+              {admission.discharge_status !== 'requested' && (
+                <button className="btn-secondary text-xs" onClick={() => setTransferring(true)}
+                  title="Move this patient to a different bed or ward">
+                  <ArrowRightLeft className="w-3.5 h-3.5" /> Move bed
+                </button>
+              )}
+              {admission.discharge_status === 'requested' ? (
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                  <LogOut className="w-3.5 h-3.5" /> Awaiting discharge approval
+                </span>
+              ) : (
+                <button className="btn-primary text-xs" onClick={() => setDischarging(true)}>
+                  <LogOut className="w-3.5 h-3.5" /> Discharge
+                </button>
+              )}
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2">
+          {/* Final bill + approval gate — billing staff only, once discharge is requested. */}
+          {admission.discharge_status === 'requested' && canBill && (
+            <DischargeApproval admission={admission} onDone={onClose} />
+          )}
+
+          <div className={canBill ? 'grid grid-cols-1 lg:grid-cols-3 gap-4' : ''}>
+            <div className={canBill ? 'lg:col-span-2' : ''}>
               <WardCare admissionId={admissionId} />
             </div>
-            <div>
-              <BillPreview admissionId={admissionId} />
-            </div>
+            {/* Money is reception / ward-in-charge / admin work — doctors and
+                nurses get the full width for the clinical record instead. */}
+            {canBill && (
+              <div>
+                <BillPreview admissionId={admissionId} />
+              </div>
+            )}
           </div>
         </div>
       </Modal>
+
+      {transferring && (
+        <TransferBedModal
+          admission={admission}
+          onClose={() => setTransferring(false)}
+          onDone={() => setTransferring(false)}
+        />
+      )}
 
       {discharging && (
         <DischargeModal

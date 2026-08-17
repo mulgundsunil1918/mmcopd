@@ -5,6 +5,7 @@ import { Modal } from '../Modal';
 import { useToast } from '../../hooks/useToast';
 import { useAuth } from '../../hooks/useAuth';
 import { BillPreview } from '../billing/BillPreview';
+import { canSeeMoney, MONEY_HIDDEN_NOTE } from '../../lib/billingAccess';
 import { DischargeSummaryPrint } from './DischargeSummaryPrint';
 import { cn } from '../../lib/utils';
 
@@ -28,7 +29,10 @@ export function DischargeModal({ admission, onClose, onDischarged }: {
   admission: any; onClose: () => void; onDischarged: () => void;
 }) {
   const toast = useToast();
-  const { user } = useAuth();
+  const { user, adminUnlocked } = useAuth();
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  // Same money rule as the admission screen — see lib/billingAccess.ts.
+  const canBill = canSeeMoney({ role: user?.role, adminUnlocked, stationRole: (settings as any)?.station_role });
   const [outcome, setOutcome] = useState('discharged');
   const [f, setF] = useState<any>({});
   const [busy, setBusy] = useState(false);
@@ -81,7 +85,10 @@ export function DischargeModal({ admission, onClose, onDischarged }: {
   const submit = async () => {
     setBusy(true);
     try {
-      const r = await window.electronAPI.ipd.discharge(admission.id, {
+      // Step 1 of the discharge flow: this saves the summary and flags the
+      // admission for billing review. The patient stays admitted (and the bed
+      // stays occupied) until someone approves on the Final Bill screen.
+      const r = await window.electronAPI.ipd.requestDischarge(admission.id, {
         outcome,
         outcome_notes: f.outcome_notes || null,
         death_at: outcome === 'death' ? f.death_at : null,
@@ -95,17 +102,17 @@ export function DischargeModal({ admission, onClose, onDischarged }: {
         discharge_doctor_id: f.discharge_doctor_id ? Number(f.discharge_doctor_id) : null,
         discharge_summary: composeSummary(),
       });
-      if (r.ok) { toast(`Recorded — ${outcome}`, 'success'); onDischarged(); }
-      else toast(r.error || 'Discharge failed', 'error');   // backend message verbatim
+      if (r.ok) { toast('Summary saved — now review the final bill and approve', 'success'); onDischarged(); }
+      else toast(r.error || 'Could not request discharge', 'error');   // backend message verbatim
     } catch (e: any) {
-      toast(e?.message || 'Discharge failed', 'error');
+      toast(e?.message || 'Could not request discharge', 'error');
     } finally { setBusy(false); }
   };
 
   const sel = OUTCOMES.find((o) => o.id === outcome)!;
 
   return (
-    <Modal open onClose={onClose} title={`Discharge — ${admission.patient_name} (${admission.admission_number})`} size="xl">
+    <Modal open onClose={onClose} title={`Discharge — ${admission.patient_name} (${admission.admission_number})`} size="2xl">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="space-y-4">
           {/* Template quick-fill */}
@@ -207,19 +214,33 @@ export function DischargeModal({ admission, onClose, onDischarged }: {
             </div>
           )}
 
+          <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/20 p-2.5 text-[11.5px] text-blue-900 dark:text-blue-200">
+            This saves the summary and sends the admission for <b>final billing</b>. The patient stays admitted
+            (bed still occupied) until the bill is reviewed and the discharge is <b>approved</b>.
+          </div>
+
           <div className="flex gap-2">
             <button className={cn('btn-primary', sel.id === 'death' && 'bg-slate-700')} disabled={busy} onClick={submit}>
-              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />} Confirm {sel.label}
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />} Save &amp; send for final billing
             </button>
             <button className="btn-secondary" onClick={() => setShowPrint(true)}><Printer className="w-4 h-4" /> Preview / Print summary</button>
             <button className="btn-ghost" onClick={onClose}>Cancel</button>
           </div>
         </div>
 
-        {/* Final bill on the right */}
+        {/* Final bill on the right — money only, so clinical staff don't get it. */}
         <div>
-          <div className="text-[11px] text-gray-500 mb-2">Final bill — settle before or after discharge.</div>
-          <BillPreview admissionId={admission.id} />
+          {canBill ? (
+            <>
+              <div className="text-[11px] text-gray-500 mb-2">Final bill — settle before or after discharge.</div>
+              <BillPreview admissionId={admission.id} />
+            </>
+          ) : (
+            <div className="rounded-xl border border-dashed border-gray-300 dark:border-slate-700 p-4 text-[11.5px] text-gray-500 dark:text-slate-400 leading-relaxed">
+              <div className="font-semibold text-gray-700 dark:text-slate-200 mb-1">Bill not shown</div>
+              {MONEY_HIDDEN_NOTE} Saving here sends this discharge for final billing — the amount is settled by them.
+            </div>
+          )}
         </div>
       </div>
 

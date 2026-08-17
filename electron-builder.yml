@@ -14,6 +14,11 @@ win:
         - x64
 
 nsis:
+  # Differential/blockmap packaging embeds extra update metadata in the installer
+  # and is a known source of "installer integrity check has failed" on machines
+  # where antivirus rewrites part of the file. We publish full installers rather
+  # than delta updates, so this buys nothing and costs robustness.
+  differentialPackage: false
   oneClick: false                       # show the full wizard
   perMachine: true                      # install for all users → defaults to C:\Program Files
   allowToChangeInstallationDirectory: true

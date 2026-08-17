@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { HelpTip } from '../HelpTip';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Sparkles, Plus, Pencil, Trash2, Loader2, X, User, Users } from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
@@ -94,7 +95,7 @@ export function ClinicalTemplatesEditor() {
     <div className="card p-5 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Consultation Quick-Fill Templates</div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">Consultation Quick-Fill Templates<HelpTip title="Consultation Quick-Fill Templates"><><p>Common examination findings, advice and prescriptions a doctor can insert with one click during a consultation.</p><p>Group them by department so the doctor sees only what is relevant to them.</p></></HelpTip></div>
           <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
             One-tap text for the History / Examination / Impression / Advice fields during a consultation. Make a
             template shared for the whole clinic, or save it under a doctor’s name so only that doctor sees it.

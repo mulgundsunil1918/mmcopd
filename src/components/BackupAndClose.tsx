@@ -1,9 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CloudUpload, Power, FolderOpen, AlertTriangle, CheckCircle2, HardDriveDownload, Usb, Cloud } from 'lucide-react';
+import { CloudUpload, Power, FolderOpen, AlertTriangle, CheckCircle2, HardDriveDownload, Usb, Cloud, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { Modal } from './Modal';
 import { useToast } from '../hooks/useToast';
 import { fmtDateTime } from '../lib/utils';
+
+/** Shape of the verified-backup receipt returned by backup.now() / nowTo(). */
+type BackupReceipt = {
+  verified: boolean;
+  integrityOk: boolean;
+  mismatches: { table: string; live: number; backup: number | null }[];
+  items: { label: string; count: number }[];
+  totalRows: number;
+  documentCount: number;
+  dest: string;
+};
 
 export function BackupAndClose() {
   const toast = useToast();
@@ -11,6 +22,7 @@ export function BackupAndClose() {
   const [open, setOpen] = useState(false);
   const [destChoice, setDestChoice] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [receipt, setReceipt] = useState<BackupReceipt | null>(null);
   const reminderShownAtRef = useRef<string | null>(null);
 
   const { data: status } = useQuery({
@@ -66,9 +78,16 @@ export function BackupAndClose() {
     setBusy(true);
     try {
       const r = await window.electronAPI.backup.now();
-      toast(successMessage('Google Drive backup', r.documentCount || 0));
+      toast(successMessage('Google Drive backup', r.documentCount || 0),
+        r.verified ? 'success' : 'error');
       qc.invalidateQueries({ queryKey: ['backup-status'] });
       setDestChoice(false);
+      setOpen(false);
+      setReceipt({
+        verified: r.verified, integrityOk: r.integrityOk, mismatches: r.mismatches || [],
+        items: r.receipt || [], totalRows: r.totalRows || 0, documentCount: r.documentCount || 0,
+        dest: 'Google Drive folder',
+      });
     } catch (e: any) {
       toast(e.message || 'Backup failed', 'error');
     } finally { setBusy(false); }
@@ -81,9 +100,16 @@ export function BackupAndClose() {
     try {
       const r = await window.electronAPI.backup.nowTo(dir);
       if (r.ok) {
-        toast(successMessage('USB backup', r.documentCount || 0));
+        toast(successMessage('USB backup', r.documentCount || 0),
+          r.verified ? 'success' : 'error');
         qc.invalidateQueries({ queryKey: ['backup-status'] });
         setDestChoice(false);
+        setOpen(false);
+        setReceipt({
+          verified: !!r.verified, integrityOk: !!r.integrityOk, mismatches: r.mismatches || [],
+          items: r.receipt || [], totalRows: r.totalRows || 0, documentCount: r.documentCount || 0,
+          dest: `USB drive (${dir})`,
+        });
       } else {
         toast(r.error || 'USB backup failed', 'error');
       }
@@ -213,6 +239,77 @@ export function BackupAndClose() {
         <div className="flex justify-end mt-4">
           <button className="btn-secondary" onClick={() => setDestChoice(false)} disabled={busy}>Cancel</button>
         </div>
+      </Modal>
+
+      {/* Verified receipt — proves the backup is complete AND not corrupt. */}
+      <Modal
+        open={!!receipt}
+        onClose={() => setReceipt(null)}
+        title={receipt?.verified ? 'Backup complete & verified' : 'Backup finished — please read'}
+        size="md"
+      >
+        {receipt && (
+          <div className="space-y-4">
+            <div
+              className="rounded-lg p-3 flex items-start gap-3"
+              style={{ background: receipt.verified ? '#d1fae5' : '#fee2e2', color: '#0f172a' }}
+            >
+              {receipt.verified
+                ? <ShieldCheck className="w-6 h-6 text-emerald-700 shrink-0 mt-0.5" />
+                : <ShieldAlert className="w-6 h-6 text-red-700 shrink-0 mt-0.5" />}
+              <div>
+                <div className="text-sm font-bold">
+                  {receipt.verified
+                    ? '✅ Saved & verified — safe to rely on'
+                    : '⚠️ Saved, but the check found a problem'}
+                </div>
+                <div className="text-[11px] mt-1 space-y-0.5">
+                  <div>{receipt.integrityOk
+                    ? 'Integrity check: passed (file is not corrupt).'
+                    : 'Integrity check: FAILED — the copied file may be corrupt. Try backing up again to a different folder/USB.'}</div>
+                  <div>{receipt.mismatches.length === 0
+                    ? 'Row counts: every table matches the live data exactly.'
+                    : `Row counts: ${receipt.mismatches.length} table(s) did not match — see below.`}</div>
+                  <div className="font-semibold">Total records copied: {receipt.totalRows.toLocaleString()} + {receipt.documentCount} document file(s)</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
+              <div className="px-3 py-2 text-xs font-semibold text-gray-900 dark:text-slate-100 bg-gray-50 dark:bg-slate-800/60">
+                What was backed up to {receipt.dest}
+              </div>
+              <div className="divide-y divide-gray-100 dark:divide-slate-800">
+                {receipt.items.filter((i) => i.count > 0).map((i) => (
+                  <div key={i.label} className="flex items-center justify-between px-3 py-1.5 text-[12px]">
+                    <span className="text-gray-600 dark:text-slate-300">{i.label}</span>
+                    <span className="font-mono font-semibold text-gray-900 dark:text-slate-100 tabular-nums">{i.count.toLocaleString()}</span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between px-3 py-1.5 text-[12px]">
+                  <span className="text-gray-600 dark:text-slate-300">Uploaded document files (scans / PDFs)</span>
+                  <span className="font-mono font-semibold text-gray-900 dark:text-slate-100 tabular-nums">{receipt.documentCount.toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+
+            {receipt.mismatches.length > 0 && (
+              <div className="rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-[11px] text-red-800 dark:text-red-200">
+                <div className="font-semibold mb-1">Tables that did not match (live → backup):</div>
+                <ul className="list-disc pl-4 space-y-0.5 font-mono">
+                  {receipt.mismatches.slice(0, 12).map((m) => (
+                    <li key={m.table}>{m.table}: {m.live} → {m.backup === null ? 'missing' : m.backup}</li>
+                  ))}
+                </ul>
+                <div className="mt-1">Please run the backup again. If it keeps failing, the destination disk/USB may be full or faulty.</div>
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <button className="btn-primary" onClick={() => setReceipt(null)}>Done</button>
+            </div>
+          </div>
+        )}
       </Modal>
     </>
   );

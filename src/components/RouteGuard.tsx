@@ -1,67 +1,106 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ShieldAlert } from 'lucide-react';
-import { useAuth, canAnyRole } from '../hooks/useAuth';
-import { ACCESS_MODULES, parseRoleAccess, effectiveRoles } from '../lib/accessModules';
-import { routeLicensed } from '../lib/licenseModules';
+import { ShieldAlert, Lock, CreditCard, PowerOff, Monitor } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
+import { ACCESS_MODULES, parseRoleAccess } from '../lib/accessModules';
+import { moduleState, explainDenial, type DenyReason } from '../lib/moduleAccess';
+import type { AppMode } from '../types';
 
 /**
- * Hard URL guard. Even if someone types a module's URL directly, they're bounced
- * unless their role is allowed it — using the SAME Role-Based Access matrix the
- * sidebar honours. Admin sees everything; Users & Settings are admin-only. A
- * blocked user is redirected to the first module they CAN open (never a loop,
- * since that destination is itself allowed).
+ * Hard URL guard. Even if someone types a module's URL directly they're bounced
+ * unless it survives every access check — and when it doesn't, the screen names
+ * the ACTUAL reason and the fix, instead of one generic "ask an admin" that
+ * often pointed at a screen which couldn't help.
+ *
+ * The decision itself lives in lib/moduleAccess.ts and is shared with the
+ * sidebar, so what you can SEE and what you can OPEN can never disagree again.
  */
+
+/** App-mode membership per route — mirrors the sidebar's NAV table. */
+const PHARMACY_MODES = new Set<AppMode>(['reception_pharmacy', 'reception_pharmacy_doctor', 'reception_pharmacy_doctor_lab', 'full']);
+const DOCTOR_MODES = new Set<AppMode>(['reception_doctor', 'reception_pharmacy_doctor', 'reception_pharmacy_doctor_lab', 'full']);
+const LAB_MODES = new Set<AppMode>(['reception_pharmacy_doctor_lab', 'full']);
+const IPD_MODES = new Set<AppMode>(['full']);
+const ROUTE_MODES: Record<string, Set<AppMode>> = {
+  '/doctor-select': DOCTOR_MODES,
+  '/lab': LAB_MODES,
+  '/pharmacy': PHARMACY_MODES,
+  '/ipd': IPD_MODES,
+  '/discharge-summary': IPD_MODES,
+};
+
 export function useAccessGuard() {
   const { user, adminUnlocked } = useAuth();
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   const { data: license } = useQuery({ queryKey: ['license'], queryFn: () => window.electronAPI.license.status(), staleTime: 60_000 });
-  const licensedModules = license?.modules;
   const overrides = parseRoleAccess(settings?.role_access_json);
+  const currentMode = (settings?.app_mode || 'reception_pharmacy_doctor') as AppMode;
 
-  // Add-on / hideable modules are also blocked by their enable toggle.
-  const moduleEnabled = (path: string): boolean => {
-    if (path === '/pediatrics') return settings?.peds_enabled === true;
-    if (path === '/tpa') return settings?.tpa_enabled === true;
-    if (path === '/discharge-summary') return settings?.discharge_summary_enabled !== false;
-    if (path === '/billing') return settings?.show_billing_module !== false;
-    if (path === '/origin') return settings?.show_patient_origin !== false;
-    return true;
-  };
-
-  const canAccess = (path: string): boolean => {
-    if (!user) return false;
-    // Licence gate applies to everyone, admin included — you can't open a module
-    // the clinic's subscription doesn't include.
-    if (!routeLicensed(path, licensedModules)) return false;
-    if (user.role === 'admin' || adminUnlocked) return true;
-    if (path === '/users' || path === '/settings') return false; // admin-only, always
-    if (!moduleEnabled(path)) return false;
+  const stateFor = (path: string) => {
     const mod = ACCESS_MODULES.find((m) => m.path === path);
-    if (!mod) return true; // unlisted sub-routes stay permissive
-    return canAnyRole(user, effectiveRoles(path, mod.defaults, overrides), adminUnlocked);
+    const modes = ROUTE_MODES[path];
+    return moduleState(path, {
+      user: user as any,
+      adminUnlocked,
+      licensedModules: license?.modules,
+      settings,
+      overrides,
+      // Unlisted sub-routes stay permissive: everyone is allowed by default.
+      defaults: mod?.defaults ?? (['receptionist', 'doctor', 'nurse', 'ward_incharge', 'lab_tech', 'pharmacist'] as any),
+      adminOnly: path === '/users' || path === '/settings',
+      inCurrentMode: modes ? modes.has(currentMode) : true,
+    });
   };
+
+  const canAccess = (path: string): boolean => stateFor(path).allowed;
 
   const firstAllowed = (): string | null => {
     for (const m of ACCESS_MODULES) if (canAccess(m.path)) return m.path;
     return null;
   };
 
-  return { canAccess, firstAllowed, ready: !!settings };
+  return { canAccess, stateFor, firstAllowed, ready: !!settings };
 }
+
+const REASON_ICON: Record<DenyReason, any> = {
+  ok: ShieldAlert, no_user: ShieldAlert, licence: CreditCard,
+  module_off: PowerOff, app_mode: Monitor, station: Monitor, owner_only: Lock, role: ShieldAlert,
+};
 
 /** Wrap a route element: renders it only if the current user may open `path`. */
 export function Guard({ path, children }: { path: string; children: React.ReactNode }) {
-  const { canAccess, firstAllowed, ready } = useAccessGuard();
+  const { stateFor, firstAllowed, ready } = useAccessGuard();
+  const { user, adminUnlocked } = useAuth();
+  const navigate = useNavigate();
   if (!ready) return null;              // wait for settings before deciding (avoids a flash-bounce)
-  if (canAccess(path)) return <>{children}</>;
-  const dest = firstAllowed();
-  if (dest && dest !== path) return <Navigate to={dest} replace />;
+
+  const st = stateFor(path);
+  if (st.allowed) return <>{children}</>;
+
+  // Only silently redirect when the person simply lacks the ROLE for a screen
+  // they navigated to by accident. Every other reason is explained in place —
+  // teleporting someone away from a licence or switched-off problem hides the
+  // very information they need.
+  if (st.reason === 'role') {
+    const dest = firstAllowed();
+    if (dest && dest !== path) return <Navigate to={dest} replace />;
+  }
+
+  const label = ACCESS_MODULES.find((m) => m.path === path)?.label;
+  const isOwner = user?.role === 'admin' || adminUnlocked;
+  const info = explainDenial(st.reason, { isOwner, label });
+  const Icon = REASON_ICON[st.reason] || ShieldAlert;
+
   return (
     <div className="p-10 max-w-md mx-auto text-center">
-      <ShieldAlert className="w-10 h-10 mx-auto text-amber-500 mb-3" />
-      <div className="text-[15px] font-semibold text-gray-900 dark:text-slate-100">No access to this screen</div>
-      <div className="text-[12px] text-gray-500 dark:text-slate-400 mt-1">Your role hasn’t been given access to this module. Ask an admin to grant it in Settings → Role-Based Access.</div>
+      <Icon className="w-10 h-10 mx-auto text-amber-500 mb-3" />
+      <div className="text-[15px] font-semibold text-gray-900 dark:text-slate-100">{info.title}</div>
+      <div className="text-[12px] text-gray-500 dark:text-slate-400 mt-1 leading-relaxed">{info.body}</div>
+      {info.cta && (
+        <button className="btn-primary mt-4 text-xs" onClick={() => navigate(info.cta!.to)}>
+          {info.cta.label}
+        </button>
+      )}
     </div>
   );
 }

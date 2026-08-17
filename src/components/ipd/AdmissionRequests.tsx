@@ -23,7 +23,16 @@ export function RequestAdmissionButton({ patient, doctorId, className }: { patie
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button className={cn('btn-secondary text-xs', className)} onClick={() => setOpen(true)}>
+      <button
+        className={cn(
+          'inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border-2 transition',
+          'border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100 hover:border-amber-500',
+          'dark:border-amber-700 dark:bg-amber-900/25 dark:text-amber-200 dark:hover:bg-amber-900/40',
+          className,
+        )}
+        onClick={() => setOpen(true)}
+        title="Ask reception to admit this patient — they assign the ward and bed"
+      >
         <BedDouble className="w-3.5 h-3.5" /> Request Admission
       </button>
       {open && <RequestModal patient={patient} doctorId={doctorId} onClose={() => setOpen(false)} />}

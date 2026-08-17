@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Bell } from 'lucide-react';
 import { EmptyState } from '../components/EmptyState';
-import { WhatsAppMessaging } from '../components/WhatsAppMessaging';
 import { cn, fmtDateTime } from '../lib/utils';
 import type { NotificationStatus } from '../types';
 
@@ -32,8 +31,6 @@ export function Notifications() {
           <option value="failed">Failed</option>
         </select>
       </div>
-
-      <WhatsAppMessaging defaultOpen={false} />
 
       <div className="card p-4">
         {isLoading ? (

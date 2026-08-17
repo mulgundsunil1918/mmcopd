@@ -1,31 +1,156 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, Printer, Receipt, FileText, ListFilter } from 'lucide-react';
+import { Plus, Trash2, Printer, Receipt, FileText, ListFilter, BedDouble } from 'lucide-react';
 import { EmptyState } from '../components/EmptyState';
 import { cn, fmtDate, fmtDateTime, formatINR, todayISO } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
+import { useLicensedModules } from '../hooks/useLicensedModules';
+import { AdmissionBillWorkspace } from '../components/billing/AdmissionBillWorkspace';
 import type { AppointmentWithJoins, BillItem, BillWithJoins, PaymentMode } from '../types';
 
-type Tab = 'queue' | 'history';
+type Tab = 'queue' | 'history' | 'ipd';
 
 export function Billing() {
-  const [tab, setTab] = useState<Tab>('queue');
+  const { has } = useLicensedModules();
+  // Open on IPD when the clinic runs beds — that is where unsettled money sits.
+  const [tab, setTab] = useState<Tab>(has('ipd') ? 'ipd' : 'queue');
 
   return (
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-bold text-gray-900">Billing</h1>
-          <p className="text-xs text-gray-500">Generate and reprint invoices.</p>
+          <h1 className="text-lg font-bold text-gray-900 inline-flex items-center gap-1.5">Billing<PageHelp page="billing" /></h1>
+          <p className="text-xs text-gray-500">Generate and reprint invoices. Click an admission to edit its charges, discount it and take payment.</p>
         </div>
-        <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
+        <div className="flex gap-2 bg-gray-100 dark:bg-slate-800 p-1 rounded-lg">
+          {/* IPD leads: an admitted patient's bill is the one that grows every day,
+              carries the largest amount and has a deadline (discharge). OPD bills
+              are settled at the counter in the same minute they are raised. */}
+          {has('ipd') && (
+            <TabButton active={tab === 'ipd'} onClick={() => setTab('ipd')} icon={<BedDouble className="w-3.5 h-3.5" />}>IPD / Admissions</TabButton>
+          )}
           <TabButton active={tab === 'queue'} onClick={() => setTab('queue')} icon={<Receipt className="w-3.5 h-3.5" />}>Billing Queue</TabButton>
           <TabButton active={tab === 'history'} onClick={() => setTab('history')} icon={<FileText className="w-3.5 h-3.5" />}>Billing History</TabButton>
         </div>
       </div>
 
-      {tab === 'queue' ? <BillingQueue /> : <BillingHistory />}
+      {tab === 'queue' && <BillingQueue />}
+      {tab === 'history' && <BillingHistory />}
+      {tab === 'ipd' && <IpdBilling />}
     </div>
+  );
+}
+
+/**
+ * IPD / Admissions billing — every admission's bill in one list: currently
+ * admitted (running bills, charges still accruing) and discharged. Clicking a row
+ * opens the SAME admission bill the IPD screen uses, so there is one bill per
+ * patient no matter which door you come through.
+ */
+function IpdBilling() {
+  const [status, setStatus] = useState<'all' | 'admitted' | 'discharged'>('all');
+  const [q, setQ] = useState('');
+  const [openId, setOpenId] = useState<number | null>(null);
+
+  const { data: rows = [], isLoading } = useQuery({
+    queryKey: ['bill-admissions', status, q],
+    queryFn: () => window.electronAPI.billing.admissionList({ status, q: q.trim() || undefined }),
+    refetchInterval: 30_000,
+  });
+
+  const totals = rows.reduce(
+    (a, r) => ({
+      billed: a.billed + r.total,
+      collected: a.collected + r.paid + r.advance,
+      due: a.due + Math.max(0, r.balance),
+      // Money owed back — advance collected exceeds the final bill. Kept separate
+      // from "outstanding" because it is the opposite direction of cash.
+      refund: a.refund + Math.max(0, -r.balance),
+    }),
+    { billed: 0, collected: 0, due: 0, refund: 0 }
+  );
+
+  return (
+    <>
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex gap-1 bg-gray-100 dark:bg-slate-800 p-1 rounded-lg">
+          {(['all', 'admitted', 'discharged'] as const).map((s) => (
+            <button key={s} onClick={() => setStatus(s)}
+              className={cn('px-3 py-1.5 rounded-md text-xs font-medium capitalize',
+                status === s ? 'bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 shadow-sm' : 'text-gray-600 dark:text-slate-400')}>
+              {s === 'all' ? 'All' : s}
+            </button>
+          ))}
+        </div>
+        <input className="input max-w-xs text-sm" placeholder="Search patient, UHID or IP number…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="ml-auto flex gap-4 text-[11px]">
+          <span className="text-gray-500 dark:text-slate-400">Billed <b className="text-gray-900 dark:text-slate-100 tabular-nums">{formatINR(totals.billed)}</b></span>
+          <span className="text-gray-500 dark:text-slate-400">Received <b className="text-emerald-600 tabular-nums">{formatINR(totals.collected)}</b></span>
+          <span className="text-gray-500 dark:text-slate-400">Outstanding <b className="text-red-600 tabular-nums">{formatINR(totals.due)}</b></span>
+          {totals.refund > 0.5 && (
+            <span className="text-gray-500 dark:text-slate-400">Refunds owed <b className="text-blue-600 tabular-nums">{formatINR(totals.refund)}</b></span>
+          )}
+        </div>
+      </div>
+
+      <div className="card overflow-x-auto mt-4">
+        {isLoading ? (
+          <div className="p-6 text-xs text-gray-500">Loading…</div>
+        ) : rows.length === 0 ? (
+          <EmptyState title="No admissions" description="IPD bills appear here once a patient is admitted." />
+        ) : (
+          <table className="w-full text-[12px] min-w-[840px]">
+            <thead>
+              <tr className="text-left text-[10px] uppercase text-gray-500 border-b dark:border-slate-700">
+                <th className="py-2 px-3">Patient</th>
+                <th className="py-2 px-3">IP No.</th>
+                <th className="py-2 px-3">Ward / Bed</th>
+                <th className="py-2 px-3 text-right">Days</th>
+                <th className="py-2 px-3 text-right">Bill</th>
+                <th className="py-2 px-3 text-right">Received</th>
+                <th className="py-2 px-3 text-right">Balance</th>
+                <th className="py-2 px-3">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.admission_id}
+                  onClick={() => setOpenId(r.admission_id)}
+                  className="border-b border-gray-50 dark:border-slate-800/60 hover:bg-blue-50/50 dark:hover:bg-slate-800/50 cursor-pointer">
+                  <td className="py-2 px-3">
+                    <div className="font-semibold text-gray-900 dark:text-slate-100">{r.patient_name}</div>
+                    <div className="text-[10px] text-gray-400">{r.patient_uhid}{r.doctor_name ? ` · ${r.doctor_name}` : ''}</div>
+                  </td>
+                  <td className="py-2 px-3 font-mono text-[11px]">{r.admission_number}</td>
+                  <td className="py-2 px-3">{r.ward || '—'}{r.bed_number ? ` / ${r.bed_number}` : ''}</td>
+                  <td className="py-2 px-3 text-right tabular-nums">{r.days}</td>
+                  <td className="py-2 px-3 text-right tabular-nums font-semibold">{formatINR(r.total)}</td>
+                  <td className="py-2 px-3 text-right tabular-nums text-emerald-600">{formatINR(r.paid + r.advance)}</td>
+                  <td className={cn('py-2 px-3 text-right tabular-nums font-semibold',
+                    r.balance > 0.5 ? 'text-red-600' : r.balance < -0.5 ? 'text-blue-600' : 'text-gray-400')}>
+                    {r.balance < -0.5
+                      ? <span title="Advance exceeds the bill — this much is owed back to the patient">−{formatINR(Math.abs(r.balance))}</span>
+                      : formatINR(Math.max(0, r.balance))}
+                  </td>
+                  <td className="py-2 px-3">
+                    {r.status === 'admitted' ? (
+                      r.discharge_status === 'requested'
+                        ? <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">Awaiting approval</span>
+                        : <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">Admitted</span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-600 dark:bg-slate-800 dark:text-slate-300">Discharged</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {openId !== null && <AdmissionBillWorkspace admissionId={openId} onClose={() => setOpenId(null)} />}
+    </>
   );
 }
 
@@ -90,7 +215,13 @@ function BillingQueue() {
 
       <div className="lg:col-span-2">
         {activeAppt ? (
-          <BillForm appointment={activeAppt} onGenerated={setGeneratedBill} />
+          <BillForm
+            /* Keyed by appointment: without this, patient A's line items and
+               discount stay on screen when you click patient B — and are posted
+               against B. The per-doctor reset effect did not fire when both
+               patients shared a doctor. */
+            key={activeAppt.id}
+            appointment={activeAppt} onGenerated={setGeneratedBill} />
         ) : (
           <div className="card p-6">
             <EmptyState icon={Receipt} title="Select an appointment" description="Choose a patient from the queue to generate a bill." />

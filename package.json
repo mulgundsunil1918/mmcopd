@@ -1,7 +1,7 @@
 {
   "name": "curedesk-hms",
   "productName": "CureDesk HMS",
-  "version": "0.4.3",
+  "version": "0.5.7",
   "description": "OPD management software for Mulgund Multispeciality Clinic",
   "main": ".vite/build/main.js",
   "scripts": {
@@ -15,7 +15,8 @@
     "make:installer": "electron-forge package && electron-builder --win nsis --x64 --prepackaged \"out/CureDesk HMS-win32-x64\"",
     "lint": "eslint --ext .ts,.tsx .",
     "keygen": "node tools/keygen-server.mjs",
-    "keygen:setup": "node tools/keygen-setup.mjs"
+    "keygen:setup": "node tools/keygen-setup.mjs",
+    "build:win": "bash scripts/build-windows.sh"
   },
   "keywords": [],
   "author": {

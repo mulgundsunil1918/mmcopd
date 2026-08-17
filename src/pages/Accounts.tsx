@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { PageHelp } from '../components/PageHelp';
 import { useQuery } from '@tanstack/react-query';
 import { Wallet, CalendarDays, CalendarRange, TrendingUp, CreditCard, Banknote, Smartphone, Stethoscope, Pill, ShoppingCart, Clock, MapPin, Users as UsersIcon, Sun, Download, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { cn, fmtDate, formatINR, todayISO } from '../lib/utils';
@@ -69,7 +70,7 @@ export function Accounts() {
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Accounts & Finance</h1>
+          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5">Accounts & Finance<PageHelp page="accounts" /></h1>
           <p className="text-xs text-gray-500 dark:text-slate-400">Deep revenue analytics — filter range, compare periods, drill down by doctor, day, place.</p>
         </div>
         <div className="flex items-center gap-2">
@@ -129,10 +130,14 @@ export function Accounts() {
           <div className="grid grid-cols-3 gap-3">
             <Tile label="OPD Bills" value={formatINR(data.range.bills.total)} sub={`${data.range.bills.count}`} icon={<Stethoscope className="w-4 h-4" />} tone="blue" />
             <Tile label="Pharmacy" value={formatINR(data.range.pharma.total)} sub={`${data.range.pharma.count}`} icon={<Pill className="w-4 h-4" />} tone="lime" />
+            {/* "Collected" was a lie: this sums bill TOTALS, which includes
+                unpaid lab bills and anything still owed. Renamed rather than
+                silently changed, so the figure you have been reading keeps
+                meaning the same thing — it is just labelled honestly now. */}
             <Tile
-              label="Total Collected"
+              label="Total Billed"
               value={formatINR(data.range.bills.total + data.range.pharma.total)}
-              sub={`${data.range.bills.count + data.range.pharma.count} transactions`}
+              sub={`${data.range.bills.count + data.range.pharma.count} transactions · billed, not necessarily received`}
               icon={<ShoppingCart className="w-4 h-4" />}
               tone="emerald"
             />

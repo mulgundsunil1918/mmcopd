@@ -108,6 +108,69 @@ function makeBillPatientNullable(db: Database.Database) {
 }
 
 /**
+ * Restore bill totals that were zeroed by the preview/print path.
+ *
+ * The defect: `misc:create` and `bills:create` wrote their lines only into
+ * `bills.items_json`, never into `bill_items`. Opening or printing such a bill
+ * called `recalcBill()`, which derives the totals from `bill_items` — found none
+ * — and then PERSISTED subtotal/total as 0. A ₹400 dressing charge became a ₹0
+ * invoice in front of the patient and a ₹0 row in the database.
+ *
+ * `migrateBillItemsFromJson` (above) later creates the missing line rows from
+ * items_json, but it never touches `bills.subtotal`/`total`, so the zero stayed
+ * put — and every figure reading `bills.total` (Accounts, Billing History,
+ * misc:summary, analytics) kept under-reporting that revenue for good.
+ *
+ * This runs AFTER that backfill, so the lines exist by the time we re-add them
+ * up. It only repairs a bill whose stored total is zero while its lines clearly
+ * are not — a genuinely free visit has no lines, or lines that sum to zero, and
+ * is left alone. Idempotent: once repaired, the total is no longer zero and the
+ * row stops matching.
+ */
+function repairZeroedBillTotals(db: Database.Database) {
+  let rows: { id: number; discount: number; discount_type: string; line_total: number }[];
+  try {
+    rows = db.prepare(
+      `SELECT b.id,
+              COALESCE(b.discount, 0)            AS discount,
+              COALESCE(b.discount_type, 'flat')  AS discount_type,
+              COALESCE(SUM(bi.amount), 0)        AS line_total
+         FROM bills b
+         JOIN bill_items bi ON bi.bill_id = b.id
+        WHERE COALESCE(b.total, 0) = 0
+          AND b.cancelled_at IS NULL
+        GROUP BY b.id
+       HAVING COALESCE(SUM(bi.amount), 0) > 0`
+    ).all() as any;
+  } catch {
+    return;   // pre-existing install without bill_items yet — nothing to repair
+  }
+  if (rows.length === 0) return;
+
+  const upd = db.prepare('UPDATE bills SET subtotal=?, total=? WHERE id=?');
+  let repaired = 0;
+  let recovered = 0;
+  db.transaction(() => {
+    for (const r of rows) {
+      const subtotal = Math.round(Number(r.line_total) * 100) / 100;
+      const disc = Number(r.discount) || 0;
+      const off = r.discount_type === 'percent' ? (subtotal * disc) / 100 : disc;
+      const total = Math.max(0, Math.round((subtotal - off) * 100) / 100);
+      if (total <= 0) continue;                    // a full-discount bill really is zero
+      upd.run(subtotal, total, r.id);
+      repaired++;
+      recovered += total;
+    }
+    if (repaired > 0) {
+      db.prepare(
+        `INSERT INTO audit_log (user_id, action, entity, entity_id, details)
+         VALUES (NULL, 'bills_zero_total_repaired', 'bills', NULL, ?)`
+      ).run(`Restored ${repaired} bill total(s) worth ${recovered.toFixed(2)} that had been zeroed by the bill-preview recalculation.`);
+    }
+  })();
+}
+
+/**
  * Copy existing bills.items_json into real bill_items rows.
  *
  * items_json stays untouched as a fallback, so this migration is non-destructive
@@ -356,6 +419,35 @@ function seedCountersFromExistingData(db: Database.Database) {
     }
   } catch { /* bills table absent */ }
 
+  /**
+   * Lab and pharmacy series moved off COUNT(*)+1 onto the atomic counter.
+   *
+   * Seed each day's counter past the highest number already issued, or an
+   * existing clinic would restart at 0001 and collide with its own history on
+   * the first order of the day. Each series walks ITS OWN table — nesting these
+   * under the admissions loop (as they briefly were) meant a clinic with lab
+   * orders but no in-patients got no seeding at all.
+   */
+  try {
+    const days = db
+      .prepare(`SELECT DISTINCT substr(order_number, 5, 8) AS day FROM lab_orders WHERE order_number LIKE 'LAB-%'`)
+      .all() as { day: string }[];
+    for (const { day } of days) {
+      if (!/^\d{8}$/.test(day)) continue;
+      raise.run(`lab:${day}`, maxSuffix('lab_orders', 'order_number', `LAB-${day}-%`));
+    }
+  } catch { /* lab_orders absent */ }
+
+  try {
+    const days = db
+      .prepare(`SELECT DISTINCT substr(sale_number, 5, 8) AS day FROM pharmacy_sales WHERE sale_number LIKE 'PHX-%'`)
+      .all() as { day: string }[];
+    for (const { day } of days) {
+      if (!/^\d{8}$/.test(day)) continue;
+      raise.run(`sale:${day}`, maxSuffix('pharmacy_sales', 'sale_number', `PHX-${day}-%`));
+    }
+  } catch { /* pharmacy_sales absent */ }
+
   try {
     const days = db
       .prepare(`SELECT DISTINCT substr(admission_number, 4, 8) AS day FROM ip_admissions WHERE admission_number LIKE 'IP-%'`)
@@ -511,6 +603,7 @@ export function runMigrations(db: Database.Database) {
 
   makeBillPatientNullable(db);
   migrateBillItemsFromJson(db);
+  repairZeroedBillTotals(db);   // undo totals zeroed by the preview path (see above)
   seedDefaultChargeHeads(db);
 
   // Free follow-up policy: every paid visit grants N free follow-up visits within X days
@@ -629,9 +722,63 @@ export function runMigrations(db: Database.Database) {
   addColumnIfMissing(db, 'ip_admissions', 'followup_plan', 'TEXT');
   addColumnIfMissing(db, 'ip_admissions', 'discharge_doctor_id', 'INTEGER REFERENCES doctors(id)');
 
+  // Discharge approval workflow: request → final bill → approve → discharged.
+  // 'none' = still admitted, no discharge asked for yet.
+  addColumnIfMissing(db, 'ip_admissions', 'discharge_status', "TEXT NOT NULL DEFAULT 'none'");
+  addColumnIfMissing(db, 'ip_admissions', 'discharge_requested_at', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'discharge_requested_by', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'discharge_approved_at', 'TEXT');
+  addColumnIfMissing(db, 'ip_admissions', 'discharge_approved_by', 'TEXT');
+  // Set when a clinic discharges with money still outstanding — reason is required
+  // and audit-logged, so an unpaid discharge is always traceable.
+  addColumnIfMissing(db, 'ip_admissions', 'discharge_override_reason', 'TEXT');
+  // Bill freeze: set when the final bill is locked at discharge.
+  addColumnIfMissing(db, 'bills', 'finalized_at', 'TEXT');
+  addColumnIfMissing(db, 'bills', 'finalized_by', 'TEXT');
+
+  /**
+   * GST on pharmacy sales.
+   *
+   * Medicines are taxable in India (5/12/18%) while clinical services are
+   * exempt, so a pharmacy receipt is the one place in a clinic that genuinely
+   * needs a tax breakdown — and pharmacy_sales had no tax columns at all. The
+   * rate lives on drug_master; these hold what was actually charged, so a
+   * reprint years later shows the tax as it was on the day.
+   */
+  addColumnIfMissing(db, 'pharmacy_sales', 'taxable_total', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'pharmacy_sales', 'exempt_total', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'pharmacy_sales', 'cgst_total', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'pharmacy_sales', 'sgst_total', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'pharmacy_sales', 'is_tax_invoice', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'pharmacy_sale_items', 'gst_rate', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'pharmacy_sale_items', 'cgst', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'pharmacy_sale_items', 'sgst', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'pharmacy_sale_items', 'hsn_sac', 'TEXT');
+
   // Appointment patient groups + procedure tags
   addColumnIfMissing(db, 'appointments', 'patient_group', 'TEXT');
   addColumnIfMissing(db, 'appointments', 'procedure_tags', 'TEXT');
+
+  /**
+   * Real link from a lab bill back to its order.
+   *
+   * The auto-raised lab bill only ever recorded the order in free text
+   * ("Lab order LAB-20260816-0001"). That was enough to read, but not to act
+   * on: to re-price a bill when the lab adds or drops a test you have to find
+   * it reliably, and matching on a notes string breaks the moment anyone edits
+   * the note. Backfilled from those notes so existing bills keep working.
+   */
+  addColumnIfMissing(db, 'bills', 'lab_order_id', 'INTEGER REFERENCES lab_orders(id)');
+  try {
+    db.exec(`
+      UPDATE bills
+         SET lab_order_id = (SELECT o.id FROM lab_orders o
+                              WHERE bills.notes = 'Lab order ' || o.order_number)
+       WHERE lab_order_id IS NULL
+         AND notes LIKE 'Lab order %'
+    `);
+  } catch { /* pre-existing installs without lab_orders yet — nothing to backfill */ }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_bills_lab_order ON bills(lab_order_id);');
 
   // One-time: clear the old hard-coded known_villages so the new bundled list (places.ts) takes over.
   try {

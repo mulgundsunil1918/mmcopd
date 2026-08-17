@@ -3,6 +3,7 @@
 // Picks up pending items from wa_message_queue, sends via Meta API, updates status.
 
 import type Database from 'better-sqlite3';
+import { reveal } from './token';
 import { sendTemplate } from './meta-api';
 
 const MAX_ATTEMPTS = 3;
@@ -64,7 +65,10 @@ export async function processQueue(db: Database.Database): Promise<void> {
 
     const result = await sendTemplate(
       row.phone_number_id,
-      row.access_token_enc,
+      // reveal(): the column stores an OBFUSCATED token. Passing it raw meant
+      // every queued and scheduled message authenticated with gibberish and was
+      // rejected by Meta — silently, since the failure looked like a send error.
+      reveal(row.access_token_enc),
       row.to_phone,
       row.template_name,
       vars.lang ?? 'en',

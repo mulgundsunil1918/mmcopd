@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FlaskConical, Plus, Pencil, FileText, Beaker, Clipboard, CheckCircle2, Loader2, Printer, Search, X, Receipt } from 'lucide-react';
 import { Modal } from '../components/Modal';
@@ -36,7 +37,7 @@ export function Lab() {
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Laboratory</h1>
+          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5">Laboratory<PageHelp page="lab" /></h1>
           <p className="text-xs text-gray-500 dark:text-slate-400">Test catalog, orders, sample collection, and result entry.</p>
         </div>
         <div className="flex gap-2 bg-gray-100 dark:bg-slate-700 p-1 rounded-lg">
@@ -170,6 +171,10 @@ function OrdersView() {
           </div>
         ) : (
           <OrderDetail
+            /* Keyed by order: without this the component instance (and its
+               unsaved `draft`) survives switching patients, and Save Results
+               posts one patient's values onto another's order. */
+            key={activeOrder}
             order={activeOrderObj}
             orderId={activeOrder}
             items={items}
@@ -211,7 +216,46 @@ function OrderDetail({
   onPrint: (mode: 'bill' | 'report') => void;
 }) {
   const [draft, setDraft] = useState<Record<number, { result: string; is_abnormal: number }>>({});
-  const setField = (id: number, patch: any) => setDraft((d) => ({ ...d, [id]: { ...(d[id] || { result: '', is_abnormal: 0 }), ...patch } }));
+  /**
+   * Seed a new draft entry from the row's SAVED values, never from blanks.
+   *
+   * Both controls are uncontrolled (defaultValue / defaultChecked), so touching
+   * one puts only that field in the draft. Seeding with { result: '' } meant
+   * ticking "Abnormal" on a test whose result was already entered sent an empty
+   * result — and the backend's unconditional UPDATE wrote it over the real
+   * value. A saved Hb of 8.1 vanished from the record and the printed report.
+   */
+  const setField = (it: any, patch: any) =>
+    setDraft((d) => ({
+      ...d,
+      [it.id]: {
+        ...(d[it.id] || { result: it.result ?? '', is_abnormal: it.is_abnormal ?? 0 }),
+        ...patch,
+      },
+    }));
+
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [addOpen, setAddOpen] = useState(false);
+  const [busyItem, setBusyItem] = useState<number | null>(null);
+
+  /** Both edits re-price the bill in the backend; surface exactly what happened. */
+  const afterEdit = (r: any) => {
+    qc.invalidateQueries({ queryKey: ['lab-order-items', orderId] });
+    qc.invalidateQueries({ queryKey: ['lab-orders'] });
+    qc.invalidateQueries({ queryKey: ['bills'] });
+    if (!r?.ok) { toast(r?.error || 'Could not update this order', 'error'); return false; }
+    toast(r.note || 'Order updated', r.billChanged ? 'success' : 'info');
+    return true;
+  };
+
+  const removeItem = async (it: any) => {
+    if (!window.confirm(`Remove “${it.test_name}” from this order?\n\nThe bill will be re-priced to match.`)) return;
+    setBusyItem(it.id);
+    try { afterEdit(await window.electronAPI.lab.removeOrderItem(orderId, it.id)); }
+    catch (e: any) { toast(e?.message || 'Could not remove that test', 'error'); }
+    finally { setBusyItem(null); }
+  };
 
   return (
     <div className="card p-5">
@@ -220,6 +264,9 @@ function OrderDetail({
           {order?.order_number || `Order #${orderId}`}{order?.patient_name ? <span className="text-gray-400 font-normal"> · {order.patient_name}</span> : null}
         </div>
         <div className="flex gap-2 flex-wrap">
+          <button className="btn-ghost text-xs" onClick={() => setAddOpen(true)} title="Add a test the doctor did not order">
+            <Plus className="w-3.5 h-3.5" /> Add test
+          </button>
           <button className="btn-ghost text-xs" onClick={() => onPrint('bill')} title="Print the lab bill on letterhead">
             <Receipt className="w-3.5 h-3.5" /> Print Bill
           </button>
@@ -248,6 +295,7 @@ function OrderDetail({
             <th className="py-2 w-48">Result</th>
             <th className="py-2 w-20">Unit</th>
             <th className="py-2">Abnormal</th>
+            <th className="py-2 w-10"></th>
           </tr>
         </thead>
         <tbody>
@@ -259,7 +307,7 @@ function OrderDetail({
                 <input
                   className="input"
                   defaultValue={it.result || ''}
-                  onChange={(e) => setField(it.id, { result: e.target.value })}
+                  onChange={(e) => setField(it, { result: e.target.value })}
                 />
               </td>
               <td className="py-2 text-xs text-gray-500 dark:text-slate-400">{it.unit || '—'}</td>
@@ -267,17 +315,113 @@ function OrderDetail({
                 <input
                   type="checkbox"
                   defaultChecked={!!it.is_abnormal}
-                  onChange={(e) => setField(it.id, { is_abnormal: e.target.checked ? 1 : 0 })}
+                  onChange={(e) => setField(it, { is_abnormal: e.target.checked ? 1 : 0 })}
                 />
+              </td>
+              <td className="py-2 text-right">
+                {/* A test with a result recorded is evidence — the backend refuses
+                    to delete it, so don't offer a button that will only fail. */}
+                {(it.result === null || String(it.result).trim() === '') ? (
+                  <button
+                    onClick={() => removeItem(it)}
+                    disabled={busyItem === it.id || items.length <= 1}
+                    title={items.length <= 1 ? 'An order must keep at least one test' : `Remove ${it.test_name} and re-price the bill`}
+                    className="text-gray-400 hover:text-red-600 disabled:opacity-30 disabled:hover:text-gray-400"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                ) : (
+                  <span title="Result already entered — clear it first to remove this test" className="text-gray-300">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  </span>
+                )}
               </td>
             </tr>
           ))}
           {items.length === 0 && (
-            <tr><td colSpan={5} className="text-center py-6 text-xs text-gray-500">No test items.</td></tr>
+            <tr><td colSpan={6} className="text-center py-6 text-xs text-gray-500">No test items.</td></tr>
           )}
         </tbody>
       </table>
+
+      {addOpen && (
+        <AddTestsModal
+          orderId={orderId}
+          existing={items}
+          onClose={() => setAddOpen(false)}
+          onDone={(r) => { if (afterEdit(r)) setAddOpen(false); }}
+        />
+      )}
     </div>
+  );
+}
+
+/** Pick extra tests for an order the doctor already sent. Prices are shown so
+ *  whoever adds one can see what it does to the bill before committing. */
+function AddTestsModal({ orderId, existing, onClose, onDone }: {
+  orderId: number; existing: any[]; onClose: () => void; onDone: (r: any) => void;
+}) {
+  const [q, setQ] = useState('');
+  const [sel, setSel] = useState<Record<number, true>>({});
+  const [busy, setBusy] = useState(false);
+  const { data: tests = [] } = useQuery({ queryKey: ['lab-tests', true], queryFn: () => window.electronAPI.lab.listTests(true) });
+
+  const have = new Set(existing.map((i: any) => String(i.test_name).toLowerCase()));
+  const list = tests
+    .filter((t: any) => !have.has(String(t.name).toLowerCase()))
+    .filter((t: any) => !q.trim() || String(t.name).toLowerCase().includes(q.trim().toLowerCase()));
+  const chosen = tests.filter((t: any) => sel[t.id]);
+  const addTotal = chosen.reduce((s: number, t: any) => s + (Number(t.price) || 0), 0);
+  const unpriced = chosen.filter((t: any) => !(Number(t.price) > 0));
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      onDone(await window.electronAPI.lab.addOrderItems(
+        orderId,
+        chosen.map((t: any) => ({ lab_test_id: t.id, test_name: t.name }))
+      ));
+    } catch (e: any) { onDone({ ok: false, error: e?.message || 'Could not add tests' }); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Modal open onClose={onClose} title="Add tests to this order" size="lg">
+      <div className="space-y-3">
+        <input className="input" placeholder="Search tests…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+        <div className="max-h-72 overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700 divide-y divide-gray-100 dark:divide-slate-800">
+          {list.length === 0 && <div className="p-4 text-center text-xs text-gray-500">No other tests match.</div>}
+          {list.map((t: any) => (
+            <label key={t.id} className="flex items-center gap-2 p-2 text-[12.5px] cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800">
+              <input type="checkbox" checked={!!sel[t.id]}
+                onChange={(e) => setSel((s) => { const n = { ...s }; if (e.target.checked) n[t.id] = true; else delete n[t.id]; return n; })} />
+              <span className="flex-1 text-gray-900 dark:text-slate-100">{t.name}</span>
+              <span className={cn('text-[11px]', Number(t.price) > 0 ? 'text-gray-500' : 'text-amber-600 font-semibold')}>
+                {Number(t.price) > 0 ? formatINR(t.price) : 'no price'}
+              </span>
+            </label>
+          ))}
+        </div>
+
+        {unpriced.length > 0 && (
+          <div className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-2.5 text-[11.5px] text-amber-900 dark:text-amber-100">
+            <b>{unpriced.length} of these ha{unpriced.length === 1 ? 's' : 've'} no price</b> and will not be added to the bill.
+          </div>
+        )}
+
+        <div className="flex items-center justify-between pt-2 border-t dark:border-slate-700">
+          <div className="text-[12px] text-gray-600 dark:text-slate-300">
+            {chosen.length} selected · adds <b>{formatINR(addTotal)}</b> to the bill
+          </div>
+          <div className="flex gap-2">
+            <button className="btn-secondary" onClick={onClose}>Cancel</button>
+            <button className="btn-primary" disabled={busy || chosen.length === 0} onClick={submit}>
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add &amp; re-price bill
+            </button>
+          </div>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -297,6 +441,7 @@ function CatalogView() {
   const [editing, setEditing] = useState<Partial<LabTest> | null>(null);
   const [filter, setFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const { data: tests = [] } = useQuery({
     queryKey: ['lab-tests', false],
@@ -312,6 +457,19 @@ function CatalogView() {
     mutationFn: (t: Partial<LabTest>) => window.electronAPI.lab.upsertTest(t),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['lab-tests', false] }),
   });
+  // Tests never ordered are deleted outright; ones with history are deactivated so
+  // past reports keep their test names. Mirrors the pharmacy Drug Master.
+  const bulkDelete = useMutation({
+    mutationFn: (ids: number[]) => window.electronAPI.lab.bulkDeleteTests(ids),
+    onSuccess: (r: any) => {
+      qc.invalidateQueries({ queryKey: ['lab-tests', false] });
+      qc.invalidateQueries({ queryKey: ['lab-tests', true] });
+      setSelectedIds(new Set());
+      const bits = [r.hardDeleted ? `${r.hardDeleted} removed` : '', r.softDeleted ? `${r.softDeleted} deactivated (had past orders)` : ''].filter(Boolean);
+      toast(bits.join(' · ') || 'Nothing to delete', 'success');
+    },
+    onError: (e: any) => toast(e?.message || 'Could not delete', 'error'),
+  });
   const loadCatalog = useMutation({
     mutationFn: () => window.electronAPI.lab.loadStandardCatalog(),
     onSuccess: (r) => { qc.invalidateQueries({ queryKey: ['lab-tests', false] }); toast(r.added > 0 ? `Added ${r.added} tests — set your prices below` : 'Catalog already loaded', 'success'); },
@@ -320,6 +478,21 @@ function CatalogView() {
   const shown = tests.filter((t) =>
     (filter === 'all' || (t.category || 'pathology') === filter) &&
     (!search.trim() || t.name.toLowerCase().includes(search.toLowerCase())));
+
+  const allShownSelected = shown.length > 0 && shown.every((t) => selectedIds.has(t.id));
+  const toggleOne = (id: number) => setSelectedIds((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleAllShown = () => setSelectedIds((p) => {
+    const n = new Set(p);
+    if (allShownSelected) shown.forEach((t) => n.delete(t.id));
+    else shown.forEach((t) => n.add(t.id));
+    return n;
+  });
+  const deleteSelected = () => {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    if (!window.confirm(`Delete ${ids.length} test(s)?\n\nTests never ordered are removed. Tests with past orders are deactivated instead, so old reports keep their names.`)) return;
+    bulkDelete.mutate(ids);
+  };
 
   return (
     <section className="card p-4 space-y-3">
@@ -341,16 +514,31 @@ function CatalogView() {
           </button>
         </div>
       </div>
-      <div className="text-[11px] text-gray-500">{shown.length} of {tests.length} tests · set the <b>price</b> inline and untick <b>Active</b> to hide tests you don't offer.</div>
+      <div className="text-[11px] text-gray-500">{shown.length} of {tests.length} tests · use the pencil to set a price or reference range, and untick <b>Active</b> to hide tests you don&rsquo;t offer.</div>
+
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-3 py-2">
+          <span className="text-[12px] font-semibold text-red-800 dark:text-red-200">{selectedIds.size} selected</span>
+          <button className="btn-danger text-xs" disabled={bulkDelete.isPending} onClick={deleteSelected}>
+            {bulkDelete.isPending ? 'Deleting…' : 'Delete selected'}
+          </button>
+          <button className="btn-ghost text-xs" onClick={() => setSelectedIds(new Set())}>Clear</button>
+        </div>
+      )}
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
+              <th className="py-2 w-8">
+                <input type="checkbox" className="w-4 h-4 accent-fuchsia-600" checked={allShownSelected}
+                  onChange={toggleAllShown} title="Select all shown" />
+              </th>
               <th className="py-2">Test Name</th>
               <th className="py-2">Category</th>
               <th className="py-2">Sample</th>
-              <th className="py-2 text-right w-28">Price ₹</th>
+              <th className="py-2">Normal range</th>
+              <th className="py-2 text-right w-24">Price</th>
               <th className="py-2 text-center w-20">Active</th>
               <th></th>
             </tr>
@@ -358,12 +546,17 @@ function CatalogView() {
           <tbody>
             {shown.map((t) => (
               <tr key={t.id} className="border-b border-gray-100 dark:border-slate-800">
+                <td className="py-1.5">
+                  <input type="checkbox" className="w-4 h-4 accent-fuchsia-600" checked={selectedIds.has(t.id)} onChange={() => toggleOne(t.id)} />
+                </td>
                 <td className="py-1.5 font-medium text-gray-900 dark:text-slate-100">{t.name}{t.unit ? <span className="text-[10px] text-gray-400"> · {t.unit}</span> : null}</td>
                 <td className="py-1.5"><span className={cn('badge text-[10px]', CAT_COLOR[t.category || 'pathology'] || CAT_COLOR.pathology)}>{catLabel(t.category)}</span></td>
                 <td className="py-1.5 text-gray-600 dark:text-slate-300 text-xs">{t.sample_type || '—'}</td>
-                <td className="py-1.5 text-right">
-                  <input type="number" className="input !py-1 !text-sm w-24 text-right" defaultValue={t.price}
-                    onBlur={(e) => { const v = Number(e.target.value) || 0; if (v !== t.price) quick.mutate({ ...t, price: v }); }} />
+                <td className="py-1.5 text-gray-600 dark:text-slate-300 text-xs">{t.ref_range || <span className="text-gray-300">—</span>}</td>
+                <td className="py-1.5 text-right tabular-nums">
+                  {Number(t.price) > 0
+                    ? <span className="font-semibold text-gray-900 dark:text-slate-100">{formatINR(t.price)}</span>
+                    : <span className="text-amber-600 font-semibold text-xs" title="This test is carried out but never added to a bill">not priced</span>}
                 </td>
                 <td className="py-1.5 text-center">
                   <input type="checkbox" className="w-4 h-4 accent-fuchsia-600" checked={t.is_active === 1} onChange={(e) => quick.mutate({ ...t, is_active: e.target.checked ? 1 : 0 })} />
@@ -374,7 +567,7 @@ function CatalogView() {
               </tr>
             ))}
             {shown.length === 0 && (
-              <tr><td colSpan={6} className="py-8 text-center text-gray-400 text-[12px]">
+              <tr><td colSpan={8} className="py-8 text-center text-gray-400 text-[12px]">
                 No tests{search ? ' match your search' : ''}. Click <b>Load standard catalog</b> to add the common Indian investigations.
               </td></tr>
             )}
@@ -450,6 +643,11 @@ function NewLabRequestModal({ onClose, onCreated }: { onClose: () => void; onCre
   const shownTests = tests.filter((t) => !testSearch.trim() || t.name.toLowerCase().includes(testSearch.toLowerCase()));
   const selCount = Object.keys(selected).length;
   const selTotal = tests.filter((t) => selected[t.id]).reduce((sum, t) => sum + (t.price || 0), 0);
+  // The bill is built only from tests that have a price, so a test left at ₹0
+  // is done and never charged for. The full standard catalogue ships unpriced
+  // by design (rates are each clinic's own), which makes this easy to hit —
+  // so name it here, at the moment of ordering, rather than let it go quiet.
+  const unpriced = tests.filter((t) => selected[t.id] && !(t.price > 0));
 
   const create = useMutation({
     mutationFn: () => window.electronAPI.lab.createOrder({
@@ -532,6 +730,13 @@ function NewLabRequestModal({ onClose, onCreated }: { onClose: () => void; onCre
           <label className="label">Notes (optional)</label>
           <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
+
+        {unpriced.length > 0 && (
+          <div className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-2.5 text-[11.5px] text-amber-900 dark:text-amber-100 leading-relaxed">
+            <b>{unpriced.length} selected test{unpriced.length === 1 ? ' has' : 's have'} no price</b> — {unpriced.map((t) => t.name).join(', ')}.
+            {' '}They will be carried out but <b>will not appear on the bill</b>. Set a rate in Settings → Laboratory to charge for them.
+          </div>
+        )}
 
         <div className="flex items-center justify-between pt-2 border-t dark:border-slate-700">
           <div className="text-[12px] text-gray-600 dark:text-slate-300">

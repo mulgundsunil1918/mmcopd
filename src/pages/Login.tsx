@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { HeartPulse, LogIn } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
+import { ForgotPasswordLink } from '../components/ForgotPasswordDialog';
 
 export function Login() {
   const { login } = useAuth();
@@ -47,9 +48,9 @@ export function Login() {
           <button type="submit" className="btn-primary w-full mt-2" disabled={busy}>
             <LogIn className="w-4 h-4" /> {busy ? 'Signing in…' : 'Sign In'}
           </button>
-        </div>
-        <div className="text-[11px] mt-4 p-2 rounded-md" style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}>
-          Default admin: <code>admin</code> / <code>admin123</code> — change this immediately in Settings → Users.
+          <div className="text-center pt-1">
+            <ForgotPasswordLink />
+          </div>
         </div>
       </form>
     </div>

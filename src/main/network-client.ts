@@ -106,15 +106,26 @@ const SKIP_PROXY_CHANNELS = new Set([
   'app:getClinicName',
   // NOTE: settings:get / settings:save are deliberately NOT skipped — they get
   // a custom split-routing proxy below (see STATION_LOCAL_KEYS).
-  // Auth must run locally so the local user session works in client mode too.
-  'auth:login',
-  'auth:listUsers',
-  'auth:createUser',
-  'auth:changePassword',
-  'auth:updateUser',
+  // The admin PIN stays LOCAL on purpose: if the host is unreachable, a station
+  // must still be able to unlock Settings and fix its own network configuration.
+  // Staff ACCOUNTS, by contrast, are clinic-wide and proxy to the host (below) —
+  // a client is already useless without the host (see HostOfflineOverlay), so
+  // keeping accounts local bought nothing and forced staff to be recreated on
+  // every PC. auth:login keeps a local emergency fallback; see installProxy().
   'auth:verifyAdminPassword',
   'auth:isDefaultAdminPassword',
   'auth:changeAdminPassword',
+  'auth:logout',
+]);
+
+/**
+ * Account channels that a client forwards to the host, so the clinic has ONE
+ * staff list. auth:login additionally falls back to this PC's own users table
+ * when the host cannot be reached, so an emergency local account can still get
+ * someone into Settings to repair the connection.
+ */
+const HOST_ACCOUNT_CHANNELS = new Set([
+  'auth:login', 'auth:listUsers', 'auth:createUser', 'auth:changePassword', 'auth:updateUser',
 ]);
 
 /**
@@ -130,7 +141,7 @@ const SKIP_PROXY_CHANNELS = new Set([
  */
 const STATION_LOCAL_KEYS = new Set([
   'network_mode', 'network_listen_port', 'network_server_url', 'network_secret',
-  'network_bind_ip', 'station_name',
+  'network_bind_ip', 'station_name', 'station_role', 'sidebar_layout',
   'backup_folder', 'backup_reminder_time', 'usb_reminder_weekday', 'usb_reminder_time',
   'keep_all_backups', 'auto_backup_enabled', 'auto_backup_frequency', 'auto_backup_time',
   'auto_launch', 'minimize_to_tray', 'start_minimized',
@@ -198,6 +209,9 @@ export function installNetworkClient(serverUrl: string, secret: string): { ok: b
   };
 
   // ── settings:get — clinic-wide values from the host, station values local ──
+  // Captured BEFORE the proxy replaces the handler, so the emergency fallback
+  // still points at this PC's own auth:login.
+  const localLogin = ipcHandlers.get('auth:login');
   const localSettingsGet = ipcHandlers.get('settings:get');
   const localSettingsSave = ipcHandlers.get('settings:save');
   if (localSettingsGet && localSettingsSave) {
@@ -254,6 +268,32 @@ export function installNetworkClient(serverUrl: string, secret: string): { ok: b
     try { ipcMain.removeHandler(channel); } catch { /* ignore */ }
     rawHandle(channel, async (_e: any, ...args: any[]) => {
       const attempt = () => callRemote(channel, args);
+
+      // EMERGENCY LOCAL LOGIN. Accounts live on the host, but if the host is
+      // unreachable a station would have no way to sign in and reach Settings to
+      // repair the connection. So when (and only when) the remote login fails to
+      // reach the host, fall back to this PC's own users table. A wrong password
+      // against a reachable host still fails normally — we only fall back on a
+      // transport failure, never on a rejected credential.
+      if (channel === 'auth:login') {
+        try {
+          const result = await attempt();
+          lastSuccessAt = Date.now();
+          consecutiveFailures = 0;
+          setState('connected', null);
+          return result;
+        } catch (err: any) {
+          const local = localLogin;
+          if (local) {
+            try {
+              const fallback = await local(_e, ...args);
+              if (fallback) console.warn('[network] host unreachable — signed in with a LOCAL emergency account');
+              return fallback;
+            } catch { /* fall through to the normal error path */ }
+          }
+          throw err;
+        }
+      }
 
       try {
         const result = await attempt();

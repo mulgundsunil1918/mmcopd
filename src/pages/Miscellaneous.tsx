@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
+import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Search, Syringe, Receipt, Stethoscope, IndianRupee, Plus, Settings as SettingsIcon, Users as UsersIcon } from 'lucide-react';
+import { Search, Syringe, Receipt, Stethoscope, IndianRupee, Plus, Settings as SettingsIcon, Users as UsersIcon, Printer } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
 import { cn, formatINR, fmtDateTime } from '../lib/utils';
+import { BillPrint } from '../components/billing/BillPrint';
 import type { Doctor, Patient, PaymentMode } from '../types';
 
 const PAYMENT_MODES: PaymentMode[] = ['Cash', 'Card', 'UPI'];
@@ -31,6 +33,7 @@ export function Miscellaneous() {
   const [amount, setAmount] = useState<string>('');
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('Cash');
   const [notes, setNotes] = useState<string>('');
+  const [printBillId, setPrintBillId] = useState<number | null>(null);   // printed bill after recording
 
   // Always refetch settings on mount so newly-added services from the Settings
   // page show up immediately when the user navigates back, regardless of the
@@ -79,6 +82,8 @@ export function Miscellaneous() {
       qc.invalidateQueries({ queryKey: ['misc-list'] });
       qc.invalidateQueries({ queryKey: ['misc-summary'] });
       qc.invalidateQueries({ queryKey: ['analytics-overview'] });
+      // Offer the printed bill for this charge.
+      if (bill?.id) setPrintBillId(Number(bill.id));
       // Keep doctor + service for fast repeat entry; clear the rest.
       setPatient(null); setPatientQuery(''); setDescription(''); setAmount(''); setNotes('');
     },
@@ -106,7 +111,7 @@ export function Miscellaneous() {
       <header>
         <div className="flex items-center gap-2">
           <Syringe className="w-5 h-5 text-pink-600" />
-          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Services</h1>
+          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5">Services<PageHelp page="services" /></h1>
         </div>
         <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
           Procedures, vaccinations, nebulizations, dressings, injections — anything not handled by an appointment bill. Reflects in patient log, doctor revenue, and analytics.
@@ -343,11 +348,12 @@ export function Miscellaneous() {
                 <th className="py-2 px-3">Mode</th>
                 <th className="py-2 px-3 text-right">Amount</th>
                 <th className="py-2 px-3">Notes</th>
+                <th className="py-2 px-3 text-right">Bill</th>
               </tr>
             </thead>
             <tbody>
               {list.length === 0 ? (
-                <tr><td colSpan={7} className="py-8 text-center text-xs text-gray-500">No services rendered this month.</td></tr>
+                <tr><td colSpan={8} className="py-8 text-center text-xs text-gray-500">No services rendered this month.</td></tr>
               ) : list.map((b: any) => {
                 const items = (() => { try { return JSON.parse(b.items_json || '[]'); } catch { return []; } })();
                 const desc = items[0]?.description || '—';
@@ -363,6 +369,16 @@ export function Miscellaneous() {
                     <td className="py-2 px-3 text-[12px]">{b.payment_mode}</td>
                     <td className="py-2 px-3 text-[12px] text-right font-semibold">{formatINR(b.total)}</td>
                     <td className="py-2 px-3 text-[11px] text-gray-500 max-w-xs truncate">{b.notes || ''}</td>
+                    <td className="py-2 px-3 text-right">
+                      {/* Reprint — a lost slip should never mean a lost bill. */}
+                      <button
+                        className="btn-secondary text-[11px] py-1 px-2 inline-flex items-center gap-1"
+                        onClick={() => setPrintBillId(Number(b.id))}
+                        title={`Print this service bill for ${b.patient_name} again`}
+                      >
+                        <Printer className="w-3 h-3" /> Print
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -370,6 +386,11 @@ export function Miscellaneous() {
           </table>
         </div>
       </section>
+
+      {/* Printed bill — offered right after the charge is recorded. */}
+      {printBillId !== null && (
+        <BillPrint billId={printBillId} onClose={() => setPrintBillId(null)} />
+      )}
     </div>
   );
 }

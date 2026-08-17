@@ -469,6 +469,13 @@ export interface IpAdmission {
   discharge_medications_json: string | null;
   followup_plan: string | null;
   discharge_doctor_id: number | null;
+  /** Discharge workflow: 'none' → 'requested' (awaiting billing approval) → 'approved'. */
+  discharge_status?: 'none' | 'requested' | 'approved' | null;
+  discharge_requested_at?: string | null;
+  discharge_requested_by?: string | null;
+  discharge_approved_at?: string | null;
+  discharge_approved_by?: string | null;
+  discharge_override_reason?: string | null;
   status: AdmissionStatus;
   // Added with the ward/bed and outcome model.
   bed_id?: number | null;
@@ -554,6 +561,11 @@ export interface Settings {
   whatsapp_api_key: string | null;
   whatsapp_template: string;
   whatsapp_country_code: string;
+  /** Where the AiSensy signup button points. Blank = the built-in default.
+   *  Set to a partner/referral link so signups from inside CureDesk are tracked. */
+  aisensy_signup_url: string;
+  /** ISO date the clinic marked its AiSensy account live. Blank = not yet set up. */
+  aisensy_connected_on: string;
   appointments_default_sort: 'oldest_first' | 'newest_first';
   /** Default time window for the Reception patient list and Discharge Summary
    *  admission list. Search always reaches the whole database regardless. */
@@ -647,6 +659,10 @@ export interface Settings {
   // which roles may open each module. Empty = use built-in defaults. Admin always
   // sees everything; Users & Settings stay admin-only regardless.
   role_access_json: string;
+  /** JSON array of { to, hidden } — the user's custom sidebar order + hidden items. */
+  sidebar_layout: string;
+  /** What this computer is for. Local to the PC, never synced from the host. */
+  station_role: string;
 
   // ===== Access / login =====
   /** When true, everyone must sign in as themselves — no shared default session. */

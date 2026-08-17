@@ -108,6 +108,32 @@ function writeSeen(ms: number) {
   } catch { /* ignore */ }
 }
 
+// ── Single-use key ledger ─────────────────────────────────────────────────────
+// Each activation code carries a unique license_id (the keygen mints a fresh one
+// for every issue / renew / upgrade / move). We remember the ids already spent on
+// THIS machine so the same key can't be applied twice — "one key, one activation".
+// HMAC-bound to the machine so the ledger can't be hand-edited to un-spend a key.
+// (A fresh reinstall legitimately starts an empty ledger — the machine-binding on
+// the key itself is the cross-machine protection.)
+const usedPath = () => path.join(app.getPath('userData'), '.used_licenses');
+function readUsed(): Set<string> {
+  try {
+    const j = JSON.parse(fs.readFileSync(usedPath(), 'utf8'));
+    const ids: string[] = Array.isArray(j.ids) ? j.ids : [];
+    const mac = crypto.createHmac('sha256', metaKey()).update(JSON.stringify(ids)).digest('hex');
+    return mac === j.mac ? new Set(ids) : new Set();   // tampered → treat as empty, never crash
+  } catch { return new Set(); }
+}
+function markUsed(id: string) {
+  try {
+    const ids = [...readUsed()];
+    if (ids.includes(id)) return;
+    ids.push(id);
+    const mac = crypto.createHmac('sha256', metaKey()).update(JSON.stringify(ids)).digest('hex');
+    fs.writeFileSync(usedPath(), JSON.stringify({ ids, mac }), { mode: 0o600 });
+  } catch { /* ignore */ }
+}
+
 export function getLicenseStatus(): LicenseStatus {
   const hardwareId = machineFingerprint();
   const base: LicenseStatus = {
@@ -177,9 +203,16 @@ export function activateLicense(token: string): { ok: boolean; error?: string; s
   if (app.isPackaged && !payload.hardware_id) {
     return { ok: false, error: 'This licence is not locked to a computer. Send us this PC’s Machine ID and we’ll issue a matching code.' };
   }
+  // Single-use: a key already spent on this computer can't be applied again. Each
+  // renewal / upgrade / move is a fresh code (new license_id), so this only blocks
+  // re-using the exact same key — not legitimate upgrades.
+  if (app.isPackaged && payload.license_id && readUsed().has(payload.license_id)) {
+    return { ok: false, error: 'This key has already been used on this computer. For any change, ask us for a fresh upgrade/renewal code.' };
+  }
   try {
     fs.writeFileSync(licensePath(), token.trim(), { mode: 0o600 });
     writeSeen(Date.now());
+    if (payload.license_id) markUsed(payload.license_id);
   } catch (e: any) { return { ok: false, error: e?.message || 'Could not save the licence.' }; }
   return { ok: true, status: getLicenseStatus() };
 }

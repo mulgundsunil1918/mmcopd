@@ -104,7 +104,7 @@ export function DoctorDashboard() {
 
       <div className="flex-1 flex min-h-0">
         {/* Queue */}
-        <section className="w-[40%] border-r border-gray-200 bg-white overflow-auto">
+        <section className="w-[26%] min-w-[210px] max-w-[320px] border-r border-gray-200 bg-white overflow-auto">
           <div className="px-5 py-3 border-b border-gray-100 text-xs font-semibold text-gray-600 uppercase tracking-wide">
             Today's Queue
           </div>

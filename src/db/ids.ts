@@ -129,6 +129,25 @@ export function nextIpNumber(db: Database.Database, prefix = 'IP', when: Date = 
  * put the global appointment row id in the WhatsApp message, so "V42" meant the
  * clinic's 42nd appointment ever, which reads as a visit count but is not one.
  */
+/**
+ * Lab order number: LAB-YYYYMMDD-0001.
+ *
+ * Previously COUNT(*)+1 over the day's rows. Delete one order and the next one
+ * reuses a number that already exists — and order_number is UNIQUE, so the
+ * insert throws and NO further lab order can be raised for the rest of that day.
+ * The counter never goes backwards, so a deletion cannot cause a collision.
+ */
+export function nextLabOrderNumber(db: Database.Database, when: Date = new Date()): string {
+  const day = dateKey(when);
+  return `LAB-${day}-${String(allocate(db, `lab:${day}`)).padStart(4, '0')}`;
+}
+
+/** Pharmacy sale number: PHX-YYYYMMDD-0001. Same collision story as lab orders. */
+export function nextSaleNumber(db: Database.Database, when: Date = new Date()): string {
+  const day = dateKey(when);
+  return `PHX-${day}-${String(allocate(db, `sale:${day}`)).padStart(4, '0')}`;
+}
+
 export function nextVisitNumber(db: Database.Database, patientId: number): number {
   if (!Number.isInteger(patientId) || patientId <= 0) {
     throw new Error(`Visit number allocation failed: patientId must be a positive integer, received ${JSON.stringify(patientId)}`);

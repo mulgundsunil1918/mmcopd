@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatINR } from '../lib/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileText, Printer, Save, Send, Plus, Trash2, FlaskConical, Sparkles, X } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
@@ -504,6 +505,8 @@ function LabOrderPicker({
   });
   const [selected, setSelected] = useState<Record<number, true>>({});
   const [notes, setNotes] = useState('');
+  const [query, setQuery] = useState('');
+  const [cat, setCat] = useState<string>('all');
 
   const create = useMutation({
     mutationFn: () =>
@@ -524,12 +527,84 @@ function LabOrderPicker({
   });
 
   const selectedCount = Object.keys(selected).length;
+  const selectedTests = tests.filter((t) => selected[t.id]);
+  const selTotal = selectedTests.reduce((sum, t) => sum + (Number(t.price) || 0), 0);
+  const unpriced = selectedTests.filter((t) => !(Number(t.price) > 0));
+
+  // The catalogue now ships ~176 tests. A flat, unsearchable two-column list of
+  // that many is unusable in a cabin with a patient waiting — a doctor scrolls,
+  // fails to spot the one they want, and concludes the test "isn't there".
+  // Search + department filter + a visible list of what is already ticked.
+  const cats = Array.from(new Set(tests.map((t) => t.category || 'pathology'))).sort();
+  const CAT_LABEL: Record<string, string> = {
+    haematology: 'Haematology', biochemistry: 'Biochemistry', serology: 'Serology',
+    microbiology: 'Microbiology', clinical_pathology: 'Clinical Path', histopathology: 'Histopath',
+    radiology: 'Radiology', pathology: 'Other',
+  };
+  const q = query.trim().toLowerCase();
+  const shown = tests.filter((t) => {
+    if (cat !== 'all' && (t.category || 'pathology') !== cat) return false;
+    if (!q) return true;
+    return t.name.toLowerCase().includes(q) || (t.sample_type || '').toLowerCase().includes(q);
+  });
+
+  const toggle = (id: number, on: boolean) =>
+    setSelected((sel) => { const c = { ...sel }; if (on) c[id] = true; else delete c[id]; return c; });
 
   return (
     <Modal open onClose={onClose} title="Order Lab Tests" size="lg">
       <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-2 max-h-[50vh] overflow-auto p-1">
-          {tests.map((t) => {
+        {/* Search + department filter */}
+        <div className="flex gap-2 flex-wrap items-center">
+          <input
+            className="input flex-1 min-w-[200px]"
+            placeholder={`Search ${tests.length} tests by name or sample…`}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            autoFocus
+          />
+          <select className="input w-auto" value={cat} onChange={(e) => setCat(e.target.value)}>
+            <option value="all">All departments</option>
+            {cats.map((c) => <option key={c} value={c}>{CAT_LABEL[c] || c}</option>)}
+          </select>
+        </div>
+
+        {/* What is already ticked — visible without scrolling back up */}
+        {selectedCount > 0 && (
+          <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/70 dark:bg-blue-900/20 p-2.5">
+            <div className="text-[10px] uppercase tracking-wide font-bold text-blue-800 dark:text-blue-200 mb-1.5">
+              Selected ({selectedCount}) · {formatINR(selTotal)}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {selectedTests.map((t) => (
+                <button key={t.id} type="button" onClick={() => toggle(t.id, false)}
+                  title="Remove from this order"
+                  className="inline-flex items-center gap-1 rounded-full bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 pl-2 pr-1 py-0.5 text-[11px] text-blue-900 dark:text-blue-100">
+                  {t.name}
+                  <X className="w-3 h-3 opacity-60" />
+                </button>
+              ))}
+            </div>
+            {unpriced.length > 0 && (
+              <div className="text-[11px] text-amber-700 dark:text-amber-300 mt-1.5">
+                {unpriced.length} of these ha{unpriced.length === 1 ? 's' : 've'} no price set and will not appear on the bill.
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="text-[11px] text-gray-500 dark:text-slate-400">
+          Showing {shown.length} of {tests.length} tests{cat !== 'all' ? ` in ${CAT_LABEL[cat] || cat}` : ''}
+          {q ? ` matching “${query.trim()}”` : ''}.
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 max-h-[45vh] overflow-auto p-1">
+          {shown.length === 0 && (
+            <div className="col-span-2 text-center py-8 text-xs text-gray-500">
+              No test matches. Clear the search, or add it in Settings → Laboratory.
+            </div>
+          )}
+          {shown.map((t) => {
             const isSelected = !!selected[t.id];
             return (
               <label
@@ -543,31 +618,33 @@ function LabOrderPicker({
                 <input
                   type="checkbox"
                   checked={isSelected}
-                  onChange={(e) => {
-                    setSelected((s) => {
-                      const copy = { ...s };
-                      if (e.target.checked) copy[t.id] = true;
-                      else delete copy[t.id];
-                      return copy;
-                    });
-                  }}
+                  onChange={(e) => toggle(t.id, e.target.checked)}
                   className="mt-1"
                 />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-gray-900 dark:text-slate-100">{t.name}</div>
                   <div className="text-[11px] text-gray-500 dark:text-slate-400">
-                    {t.sample_type ? `${t.sample_type} · ` : ''}₹{t.price}
+                    {t.sample_type ? `${t.sample_type} · ` : ''}
+                    {Number(t.price) > 0
+                      ? formatINR(t.price)
+                      : <span className="text-amber-600 font-semibold">no price</span>}
                   </div>
                 </div>
               </label>
             );
           })}
         </div>
+
         <div>
           <label className="label">Notes (optional)</label>
           <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
-        <div className="flex justify-end gap-2">
+        <div className="flex justify-end gap-2 items-center">
+          {selectedCount > 0 && (
+            <span className="text-[12px] text-gray-600 dark:text-slate-300 mr-auto">
+              {selectedCount} test{selectedCount === 1 ? '' : 's'} · <b>{formatINR(selTotal)}</b> <span className="text-gray-400">(auto-billed, unpaid)</span>
+            </span>
+          )}
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
           <button className="btn-primary" onClick={() => create.mutate()} disabled={selectedCount === 0 || create.isPending}>
             {create.isPending ? 'Creating…' : `Create Order (${selectedCount})`}

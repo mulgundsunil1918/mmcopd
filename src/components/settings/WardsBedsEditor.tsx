@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { HelpTip } from '../HelpTip';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BedDouble, Plus, Trash2, Loader2, Pencil, X, Check } from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
@@ -89,7 +90,7 @@ export function WardsBedsEditor() {
     <div className="card p-5 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Wards &amp; Beds</div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">Wards &amp; Beds<HelpTip title="Wards & Beds"><><p>The wards in your hospital and the beds in each one.</p><p>The daily rate you set here is charged automatically to every admitted patient once a day until discharge, so it should be the rate you would quote a family at admission.</p></></HelpTip></div>
           <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
             Set up the wards in your hospital and the beds in each. The daily rates here are charged automatically
             to every admitted patient, once per day, until they are discharged.

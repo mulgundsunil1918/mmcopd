@@ -2,8 +2,8 @@ import { app, BrowserWindow, ipcMain, Notification, Tray, Menu, nativeImage, she
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
-import { registerIpc, runFullBackup, isBackupServiceReady, runConfiguredBackup } from './main/ipc';
-import { registerIpdBillingIpc } from './main/ipd-billing-ipc';
+import { registerIpc, runFullBackup, isBackupServiceReady, runConfiguredBackup, requireRole } from './main/ipc';
+import { registerIpdBillingIpc, runDailyAccrual } from './main/ipd-billing-ipc';
 import { registerPedsIpc } from './main/peds-ipc';
 import { installIpcRegistry, setReadOnlyMode } from './main/ipc-registry';
 import { getLicenseStatus, activateLicense, activateOnline, machineFingerprint } from './main/licensing/license';
@@ -490,6 +490,7 @@ function createWindow() {
   // The next launch reads the marker BEFORE any DB / storage opens, deletes
   // userData clean, then continues normal startup. Bulletproof against locks.
   ipcMain.handle('admin:hardResetAndRestart', async () => {
+    requireRole([], 'erase all clinic data');
     try {
       const userData = app.getPath('userData');
       const marker = getResetMarkerPath();
@@ -660,16 +661,27 @@ async function runScheduledBackup(reason: 'startup' | 'tick') {
 
     if (isWallClockMode) {
       // Wall-clock mode (daily / twice-daily): the configured time IS the schedule.
-      // Don't apply the interval check — it would block today's run if any backup
-      // (manual or yesterday's auto) happened within the past 24 hours.
+      // We look at every scheduled instant across TODAY and YESTERDAY. Including
+      // yesterday's is what makes a missed slot self-heal: if the PC was OFF at
+      // last night's time, the moment it's switched on again — even first thing in
+      // the morning, before today's slot — the most-recent past slot is yesterday's,
+      // there's been no backup since, so it runs immediately. No button needed.
       const [hh, mm] = (s.auto_backup_time || '13:00').split(':').map((x) => parseInt(x, 10));
-      const target = new Date();
-      target.setHours(hh, mm, 0, 0);
-      const target2 = new Date(target.getTime() + 12 * 3600 * 1000);
-      const validTimes = s.auto_backup_frequency === 'twice_daily' ? [target, target2] : [target];
-      // Fire if we've crossed any target window AND no backup taken since that window.
-      const dueByTime = validTimes.some((t) => Date.now() >= t.getTime() && (!latestMs || latestMs < t.getTime()));
-      if (!dueByTime) return;
+      const slot = (dayOffset: number, addHours = 0) => {
+        const d = new Date();
+        d.setDate(d.getDate() + dayOffset);
+        d.setHours(hh, mm, 0, 0);
+        return d.getTime() + addHours * 3600 * 1000;
+      };
+      const targets: number[] = [];
+      for (const off of [0, -1]) {
+        targets.push(slot(off));
+        if (s.auto_backup_frequency === 'twice_daily') targets.push(slot(off, 12));
+      }
+      // Most recent scheduled instant that has already elapsed.
+      const lastPassed = targets.filter((t) => Date.now() >= t).sort((a, b) => b - a)[0];
+      if (!lastPassed) return;                         // nothing scheduled has occurred yet
+      if (latestMs && latestMs >= lastPassed) return;  // already backed up since that slot
     } else {
       // Interval mode (hourly / every_3_hours / every_6_hours): plain elapsed-time check.
       const dueByInterval = !latestMs || (Date.now() - latestMs) >= intervalMs;
@@ -682,8 +694,18 @@ async function runScheduledBackup(reason: 'startup' | 'tick') {
     // (very early startup race — registerIpc() hasn't run).
     if (isBackupServiceReady()) {
       try {
-        await runFullBackup(dir, 'backup');
-        mainWindowRef?.webContents.send('app:autoBackupRan', { at: new Date().toISOString(), reason });
+        const res: any = await runFullBackup(dir, 'backup');
+        const verified = res?.verified !== false; // undefined (older path) counts as ok
+        mainWindowRef?.webContents.send('app:autoBackupRan', { at: new Date().toISOString(), reason, verified });
+        // Robustness: if the automated copy fails its integrity / row-count check,
+        // don't let it pass silently — warn the clinic so they can back up manually.
+        if (!verified) {
+          fireOsNotification(
+            'CureDesk backup needs attention',
+            'Today’s automatic backup did not pass the safety check. Please open CureDesk → Backup and run a manual backup to a different folder or USB.',
+            'daily',
+          );
+        }
         return;
       } catch (e) {
         console.error('Full auto-backup failed, falling back to sqlite-only:', e);
@@ -851,6 +873,30 @@ app.whenReady().then(async () => {
   setInterval(() => runScheduledBackup('tick'), 5 * 60 * 1000);
   setInterval(tickReminder, 30_000);
   tickReminder();
+
+  /**
+   * Daily IPD accrual at the configured time (Settings → Billing & IPD).
+   *
+   * The setting existed with no scheduler behind it, so bed and nursing charges
+   * only landed when somebody opened a patient's bill. Checked every minute
+   * against the clinic's chosen time, and guarded so a restart within the same
+   * minute cannot post twice (the accrual is idempotent anyway).
+   */
+  let lastAccrualKey = '';
+  setInterval(() => {
+    try {
+      const s = getAllSettings(getDb());
+      const want = String(s.ipd_accrual_time || '00:05');
+      const now = new Date();
+      const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      if (hhmm !== want) return;
+      const key = `${now.toDateString()} ${want}`;
+      if (key === lastAccrualKey) return;
+      lastAccrualKey = key;
+      const r = runDailyAccrual();
+      if (r.added > 0) console.log(`[IPD accrual] ${r.added} line(s) across ${r.admissions} admission(s)`);
+    } catch { /* never let the tick crash the app */ }
+  }, 60_000);
 
   // WhatsApp background workers — queue flush + automation scheduler + relay poll
   const waWorker = () => {

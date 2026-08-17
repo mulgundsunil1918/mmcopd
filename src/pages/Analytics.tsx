@@ -1,15 +1,15 @@
 import { useMemo, useState } from 'react';
+import { PageHelp } from '../components/PageHelp';
 import { useQuery } from '@tanstack/react-query';
-import { useMutation } from '@tanstack/react-query';
 import {
   BarChart3, Wallet, MapPin, FileText, Users as UsersIcon, Pill,
   TrendingUp, AlertTriangle, Calendar, Activity, RefreshCw,
-  Download, Database, FolderOpen, HardDriveDownload, Syringe,
+  Download, Database, FolderOpen, Syringe,
   MessageSquare, BedDouble, Layers,
 } from 'lucide-react';
 import { IpdAnalyticsTab } from '../components/analytics/IpdAnalyticsTab';
+import { DonutChart, VBarChart, TrendChart } from '../components/analytics/Charts';
 import { cn, fmt12h, fmtDate, fmtDateTime, formatINR, todayISO } from '../lib/utils';
-import { useToast } from '../hooks/useToast';
 import { colorForDoctor } from '../lib/doctor-colors';
 import type { Doctor } from '../types';
 
@@ -35,6 +35,7 @@ export function Analytics() {
         <div>
           <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-indigo-600" /> Analytics
+            <PageHelp page="analytics" />
           </h1>
           <p className="text-xs text-gray-500 dark:text-slate-400">
             One place for finance, demographics, geography, pharmacy, and operational reports.
@@ -233,11 +234,18 @@ function FinanceTab({ from, to }: { from: string; to: string }) {
         <WeekdayHourHeatmap rows={heatmap} />
       </section>
 
+      <TrendChart
+        title="Revenue by day" subtitle="Daily collection trend — peak day marked" full
+        color="#059669"
+        rows={(f.byDay || []).map((r: any) => ({ label: r.day, value: r.total }))}
+        formatValue={formatINR}
+      />
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <BarListCard title="Revenue by day" rows={(f.byDay || []).map((r: any) => ({ label: r.day, value: r.total }))} formatValue={formatINR} />
-        <BarListCard title="Revenue by month" rows={(f.byMonth || []).map((r: any) => ({ label: r.month, value: r.total }))} formatValue={formatINR} />
-        <BarListCard title="Busiest weekday (last 90 days)" rows={(f.byWeekday || []).map((r: any) => ({ label: r.weekday, value: r.total }))} formatValue={formatINR} />
-        <BarListCard title="Peak hours" rows={(f.byHour || []).map((r: any) => ({ label: `${r.hour}:00`, value: r.total }))} formatValue={formatINR} />
+        <VBarChart title="Revenue by month" rows={(f.byMonth || []).map((r: any) => ({ label: r.month, value: r.total }))} formatValue={formatINR} />
+        <DonutChart title="By payment mode" subtitle="Share of collection" rows={(f.byMode || []).map((r: any) => ({ label: r.mode || '(none)', value: r.total }))} formatValue={formatINR} />
+        <VBarChart title="Busiest weekday (last 90 days)" rows={(f.byWeekday || []).map((r: any) => ({ label: r.weekday, value: r.total }))} formatValue={formatINR} />
+        <VBarChart title="Peak hours" singleColor="#4f46e5" colorful={false} rows={(f.byHour || []).map((r: any) => ({ label: `${r.hour}`, value: r.total }))} formatValue={formatINR} />
         <BarListCard
           title="By doctor (all-time) — colored by tag"
           rows={(f.byDoctor || []).map((r: any) => ({
@@ -247,12 +255,12 @@ function FinanceTab({ from, to }: { from: string; to: string }) {
           }))}
           formatValue={formatINR}
         />
-        <BarListCard title="By payment mode" rows={(f.byMode || []).map((r: any) => ({ label: r.mode || '(none)', value: r.total }))} formatValue={formatINR} />
         <BarListCard title="Revenue by place (90 days)" rows={(f.byPlace || []).map((r: any) => ({ label: r.place || '(unknown)', value: r.total }))} formatValue={formatINR} />
         <BarListCard
           title="Top 10 patients by revenue"
           rows={(f.topPatients || []).map((r: any) => ({ label: `${r.name} · ${r.uhid}`, value: r.total }))}
           formatValue={formatINR}
+          full
         />
       </div>
     </div>
@@ -359,13 +367,14 @@ function DemographicsTab() {
         <SectionTitle icon={<UsersIcon className="w-4 h-4" />} title="Patient demographics" subtitle={`${d.total.toLocaleString('en-IN')} patients in the database`} />
       </section>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <BarListCard title="By gender" rows={d.byGender.map((r) => ({ label: r.gender, value: r.c }))} />
-        <BarListCard title="By age group" rows={d.byAgeGroup.map((r) => ({ label: r.label, value: r.c }))} />
-        <BarListCard title="By blood group" rows={d.byBloodGroup.map((r) => ({ label: r.label, value: r.c }))} />
+        <DonutChart title="By gender" rows={d.byGender.map((r) => ({ label: r.gender, value: r.c }))} />
+        <DonutChart title="By blood group" rows={d.byBloodGroup.map((r) => ({ label: r.label, value: r.c }))} maxSlices={8} />
+        <VBarChart title="By age group" rows={d.byAgeGroup.map((r) => ({ label: r.label, value: r.c }))} />
         <BarListCard title="Top 20 professions" rows={d.byProfession.map((r) => ({ label: r.label, value: r.c }))} />
-        <BarListCard
+        <TrendChart
           title="New patients per month (last 12)"
           rows={d.newPatientsByMonth.map((r) => ({ label: r.month, value: r.c }))}
+          color="#2a78d6"
           full
         />
       </div>
@@ -606,8 +615,7 @@ function ModulesTab({ from, to }: { from: string; to: string }) {
   if (isLoading || !data) return <div className="text-xs text-gray-500 dark:text-slate-400 p-4">Loading…</div>;
   const mods = data.modules || [];
   const t = data.totals || { revenue: 0, collected: 0, outstanding: 0, count: 0 };
-  const TONE: Record<string, string> = { ipd: 'bg-blue-500', pharmacy: 'bg-emerald-500', lab: 'bg-fuchsia-500', opd: 'bg-violet-500', misc: 'bg-amber-500' };
-  const maxRev = Math.max(1, ...mods.map((m) => m.revenue));
+  const MODULE_HEX: Record<string, string> = { ipd: '#3b82f6', pharmacy: '#10b981', lab: '#d946ef', opd: '#8b5cf6', misc: '#f59e0b' };
   const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
 
   return (
@@ -621,21 +629,17 @@ function ModulesTab({ from, to }: { from: string; to: string }) {
         <Kpi label="Transactions" value={t.count} tone="indigo" />
       </div>
 
-      <div className="card p-4">
-        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-3">Revenue share by module</div>
-        <div className="space-y-2.5">
-          {mods.map((m) => (
-            <div key={m.key}>
-              <div className="flex justify-between text-[11px] mb-0.5">
-                <span className="text-gray-700 dark:text-slate-300">{m.label} <span className="text-gray-400">· {m.count}</span></span>
-                <span className="tabular-nums font-medium text-gray-700 dark:text-slate-300">{formatINR(m.revenue)} <span className="text-gray-400">({pct(m.revenue, t.revenue)}%)</span></span>
-              </div>
-              <div className="h-2.5 rounded-full bg-gray-100 dark:bg-slate-800 overflow-hidden">
-                <div className={cn('h-full rounded-full', TONE[m.key] || 'bg-slate-400')} style={{ width: `${Math.round((m.revenue / maxRev) * 100)}%` }} />
-              </div>
-            </div>
-          ))}
-        </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <DonutChart
+          title="Revenue share by module" subtitle="Where revenue comes from"
+          rows={mods.map((m) => ({ label: m.label, value: m.revenue, color: MODULE_HEX[m.key] }))}
+          formatValue={formatINR} maxSlices={8}
+        />
+        <VBarChart
+          title="Revenue by module"
+          rows={mods.map((m) => ({ label: m.label, value: m.revenue, color: MODULE_HEX[m.key] }))}
+          formatValue={formatINR}
+        />
       </div>
 
       <div className="card p-4 overflow-x-auto">
@@ -653,7 +657,7 @@ function ModulesTab({ from, to }: { from: string; to: string }) {
           <tbody>
             {mods.map((m) => (
               <tr key={m.key} className="border-b border-gray-50 dark:border-slate-800/50">
-                <td className="py-1.5"><span className="inline-flex items-center gap-1.5"><span className={cn('inline-block w-2.5 h-2.5 rounded-full', TONE[m.key] || 'bg-slate-400')} />{m.label}</span></td>
+                <td className="py-1.5"><span className="inline-flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: MODULE_HEX[m.key] || '#94a3b8' }} />{m.label}</span></td>
                 <td className="py-1.5 text-right tabular-nums">{m.count}</td>
                 <td className="py-1.5 text-right tabular-nums font-medium">{formatINR(m.revenue)}</td>
                 <td className="py-1.5 text-right tabular-nums text-emerald-600">{formatINR(m.collected)}</td>
@@ -906,16 +910,10 @@ function renderOpsCell(col: string, val: any) {
 }
 
 function BackupsBlock() {
-  const toast = useToast();
   const { data: backups = [] } = useQuery({
     queryKey: ['backup-list'],
     queryFn: () => window.electronAPI.backup.list(),
     refetchInterval: 30_000,
-  });
-  const now = useMutation({
-    mutationFn: () => window.electronAPI.backup.now(),
-    onSuccess: (r: any) => toast(`Backup created — ${r.totalBundles ?? r.totalBackups ?? '?'} total`),
-    onError: (e: any) => toast(e.message || 'Backup failed', 'error'),
   });
   return (
     <section className="card p-5">
@@ -924,21 +922,19 @@ function BackupsBlock() {
           <Database className="w-4 h-4 text-teal-600" />
           <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Backups</h2>
         </div>
-        <div className="flex gap-2">
-          <button className="btn-secondary text-xs" onClick={() => window.electronAPI.backup.open()}>
-            <FolderOpen className="w-4 h-4" /> Open Folder
-          </button>
-          <button className="btn-primary text-xs" onClick={() => now.mutate()} disabled={now.isPending}>
-            <HardDriveDownload className="w-4 h-4" /> {now.isPending ? 'Backing up…' : 'Backup Now'}
-          </button>
-        </div>
+        {/* Status only — the single Backup button lives in the sidebar, so there is
+            exactly one way to take a backup anywhere in the app. */}
+        <button className="btn-secondary text-xs" onClick={() => window.electronAPI.backup.open()}>
+          <FolderOpen className="w-4 h-4" /> Open Folder
+        </button>
       </div>
       <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-3">
         Auto-backup runs on schedule (configurable in Settings → Backup, Restore & Updates). Each backup writes a
-        SQLite snapshot + a single Excel file with all tables as sheets.
+        SQLite snapshot + a single Excel file with all tables as sheets. To back up right now, use the
+        <b> Backup</b> button in the sidebar.
       </p>
       {backups.length === 0 ? (
-        <div className="text-xs text-gray-500 dark:text-slate-400">No backups yet. Click "Backup Now" to create the first one.</div>
+        <div className="text-xs text-gray-500 dark:text-slate-400">No backups yet — use the Backup button in the sidebar to create the first one.</div>
       ) : (
         <table className="w-full text-sm">
           <thead>

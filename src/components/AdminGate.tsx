@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Lock, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
+import { ForgotPasswordLink } from './ForgotPasswordDialog';
 
 export function AdminGate({ children, title = 'Administrator area' }: { children: React.ReactNode; title?: string }) {
   const { adminUnlocked, unlockAdmin } = useAuth();
@@ -68,12 +69,12 @@ export function AdminGate({ children, title = 'Administrator area' }: { children
         </button>
         {isDefault ? (
           <div className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900 rounded p-2 mt-4">
-            🔐 First-time setup: default password is <code className="font-mono font-bold">1234</code>.
-            <br />Please change it under <b>Users → Admin Password</b> as soon as you log in.
+            🔐 This clinic is still on an easily-guessed admin PIN.
+            <br />Please change it under <b>Users &amp; Access → Admin Password</b> as soon as you're in.
           </div>
         ) : (
-          <div className="text-[10px] text-gray-400 dark:text-slate-500 mt-4">
-            Forgot it? Reset from <b>Users & Access → Admin Password</b> when signed in as admin.
+          <div className="mt-4">
+            <ForgotPasswordLink />
           </div>
         )}
       </form>

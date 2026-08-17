@@ -81,6 +81,8 @@ export const DEMO_SETTINGS: Settings = {
     '🆔 *Patient ID (UHID):* {{uhid}}\n📋 *Visit ID:* {{visit_id}}\n\n' +
     '📍 {{clinic_address}}\n☎️ {{clinic_phone}}\n\nThank you,\n*{{clinic_name}}*',
   whatsapp_country_code: '91',
+  aisensy_signup_url: '',
+  aisensy_connected_on: '',
   appointments_default_sort: 'oldest_first',
   records_list_window: 'quarter',
   followup_enabled: true,
@@ -126,6 +128,8 @@ export const DEMO_SETTINGS: Settings = {
   discharge_summary_enabled: true,
   lab_auto_bill: true,
   role_access_json: '',
+  sidebar_layout: '',
+  station_role: 'everything',
   require_login: false,
   session_timeout_minutes: 0,
   qr1_img: '',

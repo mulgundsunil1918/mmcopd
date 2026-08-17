@@ -5,8 +5,11 @@ import crypto from 'node:crypto';
 import * as XLSX from 'xlsx';
 import Database from 'better-sqlite3';
 import { getDb, closeDb } from '../db/db';
-import { nextUHID, nextBillNumber, nextIpNumber, nextVisitNumber, formatVisitId } from '../db/ids';
+import { nextUHID, nextBillNumber, nextIpNumber, nextVisitNumber, formatVisitId, nextLabOrderNumber, nextSaleNumber } from '../db/ids';
+import { clinicalLineTax, medicineLineTax, gstContext, splitInclusive } from './gst';
 import { LAB_CATALOG } from '../data/lab-catalog';
+import { PHARMACY_CATALOG } from '../data/pharmacy-catalog';
+import { seedSampleData } from '../db/sample-data';
 import { enqueueWaEvent } from '../services/whatsapp/wa-trigger';
 
 /**
@@ -37,6 +40,8 @@ import { getAllSettings, saveSettings } from '../db/settings';
 import { broadcastEvent as broadcastNetworkEvent } from './network-server';
 import { NotificationService } from '../services/notifications';
 import { createUser, verifyLogin, ensureDefaultAdmin, changePassword, listUsers, updateUser, logAudit, listAudit, type Role, type SessionUser } from './auth';
+import { verifyResetCode } from './licensing/passwordReset';
+import { requireModule } from './licensing/enforce';
 import type {
   Appointment,
   AppointmentStatus,
@@ -67,8 +72,20 @@ function generateUHID(): string {
   return nextUHID(getDb());
 }
 
+/**
+ * Bill number honouring the clinic's configured invoice prefix.
+ *
+ * Settings offers an "Invoice number prefix", but this ignored it and hardcoded
+ * the default — while IPD bills DID use it. A clinic that set "MMC" ended up
+ * running two parallel series (MMC-… for in-patients, INV-… for everything
+ * else), which is a real problem when the numbering has to be continuous for
+ * tax purposes.
+ */
 function generateBillNumber(): string {
-  return nextBillNumber(getDb());
+  const db = getDb();
+  let prefix = 'INV';
+  try { prefix = (getAllSettings(db).invoice_prefix || 'INV').trim() || 'INV'; } catch { /* fall back */ }
+  return nextBillNumber(db, prefix);
 }
 
 // ── Admin password helpers (scrypt) ───────────────────────────────────────────
@@ -117,6 +134,56 @@ function recordAuthFailure(key: string) {
 
 function clearAuthFailures(key: string) { authFailures.delete(key); }
 
+// ── Server-side session + role enforcement ───────────────────────────────────
+/**
+ * Who is signed in, as far as the MAIN process is concerned. Until now roles only
+ * hid screens in the renderer — any code could still invoke a destructive IPC
+ * channel directly. The session is set here on a successful auth:login (never
+ * supplied by the renderer, which could lie about it) and cleared on logout.
+ */
+let currentSession: SessionUser | null = null;
+
+/**
+ * Guard a destructive channel by role.
+ *
+ * Deliberately permissive in exactly one case: when the clinic has NOT turned on
+ * staff sign-in there is no identity to check, and every existing single-shared-PC
+ * install would break if we denied. That matches the app's own promise — sign-in
+ * is what turns roles into enforcement.
+ */
+/**
+ * Who is performing the current action, for the audit log.
+ *
+ * Most logAudit calls used to pass a literal `null`, which recorded THAT
+ * something happened but never who did it — useless in the one situation an
+ * audit log exists for. This returns the live main-process session, so the
+ * trail names a person whenever the clinic uses logins (and honestly records
+ * nobody when it doesn't).
+ */
+export function actor(): SessionUser | null {
+  return currentSession;
+}
+
+/** Rupees for a message shown to a human. */
+function formatMoney(n: number): string {
+  return `₹${(Number(n) || 0).toFixed(2)}`;
+}
+
+export function requireRole(allowed: Role[], action: string): void {
+  let loginRequired = false;
+  try { loginRequired = getAllSettings(getDb()).require_login === true; } catch { /* fail open */ }
+  if (!loginRequired) return;                       // shared-PC mode: no identity to enforce
+  if (!currentSession) {
+    throw new Error(`Please sign in before you ${action}.`);
+  }
+  if (currentSession.role === 'admin') return;      // owner may do anything
+  if (!allowed.includes(currentSession.role)) {
+    throw new Error(
+      `Your role (${currentSession.role}) is not allowed to ${action}. Ask an administrator to do this.`
+    );
+  }
+}
+
 export function registerIpc() {
   // Ensure a default admin exists on first boot
   ensureDefaultAdmin(getDb());
@@ -129,6 +196,7 @@ export function registerIpc() {
     const user = verifyLogin(db, username, password);
     if (user) {
       clearAuthFailures(key);
+      currentSession = user;          // main-process session — the basis for requireRole()
       logAudit(db, user, 'login');
       return user;
     }
@@ -138,20 +206,55 @@ export function registerIpc() {
   ipcMain.handle('auth:createUser', (_e, input: { username: string; password: string; role: Role; display_name?: string; doctor_id?: number }) => {
     const db = getDb();
     const u = createUser(db, input);
-    logAudit(db, null, 'user_created', 'users', u.id, `role=${input.role}`);
+    logAudit(db, actor(), 'user_created', 'users', u.id, `role=${input.role}`);
     return u;
   });
   ipcMain.handle('auth:changePassword', (_e, userId: number, newPassword: string) => {
     const db = getDb();
     changePassword(db, userId, newPassword);
-    logAudit(db, null, 'password_changed', 'users', userId);
+    logAudit(db, actor(), 'password_changed', 'users', userId);
     return true;
+  });
+
+  // "Forgot admin password" recovery. Takes a support-signed, machine-bound reset
+  // code (minted by the keygen tool) + a new password the clinic chooses now, and
+  // resets BOTH the admin login and the admin-gate PIN to it. Works while locked
+  // out because it runs in main with direct DB access — no login required — yet is
+  // safe because only a validly-signed, non-expired, this-machine code is accepted.
+  ipcMain.handle('auth:recoverWithCode', (_e, code: string, newPassword: string) => {
+    const chk = verifyResetCode(code);
+    if (!chk.ok) return { ok: false as const, error: chk.error };
+    const pw = String(newPassword || '');
+    if (pw.length < 4) return { ok: false as const, error: 'Choose a new password of at least 4 characters.' };
+    const db = getDb();
+    // 1) Reset the admin USER login — prefer the built-in 'admin', else any admin role.
+    const users = listUsers(db) as Array<{ id: number; username: string; role: string }>;
+    const target = users.find((u) => u.username === 'admin') || users.find((u) => u.role === 'admin') || null;
+    if (target) {
+      changePassword(db, target.id, pw); // also clears must_change_password
+      // Reactivate too. verifyLogin() only matches is_active=1, so resetting the
+      // password of a DEACTIVATED admin would still leave the clinic locked out —
+      // the recovery code has to actually restore access, not just the password.
+      db.prepare('UPDATE users SET is_active=1 WHERE id=?').run(target.id);
+      clearAuthFailures(`login:${target.username.toLowerCase()}`);
+    }
+    // 2) Reset the admin-GATE password (the PIN that guards Settings / destructive ops).
+    saveSettings(db, { admin_password: hashAdminPassword(pw) });
+    clearAuthFailures('admin_unlock');
+    logAudit(db, actor(), 'password_recovered_via_code', 'users', target?.id);
+    return { ok: true as const, username: target?.username || null };
+  });
+
+  ipcMain.handle('auth:logout', () => {
+    if (currentSession) logAudit(getDb(), currentSession, 'logout');
+    currentSession = null;
+    return { ok: true as const };
   });
   ipcMain.handle('auth:listUsers', () => listUsers(getDb()));
   ipcMain.handle('auth:updateUser', (_e, id: number, patch: any) => {
     const db = getDb();
     updateUser(db, id, patch);
-    logAudit(db, null, 'user_updated', 'users', id, JSON.stringify(patch));
+    logAudit(db, actor(), 'user_updated', 'users', id, JSON.stringify(patch));
     return listUsers(db);
   });
   ipcMain.handle('auth:verifyAdminPassword', (_e, password: string) => {
@@ -171,7 +274,7 @@ export function registerIpc() {
     } else {
       recordAuthFailure('admin_unlock');
     }
-    logAudit(db, null, ok ? 'admin_unlock' : 'admin_unlock_failed');
+    logAudit(db, actor(), ok ? 'admin_unlock' : 'admin_unlock_failed');
     return ok;
   });
   // Returns true while the admin password is still the factory default (1234) or empty.
@@ -181,7 +284,13 @@ export function registerIpc() {
   ipcMain.handle('auth:isDefaultAdminPassword', () => {
     const settings = getAllSettings(getDb());
     const stored = (settings.admin_password || '').trim();
-    return stored === '' || stored === '1234' || stored === '1918';
+    if (stored === '') return true;
+    // Legacy plaintext rows: compare directly.
+    if (!stored.startsWith('$scrypt$')) return stored === '1234' || stored === '1918';
+    // Hashed rows: a plain string compare can never match, which used to make ANY
+    // hashed PIN — including a factory-weak one — report as "properly configured"
+    // and silenced the first-run gate forever. Verify against the known-weak list.
+    return ['1234', '1918', '0000', '1111', 'admin'].some((weak) => verifyAdminPassword(weak, stored));
   });
   ipcMain.handle('auth:changeAdminPassword', (_e, currentPassword: string, newPassword: string) => {
     const db = getDb();
@@ -195,7 +304,7 @@ export function registerIpc() {
       return { ok: false, error: 'Password must be at least 8 characters' };
     }
     saveSettings(db, { admin_password: hashAdminPassword(newPassword) });
-    logAudit(db, null, 'admin_password_changed');
+    logAudit(db, actor(), 'admin_password_changed');
     return { ok: true };
   });
   // First-run only: set the admin password when it's still the factory default,
@@ -212,13 +321,14 @@ export function registerIpc() {
       return { ok: false, error: 'That password is too easy to guess — choose another.' };
     }
     saveSettings(db, { admin_password: hashAdminPassword(pw) });
-    logAudit(db, null, 'admin_password_set_initial');
+    logAudit(db, actor(), 'admin_password_set_initial');
     return { ok: true };
   });
 
   ipcMain.handle('audit:list', (_e, limit?: number) => listAudit(getDb(), limit ?? 500));
 
   ipcMain.handle('admin:resetAuditLog', (_e, confirmPhrase: string, adminPassword?: string) => {
+    requireRole([], 'clear the audit log');
     if (confirmPhrase !== 'iknowwhatiamdoing') {
       return { ok: false, error: 'Confirmation phrase required' };
     }
@@ -230,18 +340,19 @@ export function registerIpc() {
     }
     const count = (db.prepare('SELECT COUNT(*) as c FROM audit_log').get() as { c: number }).c;
     db.exec('DELETE FROM audit_log');
-    logAudit(db, null, 'audit_log_reset', 'audit_log', undefined, `Cleared ${count} entries`);
+    logAudit(db, actor(), 'audit_log_reset', 'audit_log', undefined, `Cleared ${count} entries`);
     return { ok: true, deleted: count };
   });
 
   ipcMain.handle('admin:resetNotificationLog', (_e, confirmPhrase: string) => {
+    requireRole([], 'clear the notification log');
     if (confirmPhrase !== 'iknowwhatiamdoing') {
       return { ok: false, error: 'Confirmation phrase required' };
     }
     const db = getDb();
     const count = (db.prepare('SELECT COUNT(*) as c FROM notification_log').get() as { c: number }).c;
     db.exec('DELETE FROM notification_log');
-    logAudit(db, null, 'notification_log_reset', 'notification_log', undefined, `Cleared ${count} entries`);
+    logAudit(db, actor(), 'notification_log_reset', 'notification_log', undefined, `Cleared ${count} entries`);
     return { ok: true, deleted: count };
   });
 
@@ -253,6 +364,17 @@ export function registerIpc() {
     db.prepare('DELETE FROM dispensing_register WHERE patient_id = ?').run(id);
     // Also kill any dispensing rows tied to this patient's pharmacy sales (defensive — covers walk-in sales whose patient_id is null but sale references patient via other paths).
     db.prepare('DELETE FROM dispensing_register WHERE sale_id IN (SELECT id FROM pharmacy_sales WHERE patient_id = ?)').run(id);
+    /**
+     * Tables with a NOT NULL FK to patients and NO cascade. Every one of these
+     * blocks the delete with a raw "FOREIGN KEY constraint failed" if left
+     * behind — which is exactly what happened to any patient who had ever been
+     * admitted, taken a deposit, or been raised as an insurance claim.
+     * They must go before bills and ip_admissions, which they in turn reference.
+     */
+    db.prepare('DELETE FROM advances WHERE patient_id = ?').run(id);
+    db.prepare('DELETE FROM tpa_claims WHERE patient_id = ?').run(id);
+    db.prepare('DELETE FROM mlc_register WHERE patient_id = ?').run(id);
+    db.prepare('DELETE FROM admission_requests WHERE patient_id = ?').run(id);
     // Bills (NOT NULL FK, no cascade) — drop them; audit log captures the patient who was billed.
     db.prepare('DELETE FROM bills WHERE patient_id = ?').run(id);
     // Lab orders + their items
@@ -270,17 +392,71 @@ export function registerIpc() {
     db.prepare('DELETE FROM patients WHERE id = ?').run(id);
   };
 
+  /**
+   * How the fictional sample patients are recognised.
+   *
+   * seedSampleData numbers them MMC1000, MMC1001, … while every real patient
+   * gets a UHID from nextUHID() in the form PT-YYYYMMDD-NNNN. The two can never
+   * collide, so this pattern identifies invented records exactly — which is what
+   * makes removing them safe on a database that also holds real patients.
+   */
+  const SAMPLE_UHID_SQL = "uhid GLOB 'MMC[0-9][0-9][0-9][0-9]'";
+
+  /** How many fictional patients are sitting in this database right now. */
+  ipcMain.handle('admin:sampleDataCount', (_e) => {
+    try {
+      const db = getDb();
+      const row = db.prepare(`SELECT COUNT(*) AS c FROM patients WHERE ${SAMPLE_UHID_SQL}`).get() as { c: number };
+      return { ok: true as const, patients: row.c };
+    } catch (e: any) {
+      return { ok: false as const, error: e?.message || 'Could not check for sample data.' };
+    }
+  });
+
+  /**
+   * Remove every fictional sample patient and everything attached to them.
+   *
+   * Loading demo data into a live clinic database is an easy mistake and, until
+   * now, a permanent one — 50 invented patients and ~100 invented bills mixed
+   * into real records with no way to separate them. This is the undo. It touches
+   * ONLY the MMC-numbered records, so real patients, their bills and their
+   * history are never at risk.
+   */
+  ipcMain.handle('admin:removeSampleData', (_e) => {
+    requireRole([], 'remove sample data');
+    try {
+      const db = getDb();
+      const ids = (db.prepare(`SELECT id FROM patients WHERE ${SAMPLE_UHID_SQL}`).all() as { id: number }[]).map((r) => r.id);
+      if (!ids.length) return { ok: true as const, removed: 0, note: 'No sample patients found — nothing to remove.' };
+
+      let removed = 0;
+      db.transaction(() => {
+        for (const id of ids) { purgePatient(db, id); removed++; }
+        logAudit(db, actor(), 'sample_data_removed', 'patients', undefined, `Removed ${removed} fictional patients and their records`);
+      })();
+      return {
+        ok: true as const,
+        removed,
+        note: `Removed ${removed} sample patient${removed === 1 ? '' : 's'} and every bill, sale, lab order and admission belonging to them. Real patients were not touched.`,
+      };
+    } catch (e: any) {
+      return { ok: false as const, error: e?.message || 'Could not remove the sample data.' };
+    }
+  });
+
   ipcMain.handle('admin:deletePatient', (_e, patientId: number) => {
+    requireRole([], 'delete a patient');
     const db = getDb();
     const p = db.prepare('SELECT uhid, first_name, last_name FROM patients WHERE id=?').get(patientId) as any;
     if (!p) return { ok: false, error: 'Patient not found' };
     const tx = db.transaction(() => purgePatient(db, patientId));
     try { tx(); } catch (err: any) { return { ok: false, error: err?.message || 'Delete failed' }; }
-    logAudit(db, null, 'patient_deleted', 'patients', patientId, `${p.uhid} ${p.first_name} ${p.last_name}`);
+    logAudit(db, actor(), 'patient_deleted', 'patients', patientId, `${p.uhid} ${p.first_name} ${p.last_name}`);
     return { ok: true, patient: p };
   });
 
   ipcMain.handle('admin:deleteAppointment', (_e, appointmentId: number) => {
+    requireRole([], 'delete an appointment');
     const db = getDb();
     const a = db
       .prepare(
@@ -305,11 +481,12 @@ export function registerIpc() {
       db.prepare('DELETE FROM appointments WHERE id = ?').run(appointmentId);
     });
     try { tx(); } catch (err: any) { return { ok: false, error: err?.message || 'Delete failed' }; }
-    logAudit(db, null, 'appointment_deleted', 'appointments', appointmentId, `Token #${a.token_number} · ${a.uhid} ${a.patient_name} · ${a.appointment_date} ${a.appointment_time}`);
+    logAudit(db, actor(), 'appointment_deleted', 'appointments', appointmentId, `Token #${a.token_number} · ${a.uhid} ${a.patient_name} · ${a.appointment_date} ${a.appointment_time}`);
     return { ok: true, appointment: a };
   });
 
   ipcMain.handle('admin:deletePatients', (_e, patientIds: number[]) => {
+    requireRole([], 'delete patients');
     const db = getDb();
     if (!Array.isArray(patientIds) || patientIds.length === 0) return { ok: true, deleted: 0 };
     const sel = db.prepare('SELECT uhid, first_name, last_name FROM patients WHERE id=?');
@@ -324,7 +501,7 @@ export function registerIpc() {
         count++;
       }
       // Log audit entries inside the same tx
-      for (const a of audits) logAudit(db, null, 'patient_deleted', 'patients', a.id, a.label);
+      for (const a of audits) logAudit(db, actor(), 'patient_deleted', 'patients', a.id, a.label);
       return count;
     });
     try {
@@ -546,7 +723,7 @@ export function registerIpc() {
     if (total === 0) {
       try {
         db.prepare('DELETE FROM doctors WHERE id=?').run(id);
-        logAudit(db, null, 'doctor_deleted', 'doctors', id, doc.name);
+        logAudit(db, actor(), 'doctor_deleted', 'doctors', id, doc.name);
         return { ok: true, mode: 'hard_deleted' as const, doctorName: doc.name };
       } catch (e: any) {
         return { ok: false, error: e?.message || String(e) };
@@ -569,7 +746,7 @@ export function registerIpc() {
     const doc = db.prepare('SELECT name FROM doctors WHERE id=?').get(id) as { name: string } | undefined;
     if (!doc) return { ok: false, error: 'Doctor not found' };
     db.prepare('UPDATE doctors SET is_active=0 WHERE id=?').run(id);
-    logAudit(db, null, 'doctor_deactivated', 'doctors', id, doc.name);
+    logAudit(db, actor(), 'doctor_deactivated', 'doctors', id, doc.name);
     return { ok: true, doctorName: doc.name };
   });
 
@@ -828,8 +1005,8 @@ export function registerIpc() {
       const billNumber = generateBillNumber();
       const info = db
         .prepare(
-          `INSERT INTO bills (bill_number, appointment_id, patient_id, items_json, subtotal, discount, discount_type, total, payment_mode, paid_at, is_free_followup, is_relaxed_followup, followup_parent_appt_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO bills (bill_number, appointment_id, patient_id, items_json, subtotal, discount, discount_type, total, payment_mode, paid_at, amount_paid, status, is_free_followup, is_relaxed_followup, followup_parent_appt_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?)`
         )
         .run(
           billNumber,
@@ -842,10 +1019,35 @@ export function registerIpc() {
           total,
           payload.payment_mode,
           new Date().toISOString(),
+          // Counter bills are settled the moment they are raised (paid_at is
+          // stamped right here) — but amount_paid was left at 0, so analytics
+          // reported every OPD bill as money still owed.
+          total,
           payload.is_free_followup ? 1 : 0,
           payload.is_relaxed_followup ? 1 : 0,
           payload.followup_parent_appt_id ?? null
         );
+
+      // Real line rows as well as items_json — see the note in misc:create.
+      // Without these, previewing this bill re-totals it from an empty table.
+      {
+        const newBillId = Number(info.lastInsertRowid);
+        const insLine = db.prepare(
+          `INSERT INTO bill_items (bill_id, description, qty, rate, amount, is_taxable, gst_rate, hsn_sac, source)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'opd')`
+        );
+        // Consultation and procedures follow the clinical rule (exempt unless a
+        // charge head says otherwise), so a GST-registered clinic's OPD bill now
+        // prints as a proper BILL OF SUPPLY / TAX INVOICE instead of a plain slip.
+        const opdTax = clinicalLineTax(db, null);
+        for (const it of payload.items) {
+          const qty = Number(it.qty ?? 1) || 1;
+          const amount = Number(it.amount ?? 0) || 0;
+          insLine.run(newBillId, String(it.description ?? 'Item'), qty,
+                      Number(it.rate ?? (qty ? amount / qty : amount)) || 0, amount,
+                      opdTax.is_taxable ? 1 : 0, opdTax.gst_rate, opdTax.hsn_sac);
+        }
+      }
 
       if (payload.marks_registration_fee_paid) {
         db.prepare("UPDATE patients SET registration_fee_paid=1, registration_fee_paid_at=date('now') WHERE id=?")
@@ -963,8 +1165,8 @@ export function registerIpc() {
     const info = db
       .prepare(
         `INSERT INTO bills
-          (bill_number, appointment_id, patient_id, doctor_id, items_json, subtotal, discount, discount_type, total, payment_mode, paid_at, bill_kind, notes)
-         VALUES (?, NULL, ?, ?, ?, ?, 0, 'flat', ?, ?, ?, 'misc', ?)`
+          (bill_number, appointment_id, patient_id, doctor_id, items_json, subtotal, discount, discount_type, total, payment_mode, paid_at, bill_kind, bill_type, amount_paid, status, notes)
+         VALUES (?, NULL, ?, ?, ?, ?, 0, 'flat', ?, ?, ?, 'misc', 'misc', ?, 'paid', ?)`
       )
       .run(
         billNumber,
@@ -975,8 +1177,31 @@ export function registerIpc() {
         payload.amount,
         payload.payment_mode,
         new Date().toISOString(),
+        // bill_type was left at its 'opd_consult' default, so every Services bill
+        // was counted BOTH as OPD (bill_type) and as Misc (bill_kind) in the
+        // Modules P&L. And amount_paid was never written even though paid_at was
+        // stamped, so "Collected" read zero and the whole amount looked outstanding.
+        payload.amount,
         payload.notes?.trim() || null
       );
+    /**
+     * Write the line as a real bill_items row too, not only into items_json.
+     *
+     * Two storage paths for the same thing is what caused a printed Services bill
+     * to be re-totalled from an empty bill_items table and saved as ₹0. The
+     * migration repairs the damaged rows and recalcBill now refuses to zero a
+     * line-less bill, but the honest fix is for every bill to have real lines
+     * from the moment it is created.
+     */
+    const miscBillId = Number(info.lastInsertRowid);
+    // GST now applies here too — clinical work is normally exempt, but a charge
+    // head the clinic marked taxable (a cosmetic procedure, say) is charged.
+    const miscTax = clinicalLineTax(db, (payload as any).charge_head_id ?? null);
+    db.prepare(
+      `INSERT INTO bill_items (bill_id, description, qty, rate, amount, is_taxable, gst_rate, hsn_sac, source)
+       VALUES (?, ?, 1, ?, ?, ?, ?, ?, 'misc')`
+    ).run(miscBillId, payload.description.trim(), payload.amount, payload.amount,
+          miscTax.is_taxable ? 1 : 0, miscTax.gst_rate, miscTax.hsn_sac);
     return db
       .prepare(
         `SELECT b.*,
@@ -1428,7 +1653,45 @@ export function registerIpc() {
       : db.prepare('SELECT * FROM lab_tests ORDER BY is_active DESC, name').all();
   });
 
+  /**
+   * Delete lab tests, one or many. Mirrors pharmacy's bulk delete: a test that
+   * was never ordered is removed outright; one with history is DEACTIVATED
+   * instead, so past reports and bills keep their test names intact.
+   */
+  ipcMain.handle('lab:bulkDeleteTests', (_e, ids: number[]) => {
+    requireRole(['lab_tech'], 'delete lab tests');
+    requireModule('lab', 'Laboratory');
+    if (!Array.isArray(ids) || ids.length === 0) return { ok: true, hardDeleted: 0, softDeleted: 0, results: [] };
+    const db = getDb();
+    const results: Array<{ id: number; name: string; mode: 'hard_deleted' | 'soft_deleted' | 'failed'; error?: string }> = [];
+    let hardDeleted = 0, softDeleted = 0;
+
+    const tx = db.transaction(() => {
+      for (const id of ids) {
+        const t = db.prepare('SELECT id, name FROM lab_tests WHERE id=?').get(id) as { id: number; name: string } | undefined;
+        if (!t) { results.push({ id, name: '(not found)', mode: 'failed', error: 'Test not found' }); continue; }
+        const used = (db.prepare('SELECT COUNT(*) AS c FROM lab_order_items WHERE lab_test_id=?').get(id) as { c: number }).c;
+        try {
+          if (used === 0) {
+            db.prepare('DELETE FROM lab_tests WHERE id=?').run(id);
+            logAudit(db, actor(), 'lab_test_deleted', 'lab_tests', id, t.name);
+            results.push({ id, name: t.name, mode: 'hard_deleted' }); hardDeleted++;
+          } else {
+            db.prepare('UPDATE lab_tests SET is_active=0 WHERE id=?').run(id);
+            logAudit(db, actor(), 'lab_test_deactivated', 'lab_tests', id, `${t.name} · ${used} past order(s)`);
+            results.push({ id, name: t.name, mode: 'soft_deleted' }); softDeleted++;
+          }
+        } catch (e: any) {
+          results.push({ id, name: t.name, mode: 'failed', error: e?.message || String(e) });
+        }
+      }
+    });
+    tx();
+    return { ok: true, hardDeleted, softDeleted, results };
+  });
+
   ipcMain.handle('lab:upsertTest', (_e, test: any) => {
+    requireModule('lab', 'Laboratory');
     const db = getDb();
     if (test.id) {
       db.prepare(
@@ -1463,17 +1726,63 @@ export function registerIpc() {
     return { ok: true, added, total: LAB_CATALOG.length };
   });
 
+  // Load the standard pharmacy catalogue into drug_master (adds only drugs not
+  // already present, plus an opening stock batch). Mirrors lab:loadStandardCatalog.
+  ipcMain.handle('pharmacy:loadStandardCatalog', (_e) => {
+    requireModule('pharmacy', 'Pharmacy');
+    const db = getDb();
+    const existing = new Set((db.prepare('SELECT LOWER(name) AS n FROM drug_master').all() as any[]).map((r) => r.n));
+    const insM = db.prepare(`INSERT INTO drug_master (name, generic_name, form, strength, pack_size, schedule, gst_rate, default_mrp, low_stock_threshold, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 10, 1)`);
+    const insB = db.prepare(`INSERT INTO drug_stock_batches (drug_master_id, batch_no, expiry, qty_received, qty_remaining, purchase_price, mrp, received_at, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, date('now'), 1)`);
+    const exp = new Date(); exp.setMonth(exp.getMonth() + 18);
+    const expiryStr = exp.toISOString().slice(0, 10);
+    let added = 0, n = 0;
+    const tx = db.transaction(() => {
+      for (const d of PHARMACY_CATALOG) {
+        if (existing.has(d.name.toLowerCase())) { n++; continue; }
+        const r = insM.run(d.name, d.generic_name, d.form, d.strength, d.pack_size ?? null, d.schedule, d.gst_rate, d.default_mrp);
+        insB.run(r.lastInsertRowid, `B${1000 + n}`, expiryStr, 100, 100, Math.round(d.default_mrp * 0.72), d.default_mrp);
+        added++; n++;
+      }
+    });
+    tx();
+    return { ok: true, added, total: PHARMACY_CATALOG.length };
+  });
+
+  // Testing/evaluation: populate the app with ~50 fictional patients + full
+  // cross-module activity so Analytics has something to show. Never auto-runs.
+  ipcMain.handle('admin:loadSampleData', (_e) => {
+    requireRole([], 'load sample data');
+    // Deliberately available in packaged builds too: demos to prospective clinics
+    // are run from the real installer, so barring it there took the feature away
+    // from the person who needs it. The protection is that it cannot be triggered
+    // by accident (the UI requires typing a confirmation word) and that it is
+    // fully reversible — see admin:removeSampleData.
+    try {
+      const counts = seedSampleData(getDb());
+      logAudit(getDb(), actor(), 'sample_data_loaded', 'patients', undefined, JSON.stringify(counts));
+      return { ok: true as const, ...counts };
+    } catch (e: any) {
+      return { ok: false as const, error: e?.message || 'Failed to load sample data' };
+    }
+  });
+
   ipcMain.handle(
     'lab:createOrder',
     (
       _e,
       payload: { appointment_id: number | null; patient_id: number; doctor_id: number | null; notes?: string; items: { lab_test_id?: number; test_name: string }[] }
     ) => {
+      requireModule('lab', 'Laboratory');
       const db = getDb();
       const d = new Date();
       const ymd = `${d.getFullYear()}${pad(d.getMonth() + 1, 2)}${pad(d.getDate(), 2)}`;
-      const row = db.prepare("SELECT COUNT(*) as c FROM lab_orders WHERE order_number LIKE ?").get(`LAB-${ymd}-%`) as { c: number };
-      const orderNumber = `LAB-${ymd}-${pad(row.c + 1, 4)}`;
+      // Atomic counter, not COUNT(*)+1: deleting an order used to make the
+      // next one reuse an existing number, and order_number is UNIQUE — so a
+      // single deletion blocked every lab order for the rest of that day.
+      const orderNumber = nextLabOrderNumber(db, d);
       const tx = db.transaction(() => {
         const info = db
           .prepare(
@@ -1506,12 +1815,14 @@ export function registerIpc() {
           db.prepare(
             `INSERT INTO bills
                (bill_number, appointment_id, patient_id, doctor_id, items_json, subtotal, discount, discount_type,
-                total, payment_mode, bill_kind, bill_type, amount_paid, notes)
-             VALUES (?, ?, ?, ?, ?, ?, 0, 'flat', ?, 'Pending', 'lab', 'lab', 0, ?)`
+                total, payment_mode, bill_kind, bill_type, amount_paid, notes, status)
+             VALUES (?, ?, ?, ?, ?, ?, 0, 'flat', ?, 'Pending', 'lab', 'lab', 0, ?, 'unpaid')`
           ).run(
             billNumber, payload.appointment_id, payload.patient_id, payload.doctor_id ?? null,
             JSON.stringify(priced), total, total, `Lab order ${orderNumber}`
           );
+          // Real link, so the bill can be found and re-priced later.
+          db.prepare('UPDATE bills SET lab_order_id=? WHERE bill_number=?').run(orderId, billNumber);
         }
         return orderId;
       });
@@ -1586,12 +1897,173 @@ export function registerIpc() {
 
   ipcMain.handle('lab:updateResults', (_e, orderId: number, items: { id: number; result: string; is_abnormal?: number }[]) => {
     const db = getDb();
-    const upd = db.prepare('UPDATE lab_order_items SET result=?, is_abnormal=? WHERE id=?');
+    /**
+     * Two guards, both defence-in-depth against results landing in the wrong place.
+     *
+     * 1. `AND lab_order_id=?` — the renderer sends the item ids it has touched.
+     *    If a stale draft from a previously-viewed order slips through, the write
+     *    simply matches nothing instead of overwriting another patient's result.
+     * 2. Only the fields actually supplied are written. Blindly setting both
+     *    columns meant a caller sending just `is_abnormal` cleared the result
+     *    text, and vice versa.
+     */
+    const updBoth = db.prepare('UPDATE lab_order_items SET result=?, is_abnormal=? WHERE id=? AND lab_order_id=?');
+    const updResult = db.prepare('UPDATE lab_order_items SET result=? WHERE id=? AND lab_order_id=?');
+    const updFlag = db.prepare('UPDATE lab_order_items SET is_abnormal=? WHERE id=? AND lab_order_id=?');
     const tx = db.transaction(() => {
-      for (const it of items) upd.run(it.result, it.is_abnormal ?? 0, it.id);
+      for (const it of items) {
+        const hasResult = it.result !== undefined;
+        const hasFlag = it.is_abnormal !== undefined;
+        if (hasResult && hasFlag) updBoth.run(it.result, it.is_abnormal ?? 0, it.id, orderId);
+        else if (hasResult) updResult.run(it.result, it.id, orderId);
+        else if (hasFlag) updFlag.run(it.is_abnormal ?? 0, it.id, orderId);
+      }
     });
     tx();
     return db.prepare('SELECT * FROM lab_order_items WHERE lab_order_id=?').all(orderId);
+  });
+
+  /**
+   * Re-price the auto-raised bill for a lab order from its CURRENT test list.
+   *
+   * Called after a test is added or removed. Returns a short note describing
+   * what happened to the bill so the caller can tell the user plainly, instead
+   * of the amount changing silently behind their back.
+   *
+   * Refuses to touch a bill that has been paid, cancelled or frozen at
+   * discharge — those are settled records. In that case the test list still
+   * changes (the lab did what it did) and the caller is told the bill needs a
+   * manual adjustment, which is a bookkeeping decision, not ours to make.
+   */
+  function repriceLabBill(db: any, orderId: number): { billChanged: boolean; note: string; total?: number } {
+    const order = db.prepare('SELECT order_number FROM lab_orders WHERE id=?').get(orderId) as any;
+    const bill = db.prepare('SELECT * FROM bills WHERE lab_order_id=?').get(orderId) as any;
+
+    // Price the current lines. A test with no price is deliberately not billed.
+    const rows = db.prepare(
+      `SELECT i.test_name, COALESCE(t.price, 0) AS price
+         FROM lab_order_items i LEFT JOIN lab_tests t ON t.id = i.lab_test_id
+        WHERE i.lab_order_id = ?`
+    ).all(orderId) as { test_name: string; price: number }[];
+    const priced = rows.filter((r) => Number(r.price) > 0)
+      .map((r) => ({ description: r.test_name, qty: 1, rate: Number(r.price), amount: Number(r.price) }));
+    const total = priced.reduce((s, r) => s + r.amount, 0);
+
+    if (!bill) {
+      // No bill existed (auto-billing off, or every test was unpriced at the time).
+      if (!priced.length) return { billChanged: false, note: 'No bill — none of these tests has a price set.' };
+      const autoBill = getAllSettings(db).lab_auto_bill !== false;
+      if (!autoBill) return { billChanged: false, note: 'No bill raised — auto-billing for lab is switched off.' };
+      const billNumber = nextBillNumber(db);
+      const o = db.prepare('SELECT * FROM lab_orders WHERE id=?').get(orderId) as any;
+      db.prepare(
+        `INSERT INTO bills
+           (bill_number, appointment_id, patient_id, doctor_id, items_json, subtotal, discount, discount_type,
+            total, payment_mode, bill_kind, bill_type, amount_paid, notes, lab_order_id, status)
+         VALUES (?, ?, ?, ?, ?, ?, 0, 'flat', ?, 'Pending', 'lab', 'lab', 0, ?, ?, 'unpaid')`
+      ).run(billNumber, o.appointment_id, o.patient_id, o.doctor_id ?? null,
+            JSON.stringify(priced), total, total, `Lab order ${order?.order_number ?? orderId}`, orderId);
+      return { billChanged: true, total, note: `Bill ${billNumber} raised — ${formatMoney(total)}.` };
+    }
+
+    // Deliberately NOT keyed on bills.status: that column defaults to 'paid'
+    // (see migrations) and the auto-raised lab bill never sets it, so every
+    // unpaid lab bill carries status='paid'. Money actually received is what
+    // makes a bill settled, so that is what is checked.
+    const settled =
+      Number(bill.amount_paid) > 0 || !!bill.paid_at || !!bill.cancelled_at || !!bill.finalized_at;
+    if (settled) {
+      return {
+        billChanged: false,
+        note: `Bill ${bill.bill_number} is already settled, so it was left untouched. The test list changed — adjust or re-issue that bill manually.`,
+      };
+    }
+
+    // An unpaid bill may carry a discount; keep it and re-derive the total.
+    const discount = Number(bill.discount) || 0;
+    const newTotal = Math.max(0, total - (bill.discount_type === 'percent' ? (total * discount) / 100 : discount));
+    db.prepare('UPDATE bills SET items_json=?, subtotal=?, total=? WHERE id=?')
+      .run(JSON.stringify(priced), total, newTotal, bill.id);
+    return { billChanged: true, total: newTotal, note: `Bill ${bill.bill_number} updated — now ${formatMoney(newTotal)}.` };
+  }
+
+  /** Add tests to an order the doctor already sent. */
+  ipcMain.handle('lab:addOrderItems', (_e, orderId: number, items: { lab_test_id?: number; test_name: string }[]) => {
+    requireModule('lab', 'Laboratory');
+    requireRole(['lab_tech', 'receptionist', 'doctor', 'ward_incharge', 'manager'], 'add tests to a lab order');
+    const db = getDb();
+    try {
+      const order = db.prepare('SELECT * FROM lab_orders WHERE id=?').get(orderId) as any;
+      if (!order) return { ok: false as const, error: `Lab order #${orderId} no longer exists.` };
+      if (order.status === 'cancelled') {
+        return { ok: false as const, error: 'This order was cancelled. Raise a new lab request instead of adding to it.' };
+      }
+      const clean = (items || []).filter((i) => (i?.test_name || '').trim());
+      if (!clean.length) return { ok: false as const, error: 'Pick at least one test to add.' };
+
+      // Don't silently add a test the order already has.
+      const have = new Set(
+        (db.prepare('SELECT LOWER(test_name) AS n FROM lab_order_items WHERE lab_order_id=?').all(orderId) as any[])
+          .map((r) => r.n)
+      );
+      const fresh = clean.filter((i) => !have.has(i.test_name.trim().toLowerCase()));
+      if (!fresh.length) return { ok: false as const, error: 'Those tests are already on this order.' };
+
+      const ins = db.prepare(
+        'INSERT INTO lab_order_items (lab_order_id, lab_test_id, test_name, ref_range, unit) VALUES (?, ?, ?, ?, ?)'
+      );
+      let res!: { billChanged: boolean; note: string; total?: number };
+      db.transaction(() => {
+        for (const it of fresh) {
+          let range: string | null = null, unit: string | null = null;
+          if (it.lab_test_id) {
+            const t = db.prepare('SELECT ref_range, unit FROM lab_tests WHERE id=?').get(it.lab_test_id) as any;
+            range = t?.ref_range ?? null; unit = t?.unit ?? null;
+          }
+          ins.run(orderId, it.lab_test_id ?? null, it.test_name.trim(), range, unit);
+        }
+        res = repriceLabBill(db, orderId);
+        logAudit(db, actor(), 'lab_order_items_added', 'lab_orders', orderId,
+          JSON.stringify({ added: fresh.map((f) => f.test_name), bill: res.note }));
+      })();
+      return { ok: true as const, added: fresh.length, ...res };
+    } catch (e: any) {
+      return { ok: false as const, error: e?.message || 'Could not add tests to this order.' };
+    }
+  });
+
+  /** Remove a test from an order — refused once its result is recorded. */
+  ipcMain.handle('lab:removeOrderItem', (_e, orderId: number, itemId: number) => {
+    requireModule('lab', 'Laboratory');
+    requireRole(['lab_tech', 'receptionist', 'doctor', 'ward_incharge', 'manager'], 'remove a test from a lab order');
+    const db = getDb();
+    try {
+      const item = db.prepare('SELECT * FROM lab_order_items WHERE id=? AND lab_order_id=?').get(itemId, orderId) as any;
+      if (!item) return { ok: false as const, error: 'That test is no longer on this order.' };
+      // A recorded result is clinical evidence. Deleting the line would delete
+      // the result with it, so this is refused outright rather than warned about.
+      if (item.result !== null && String(item.result).trim() !== '') {
+        return {
+          ok: false as const,
+          error: `“${item.test_name}” already has a result entered, so it cannot be removed. Clear the result first if it was entered by mistake.`,
+        };
+      }
+      const count = (db.prepare('SELECT COUNT(*) AS c FROM lab_order_items WHERE lab_order_id=?').get(orderId) as any).c;
+      if (count <= 1) {
+        return { ok: false as const, error: 'An order must have at least one test. Cancel the whole order instead.' };
+      }
+
+      let res!: { billChanged: boolean; note: string; total?: number };
+      db.transaction(() => {
+        db.prepare('DELETE FROM lab_order_items WHERE id=?').run(itemId);
+        res = repriceLabBill(db, orderId);
+        logAudit(db, actor(), 'lab_order_item_removed', 'lab_orders', orderId,
+          JSON.stringify({ removed: item.test_name, bill: res.note }));
+      })();
+      return { ok: true as const, ...res };
+    } catch (e: any) {
+      return { ok: false as const, error: e?.message || 'Could not remove that test.' };
+    }
   });
 
   // ===== Pharmacy (v2 — batch-tracked, FEFO, Schedule H compliant) =====
@@ -1641,6 +2113,7 @@ export function registerIpc() {
   });
 
   ipcMain.handle('pharmacy:upsertDrug', (_e, drug: any) => {
+    requireModule('pharmacy', 'Pharmacy');
     const db = getDb();
     if (drug.id) {
       db.prepare(`
@@ -1675,6 +2148,7 @@ export function registerIpc() {
 
   // Manual batch entry (corrections, sample stock without a purchase invoice).
   ipcMain.handle('pharmacy:upsertBatch', (_e, batch: any) => {
+    requireModule('pharmacy', 'Pharmacy');
     const db = getDb();
     if (batch.id) {
       db.prepare(`
@@ -1717,6 +2191,7 @@ export function registerIpc() {
   //     from active dispense + master listings.
   // Returns a per-drug summary so the UI can explain what happened.
   ipcMain.handle('pharmacy:bulkDeleteDrugs', (_e, ids: number[]) => {
+    requireRole(['pharmacist'], 'delete drugs');
     if (!Array.isArray(ids) || ids.length === 0) return { ok: true, hardDeleted: 0, softDeleted: 0, results: [] };
     const db = getDb();
     const countRefs = (id: number) => {
@@ -1746,7 +2221,7 @@ export function registerIpc() {
         if (total === 0) {
           try {
             db.prepare('DELETE FROM drug_master WHERE id=?').run(id);
-            logAudit(db, null, 'drug_deleted', 'drug_master', id, drug.name);
+            logAudit(db, actor(), 'drug_deleted', 'drug_master', id, drug.name);
             results.push({ id, name: drug.name, mode: 'hard_deleted' });
             hardDeleted++;
           } catch (e: any) {
@@ -1754,7 +2229,7 @@ export function registerIpc() {
           }
         } else {
           db.prepare('UPDATE drug_master SET is_active=0 WHERE id=?').run(id);
-          logAudit(db, null, 'drug_deactivated', 'drug_master', id, `${drug.name} (kept ${total} historical record(s))`);
+          logAudit(db, actor(), 'drug_deactivated', 'drug_master', id, `${drug.name} (kept ${total} historical record(s))`);
           results.push({ id, name: drug.name, mode: 'soft_deleted', refs });
           softDeleted++;
         }
@@ -1835,11 +2310,12 @@ export function registerIpc() {
         sold_by?: string;
       }
     ) => {
+      requireModule('pharmacy', 'Pharmacy');
       const db = getDb();
       const d = new Date();
       const ymd = `${d.getFullYear()}${pad(d.getMonth() + 1, 2)}${pad(d.getDate(), 2)}`;
-      const row = db.prepare("SELECT COUNT(*) as c FROM pharmacy_sales WHERE sale_number LIKE ?").get(`PHX-${ymd}-%`) as { c: number };
-      const saleNumber = `PHX-${ymd}-${pad(row.c + 1, 4)}`;
+      // Atomic counter — see the lab note above.
+      const saleNumber = nextSaleNumber(db, d);
       const subtotal = payload.items.reduce((s, it) => s + Number(it.qty) * Number(it.rate), 0);
       const discount = Number(payload.discount ?? 0);
       const total = Math.max(0, subtotal - discount);
@@ -1873,8 +2349,9 @@ export function registerIpc() {
 
         const insSaleItem = db.prepare(`
           INSERT INTO pharmacy_sale_items
-            (sale_id, drug_id, drug_master_id, batch_id, drug_name, qty, rate, amount, gst_amount)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (sale_id, drug_id, drug_master_id, batch_id, drug_name, qty, rate, amount, gst_amount,
+             gst_rate, cgst, sgst, hsn_sac)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         const insRegister = db.prepare(`
           INSERT INTO dispensing_register
@@ -1893,6 +2370,7 @@ export function registerIpc() {
           ORDER BY date(b.expiry) ASC, b.received_at ASC
         `);
 
+        let saleTaxable = 0, saleExempt = 0, saleCgst = 0, saleSgst = 0;
         for (const it of payload.items) {
           const masterId = it.drug_master_id ?? it.drug_id ?? null;
           const amount = Number(it.qty) * Number(it.rate);
@@ -1901,9 +2379,29 @@ export function registerIpc() {
             ? (fetchBatches.all(masterId) as Array<{ id: number; batch_no: string; expiry: string; qty_remaining: number; schedule: string }>)
             : [];
           const firstBatchId = batches[0]?.id ?? null;
+          // drug_id is the LEGACY column and still FKs drug_inventory, whose ids
+          // are unrelated to drug_master's. Writing a master id here blew up with
+          // "FOREIGN KEY constraint failed" for any drug not in the small legacy
+          // table. The real link is drug_master_id; leave the legacy one NULL.
+          /**
+           * GST on the medicine, extracted from the amount rather than added.
+           *
+           * An Indian MRP is tax-INCLUSIVE, so adding tax on top would overcharge
+           * the patient by the tax and contradict the price printed on the strip.
+           * The rate comes from drug_master; the split is stored per line so a
+           * reprint years later still shows the tax exactly as charged.
+           */
+          const mtax = medicineLineTax(db, masterId);
+          const split = splitInclusive(amount, mtax.gst_rate);
+          saleTaxable += mtax.is_taxable ? split.net : 0;
+          saleExempt += mtax.is_taxable ? 0 : amount;
+          saleCgst += split.cgst;
+          saleSgst += split.sgst;
           const saleItemInfo = insSaleItem.run(
-            saleId, masterId, masterId, firstBatchId,
-            it.drug_name, it.qty, it.rate, amount, Number(it.gst_amount ?? 0)
+            saleId, null, masterId, firstBatchId,
+            it.drug_name, it.qty, it.rate, amount,
+            Number(it.gst_amount ?? (split.cgst + split.sgst)),
+            mtax.gst_rate, split.cgst, split.sgst, mtax.hsn_sac
           );
           const saleItemId = Number(saleItemInfo.lastInsertRowid);
 
@@ -1926,12 +2424,50 @@ export function registerIpc() {
             }
           }
         }
+        // Roll the per-line tax up onto the sale so the receipt (and any reprint)
+        // can show a proper CGST/SGST breakdown without recomputing from stock.
+        const ctx = gstContext(db);
+        db.prepare(
+          `UPDATE pharmacy_sales SET taxable_total=?, exempt_total=?, cgst_total=?, sgst_total=?, is_tax_invoice=?
+            WHERE id=?`
+        ).run(
+          Math.round(saleTaxable * 100) / 100,
+          Math.round(saleExempt * 100) / 100,
+          Math.round(saleCgst * 100) / 100,
+          Math.round(saleSgst * 100) / 100,
+          ctx.enabled && (saleCgst + saleSgst) > 0 ? 1 : 0,
+          saleId,
+        );
         return saleId;
       });
       const id = tx();
       return db.prepare('SELECT * FROM pharmacy_sales WHERE id=?').get(id);
     }
   );
+
+  /** One sale with its lines + customer — everything a printed receipt needs. */
+  ipcMain.handle('pharmacy:saleDetail', (_e, saleId: number) => {
+    const db = getDb();
+    const sale = db.prepare(
+      `SELECT s.*, (p.first_name || ' ' || p.last_name) AS patient_name,
+              p.uhid AS patient_uhid, p.phone AS patient_phone, p.address AS patient_address
+         FROM pharmacy_sales s LEFT JOIN patients p ON p.id = s.patient_id
+        WHERE s.id = ?`
+    ).get(saleId) as any;
+    if (!sale) return null;
+    // Batch/expiry come from the dispensing register (written per batch at sale time),
+    // so a Schedule-H receipt can show exactly what was handed over.
+    const items = db.prepare(
+      `SELECT si.id, si.drug_name, si.qty, si.rate, si.amount, si.drug_master_id,
+              m.generic_name, m.strength, m.form, m.schedule, m.hsn_code,
+              (SELECT GROUP_CONCAT(dr.batch_no || ' (exp ' || dr.expiry || ')', ', ')
+                 FROM dispensing_register dr WHERE dr.sale_item_id = si.id) AS batches
+         FROM pharmacy_sale_items si
+         LEFT JOIN drug_master m ON m.id = si.drug_master_id
+        WHERE si.sale_id = ? ORDER BY si.id`
+    ).all(saleId);
+    return { ...sale, items };
+  });
 
   ipcMain.handle('pharmacy:listSales', (_e, filter: { from?: string; to?: string } = {}) => {
     const db = getDb();
@@ -1956,65 +2492,6 @@ export function registerIpc() {
   // receptionist can quickly capture a walk-in pharmacy sale even when the drug
   // names + quantities are unknown or missing. Blank rows are allowed and
   // filtered out before persisting.
-  ipcMain.handle('pharmacy:recordCustomSale', (_e, payload: {
-    patient_id?: number | null;
-    doctor_id?: number | null;
-    items: { drug_name?: string; qty?: number; rate?: number; amount?: number }[];
-    total_amount: number;
-    payment_mode?: string;
-    notes?: string | null;
-  }) => {
-    const db = getDb();
-    const cleaned = (payload.items || [])
-      .map((it) => ({
-        drug_name: (it.drug_name || '').trim(),
-        qty: Number(it.qty || 0),
-        rate: Number(it.rate || 0),
-        amount: Number(it.amount ?? (Number(it.qty || 0) * Number(it.rate || 0))),
-      }))
-      .filter((it) => it.drug_name || it.qty > 0 || it.rate > 0 || it.amount > 0);
-    const total = Math.max(0, Number(payload.total_amount || 0));
-    const subtotal = total;
-    const dnow = new Date();
-    const ymd = `${dnow.getFullYear()}${pad(dnow.getMonth() + 1, 2)}${pad(dnow.getDate(), 2)}`;
-    const seqRow = db.prepare("SELECT COUNT(*) as c FROM pharmacy_sales WHERE sale_number LIKE ?").get(`PHX-${ymd}-%`) as { c: number };
-    const saleNumber = `PHX-${ymd}-${pad(seqRow.c + 1, 4)}`;
-    const tx = db.transaction(() => {
-      const info = db.prepare(`
-        INSERT INTO pharmacy_sales
-          (sale_number, patient_id, appointment_id, subtotal, discount, total, payment_mode, sold_by, created_at)
-        VALUES (?, ?, NULL, ?, 0, ?, ?, ?, datetime('now'))
-      `).run(
-        saleNumber,
-        payload.patient_id ?? null,
-        subtotal,
-        total,
-        payload.payment_mode || 'Cash',
-        payload.notes || null
-      );
-      const saleId = Number(info.lastInsertRowid);
-      const insItem = db.prepare(`
-        INSERT INTO pharmacy_sale_items
-          (sale_id, drug_id, drug_name, qty, rate, amount)
-        VALUES (?, NULL, ?, ?, ?, ?)
-      `);
-      if (cleaned.length === 0) {
-        // Persist a single placeholder so the bill still shows a line.
-        insItem.run(saleId, '(unspecified items)', 0, 0, total);
-      } else {
-        for (const it of cleaned) {
-          insItem.run(saleId, it.drug_name || '(unnamed item)', it.qty, it.rate, it.amount);
-        }
-      }
-      return saleId;
-    });
-    const id = tx();
-    return db.prepare(`
-      SELECT s.*, (p.first_name || ' ' || p.last_name) as patient_name, p.uhid as patient_uhid
-      FROM pharmacy_sales s LEFT JOIN patients p ON p.id=s.patient_id
-      WHERE s.id=?
-    `).get(id);
-  });
 
   // ===== Wholesalers =====
   ipcMain.handle('wholesalers:list', (_e, filter: { activeOnly?: boolean } = {}) => {
@@ -2156,22 +2633,6 @@ export function registerIpc() {
     return db.prepare('SELECT * FROM purchase_invoices WHERE id=?').get(newId);
   });
 
-  ipcMain.handle('purchase:attachScan', async (_e, invoiceId: number, fileDataUrl: string, ext: string) => {
-    if (!invoiceId) return { ok: false, error: 'Missing invoice id' };
-    const userData = app.getPath('userData');
-    const dir = path.join(userData, 'purchases');
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const safeExt = (ext || 'pdf').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || 'pdf';
-    const fp = path.join(dir, `${invoiceId}.${safeExt}`);
-    try {
-      const base64 = fileDataUrl.replace(/^data:[^;]+;base64,/, '');
-      fs.writeFileSync(fp, Buffer.from(base64, 'base64'));
-      getDb().prepare('UPDATE purchase_invoices SET scan_path=? WHERE id=?').run(fp, invoiceId);
-      return { ok: true, path: fp };
-    } catch (err: any) {
-      return { ok: false, error: err?.message || String(err) };
-    }
-  });
 
   // ===== Stock register (every batch with days-to-expiry) =====
   ipcMain.handle('stock:register', (_e, filter: { activeOnly?: boolean; includeExpired?: boolean } = {}) => {
@@ -2278,6 +2739,7 @@ export function registerIpc() {
   });
 
   ipcMain.handle('ip:admit', (_e, payload: { patient_id: number; admission_doctor_id?: number; bed_number?: string; ward?: string; admission_notes?: string }) => {
+    requireModule('ipd', 'In-Patient (IPD)');
     const db = getDb();
     // Financial-year series (IP/2026-27/0007), separate from the patient's UHID.
     const num = nextIpNumber(db);
@@ -2289,47 +2751,6 @@ export function registerIpc() {
     return db.prepare('SELECT * FROM ip_admissions WHERE id=?').get(info.lastInsertRowid);
   });
 
-  ipcMain.handle('ip:discharge', (_e, id: number, payload: {
-    discharge_diagnosis?: string;
-    condition_at_discharge?: string;
-    treatment_given?: string;
-    investigation_findings?: string;
-    operative_notes?: string;
-    discharge_medications_json?: string;
-    followup_plan?: string;
-    discharge_doctor_id?: number;
-    discharge_summary?: string;
-  } | string) => {
-    const db = getDb();
-    const now = new Date().toISOString();
-    if (typeof payload === 'string') {
-      // Legacy plain-text path
-      db.prepare("UPDATE ip_admissions SET status='discharged', discharged_at=?, discharge_summary=? WHERE id=?")
-        .run(now, payload, id);
-    } else {
-      db.prepare(`UPDATE ip_admissions SET
-        status='discharged', discharged_at=?,
-        discharge_diagnosis=?, condition_at_discharge=?,
-        treatment_given=?, investigation_findings=?,
-        operative_notes=?, discharge_medications_json=?,
-        followup_plan=?, discharge_doctor_id=?,
-        discharge_summary=?
-        WHERE id=?`).run(
-        now,
-        payload.discharge_diagnosis ?? null,
-        payload.condition_at_discharge ?? null,
-        payload.treatment_given ?? null,
-        payload.investigation_findings ?? null,
-        payload.operative_notes ?? null,
-        payload.discharge_medications_json ?? null,
-        payload.followup_plan ?? null,
-        payload.discharge_doctor_id ?? null,
-        payload.discharge_summary ?? null,
-        id
-      );
-    }
-    return db.prepare('SELECT a.*, (p.first_name||" "||p.last_name) as patient_name, p.uhid as patient_uhid, d.name as doctor_name FROM ip_admissions a JOIN patients p ON p.id=a.patient_id LEFT JOIN doctors d ON d.id=a.admission_doctor_id WHERE a.id=?').get(id);
-  });
 
   // ===== Notifications =====
   ipcMain.handle('notifications:list', (_e, status?: string) => {
@@ -2978,7 +3399,9 @@ export function registerIpc() {
   //   <root>/sqlite/<YYYY-MM-DD>/<HH-MM-SS>/caredesk.sqlite + documents/ + manifest.json
   //   <root>/excel/<YYYY-MM-DD>/<HH-MM-SS>.xlsx   (single xlsx with one sheet per table)
   async function performBackupToRoot(root: string, label: 'backup' | 'pre-restore' = 'backup'):
-    Promise<{ ok: true; bundleDir: string; xlsxFile: string; documentCount: number; totalBackups: number }> {
+    Promise<{ ok: true; bundleDir: string; xlsxFile: string; documentCount: number; totalBackups: number;
+      verified: boolean; integrityOk: boolean; mismatches: { table: string; live: number; backup: number | null }[];
+      receipt: { label: string; count: number }[]; totalRows: number }> {
     const userData = app.getPath('userData');
     const sqliteSrc = path.join(userData, 'caredesk.sqlite');
     const docsSrc = path.join(userData, 'documents');
@@ -2986,13 +3409,55 @@ export function registerIpc() {
     const { day, time } = dateParts();
     const folderName = label === 'pre-restore' ? `pre-restore-${time}` : time;
 
+    // Snapshot live row counts right before the copy so verification compares
+    // like-for-like (a couple of writes could otherwise sneak in between).
+    const liveCounts: Record<string, number> = {};
+    try {
+      const live = getDb();
+      for (const t of listUserTables(live)) {
+        try { liveCounts[t] = (live.prepare(`SELECT COUNT(*) AS c FROM "${t}"`).get() as { c: number }).c; }
+        catch { /* skip */ }
+      }
+    } catch { /* if this fails, verification simply has nothing to compare against */ }
+
     // sqlite/<day>/<time>/...
     const bundleDir = path.join(root, 'sqlite', day, folderName);
     fs.mkdirSync(bundleDir, { recursive: true });
     const dbDest = path.join(bundleDir, 'caredesk.sqlite');
-    try { await getDb().backup(dbDest); } catch { fs.copyFileSync(sqliteSrc, dbDest); }
+    /**
+     * Prefer SQLite's own online-backup API: it produces a consistent snapshot
+     * that INCLUDES anything still sitting in the write-ahead log.
+     *
+     * The fallback is a plain file copy, and on a WAL database that is not the
+     * same thing — recent transactions live in `caredesk.sqlite-wal` until a
+     * checkpoint folds them back into the main file, so a bare copy can silently
+     * lose the last stretch of work. This used to swallow the error and copy
+     * anyway, which meant the one case where the safe path failed was also the
+     * case nobody was told about. Now the WAL is checkpointed into the database
+     * first, and the fallback is recorded so it shows up on the receipt.
+     */
+    let backupMethod: 'online' | 'file-copy-after-checkpoint' = 'online';
+    let backupFallbackReason: string | null = null;
+    try {
+      await getDb().backup(dbDest);
+    } catch (e: any) {
+      backupMethod = 'file-copy-after-checkpoint';
+      backupFallbackReason = e?.message || String(e);
+      try { getDb().pragma('wal_checkpoint(TRUNCATE)'); } catch { /* best effort */ }
+      fs.copyFileSync(sqliteSrc, dbDest);
+    }
     if (fs.existsSync(docsSrc)) copyDirRecursive(docsSrc, path.join(bundleDir, 'documents'));
     const documentCount = countFilesRec(docsSrc);
+
+    // Verify the file we just wrote: not corrupt + every row accounted for.
+    let verify: ReturnType<typeof verifyBackupFile>;
+    try {
+      verify = verifyBackupFile(dbDest, liveCounts);
+    } catch (e: any) {
+      verify = { integrityOk: false, verified: false,
+        mismatches: [{ table: '(could not open backup)', live: -1, backup: null }],
+        receipt: [], totalRows: 0 };
+    }
 
     // excel/<day>/<time>.xlsx
     const excelDayDir = path.join(root, 'excel', day);
@@ -3009,10 +3474,24 @@ export function registerIpc() {
       sqlite_path: dbDest,
       xlsx_path: xlsxFile,
       sqlite_size_bytes: fs.statSync(dbDest).size,
+      // How the copy was taken. 'online' is the safe path; the fallback is noted
+      // (with its cause) so a support call can tell them apart months later.
+      backup_method: backupMethod,
+      ...(backupFallbackReason ? { backup_fallback_reason: backupFallbackReason } : {}),
       xlsx_size_bytes: fs.statSync(xlsxFile).size,
       document_files: documentCount,
       sheets: xlsx.sheets,
       sheet_row_counts: xlsx.rowCounts,
+      // Proof this backup is sound: integrity_check passed AND every table's row
+      // count in the copy matches the live database at the moment of backup.
+      verification: {
+        integrity_check: verify.integrityOk ? 'ok' : 'FAILED',
+        row_counts_match: verify.mismatches.length === 0,
+        verified: verify.verified,
+        total_rows: verify.totalRows,
+        mismatches: verify.mismatches,
+        receipt: verify.receipt,
+      },
       note: 'If the app is unusable, open the .xlsx file in Excel or Google Sheets — every table is a sheet inside it.',
     };
     fs.writeFileSync(path.join(bundleDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
@@ -3037,7 +3516,9 @@ export function registerIpc() {
         }, 0)
       : 0;
 
-    return { ok: true, bundleDir, xlsxFile, documentCount, totalBackups };
+    return { ok: true, bundleDir, xlsxFile, documentCount, totalBackups,
+      verified: verify.verified, integrityOk: verify.integrityOk, mismatches: verify.mismatches,
+      receipt: verify.receipt, totalRows: verify.totalRows };
   }
 
   async function performBackup() {
@@ -3047,8 +3528,9 @@ export function registerIpc() {
     const root = s.backup_folder || path.join(app.getPath('userData'), 'backups');
     if (!fs.existsSync(root)) fs.mkdirSync(root, { recursive: true });
     const r = await performBackupToRoot(root, 'backup');
-    logAudit(getDb(), null, 'backup_run', 'backups', undefined, `${r.bundleDir} · ${r.documentCount} docs`);
-    return { path: r.bundleDir, bundleDir: r.bundleDir, xlsxFile: r.xlsxFile, totalBundles: r.totalBackups, documentCount: r.documentCount };
+    logAudit(getDb(), actor(), 'backup_run', 'backups', undefined, `${r.bundleDir} · ${r.documentCount} docs`);
+    return { path: r.bundleDir, bundleDir: r.bundleDir, xlsxFile: r.xlsxFile, totalBundles: r.totalBackups, documentCount: r.documentCount,
+      verified: r.verified, integrityOk: r.integrityOk, mismatches: r.mismatches, receipt: r.receipt, totalRows: r.totalRows };
   }
 
   ipcMain.handle('backup:now', async () => performBackup());
@@ -3058,8 +3540,9 @@ export function registerIpc() {
   async function performBackupTo(targetDir: string) {
     if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
     const r = await performBackupToRoot(targetDir, 'backup');
-    logAudit(getDb(), null, 'backup_to_external', 'backups', undefined, r.bundleDir);
-    return { ok: true as const, path: r.bundleDir, bundleDir: r.bundleDir, xlsxFile: r.xlsxFile, documentCount: r.documentCount };
+    logAudit(getDb(), actor(), 'backup_to_external', 'backups', undefined, r.bundleDir);
+    return { ok: true as const, path: r.bundleDir, bundleDir: r.bundleDir, xlsxFile: r.xlsxFile, documentCount: r.documentCount,
+      verified: r.verified, integrityOk: r.integrityOk, mismatches: r.mismatches, receipt: r.receipt, totalRows: r.totalRows };
   }
   ipcMain.handle('backup:nowTo', async (_e, targetDir: string) => {
     if (!targetDir) return { ok: false, error: 'No folder selected' };
@@ -3102,6 +3585,78 @@ export function registerIpc() {
     return (db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
     ).all() as { name: string }[]).map((r) => r.name);
+  }
+
+  // Post-write verification of a just-created backup .sqlite. Proves the copy is
+  // (a) not corrupt (PRAGMA integrity_check) and (b) actually contains the rows we
+  // expect (row-count-per-table compared against the live DB). Also builds a
+  // human "receipt" of the key patient-linked records so the user gets a visible,
+  // trustworthy confirmation instead of a silent "done".
+  function verifyBackupFile(
+    backupSqlitePath: string,
+    liveCounts: Record<string, number>,
+  ): {
+    integrityOk: boolean;
+    verified: boolean;
+    mismatches: { table: string; live: number; backup: number | null }[];
+    receipt: { label: string; count: number }[];
+    totalRows: number;
+  } {
+    const db = new Database(backupSqlitePath, { readonly: true, fileMustExist: true });
+    try {
+      // (a) SQLite's own corruption check. "ok" on a single row = clean file.
+      let integrityOk = false;
+      try {
+        const rows = db.prepare('PRAGMA integrity_check').all() as { integrity_check: string }[];
+        integrityOk = rows.length === 1 && String(rows[0].integrity_check).toLowerCase() === 'ok';
+      } catch { integrityOk = false; }
+
+      // (b) Row counts in the backup, compared to the live DB captured a moment ago.
+      const backupCounts: Record<string, number> = {};
+      let totalRows = 0;
+      for (const t of listUserTables(db)) {
+        try {
+          const r = db.prepare(`SELECT COUNT(*) AS c FROM "${t}"`).get() as { c: number };
+          backupCounts[t] = r.c;
+          totalRows += r.c;
+        } catch { /* skip unreadable table */ }
+      }
+      const mismatches: { table: string; live: number; backup: number | null }[] = [];
+      for (const [t, live] of Object.entries(liveCounts)) {
+        const b = t in backupCounts ? backupCounts[t] : null;
+        if (b !== live) mismatches.push({ table: t, live, backup: b });
+      }
+
+      // Human-readable receipt of the records that matter to a clinic. Discharge
+      // summaries are a column on ip_admissions, so they get a custom count.
+      const receipt: { label: string; count: number }[] = [];
+      const add = (label: string, table: string) => {
+        if (table in backupCounts) receipt.push({ label, count: backupCounts[table] });
+      };
+      add('Patients', 'patients');
+      add('Visits / appointments', 'appointments');
+      add('OPD consultations', 'consultations');
+      add('Prescriptions', 'prescription_items');
+      add('Bills', 'bills');
+      add('Bill line items', 'bill_items');
+      add('Payments recorded', 'bill_payments');
+      add('IPD admissions', 'ip_admissions');
+      try {
+        const d = db.prepare(
+          "SELECT COUNT(*) AS c FROM ip_admissions WHERE discharge_summary IS NOT NULL AND TRIM(discharge_summary) != ''"
+        ).get() as { c: number };
+        receipt.push({ label: 'Discharge summaries', count: d.c });
+      } catch { /* table/column absent in older schema — skip */ }
+      add('IPD progress notes', 'ip_progress_notes');
+      add('Medication given (MAR)', 'ip_medication_admin');
+      add('Lab orders', 'lab_orders');
+      add('Pharmacy sales', 'pharmacy_sales');
+      add('Uploaded documents', 'patient_documents');
+
+      return { integrityOk, verified: integrityOk && mismatches.length === 0, mismatches, receipt, totalRows };
+    } finally {
+      db.close();
+    }
   }
 
   function countTablesIn(sqlitePath: string): { counts: Record<string, number | null>; totalRows: number } {
@@ -3245,7 +3800,7 @@ export function registerIpc() {
       const safeDir = s.backup_folder || path.join(userData, 'backups');
       if (!fs.existsSync(safeDir)) fs.mkdirSync(safeDir, { recursive: true });
       const r = await performBackupToRoot(safeDir, 'pre-restore');
-      logAudit(getDb(), null, 'pre_restore_backup', 'backups', undefined, r.bundleDir);
+      logAudit(getDb(), actor(), 'pre_restore_backup', 'backups', undefined, r.bundleDir);
     } catch (e: any) {
       return { ok: false, error: 'Could not make safety backup of current data: ' + (e?.message || e) };
     }
@@ -3274,7 +3829,7 @@ export function registerIpc() {
       return { ok: false, error: 'DB restored but documents copy failed: ' + (e?.message || e) };
     }
 
-    logAudit(getDb(), null, 'restore_completed', 'backups', undefined, sourcePath);
+    logAudit(getDb(), actor(), 'restore_completed', 'backups', undefined, sourcePath);
 
     // 5) Relaunch app so all queries re-open against the new DB
     setTimeout(() => { app.relaunch(); app.exit(0); }, 300);
@@ -3390,14 +3945,14 @@ export function registerIpc() {
       if (invalid) return { ok: false as const, error: invalid };
       const db = getDb();
       saveSettings(db, { backup_folder: target, auto_backup_enabled: true });
-      logAudit(db, null, 'backup_cloud_set', 'backups', undefined, `${provider || 'cloud'} → ${target}`);
+      logAudit(db, actor(), 'backup_cloud_set', 'backups', undefined, `${provider || 'cloud'} → ${target}`);
       return { ok: true as const, path: target };
     } catch (err: any) { return { ok: false as const, error: err?.message || 'Failed' }; }
   });
 
   ipcMain.handle('backup:quitAfter', async () => {
     const r = await performBackup();
-    logAudit(getDb(), null, 'backup_and_close', 'backups', undefined, r.bundleDir);
+    logAudit(getDb(), actor(), 'backup_and_close', 'backups', undefined, r.bundleDir);
     closeDb();
     setTimeout(() => app.quit(), 250);
     return { ok: true, path: r.bundleDir };
@@ -3481,46 +4036,6 @@ export function registerIpc() {
 
   // Standalone monthly summary endpoint for the Analytics → Patients sub-tab —
   // counts and revenue forgone (using each doctor's default_fee at time of waiver).
-  ipcMain.handle('analytics:followups', (_e, opts: { from?: string; to?: string } = {}) => {
-    const db = getDb();
-    const today = new Date().toISOString().slice(0, 10);
-    const from = opts.from || today.slice(0, 8) + '01';
-    const to = opts.to || today;
-    const sc = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { c: number }).c;
-    const ss = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { t: number }).t || 0;
-    const freeCount = sc(`
-      SELECT COUNT(*) as c FROM bills
-      WHERE COALESCE(is_free_followup,0)=1 AND date(created_at) BETWEEN ? AND ?
-    `, from, to);
-    const relaxedCount = sc(`
-      SELECT COUNT(*) as c FROM bills
-      WHERE COALESCE(is_relaxed_followup,0)=1 AND date(created_at) BETWEEN ? AND ?
-    `, from, to);
-    // Revenue forgone = the doctor's default fee at the time the waiver was issued.
-    const forgoneFree = ss(`
-      SELECT COALESCE(SUM(d.default_fee),0) as t
-      FROM bills b
-      JOIN appointments a ON a.id=b.appointment_id
-      JOIN doctors d ON d.id=a.doctor_id
-      WHERE COALESCE(b.is_free_followup,0)=1 AND date(b.created_at) BETWEEN ? AND ?
-    `, from, to);
-    const forgoneRelaxed = ss(`
-      SELECT COALESCE(SUM(d.default_fee),0) as t
-      FROM bills b
-      JOIN appointments a ON a.id=b.appointment_id
-      JOIN doctors d ON d.id=a.doctor_id
-      WHERE COALESCE(b.is_relaxed_followup,0)=1 AND date(b.created_at) BETWEEN ? AND ?
-    `, from, to);
-    return {
-      from, to,
-      free_count: freeCount,
-      relaxed_count: relaxedCount,
-      total_waivers: freeCount + relaxedCount,
-      revenue_forgone_free: forgoneFree,
-      revenue_forgone_relaxed: forgoneRelaxed,
-      revenue_forgone_total: forgoneFree + forgoneRelaxed,
-    };
-  });
 
   ipcMain.handle('analytics:demographics', () => {
     const db = getDb();
@@ -3750,7 +4265,7 @@ export function registerIpc() {
     return {
       totalDispensed: sc(`SELECT COUNT(*) as c FROM dispensing_register WHERE date(dispensed_at) BETWEEN ? AND ?`, filter.from, filter.to),
       scheduleHCount: sc(`SELECT COUNT(*) as c FROM dispensing_register WHERE date(dispensed_at) BETWEEN ? AND ? AND schedule IN ('H','H1')`, filter.from, filter.to),
-      totalRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM pharmacy_sales WHERE date(created_at) BETWEEN ? AND ?`, filter.from, filter.to),
+      totalRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM pharmacy_sales WHERE payment_mode <> 'IPD-bill' AND date(created_at) BETWEEN ? AND ?`, filter.from, filter.to),
       totalSales: sc(`SELECT COUNT(*) as c FROM pharmacy_sales WHERE date(created_at) BETWEEN ? AND ?`, filter.from, filter.to),
       // Live inventory valuation (not date-filtered — it's a snapshot of stock now).
       valuation: db.prepare(`
@@ -3785,7 +4300,9 @@ export function registerIpc() {
           COUNT(*) as count,
           COALESCE(SUM(total),0) as revenue
         FROM pharmacy_sales
-        WHERE date(created_at) BETWEEN ? AND ?
+        -- Ward-dispensed medicines are billed on the IPD bill; counting the
+        -- pharmacy sale too would report the same rupee twice.
+        WHERE payment_mode <> 'IPD-bill' AND date(created_at) BETWEEN ? AND ?
         GROUP BY kind
       `).all(filter.from, filter.to),
       scheduleMix: db.prepare(`
@@ -3826,7 +4343,7 @@ export function registerIpc() {
        FROM bills WHERE (status IS NULL OR status <> 'cancelled') AND date(created_at) BETWEEN ? AND ? AND ${cond}`
     ).get(from, to) as { count: number; revenue: number; collected: number };
     const phar = db.prepare(
-      `SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue FROM pharmacy_sales WHERE date(created_at) BETWEEN ? AND ?`
+      `SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue FROM pharmacy_sales WHERE payment_mode <> 'IPD-bill' AND date(created_at) BETWEEN ? AND ?`
     ).get(from, to) as { count: number; revenue: number };
 
     const mk = (key: string, label: string, a: { count: number; revenue: number; collected: number }) => ({
@@ -3834,7 +4351,10 @@ export function registerIpc() {
       collected: Math.round(a.collected), outstanding: Math.round(a.revenue - a.collected),
     });
     const modules = [
-      mk('opd', 'OPD / Consultation', billAgg("bill_type='opd_consult'")),
+      // Exclusive: a Services bill carries bill_kind='misc'. Historic rows created
+      // before bill_type was set still default to 'opd_consult', so they would be
+      // counted here AND under Misc below without this guard.
+      mk('opd', 'OPD / Consultation', billAgg("bill_type='opd_consult' AND (bill_kind IS NULL OR bill_kind <> 'misc')")),
       mk('ipd', 'IPD (in-patient)', billAgg("bill_type='ipd'")),
       mk('lab', 'Laboratory', billAgg("bill_type='lab'")),
       // Pharmacy sells over the counter — treat sale value as collected.
@@ -3927,7 +4447,7 @@ export function registerIpc() {
     const rangeFrom = filter.from || (() => { const d = new Date(); d.setDate(d.getDate() - 29); return d.toISOString().slice(0, 10); })();
     const rangeTo = filter.to || today;
     const rangeBills = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE date(created_at) BETWEEN ? AND ?", [rangeFrom, rangeTo]);
-    const rangePharma = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM pharmacy_sales WHERE date(created_at) BETWEEN ? AND ?", [rangeFrom, rangeTo]);
+    const rangePharma = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM pharmacy_sales WHERE payment_mode <> 'IPD-bill' AND date(created_at) BETWEEN ? AND ?", [rangeFrom, rangeTo]);
 
     const byDay = all(
       `SELECT date(created_at) as day, COALESCE(SUM(total),0) as total, COUNT(*) as count
@@ -4000,7 +4520,7 @@ export function registerIpc() {
 
     // Pharmacy vs OPD comparison — last 30 days
     const opd30 = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE date(created_at) >= date(?, '-29 days')", [today]);
-    const pharma30 = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM pharmacy_sales WHERE date(created_at) >= date(?, '-29 days')", [today]);
+    const pharma30 = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM pharmacy_sales WHERE payment_mode <> 'IPD-bill' AND date(created_at) >= date(?, '-29 days')", [today]);
 
     return {
       today: { total: todayTotal.t, count: todayTotal.c, byMode: todayByMode },

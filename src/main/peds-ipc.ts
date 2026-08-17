@@ -13,6 +13,7 @@ import { ipcMain } from 'electron';
 import { getDb } from '../db/db';
 import { getAllSettings } from '../db/settings';
 import { logAudit } from './auth';
+import { actor } from './ipc';
 import iapSchedule from '../data/peds/iap_schedule.json';
 import nisSchedule from '../data/peds/nis_schedule.json';
 
@@ -97,7 +98,7 @@ export function registerPedsIpc() {
         num(input.wfa_c), num(input.lhfa_c), num(input.hcfa_c), num(input.bfa_c),
         input.notes ?? null, input.recorded_by ?? null
       );
-      logAudit(d, null, 'peds_growth_added', 'peds_growth_measurements', Number(info.lastInsertRowid));
+      logAudit(d, actor(), 'peds_growth_added', 'peds_growth_measurements', Number(info.lastInsertRowid));
       return { ok: true, id: Number(info.lastInsertRowid) };
     } catch (err: any) {
       return fail(`Could not save the measurement: ${err?.message || String(err)}`);

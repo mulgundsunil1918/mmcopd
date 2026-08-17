@@ -48,11 +48,29 @@ export function RoleAccessEditor() {
     setBusy(true);
     try {
       const out: Record<string, Role[]> = {};
-      for (const mod of ACCESS_MODULES) out[mod.path] = [...view[mod.path]];
+      for (const mod of ACCESS_MODULES) {
+        const picked = [...view[mod.path]];
+        /**
+         * An intentionally empty row must MEAN something.
+         *
+         * effectiveRoles() reads [] as "no override" and falls back to the
+         * built-in defaults — so unticking every role showed a success toast and
+         * left the module exactly as open as before. Storing ['admin'] is a
+         * non-empty list that no staff role matches, so the module really does
+         * close, while the owner keeps a way back in.
+         */
+        out[mod.path] = picked.length ? picked : (['admin'] as Role[]);
+      }
       await window.electronAPI.settings.save({ role_access_json: JSON.stringify(out) });
       qc.invalidateQueries({ queryKey: ['settings'] });
       setDirty(false);
-      toast('Access saved — the sidebar updates for each role', 'success');
+      const closed = ACCESS_MODULES.filter((m) => view[m.path].size === 0).length;
+      toast(
+        closed > 0
+          ? `Access saved — ${closed} module${closed === 1 ? '' : 's'} now open to the owner only`
+          : 'Access saved — the sidebar updates for each role',
+        'success',
+      );
     } catch (e: any) { toast(e?.message || 'Could not save', 'error'); }
     finally { setBusy(false); }
   };

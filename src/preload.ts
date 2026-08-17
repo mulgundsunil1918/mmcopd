@@ -52,7 +52,7 @@ import type {
  * copies of this union previously drifted apart, which is what made the user
  * form offer a 'staff' role the backend rejected.
  */
-type Role = 'admin' | 'receptionist' | 'doctor' | 'nurse' | 'ward_incharge' | 'lab_tech' | 'pharmacist';
+type Role = 'admin' | 'manager' | 'receptionist' | 'doctor' | 'nurse' | 'ward_incharge' | 'lab_tech' | 'pharmacist';
 type SessionUser = { id: number; username: string; role: Role; display_name: string | null; doctor_id: number | null };
 
 const api = {
@@ -61,6 +61,11 @@ const api = {
     createUser: (input: { username: string; password: string; role: Role; display_name?: string; doctor_id?: number }) =>
       ipcRenderer.invoke('auth:createUser', input) as Promise<SessionUser>,
     changePassword: (userId: number, newPassword: string) => ipcRenderer.invoke('auth:changePassword', userId, newPassword) as Promise<boolean>,
+    /** "Forgot admin password" recovery: support-signed, machine-bound reset code + new password. */
+    recoverWithCode: (code: string, newPassword: string) =>
+      ipcRenderer.invoke('auth:recoverWithCode', code, newPassword) as Promise<{ ok: boolean; error?: string; username?: string | null }>,
+    /** Clears the MAIN-process session so role enforcement stops applying to this user. */
+    logout: () => ipcRenderer.invoke('auth:logout') as Promise<{ ok: boolean }>,
     listUsers: () => ipcRenderer.invoke('auth:listUsers') as Promise<any[]>,
     updateUser: (id: number, patch: any) => ipcRenderer.invoke('auth:updateUser', id, patch) as Promise<any[]>,
   },
@@ -92,6 +97,15 @@ const api = {
      *  without going through the Windows uninstaller. */
     hardResetAndRestart: () =>
       ipcRenderer.invoke('admin:hardResetAndRestart') as Promise<{ ok: boolean; error?: string }>,
+    /** Testing: load ~50 fictional patients + activity so Analytics is populated. */
+    loadSampleData: () =>
+      ipcRenderer.invoke('admin:loadSampleData') as Promise<{ ok: boolean; error?: string; patients?: number; bills?: number; sales?: number; labOrders?: number; admissions?: number }>,
+    /** How many fictional (MMC-numbered) patients are in this database. */
+    sampleDataCount: () =>
+      ipcRenderer.invoke('admin:sampleDataCount') as Promise<{ ok: boolean; patients?: number; error?: string }>,
+    /** Delete every fictional patient and their records. Real patients untouched. */
+    removeSampleData: () =>
+      ipcRenderer.invoke('admin:removeSampleData') as Promise<{ ok: boolean; removed?: number; note?: string; error?: string }>,
   },
   patients: {
     search: (q: string, opts?: { window?: 'week' | 'month' | 'quarter' | 'all'; sort?: 'recent' | 'registered' | 'name' }) =>
@@ -262,6 +276,9 @@ const api = {
   },
   lab: {
     listTests: (activeOnly = true) => ipcRenderer.invoke('lab:listTests', activeOnly) as Promise<LabTest[]>,
+    /** Delete tests: unused ones are removed, ones with order history are deactivated. */
+    bulkDeleteTests: (ids: number[]) =>
+      ipcRenderer.invoke('lab:bulkDeleteTests', ids) as Promise<{ ok: boolean; hardDeleted: number; softDeleted: number; results: any[] }>,
     upsertTest: (test: Partial<LabTest>) => ipcRenderer.invoke('lab:upsertTest', test) as Promise<LabTest>,
     loadStandardCatalog: () => ipcRenderer.invoke('lab:loadStandardCatalog') as Promise<{ ok: boolean; added: number; total: number }>,
     createOrder: (payload: {
@@ -277,12 +294,27 @@ const api = {
     updateOrderStatus: (orderId: number, status: string) => ipcRenderer.invoke('lab:updateOrderStatus', orderId, status) as Promise<LabOrder>,
     updateResults: (orderId: number, items: { id: number; result: string; is_abnormal?: number }[]) =>
       ipcRenderer.invoke('lab:updateResults', orderId, items) as Promise<LabOrderItem[]>,
+    /** Add tests to an order the doctor already sent; re-prices the linked bill. */
+    addOrderItems: (orderId: number, items: { lab_test_id?: number; test_name: string }[]) =>
+      ipcRenderer.invoke('lab:addOrderItems', orderId, items) as Promise<
+        { ok: true; added: number; billChanged: boolean; note: string; total?: number } | { ok: false; error: string }
+      >,
+    /** Remove a test (refused once its result is entered); re-prices the bill. */
+    removeOrderItem: (orderId: number, itemId: number) =>
+      ipcRenderer.invoke('lab:removeOrderItem', orderId, itemId) as Promise<
+        { ok: true; billChanged: boolean; note: string; total?: number } | { ok: false; error: string }
+      >,
   },
   pharmacy: {
     // listDrugs returns DrugMaster rows joined with summed batch qty + earliest expiry.
     // Returns shape stays Drug-compatible for legacy callers (mrp/batch/expiry/stock_qty aliased).
     listDrugs: (filter?: { q?: string; activeOnly?: boolean }) =>
       ipcRenderer.invoke('pharmacy:listDrugs', filter || {}) as Promise<(DrugMaster & Drug)[]>,
+    loadStandardCatalog: () =>
+      ipcRenderer.invoke('pharmacy:loadStandardCatalog') as Promise<{ ok: boolean; added: number; total: number }>,
+    /** One sale + its lines (with batch/expiry) — used by the printed receipt. */
+    saleDetail: (saleId: number) =>
+      ipcRenderer.invoke('pharmacy:saleDetail', saleId) as Promise<any>,
     listBatches: (drugMasterId: number) =>
       ipcRenderer.invoke('pharmacy:listBatches', drugMasterId) as Promise<DrugStockBatch[]>,
     upsertDrug: (drug: Partial<DrugMaster>) =>
@@ -313,14 +345,6 @@ const api = {
       ipcRenderer.invoke('pharmacy:listSales', filter || {}) as Promise<(PharmacySale & { patient_name: string | null; patient_uhid: string | null })[]>,
     /** Free-form pharmacy sale (no FEFO, no inventory deduct, no register). Mirrors
      *  Services / misc:create — patient required, doctor + items + comment optional. */
-    recordCustomSale: (payload: {
-      patient_id?: number | null;
-      doctor_id?: number | null;
-      items: { drug_name?: string; qty?: number; rate?: number; amount?: number }[];
-      total_amount: number;
-      payment_mode?: string;
-      notes?: string | null;
-    }) => ipcRenderer.invoke('pharmacy:recordCustomSale', payload) as Promise<PharmacySale & { patient_name: string | null; patient_uhid: string | null }>,
   },
   wholesalers: {
     list: (filter?: { activeOnly?: boolean }) =>
@@ -337,8 +361,6 @@ const api = {
       ipcRenderer.invoke('purchase:get', id) as Promise<(PurchaseInvoice & { wholesaler_name: string; items: any[] }) | null>,
     create: (payload: PurchaseInvoiceInput) =>
       ipcRenderer.invoke('purchase:create', payload) as Promise<PurchaseInvoice>,
-    attachScan: (invoiceId: number, fileDataUrl: string, ext: string) =>
-      ipcRenderer.invoke('purchase:attachScan', invoiceId, fileDataUrl, ext) as Promise<{ ok: boolean; path?: string; error?: string }>,
   },
   dispensing: {
     register: (filter: { from: string; to: string; schedule?: string }) =>
@@ -364,12 +386,6 @@ const api = {
       ipcRenderer.invoke('ip:list', filter || {}) as Promise<(IpAdmission & { patient_name: string; patient_uhid: string; patient_phone: string; doctor_name: string | null })[]>,
     admit: (payload: { patient_id: number; admission_doctor_id?: number; bed_number?: string; ward?: string; admission_notes?: string }) =>
       ipcRenderer.invoke('ip:admit', payload) as Promise<IpAdmission>,
-    discharge: (id: number, payload: {
-      discharge_diagnosis?: string; condition_at_discharge?: string;
-      treatment_given?: string; investigation_findings?: string;
-      operative_notes?: string; discharge_medications_json?: string;
-      followup_plan?: string; discharge_doctor_id?: number; discharge_summary?: string;
-    } | string) => ipcRenderer.invoke('ip:discharge', id, payload) as Promise<IpAdmission>,
   },
   // ===== Wards, beds and the IPD ward map =====
   wards: {
@@ -428,6 +444,14 @@ const api = {
       ipcRenderer.invoke('ip:dischargeV2', admissionId, input) as Promise<{ ok: boolean; outcome?: string; error?: string }>,
     saveDischargeSummary: (admissionId: number, payload: any) =>
       ipcRenderer.invoke('ip:saveDischargeSummary', admissionId, payload) as Promise<{ ok: boolean; error?: string }>,
+    /** Step 1 of discharge: save the summary + flag for billing review (patient stays admitted). */
+    requestDischarge: (admissionId: number, input: any, by?: string) =>
+      ipcRenderer.invoke('ip:requestDischarge', admissionId, input, by) as Promise<{ ok: boolean; error?: string; total?: number; balanceDue?: number; advanceAvailable?: number; amountPaid?: number }>,
+    cancelDischargeRequest: (admissionId: number, by?: string) =>
+      ipcRenderer.invoke('ip:cancelDischargeRequest', admissionId, by) as Promise<{ ok: boolean; error?: string }>,
+    /** Step 2: approve + actually discharge. Needs override_reason when a balance is due. */
+    approveDischarge: (admissionId: number, input: { by?: string; override_reason?: string }) =>
+      ipcRenderer.invoke('ip:approveDischarge', admissionId, input) as Promise<{ ok: boolean; error?: string; needsOverride?: boolean; balanceDue?: number; total?: number; advanceAvailable?: number; amountPaid?: number; overridden?: boolean }>,
     vitalsList: (admissionId: number) => ipcRenderer.invoke('ip:vitals:list', admissionId) as Promise<any[]>,
     vitalsAdd: (admissionId: number, input: any) => ipcRenderer.invoke('ip:vitals:add', admissionId, input) as Promise<any>,
     notesList: (admissionId: number) => ipcRenderer.invoke('ip:progressNote:list', admissionId) as Promise<any[]>,
@@ -453,6 +477,14 @@ const api = {
     /** Running IPD bill — "what's the bill till now". */
     previewAdmission: (admissionId: number) =>
       ipcRenderer.invoke('bill:previewAdmission', admissionId) as Promise<any>,
+    /** Admission bills (running + discharged) for the Billing section's IPD tab. */
+    admissionList: (filter?: { status?: 'admitted' | 'discharged' | 'all'; q?: string }) =>
+      ipcRenderer.invoke('bill:admissionList', filter || {}) as Promise<{
+        admission_id: number; admission_number: string; status: string; ward: string | null; bed_number: string | null;
+        admitted_at: string; discharged_at: string | null; discharge_status: string | null; bill_id: number | null;
+        patient_name: string; patient_uhid: string; doctor_name: string | null;
+        total: number; paid: number; advance: number; balance: number; days: number;
+      }[]>,
     addItem: (billId: number, line: any, by?: string) =>
       ipcRenderer.invoke('bill:addItem', billId, line, by) as Promise<any>,
     removeItem: (itemId: number) =>
@@ -461,6 +493,9 @@ const api = {
       ipcRenderer.invoke('bill:setDiscount', billId, discount, type, role, reason, by) as Promise<any>,
     pay: (billId: number, amount: number, mode: string, by?: string) =>
       ipcRenderer.invoke('bill:pay', billId, amount, mode, by) as Promise<{ ok: boolean; error?: string }>,
+    /** Advance receipts on an admission, each with its refundable balance. */
+    advancesList: (admissionId: number) =>
+      ipcRenderer.invoke('advances:list', admissionId) as Promise<{ ok: boolean; error?: string; rows: any[] }>,
     refundAdvance: (advanceId: number, amount: number, reason: string, by?: string) =>
       ipcRenderer.invoke('advances:refund', advanceId, amount, reason, by) as Promise<any>,
     // TPA / insurance
@@ -549,12 +584,6 @@ const api = {
       servicesCountThisMonth: number;
       servicesRevenueThisMonth: number;
     }>,
-    followups: (filter: { from?: string; to?: string } = {}) =>
-      ipcRenderer.invoke('analytics:followups', filter) as Promise<{
-        from: string; to: string;
-        free_count: number; relaxed_count: number; total_waivers: number;
-        revenue_forgone_free: number; revenue_forgone_relaxed: number; revenue_forgone_total: number;
-      }>,
     demographics: () => ipcRenderer.invoke('analytics:demographics') as Promise<{
       total: number;
       byGender: { gender: string; c: number }[];
@@ -748,8 +777,12 @@ const api = {
       ipcRenderer.invoke('reports:run', params) as Promise<any[]>,
   },
   backup: {
-    now: () => ipcRenderer.invoke('backup:now') as Promise<{ path: string; bundleDir: string; totalBundles: number; documentCount: number }>,
-    nowTo: (targetDir: string) => ipcRenderer.invoke('backup:nowTo', targetDir) as Promise<{ ok: boolean; path?: string; documentCount?: number; error?: string }>,
+    now: () => ipcRenderer.invoke('backup:now') as Promise<{ path: string; bundleDir: string; totalBundles: number; documentCount: number;
+      verified: boolean; integrityOk: boolean; mismatches: { table: string; live: number; backup: number | null }[];
+      receipt: { label: string; count: number }[]; totalRows: number }>,
+    nowTo: (targetDir: string) => ipcRenderer.invoke('backup:nowTo', targetDir) as Promise<{ ok: boolean; path?: string; documentCount?: number; error?: string;
+      verified?: boolean; integrityOk?: boolean; mismatches?: { table: string; live: number; backup: number | null }[];
+      receipt?: { label: string; count: number }[]; totalRows?: number }>,
     list: () => ipcRenderer.invoke('backup:list') as Promise<{ name: string; path: string; size: number; mtime: string }[]>,
     open: () => ipcRenderer.invoke('backup:open') as Promise<void>,
     status: () => ipcRenderer.invoke('backup:status') as Promise<{ lastBackupAt: string | null; lastBackupName: string | null; totalBackups: number; dir: string }>,

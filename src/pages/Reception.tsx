@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PageHelp } from '../components/PageHelp';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -119,7 +120,7 @@ export function Reception() {
       {/* LEFT: search */}
       <section className="w-[380px] border-r border-gray-200 flex flex-col bg-white">
         <div className="p-4 border-b border-gray-200">
-          <h1 className="text-lg font-bold text-gray-900 mb-3">Reception</h1>
+          <h1 className="text-lg font-bold text-gray-900 mb-3 inline-flex items-center gap-1.5">Reception<PageHelp page="reception" /></h1>
           <div className="relative">
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input

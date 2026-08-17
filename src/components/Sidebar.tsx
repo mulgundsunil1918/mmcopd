@@ -1,16 +1,13 @@
+import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill, ShieldCheck, UserCircle2, Lock, Unlock, Activity, Syringe, ChevronLeft, Wifi, Server, Heart, MessageSquare, Baby, FileText, Printer } from 'lucide-react';
-
-const SUPPORT_URL = 'https://bridgr.co.in/support?from=curedesk';
-function openSupport() {
-  window.electronAPI.app.openExternal(SUPPORT_URL).catch(() => { /* ignore */ });
-}
-import { useQuery } from '@tanstack/react-query';
+import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill, ShieldCheck, UserCircle2, Lock, Unlock, Activity, Syringe, ChevronLeft, Wifi, Server, LogOut, BookOpen, MessageSquare, Baby, FileText, Printer, Pencil, Eye, EyeOff, GripVertical, Check } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { cn } from '../lib/utils';
 import { useTheme } from '../hooks/useTheme';
 import { useAuth, canAnyRole, type Role } from '../hooks/useAuth';
-import { parseRoleAccess, effectiveRoles } from '../lib/accessModules';
-import { routeLicensed } from '../lib/licenseModules';
+import { parseRoleAccess, effectiveRoles, ACCESS_MODULES } from '../lib/accessModules';
+import { ROUTE_MODULE } from '../lib/licenseModules';
+import { moduleState } from '../lib/moduleAccess';
 import { BackupAndClose } from './BackupAndClose';
 import type { AppMode } from '../types';
 
@@ -35,6 +32,7 @@ type NavItem2 = { to: string; label: string; icon: any; color: string; modes: Se
 const NAV: NavItem2[] = [
   { to: '/reception', label: 'Reception', icon: Users, color: 'text-emerald-500', modes: ALL_MODES, roles: ['receptionist'] },
   { to: '/appointments', label: 'Appointments', icon: Calendar, color: 'text-blue-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
+  { to: '/whatsapp', label: 'Communication', icon: MessageSquare, color: 'text-green-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
   { to: '/doctor-select', label: 'Doctors', icon: Stethoscope, color: 'text-purple-500', modes: DOCTOR_MODES, roles: ['doctor', 'receptionist'] },
   { to: '/lab', label: 'Laboratory', icon: FlaskConical, color: 'text-fuchsia-500', modes: LAB_MODES, roles: ['lab_tech', 'doctor', 'receptionist'] },
   { to: '/pharmacy', label: 'Pharmacy', icon: Pill, color: 'text-lime-500', modes: PHARMACY_MODES, roles: ['pharmacist', 'doctor', 'receptionist'] },
@@ -51,8 +49,8 @@ const NAV: NavItem2[] = [
   { to: '/analytics', label: 'Analytics', icon: Activity, color: 'text-indigo-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
   // Reports merged into Analytics → Operational Reports tab. Page kept reachable
   // by URL (/reports) but no sidebar entry. Re-enable here if you want it back.
-  { to: '/whatsapp', label: 'Communication', icon: MessageSquare, color: 'text-green-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
   { to: '/notifications', label: 'Notifications', icon: Bell, color: 'text-pink-500', modes: ALL_MODES, roles: ['receptionist'] },
+  { to: '/help', label: 'Help & Tutorials', icon: BookOpen, color: 'text-blue-500', modes: ALL_MODES, roles: ['receptionist', 'doctor', 'nurse', 'ward_incharge', 'lab_tech', 'pharmacist', 'manager'] },
   { to: '/users', label: 'Users & Access', icon: ShieldCheck, color: 'text-indigo-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'], adminOnly: true },
   { to: '/settings', label: 'Settings', icon: SettingsIcon, color: 'text-slate-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'], adminOnly: true },
 ];
@@ -64,8 +62,18 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   const { data: license } = useQuery({ queryKey: ['license'], queryFn: () => window.electronAPI.license.status(), staleTime: 60_000 });
   const licensedModules = license?.modules;
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [draft, setDraft] = useState<{ order: string[]; hidden: Record<string, boolean> } | null>(null);
 
   const currentMode = (settings?.app_mode || 'reception_pharmacy_doctor') as AppMode;
+  const { data: updateState } = useQuery({
+    queryKey: ['updates-state'],
+    queryFn: () => window.electronAPI.updates.state(),
+    staleTime: Infinity,
+  });
+  const appVersion = updateState?.appVersion || '—';
   const billingHidden = settings?.show_billing_module === false;
   const originHidden = settings?.show_patient_origin === false;
 
@@ -84,23 +92,85 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   // Admin-customised role → module access (from Settings). Empty = built-in defaults.
   const accessOverrides = parseRoleAccess(settings?.role_access_json);
 
-  const visibleNav = NAV.filter((n) => {
-    // Licence gate — hide modules the clinic's subscription doesn't include.
-    if (!routeLicensed(n.to, licensedModules)) return false;
-    if (!n.modes.has(currentMode)) return false;
-    if (n.to === '/billing' && billingHidden) return false;
-    if (n.to === '/origin' && originHidden) return false;
-    // Pediatrics is an opt-in add-on — hidden unless enabled in Settings.
-    if (n.to === '/pediatrics' && settings?.peds_enabled !== true) return false;
-    // TPA is opt-in too.
-    if (n.to === '/tpa' && settings?.tpa_enabled !== true) return false;
-    // Discharge Summary module — on by default, hide only if switched off in Settings.
-    if (n.to === '/discharge-summary' && settings?.discharge_summary_enabled === false) return false;
-    // Users & Settings stay admin-only (never customisable — prevents lockout).
-    if (n.adminOnly) return canAnyRole(user, n.roles, adminUnlocked);
-    // Everything else honours the admin's Role-Based Access matrix (or the defaults).
-    return canAnyRole(user, effectiveRoles(n.to, n.roles, accessOverrides), adminUnlocked);
+  // Role / licence / mode permitted items, in NAV order (before custom layout).
+  // Uses the SAME evaluator as the URL guard, so the menu can never show
+  // something the guard would block (or hide something it would allow).
+  // The ONE exception: owner-only screens (Settings, Users & Access) stay in the
+  // menu wearing a padlock even before the admin password is entered. They are
+  // how you enter that password — hiding them until you are already unlocked
+  // locked every clinic out of its own Settings.
+  const permitted = NAV.filter((n) => {
+    const st = moduleState(n.to, {
+      user: user as any,
+      adminUnlocked,
+      licensedModules,
+      settings,
+      overrides: accessOverrides,
+      // Role defaults come from ACCESS_MODULES — the same table Settings edits and
+      // the URL guard consults. The sidebar used to keep its own copy in NAV.roles,
+      // and the two drifted the moment a role was added: 'manager' was registered
+      // everywhere else but missing here, so a manager signed in to an empty menu.
+      // NAV.roles now only covers paths ACCESS_MODULES does not list (/help, /users).
+      defaults: ACCESS_MODULES.find((m: { path: string; defaults: Role[] }) => m.path === n.to)?.defaults ?? n.roles,
+      adminOnly: n.adminOnly,
+      inCurrentMode: n.modes.has(currentMode),
+    });
+    return st.allowed || st.reason === 'owner_only';
   });
+  const permittedMap = new Map(permitted.map((n) => [n.to, n]));
+
+  // Apply the user's saved custom layout (order + hidden) on top of `permitted`.
+  const savedLayout: { to: string; hidden?: boolean }[] = (() => {
+    try { const p = JSON.parse(settings?.sidebar_layout || '[]'); return Array.isArray(p) ? p : []; } catch { return []; }
+  })();
+  const layoutOrder = savedLayout.map((x) => x.to);
+  const hiddenMap: Record<string, boolean> = {};
+  for (const x of savedLayout) if (x.hidden) hiddenMap[x.to] = true;
+  const ordered = [...permitted]
+    .sort((a, b) => {
+      const ia = layoutOrder.indexOf(a.to), ib = layoutOrder.indexOf(b.to);
+      if (ia === -1 && ib === -1) return 0;   // both new → keep NAV order (V8 sort is stable)
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    })
+    .map((n) => ({ ...n, hidden: !!hiddenMap[n.to] }));
+
+  const PINNED = new Set(['/settings']);      // never hideable → can't lock yourself out
+  const visibleNav = ordered.filter((n) => PINNED.has(n.to) || !n.hidden);
+
+  // ── Sidebar customisation (edit mode) ──────────────────────────────────────
+  const startEdit = () => {
+    setDraft({ order: ordered.map((n) => n.to), hidden: { ...hiddenMap } });
+    setEditing(true);
+  };
+  const moveItem = (from: number | null, to: number) => {
+    if (from === null || from === to || !draft) return;
+    const order = [...draft.order];
+    const [it] = order.splice(from, 1);
+    order.splice(to, 0, it);
+    setDraft({ ...draft, order });
+  };
+  const toggleHidden = (to: string) => {
+    if (!draft || PINNED.has(to)) return;
+    setDraft({ ...draft, hidden: { ...draft.hidden, [to]: !draft.hidden[to] } });
+  };
+  const saveLayout = async () => {
+    if (!draft) return;
+    const layout = draft.order.map((to) => ({ to, hidden: !!draft.hidden[to] }));
+    try {
+      await window.electronAPI.settings.save({ sidebar_layout: JSON.stringify(layout) } as any);
+      qc.invalidateQueries({ queryKey: ['settings'] });
+    } catch { /* ignore */ }
+    setEditing(false); setDraft(null);
+  };
+  const resetLayout = async () => {
+    try {
+      await window.electronAPI.settings.save({ sidebar_layout: '' } as any);
+      qc.invalidateQueries({ queryKey: ['settings'] });
+    } catch { /* ignore */ }
+    setEditing(false); setDraft(null);
+  };
 
   return (
     <aside className="sidebar w-60 flex flex-col no-print">
@@ -120,7 +190,17 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
             <div className="sidebar-title text-sm leading-tight truncate">{settings?.clinic_name || 'CureDesk HMS'}</div>
             <div className="sidebar-subtitle text-[10px] leading-tight truncate">{settings?.clinic_tagline || clinicName || 'Modern OPD management'}</div>
           </div>
-          {onCollapse && (
+          {!editing && (
+            <button
+              type="button"
+              onClick={startEdit}
+              title="Customise menu — reorder & hide items"
+              className="flex-shrink-0 w-6 h-6 rounded hover:bg-white/10 inline-flex items-center justify-center text-gray-400 hover:text-white transition"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {onCollapse && !editing && (
             <button
               type="button"
               onClick={onCollapse}
@@ -134,29 +214,77 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
       </div>
 
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-        {visibleNav.map(({ to, label, icon: Icon, color, adminOnly }) => {
-          const locked = !!adminOnly && !adminUnlocked && user?.role !== 'admin';
-          return (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) =>
-                cn(
-                  'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition',
-                  isActive ? 'sidebar-link-active shadow-sm' : 'sidebar-link'
-                )
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  <Icon className={cn('w-4 h-4', isActive ? 'text-white' : color)} />
-                  <span className="flex-1">{label}</span>
-                  {locked && <Lock className={cn('w-3 h-3', isActive ? 'text-white' : 'text-amber-500')} />}
-                </>
-              )}
-            </NavLink>
-          );
-        })}
+        {editing && draft ? (
+          <>
+            <div className="px-1 pb-2 mb-2 border-b sidebar-divider">
+              <div className="text-[11px] font-semibold sidebar-title">Customise menu</div>
+              <div className="text-[10px] sidebar-subtitle">Drag ⠿ to reorder · 👁 to hide / show</div>
+              <div className="flex gap-1.5 mt-2">
+                <button type="button" onClick={saveLayout} className="flex-1 text-[11px] font-semibold px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-500 inline-flex items-center justify-center gap-1"><Check className="w-3 h-3" /> Save</button>
+                <button type="button" onClick={() => { setEditing(false); setDraft(null); }} className="flex-1 text-[11px] font-semibold px-2 py-1 rounded bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20">Cancel</button>
+                <button type="button" onClick={resetLayout} title="Reset to default order" className="text-[11px] px-2 py-1 rounded bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20">Reset</button>
+              </div>
+            </div>
+            {draft.order.map((to, i) => {
+              const item = permittedMap.get(to);
+              if (!item) return null;
+              const Icon = item.icon;
+              const isHidden = !!draft.hidden[to];
+              const pinned = PINNED.has(to);
+              return (
+                <div
+                  key={to}
+                  draggable
+                  onDragStart={() => setDragIdx(i)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => { e.preventDefault(); moveItem(dragIdx, i); setDragIdx(null); }}
+                  onDragEnd={() => setDragIdx(null)}
+                  className={cn(
+                    'flex items-center gap-2 px-2 py-2 rounded-lg text-sm sidebar-link select-none border border-transparent',
+                    dragIdx === i ? 'opacity-40' : '',
+                    dragIdx !== null && dragIdx !== i ? 'border-dashed border-white/20' : '',
+                    isHidden && 'opacity-45',
+                  )}
+                >
+                  <GripVertical className="w-3.5 h-3.5 text-gray-400 shrink-0 cursor-grab" />
+                  <Icon className={cn('w-4 h-4', item.color)} />
+                  <span className="flex-1 truncate">{item.label}</span>
+                  {pinned ? (
+                    <Lock className="w-3.5 h-3.5 text-gray-400" />
+                  ) : (
+                    <button type="button" onClick={() => toggleHidden(to)} title={isHidden ? 'Show in menu' : 'Hide from menu'} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10">
+                      {isHidden ? <EyeOff className="w-4 h-4 text-gray-400" /> : <Eye className="w-4 h-4 text-emerald-500" />}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </>
+        ) : (
+          visibleNav.map(({ to, label, icon: Icon, color, adminOnly }) => {
+            const locked = !!adminOnly && !adminUnlocked && user?.role !== 'admin';
+            return (
+              <NavLink
+                key={to}
+                to={to}
+                className={({ isActive }) =>
+                  cn(
+                    'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition',
+                    isActive ? 'sidebar-link-active shadow-sm' : 'sidebar-link'
+                  )
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <Icon className={cn('w-4 h-4', isActive ? 'text-white' : color)} />
+                    <span className="flex-1">{label}</span>
+                    {locked && <Lock className={cn('w-3 h-3', isActive ? 'text-white' : 'text-amber-500')} />}
+                  </>
+                )}
+              </NavLink>
+            );
+          })
+        )}
       </nav>
 
       <div className="px-3 py-3 border-t sidebar-divider space-y-2">
@@ -187,17 +315,18 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
 
         <BackupAndClose />
 
-        <button
-          onClick={openSupport}
-          className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition text-white shadow-sm"
-          style={{ background: 'linear-gradient(135deg, #ec4899, #db2777)' }}
-          title="Open the developer support page in your browser"
-        >
-          <span className="flex items-center gap-2">
-            <Heart className="w-3.5 h-3.5 fill-white" />
-            <span className="font-semibold">Support the developer</span>
-          </span>
-        </button>
+        {/* Sign out — only shown when staff sign-in is on. Without this a clinic
+            that turns logins on can never switch user on a shared counter PC. */}
+        {settings?.require_login && !!user && user.role !== 'staff' && user.id > 0 && (
+          <button
+            onClick={logout}
+            className="sidebar-link w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition"
+            title="Sign out and return to the login screen"
+          >
+            <span className="flex items-center gap-2"><LogOut className="w-3.5 h-3.5 text-rose-500" /> Sign out</span>
+            <span className="sidebar-meta text-[10px]">{user?.username}</span>
+          </button>
+        )}
 
         <button
           onClick={toggle}
@@ -210,7 +339,9 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
           </span>
           <span className="sidebar-meta text-[10px]">tap</span>
         </button>
-        <div className="sidebar-meta text-[10px] px-3">v0.4.0 · {currentMode.replace(/_/g, ' + ')}</div>
+        {/* Read the real version — this was hardcoded, so every build since 0.4.0
+            told support the wrong version when a clinic reported a problem. */}
+        <div className="sidebar-meta text-[10px] px-3">v{appVersion} · {currentMode.replace(/_/g, ' + ')}</div>
       </div>
     </aside>
   );

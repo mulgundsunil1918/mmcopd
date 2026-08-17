@@ -5,6 +5,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 export type Role =
   | 'admin'
   | 'staff'
+  | 'manager'
   | 'receptionist'
   | 'doctor'
   | 'nurse'
@@ -141,6 +142,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
+    // Clear the MAIN-process session too, otherwise role enforcement on
+    // destructive channels would keep treating this PC as the last signed-in user.
+    try { (window as any).electronAPI?.auth?.logout?.(); } catch { /* ignore */ }
     // With mandatory login, logging out returns to the sign-in screen rather
     // than a shared session.
     setUser(requireLogin ? null : DEFAULT_SESSION);

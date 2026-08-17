@@ -150,10 +150,34 @@ export function WardMap({
                   ) : (
                     <div className="mt-auto">
                       {b.status === 'free' && (
-                        <button className="w-full text-[11px] font-semibold rounded-md py-1 bg-emerald-600 text-white hover:bg-emerald-700"
-                          onClick={(e) => { e.stopPropagation(); onAdmit(b); }}>
-                          Admit
-                        </button>
+                        <>
+                          <button className="w-full text-[11px] font-semibold rounded-md py-1 bg-emerald-600 text-white hover:bg-emerald-700"
+                            onClick={(e) => { e.stopPropagation(); onAdmit(b); }}>
+                            Admit
+                          </button>
+                          {/* Taking a bed OUT of service was missing entirely: the map
+                              could free a blocked bed but never block one, so a broken
+                              or reserved bed stayed bookable and someone would admit a
+                              patient into it. These are the other three directions. */}
+                          <div className="flex items-center justify-center gap-1 mt-1 text-[9.5px] text-gray-400">
+                            <button className="hover:text-amber-600 hover:underline" disabled={busyBed === b.id}
+                              title="Hold this bed for an expected admission"
+                              onClick={(e) => { e.stopPropagation(); setStatus(b.id, 'reserved'); }}>Reserve</button>
+                            <span>·</span>
+                            <button className="hover:text-blue-600 hover:underline" disabled={busyBed === b.id}
+                              title="Bed needs cleaning before the next patient"
+                              onClick={(e) => { e.stopPropagation(); setStatus(b.id, 'cleaning'); }}>Cleaning</button>
+                            <span>·</span>
+                            <button className="hover:text-red-600 hover:underline" disabled={busyBed === b.id}
+                              title="Take this bed out of service (broken, under repair, not available)"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (window.confirm(`Block bed ${b.bed_number}?\n\nIt stays out of service — nobody can be admitted into it — until you free it again.`)) {
+                                  setStatus(b.id, 'blocked');
+                                }
+                              }}>Block</button>
+                          </div>
+                        </>
                       )}
                       {b.status === 'cleaning' && (
                         <button className="w-full text-[10px] rounded-md py-1 border border-emerald-500 text-emerald-700 hover:bg-emerald-50"
@@ -163,11 +187,20 @@ export function WardMap({
                         </button>
                       )}
                       {(b.status === 'reserved' || b.status === 'blocked') && (
-                        <button className="w-full text-[10px] rounded-md py-1 border border-gray-400 text-gray-600 hover:bg-gray-50"
-                          disabled={busyBed === b.id}
-                          onClick={(e) => { e.stopPropagation(); setStatus(b.id, 'free'); }}>
-                          Free up
-                        </button>
+                        <div className="space-y-1">
+                          <button className="w-full text-[10px] rounded-md py-1 border border-gray-400 text-gray-600 hover:bg-gray-50 dark:hover:bg-slate-800"
+                            disabled={busyBed === b.id}
+                            title={b.status === 'blocked' ? 'Put this bed back into service' : 'Release this reservation'}
+                            onClick={(e) => { e.stopPropagation(); setStatus(b.id, 'free'); }}>
+                            {b.status === 'blocked' ? 'Unblock' : 'Release'}
+                          </button>
+                          {b.status === 'reserved' && (
+                            <button className="w-full text-[10px] rounded-md py-1 bg-emerald-600 text-white hover:bg-emerald-700"
+                              onClick={(e) => { e.stopPropagation(); onAdmit(b); }}>
+                              Admit
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}

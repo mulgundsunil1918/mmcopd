@@ -16,6 +16,7 @@ import { Guard } from './components/RouteGuard';
 import { DischargeSummary } from './pages/DischargeSummary';
 import { PrintJobs } from './pages/PrintJobs';
 import { Notifications } from './pages/Notifications';
+import { Help } from './pages/Help';
 import { SettingsPage } from './pages/Settings';
 import { UsersPage } from './pages/Users';
 import { Reports } from './pages/Reports';
@@ -26,6 +27,7 @@ import { Pediatrics } from './pages/Pediatrics';
 import { TPA } from './pages/TPA';
 import { WelcomeWizard } from './components/WelcomeWizard';
 import { ForceAdminPasswordGate } from './components/ForceAdminPasswordGate';
+import { ForceBackupFolderGate } from './components/ForceBackupFolderGate';
 import { LicenseGate } from './components/LicenseGate';
 import { HostOfflineOverlay } from './components/HostOfflineOverlay';
 import { ForcePasswordChange } from './components/ForcePasswordChange';
@@ -131,6 +133,7 @@ export default function App() {
       {hostOffline}
       {licenseGate}
       <ForceAdminPasswordGate />
+      <ForceBackupFolderGate />
       {wizardOverlay}
       {needsSetupBanner && !wizardOpen && (
         <div className="no-print fixed top-0 left-0 right-0 z-[140] bg-blue-600 text-white px-4 py-2 text-xs text-center font-semibold shadow flex items-center justify-center gap-3">
@@ -163,6 +166,7 @@ export default function App() {
         <Route path="/pediatrics" element={<Guard path="/pediatrics"><Pediatrics /></Guard>} />
         <Route path="/tpa" element={<Guard path="/tpa"><TPA /></Guard>} />
         <Route path="/notifications" element={<Guard path="/notifications"><Notifications /></Guard>} />
+        <Route path="/help" element={<Help />} />
         <Route path="/whatsapp" element={<Guard path="/whatsapp"><WhatsApp /></Guard>} />
         {/* Settings & Users self-gate with an admin-password unlock screen, so they
             are intentionally NOT route-guarded (a redirect would hide that gate). */}

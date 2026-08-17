@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { HelpTip } from '../HelpTip';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileText, Plus, Pencil, Trash2, Loader2, X, ChevronUp, ChevronDown, AlertCircle, GripVertical, Eye } from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
@@ -108,7 +109,7 @@ export function DischargeTemplateEditor() {
     <div className="card p-5 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Discharge Summary Templates</div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">Discharge Summary Templates<HelpTip title="Discharge Summary Templates"><><p>Ready-made discharge summaries a doctor can start from instead of typing every section afresh.</p><p>Make one per department or common condition. Loading a template only fills the blanks — the doctor edits everything before it is saved.</p></></HelpTip></div>
           <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
             Build your own summary — add the sections you want and name them yourself. On discharge, one click loads
             them; the doctor edits and prints. Scope a template to a department or doctor, or leave it for everyone.

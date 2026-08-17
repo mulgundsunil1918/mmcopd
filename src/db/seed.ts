@@ -1,4 +1,6 @@
 import type Database from 'better-sqlite3';
+import { PHARMACY_CATALOG } from '../data/pharmacy-catalog';
+import { LAB_CATALOG } from '../data/lab-catalog';
 
 const DEFAULT_SETTINGS: Record<string, string> = {
   // Empty by design — every install asks the admin to fill these in via
@@ -118,28 +120,83 @@ export function seedIfEmpty(db: Database.Database) {
     for (const d of drugs) ins.run(...d);
   }
 
-  // Seed common lab tests
-  const labCount = db.prepare('SELECT COUNT(*) as c FROM lab_tests').get() as { c: number };
-  if (labCount.c === 0) {
-    const ins = db.prepare('INSERT INTO lab_tests (name, price, sample_type, ref_range, unit) VALUES (?, ?, ?, ?, ?)');
-    const tests: [string, number, string, string, string][] = [
-      ['Complete Blood Count (CBC)', 300, 'Blood (EDTA)', 'Hb 12-16 g/dL; WBC 4-11 ×10³/µL', ''],
-      ['Fasting Blood Sugar (FBS)', 80, 'Blood (Fluoride)', '70-100', 'mg/dL'],
-      ['Post-prandial Blood Sugar (PPBS)', 80, 'Blood (Fluoride)', '<140', 'mg/dL'],
-      ['HbA1c', 400, 'Blood (EDTA)', '4-5.6', '%'],
-      ['Lipid Profile', 500, 'Blood (SST)', 'Total Cholesterol <200 mg/dL', ''],
-      ['Liver Function Test (LFT)', 450, 'Blood (SST)', '—', ''],
-      ['Kidney Function Test (KFT)', 450, 'Blood (SST)', 'Creatinine 0.6-1.2 mg/dL', ''],
-      ['Thyroid Profile (T3 T4 TSH)', 400, 'Blood (SST)', 'TSH 0.4-4.0', 'µIU/mL'],
-      ['Urine Routine', 100, 'Urine', 'Normal', ''],
-      ['ECG', 200, '—', 'Normal sinus rhythm', ''],
-      ['X-Ray Chest PA', 250, '—', 'Normal lung fields', ''],
-      ['Dengue NS1', 350, 'Blood (SST)', 'Negative', ''],
-      ['Malaria Parasite (MP)', 150, 'Blood', 'Not detected', ''],
-      ['Widal Test', 150, 'Blood (SST)', '<1:80', ''],
-      ['COVID-19 Rapid Antigen', 300, 'Nasal swab', 'Negative', ''],
-    ];
-    for (const t of tests) ins.run(...t);
+  // Seed the full pharmacy CATALOGUE into drug_master (the table the Pharmacy
+  // screen actually lists), plus an opening stock batch for each, so a fresh
+  // install starts with a ready, sellable drug list. Clinics edit prices / stock
+  // or remove items from Pharmacy → Manage Drugs. Only runs when empty.
+  const masterCount = db.prepare('SELECT COUNT(*) as c FROM drug_master').get() as { c: number };
+  if (masterCount.c === 0) {
+    const insM = db.prepare(
+      `INSERT INTO drug_master (name, generic_name, form, strength, pack_size, schedule, gst_rate, default_mrp, low_stock_threshold, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
+    );
+    const insB = db.prepare(
+      `INSERT INTO drug_stock_batches (drug_master_id, batch_no, expiry, qty_received, qty_remaining, purchase_price, mrp, received_at, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, date('now'), 1)`
+    );
+    const exp = new Date(); exp.setMonth(exp.getMonth() + 18);
+    const expiryStr = exp.toISOString().slice(0, 10);
+    let n = 0;
+    for (const d of PHARMACY_CATALOG) {
+      const r = insM.run(d.name, d.generic_name, d.form, d.strength, d.pack_size ?? null, d.schedule, d.gst_rate, d.default_mrp, 10);
+      const qty = 50 + ((n * 7) % 150);            // varied opening stock 50–200
+      const pp = Math.round(d.default_mrp * 0.72); // ~28% margin
+      insB.run(r.lastInsertRowid, `B${1000 + n}`, expiryStr, qty, qty, pp, d.default_mrp);
+      n++;
+    }
+  }
+
+  /**
+   * Lab catalogue — the full standard list, present from first run.
+   *
+   * This used to seed 15 hardcoded tests and leave the other ~160 behind a
+   * "Load standard catalogue" button in Settings, so every clinic had to know
+   * to press it before their lab was usable. The whole catalogue now ships.
+   *
+   * Guarded by a one-time flag rather than a row count, for two reasons: an
+   * existing install already HAS those 15 rows (so a count check would skip it
+   * forever), and topping up on every boot would resurrect tests a clinic had
+   * deliberately deleted. Runs once, adds only names not already present, and
+   * never touches a test the clinic has edited.
+   */
+  const labSeedFlag = db.prepare("SELECT value FROM settings WHERE key='lab_catalog_seeded'").get() as { value: string } | undefined;
+  if (!labSeedFlag) {
+    // Prices the old 15-test seed shipped, carried across to the catalogue's
+    // names so a clinic upgrading doesn't silently lose them. Everything else
+    // starts at 0 — a clinic's rates are its own, and a guessed price on a bill
+    // is worse than a blank one it has to fill in.
+    const KNOWN_PRICES: Record<string, number> = {
+      'complete blood count (cbc)': 300,
+      'fasting blood sugar (fbs)': 80,
+      'post-prandial blood sugar (ppbs)': 80,
+      'hba1c': 400,
+      'lipid profile': 500,
+      'liver function test (lft)': 450,
+      'kidney function test (kft/rft)': 450,
+      'thyroid profile (t3 t4 tsh)': 400,
+      'urine routine & microscopy': 100,
+      'ecg': 200,
+      'x-ray chest pa view': 250,
+      'dengue ns1 antigen': 350,
+      'malaria parasite (smear)': 150,
+      'widal test': 150,
+      'covid-19 rapid antigen': 300,
+    };
+    const existing = new Set(
+      (db.prepare('SELECT LOWER(name) AS n FROM lab_tests').all() as { n: string }[]).map((r) => r.n)
+    );
+    const ins = db.prepare(
+      'INSERT INTO lab_tests (name, price, sample_type, ref_range, unit, category, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)'
+    );
+    const tx = db.transaction(() => {
+      for (const t of LAB_CATALOG) {
+        const key = t.name.toLowerCase();
+        if (existing.has(key)) continue;
+        ins.run(t.name, KNOWN_PRICES[key] ?? 0, t.sample_type ?? null, t.ref_range ?? null, t.unit ?? null, t.category ?? 'pathology');
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('lab_catalog_seeded', '1')").run();
+    });
+    tx();
   }
 
   // Seed clinical quick-fill templates (stored as JSON in settings)

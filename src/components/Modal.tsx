@@ -12,7 +12,7 @@ export function Modal({
   onClose: () => void;
   title: string;
   children: React.ReactNode;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'full';
 }) {
   // Track where the mouse was originally pressed. Only treat a backdrop click
   // as a "close" if BOTH mousedown and mouseup landed on the backdrop itself.
@@ -28,7 +28,13 @@ export function Modal({
   }, [open, onClose]);
 
   if (!open) return null;
-  const widths: Record<string, string> = { sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-2xl', xl: 'max-w-4xl' };
+  // '2xl' / 'full' are for work surfaces (an IPD admission, a bill) that need
+  // room for side-by-side panels — 'xl' (896px) squeezes them.
+  const widths: Record<string, string> = {
+    sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-2xl', xl: 'max-w-4xl',
+    '2xl': 'max-w-6xl', full: 'max-w-[95vw]',
+  };
+  const tall = size === '2xl' || size === 'full';
 
   return (
     <div
@@ -40,7 +46,7 @@ export function Modal({
       }}
     >
       <div
-        className={`card w-full ${widths[size]} max-h-[90vh] flex flex-col`}
+        className={`card w-full ${widths[size]} ${tall ? 'h-[92vh] max-h-[92vh]' : 'max-h-[90vh]'} flex flex-col`}
         onMouseDown={(e) => e.stopPropagation()}
         onMouseUp={(e) => e.stopPropagation()}
       >

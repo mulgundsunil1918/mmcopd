@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ShieldCheck, Loader2, Eye, EyeOff } from 'lucide-react';
+import { ForgotPasswordLink } from './ForgotPasswordDialog';
 
 /**
  * First-run security gate. If the clinic is still on the factory admin password
@@ -83,8 +84,12 @@ export function ForceAdminPasswordGate() {
         </button>
 
         <p className="text-[11px] text-gray-400 mt-3 text-center leading-relaxed">
-          Change it later in Settings → Security. Keep it safe — a fully offline app has no “forgot password”.
+          Change it later in Settings → Security. Keep it safe — but if it’s ever lost,
+          CureDesk support can issue a one-time reset code for this computer.
         </p>
+        <div className="text-center mt-1">
+          <ForgotPasswordLink label="Already locked out? Get a support reset code" />
+        </div>
       </div>
     </div>
   );

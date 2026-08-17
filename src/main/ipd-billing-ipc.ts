@@ -13,11 +13,13 @@
 import { ipcMain } from 'electron';
 import type Database from 'better-sqlite3';
 import { getDb } from '../db/db';
+import { requireRole, actor } from './ipc';
 import { getAllSettings } from '../db/settings';
 import { logAudit } from './auth';
 import { broadcastEvent } from './network-server';
-import { computeBill, money, discountCapForRole, type BillLineInput } from './billing-engine';
+import { computeBill, money, discountCapForRole, type BillLineInput, transferDayRate } from './billing-engine';
 import { nextIpNumber, nextBillNumber } from '../db/ids';
+import { requireModule } from './licensing/enforce';
 
 type Ok<T> = { ok: true } & T;
 type Err = { ok: false; error: string };
@@ -84,6 +86,201 @@ function getOrCreateAdmissionBill(db: Database.Database, admissionId: number): n
   return billId;
 }
 
+/**
+ * Post the automatic per-day stay charges (bed + nursing) onto an admission's
+ * running bill, one line per calendar day from the admission date up to today
+ * (or the discharge date, whichever is earlier).
+ *
+ * Safe to call as often as you like: each line carries source='bed'/'nursing'
+ * plus its accrual_date, and a partial UNIQUE index guarantees the same day can
+ * never be posted twice — so opening the bill, restarting the app, or running
+ * the scheduler all converge on the same result.
+ *
+ * Rates come from the admission's ward (per_day_rate / nursing_per_day). Once a
+ * line exists staff can edit or delete it like any other; we never rewrite a day
+ * that's already posted. Nothing is charged for a ward whose rate is 0.
+ */
+export function accrueStayCharges(db: Database.Database, admissionId: number, by?: string): { added: number; days: number } {
+  const adm = db.prepare(
+    `SELECT a.id, a.admitted_at, a.discharged_at, a.status, a.bill_id, a.ward_id, a.ward,
+            w.per_day_rate, w.nursing_per_day, w.name AS ward_name
+       FROM ip_admissions a LEFT JOIN wards w ON w.id = a.ward_id
+      WHERE a.id=?`
+  ).get(admissionId) as any;
+  if (!adm) return { added: 0, days: 0 };
+
+  /**
+   * Honour the clinic's own switches.
+   *
+   * Settings → Billing & IPD offers "Charge the bed rate automatically each day"
+   * and the same for nursing, but nothing ever read them: a clinic that turned
+   * bed accrual off still got a bed line posted every night, and had to delete it
+   * by hand each morning. A rate of zero here means "do not post this one".
+   */
+  const s0 = getAllSettings(db);
+  const visitFeesOn = s0.ipd_auto_accrue_doctor_visit !== false;
+  const visitMode = (s0.ipd_doctor_visit_mode as string) || 'per_consultant';
+  const bedRate = s0.ipd_auto_accrue_bed === false ? 0 : Number(adm.per_day_rate || 0);
+  const nurseRate = s0.ipd_auto_accrue_nursing === false ? 0 : Number(adm.nursing_per_day || 0);
+  if (bedRate <= 0 && nurseRate <= 0 && !visitFeesOn) return { added: 0, days: 0 };   // nothing to post
+
+  const billId = getOrCreateAdmissionBill(db, admissionId);
+  /**
+   * Count bed-days in the CLINIC'S calendar, not in UTC.
+   *
+   * This previously mixed the two: the start was local midnight parsed from a
+   * UTC-sliced date, the end came from `toISOString()` (UTC), and every line was
+   * labelled with a UTC date. In IST that meant a patient admitted at 01:00 was
+   * stored as the previous UTC day, so by mid-morning the loop had already run
+   * twice — an extra bed charge and an extra nursing charge on day one — and
+   * every posted line was dated a day earlier than the day it was actually for.
+   *
+   * Now: convert the stored instant to the local day, then step whole local days.
+   */
+  const startInstant = parseDbTimestamp(adm.admitted_at);
+  const endInstant = adm.discharged_at ? parseDbTimestamp(adm.discharged_at) : new Date();
+  if (isNaN(startInstant.getTime()) || isNaN(endInstant.getTime())) return { added: 0, days: 0 };
+  const startDay = new Date(startInstant.getFullYear(), startInstant.getMonth(), startInstant.getDate());
+  const endDay = new Date(endInstant.getFullYear(), endInstant.getMonth(), endInstant.getDate());
+  if (endDay < startDay) return { added: 0, days: 0 };
+
+  // Days already posted, so we only fill the gaps.
+  const existing = new Set(
+    (db.prepare(
+      // doctor_visit keys include the doctor id, so two consultants on the same
+      // day are tracked separately rather than one blocking the other.
+      `SELECT source || '|' || accrual_date ||
+              CASE WHEN source='doctor_visit' THEN '|' || COALESCE(source_ref_id,0) ELSE '' END AS k
+         FROM bill_items
+        WHERE bill_id=? AND accrual_date IS NOT NULL AND source IN ('bed','nursing','doctor_visit')`
+    ).all(billId) as { k: string }[]).map((r) => r.k)
+  );
+
+  const wardLabel = adm.ward_name || adm.ward || 'Ward';
+  let added = 0, days = 0;
+  // Step by calendar day (not +86,400,000 ms) so a DST shift cannot skip or
+  // duplicate a day in clinics that observe one.
+  for (let cur = new Date(startDay); cur <= endDay; cur.setDate(cur.getDate() + 1)) {
+    const day = localDayString(cur);
+    days++;
+    // NOTE: source_ref_id must be a non-NULL sentinel (0). SQLite treats NULLs as
+    // distinct inside a UNIQUE index, so leaving it NULL would silently disable
+    // idx_bill_items_accrual_once and let the same day post twice.
+    /**
+     * Daily doctor visit fee.
+     *
+     * Settings offers "Charge doctor visit fees automatically each day" and a
+     * mode (every doctor who wrote a note that day / only the admitting doctor),
+     * but nothing implemented it — the switch and the dropdown did nothing at
+     * all. Charged per doctor per day at that doctor's own fee, keyed by
+     * source_ref_id = doctor id so two consultants on the same day are two
+     * distinct lines and the unique accrual index still stops repeats.
+     */
+    if (visitFeesOn) {
+      const visitors = visitMode === 'primary_only'
+        ? (adm.admission_doctor_id ? [{ doctor_id: adm.admission_doctor_id }] : [])
+        : (db.prepare(
+            `SELECT DISTINCT doctor_id FROM ip_progress_notes
+              WHERE admission_id=? AND doctor_id IS NOT NULL AND date(noted_at)=?`
+          ).all(admissionId, day) as { doctor_id: number }[]);
+      for (const v of visitors) {
+        if (!v.doctor_id) continue;
+        const doc = db.prepare('SELECT name, default_fee FROM doctors WHERE id=?').get(v.doctor_id) as any;
+        const fee = Number(doc?.default_fee) || 0;
+        if (fee <= 0) continue;
+        if (existing.has(`doctor_visit|${day}|${v.doctor_id}`)) continue;
+        try {
+          addLine(db, billId, {
+            description: `Doctor visit — ${doc?.name || 'Consultant'} (${day})`,
+            qty: 1, rate: fee, amount: fee,
+            source: 'doctor_visit', source_ref_id: v.doctor_id, accrual_date: day,
+            is_taxable: false, gst_rate: 0,
+          }, by);
+          added++;
+        } catch { /* unique index already has this doctor-day */ }
+      }
+    }
+
+    if (bedRate > 0 && !existing.has(`bed|${day}`)) {
+      try {
+        addLine(db, billId, { description: `Bed charge — ${wardLabel} (${day})`, qty: 1, rate: bedRate, source: 'bed', source_ref_id: 0, accrual_date: day }, by || 'auto');
+        added++;
+      } catch { /* unique index caught a race — fine */ }
+    }
+    if (nurseRate > 0 && !existing.has(`nursing|${day}`)) {
+      try {
+        addLine(db, billId, { description: `Nursing charge — ${wardLabel} (${day})`, qty: 1, rate: nurseRate, source: 'nursing', source_ref_id: 0, accrual_date: day }, by || 'auto');
+        added++;
+      } catch { /* ignore */ }
+    }
+  }
+  if (added) recalcBill(db, billId);
+  return { added, days };
+}
+
+/**
+ * Read a timestamp written by either SQLite or JavaScript, as UTC.
+ *
+ * SQLite's `datetime('now')` yields "2026-08-15 19:30:00" with no zone marker —
+ * and JavaScript parses that as LOCAL time, which is wrong: SQLite wrote UTC.
+ * Code elsewhere stores `new Date().toISOString()`, which is explicit UTC. Both
+ * shapes reach these tables, so normalise before doing any date arithmetic.
+ */
+function parseDbTimestamp(v: string): Date {
+  const raw = String(v || '').trim();
+  if (!raw) return new Date(NaN);
+  if (/[Zz]$|[+-]\d{2}:?\d{2}$/.test(raw)) return new Date(raw);           // already zoned
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return new Date(raw + 'T00:00:00Z'); // bare date
+  return new Date(raw.replace(' ', 'T') + 'Z');                             // SQLite UTC
+}
+
+/** The clinic's own calendar day for an instant — "what date is it here". */
+function localDayString(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Post the day's bed / nursing / doctor-visit charges for every admitted patient.
+ *
+ * Settings has always offered a "time the daily charges post" (default 00:05),
+ * but nothing ever ran on a schedule: charges only appeared when a human opened
+ * that patient's bill. So a ward with no visitors that morning had no charges
+ * posted, and the Billing list showed yesterday's total. The accrual is
+ * idempotent — the unique accrual index makes a repeat a no-op — so running it
+ * on a timer is safe, and a missed day is simply filled in on the next run.
+ */
+export function runDailyAccrual(): { admissions: number; added: number } {
+  const d = getDb();
+  let admissions = 0, added = 0;
+  try {
+    for (const r of d.prepare("SELECT id FROM ip_admissions WHERE status='admitted'").all() as { id: number }[]) {
+      admissions++;
+      try { added += accrueStayCharges(d, r.id, 'auto').added; }
+      catch { /* one bad admission must not stop the rest */ }
+    }
+  } catch { /* IPD not in use on this install */ }
+  return { admissions, added };
+}
+
+/** Money picture for an admission: bill total vs advances + payments = balance. */
+function dischargeFinancials(db: Database.Database, admissionId: number) {
+  const billId = getOrCreateAdmissionBill(db, admissionId);
+  const totals = recalcBill(db, billId);
+  const adv = db.prepare(
+    'SELECT COALESCE(SUM(amount - refunded_amount), 0) AS a FROM advances WHERE admission_id=?'
+  ).get(admissionId) as { a: number };
+  const paid = db.prepare(
+    'SELECT COALESCE(SUM(amount), 0) AS p FROM bill_payments WHERE bill_id=?'
+  ).get(billId) as { p: number };
+  const total = money(totals.total);
+  const advance = money(adv.a);
+  const amountPaid = money(paid.p);
+  return { billId, total, advanceAvailable: advance, amountPaid, balanceDue: money(total - advance - amountPaid) };
+}
+
 /** Recompute and persist a bill's totals from its current lines. */
 function recalcBill(db: Database.Database, billId: number) {
   const bill = db
@@ -94,6 +291,39 @@ function recalcBill(db: Database.Database, billId: number) {
   const rows = db
     .prepare('SELECT id, description, qty, rate, amount, gst_rate, is_taxable FROM bill_items WHERE bill_id=? ORDER BY id')
     .all(billId) as any[];
+
+  /**
+   * A bill with no line ROWS is not a bill worth zero.
+   *
+   * Services (`misc:create`) and Quick Bill (`bills:create`) store their lines in
+   * `bills.items_json` and never insert `bill_items`. Recalculating from an empty
+   * `bill_items` produced 0/0 — and the UPDATE below then WROTE that back, so
+   * merely opening or printing such a bill destroyed its amount: the patient got
+   * a ₹0.00 invoice and the row under-reported revenue for ever after.
+   *
+   * When there are no lines to add up, there is nothing to recalculate. Return
+   * what is stored instead of overwriting it with zero. (`items_json` bills are
+   * converted to real rows by migrateBillItemsFromJson at startup; until then
+   * their stored totals are the truth.)
+   */
+  if (rows.length === 0) {
+    const stored = db
+      .prepare('SELECT subtotal, total, taxable_total, exempt_total, cgst_total, sgst_total, round_off, is_tax_invoice FROM bills WHERE id=?')
+      .get(billId) as any;
+    return {
+      lines: [],
+      subtotal: Number(stored?.subtotal) || 0,
+      total: Number(stored?.total) || 0,
+      taxableTotal: Number(stored?.taxable_total) || 0,
+      exemptTotal: Number(stored?.exempt_total) || 0,
+      cgstTotal: Number(stored?.cgst_total) || 0,
+      sgstTotal: Number(stored?.sgst_total) || 0,
+      roundOff: Number(stored?.round_off) || 0,
+      isTaxInvoice: !!stored?.is_tax_invoice,
+      discountValue: Number(bill.discount) || 0,
+      grossTotal: Number(stored?.total) || 0,
+    };
+  }
 
   const s = getAllSettings(db);
   const totals = computeBill(
@@ -108,7 +338,10 @@ function recalcBill(db: Database.Database, billId: number) {
     {
       discount: bill.discount,
       discount_type: bill.discount_type,
-      gstEnabled: s.gst_enabled,
+      // A composition dealer pays GST from its own margin and may NOT collect it
+      // from the patient or issue a tax invoice — so tax is forced off for them
+      // regardless of the per-line rates.
+      gstEnabled: s.gst_enabled && s.gst_registration_type !== 'composition',
       roundOff: s.bill_round_off,
     }
   );
@@ -379,6 +612,7 @@ export function registerIpdBillingIpc() {
 
   // ---------- Admission ----------
   ipcMain.handle('ip:admitV2', (_e, input: any) => {
+    requireModule('ipd', 'In-Patient (IPD)');
     const d = db();
     try {
       const patientId = requireId(input?.patient_id, 'Patient');
@@ -458,7 +692,7 @@ export function registerIpdBillingIpc() {
       });
 
       tx();
-      logAudit(d, null, 'ip_admitted', 'ip_admissions', admissionId,
+      logAudit(d, actor(), 'ip_admitted', 'ip_admissions', admissionId,
         `${admissionNumber} → ${bed.ward_name}/${bed.bed_number}`);
       broadcastEvent('ip:admitted', { admissionId, bedId });
       return { ok: true, id: admissionId, admission_number: admissionNumber };
@@ -498,12 +732,47 @@ export function registerIpdBillingIpc() {
         ).run(aid, adm.bed_id, bid, reason ?? null, by ?? null);
         if (adm.bed_id) d.prepare(`UPDATE beds SET status='cleaning' WHERE id=?`).run(adm.bed_id);
         d.prepare(`UPDATE beds SET status='occupied' WHERE id=?`).run(bid);
+        /**
+         * Post every day up to now at the OLD ward's rate before the move.
+         *
+         * accrueStayCharges prices back-filled days from the admission's CURRENT
+         * ward. Without this, moving a patient from a ₹500 general bed to a
+         * ₹2,000 ICU bed silently re-priced their earlier unposted days at ICU
+         * rates — the family is billed ICU for nights spent in the general ward.
+         */
+        try { accrueStayCharges(d, aid); } catch { /* never block the transfer */ }
+
+        /**
+         * Re-price TODAY's bed line using the clinic's transfer rule.
+         *
+         * Settings asks "if a patient moves ward mid-day, charge…" (higher /
+         * pro-rata / both) and transferDayRate() implements all three — but
+         * nothing ever called it, so the answer was ignored and the day was
+         * simply billed at whichever ward the accrual happened to see.
+         */
+        try {
+          const sT = getAllSettings(d);
+          const oldRate = Number(adm.per_day_rate || 0);
+          const newRate = Number(bed.per_day_rate ?? 0);
+          if (oldRate > 0 || newRate > 0) {
+            const today = new Date();
+            const dayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            const line = d.prepare(
+              `SELECT bi.id FROM bill_items bi JOIN bills b ON b.id = bi.bill_id
+                WHERE b.admission_id=? AND bi.source='bed' AND bi.accrual_date=?`
+            ).get(aid, dayKey) as { id: number } | undefined;
+            if (line) {
+              const rate = transferDayRate([oldRate, newRate], (sT.ipd_transfer_charge_rule as any) || 'higher');
+              d.prepare('UPDATE bill_items SET rate=?, amount=? WHERE id=?').run(rate, rate, line.id);
+            }
+          }
+        } catch { /* pricing nicety — never block the move itself */ }
         d.prepare('UPDATE ip_admissions SET bed_id=?, ward_id=?, ward=?, bed_number=? WHERE id=?')
           .run(bid, bed.ward_id, bed.ward_name, bed.bed_number, aid);
       });
       tx();
 
-      logAudit(d, null, 'ip_transferred', 'ip_admissions', aid, `→ ${bed.ward_name}/${bed.bed_number}`);
+      logAudit(d, actor(), 'ip_transferred', 'ip_admissions', aid, `→ ${bed.ward_name}/${bed.bed_number}`);
       broadcastEvent('ip:transferred', { admissionId: aid, toBedId: bid });
       return { ok: true };
     } catch (err: any) {
@@ -565,11 +834,227 @@ export function registerIpdBillingIpc() {
       });
       tx();
 
-      logAudit(d, null, 'ip_discharged', 'ip_admissions', aid, `${adm.admission_number} · ${outcome}`);
+      logAudit(d, actor(), 'ip_discharged', 'ip_admissions', aid, `${adm.admission_number} · ${outcome}`);
       broadcastEvent('ip:discharged', { admissionId: aid, outcome });
       return { ok: true, outcome };
     } catch (err: any) {
       return fail(`Discharge failed: ${err?.message || String(err)}`);
+    }
+  });
+
+  /**
+   * All admission bills for the Billing section's IPD tab — current admissions
+   * (running bills) and discharged ones, with the money picture per row so
+   * reception can spot unpaid balances at a glance.
+   */
+  ipcMain.handle('bill:admissionList', (_e, filter: { status?: 'admitted' | 'discharged' | 'all'; q?: string } = {}) => {
+    const d = db();
+    try {
+      /**
+       * Bring every running bill up to date first.
+       *
+       * The list reads bills.total, but bed and nursing charges are only posted
+       * when someone opens that patient's bill. So the Billing list showed a
+       * total from whenever the bill was last viewed, disagreeing with the
+       * workspace the moment you clicked in — and the day's accrual was invisible
+       * until somebody happened to look. accrueStayCharges is idempotent (the
+       * unique accrual index makes a repeat a no-op), so this is safe to run here.
+       */
+      try {
+        for (const r of d.prepare("SELECT id FROM ip_admissions WHERE status='admitted'").all() as { id: number }[]) {
+          try { accrueStayCharges(d, r.id); } catch { /* never let one admission break the list */ }
+        }
+      } catch { /* ignore — listing must work even if accrual cannot */ }
+      const want = filter.status || 'all';
+      const conds: string[] = [];
+      const params: any[] = [];
+      if (want === 'admitted') conds.push("a.status='admitted'");
+      if (want === 'discharged') conds.push("a.status='discharged'");
+      if (filter.q) {
+        conds.push(`((p.first_name || ' ' || p.last_name) LIKE ? OR p.uhid LIKE ? OR a.admission_number LIKE ?)`);
+        const like = `%${filter.q}%`;
+        params.push(like, like, like);
+      }
+      const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+      const rows = d.prepare(
+        `SELECT a.id AS admission_id, a.admission_number, a.status, a.ward, a.bed_number,
+                a.admitted_at, a.discharged_at, a.discharge_status, a.bill_id,
+                (p.first_name || ' ' || p.last_name) AS patient_name, p.uhid AS patient_uhid,
+                COALESCE(b.total, 0) AS total,
+                COALESCE((SELECT SUM(amount) FROM bill_payments WHERE bill_id = a.bill_id), 0) AS paid,
+                COALESCE((SELECT SUM(amount - refunded_amount) FROM advances WHERE admission_id = a.id), 0) AS advance,
+                dr.name AS doctor_name
+           FROM ip_admissions a
+           JOIN patients p ON p.id = a.patient_id
+           LEFT JOIN bills b ON b.id = a.bill_id
+           LEFT JOIN doctors dr ON dr.id = a.admission_doctor_id
+           ${where}
+          ORDER BY (a.status='admitted') DESC, COALESCE(a.discharged_at, a.admitted_at) DESC
+          LIMIT 500`
+      ).all(...params) as any[];
+      return rows.map((r) => {
+        const balance = money(Number(r.total) - Number(r.paid) - Number(r.advance));
+        const days = Math.max(1, Math.ceil(
+          ((r.discharged_at ? new Date(r.discharged_at).getTime() : Date.now()) - new Date(r.admitted_at).getTime()) / 86_400_000
+        ));
+        return { ...r, total: money(r.total), paid: money(r.paid), advance: money(r.advance), balance, days };
+      });
+    } catch {
+      return [];
+    }
+  });
+
+  // ---------- Discharge workflow: request → final bill → approve ----------
+  /**
+   * Step 1 — the doctor completes the discharge summary and REQUESTS discharge.
+   * This saves every clinical field but does NOT discharge the patient or free
+   * the bed: the patient stays admitted until someone approves. Billing can now
+   * review the final bill knowing no more charges are coming.
+   */
+  ipcMain.handle('ip:requestDischarge', (_e, admissionId: number, input: any, by?: string) => {
+    const d = db();
+    try {
+      const aid = requireId(admissionId, 'Admission');
+      const outcome = String(input?.outcome ?? '');
+      if (!OUTCOMES.includes(outcome)) {
+        return fail(`"${outcome}" is not a valid outcome. Use one of: ${OUTCOMES.join(', ')}.`);
+      }
+      const adm = d.prepare('SELECT id, status, admission_number FROM ip_admissions WHERE id=?').get(aid) as any;
+      if (!adm) return fail(`Admission #${aid} was not found.`);
+      if (adm.status !== 'admitted') return fail(`${adm.admission_number} is already closed.`);
+      if (outcome === 'death' && !input?.death_at) return fail('Date and time of death are required when recording a death.');
+      if ((outcome === 'lama' || outcome === 'dama') && !input?.outcome_notes) return fail('A reason is required for LAMA and DAMA.');
+      if (outcome === 'referred' && !input?.referred_to) return fail('Please record which hospital the patient is referred to.');
+
+      const now = new Date().toISOString();
+      d.prepare(
+        `UPDATE ip_admissions SET outcome=?, outcome_notes=?,
+           death_at=?, death_cause=?, referred_to=?, risk_explained_by=?,
+           discharge_diagnosis=?, condition_at_discharge=?, treatment_given=?,
+           investigation_findings=?, operative_notes=?, discharge_medications_json=?,
+           followup_plan=?, discharge_doctor_id=?, discharge_summary=?,
+           discharge_status='requested', discharge_requested_at=?, discharge_requested_by=?
+         WHERE id=?`
+      ).run(
+        outcome, input.outcome_notes ?? null,
+        input.death_at ?? null, input.death_cause ?? null, input.referred_to ?? null,
+        input.risk_explained_by ?? null, input.discharge_diagnosis ?? null,
+        input.condition_at_discharge ?? null, input.treatment_given ?? null,
+        input.investigation_findings ?? null, input.operative_notes ?? null,
+        input.discharge_medications_json ?? null, input.followup_plan ?? null,
+        input.discharge_doctor_id ?? null, input.discharge_summary ?? null,
+        now, by ?? null, aid
+      );
+      // Final accrual so the bill under review covers the whole stay.
+      try { accrueStayCharges(d, aid, by); } catch { /* ignore */ }
+      logAudit(d, actor(), 'ip_discharge_requested', 'ip_admissions', aid, `${adm.admission_number} · ${outcome}`);
+      broadcastEvent('ip:dischargeRequested', { admissionId: aid });
+      return { ok: true as const, ...dischargeFinancials(d, aid) };
+    } catch (err: any) {
+      return fail(`Could not request discharge: ${err?.message || String(err)}`);
+    }
+  });
+
+  /** Undo a discharge request (patient staying longer). Clears the flag only. */
+  ipcMain.handle('ip:cancelDischargeRequest', (_e, admissionId: number, by?: string) => {
+    const d = db();
+    try {
+      const aid = requireId(admissionId, 'Admission');
+      d.prepare(
+        `UPDATE ip_admissions SET discharge_status='none', discharge_requested_at=NULL, discharge_requested_by=NULL WHERE id=?`
+      ).run(aid);
+      logAudit(d, actor(), 'ip_discharge_request_cancelled', 'ip_admissions', aid, by || '');
+      broadcastEvent('ip:dischargeRequested', { admissionId: aid });
+      return { ok: true as const };
+    } catch (err: any) {
+      return fail(`Could not cancel the discharge request: ${err?.message || String(err)}`);
+    }
+  });
+
+  /**
+   * Step 2 — an authorised user APPROVES and the patient is actually discharged:
+   * the bill is frozen, the admission closed and the bed freed. If money is still
+   * outstanding the caller must pass an override_reason; that reason is stored and
+   * audit-logged so an unpaid discharge is always traceable.
+   */
+  ipcMain.handle('ip:approveDischarge', (_e, admissionId: number, input: any) => {
+    const d = db();
+    try {
+      const aid = requireId(admissionId, 'Admission');
+      const by = String(input?.by || '').trim() || null;
+      const override = String(input?.override_reason || '').trim();
+      const adm = d.prepare(
+        'SELECT id, status, bed_id, bill_id, admission_number, outcome, discharge_status FROM ip_admissions WHERE id=?'
+      ).get(aid) as any;
+      if (!adm) return fail(`Admission #${aid} was not found.`);
+      if (adm.status !== 'admitted') return fail(`${adm.admission_number} is already closed.`);
+      if (adm.discharge_status !== 'requested') {
+        return fail('Discharge has not been requested yet. The doctor must complete the discharge summary first.');
+      }
+
+      try { accrueStayCharges(d, aid, by || undefined); } catch { /* ignore */ }
+      const fin = dischargeFinancials(d, aid);
+      if (fin.balanceDue > 0.5 && !override) {
+        return {
+          ok: false as const, needsOverride: true as const, ...fin,
+          error: `₹${fin.balanceDue.toLocaleString('en-IN')} is still outstanding. Collect the payment, or approve with a written reason.`,
+        };
+      }
+
+      const now = new Date().toISOString();
+      const tx = d.transaction(() => {
+        d.prepare(
+          `UPDATE ip_admissions SET status='discharged', discharged_at=?,
+             discharge_status='approved', discharge_approved_at=?, discharge_approved_by=?,
+             discharge_override_reason=?
+           WHERE id=?`
+        ).run(now, now, by, override || null, aid);
+        if (adm.bed_id) d.prepare(`UPDATE beds SET status='cleaning' WHERE id=?`).run(adm.bed_id);
+        /**
+         * Record how much of the advance this bill actually consumed.
+         *
+         * `advances.adjusted_amount` and `bills.advance_adjusted` were READ in
+         * three money calculations and written nowhere, so after discharge:
+         *   - analytics reported the whole bill as still due, because it
+         *     subtracts advance_adjusted (which stayed 0);
+         *   - the deposit still showed as held against the clinic; and worst,
+         *   - advances:refund computed `available = amount − adjusted − refunded`
+         *     and so let the FULL advance be paid out a second time, even though
+         *     it had already settled the bill.
+         *
+         * Allocated oldest receipt first, capped at what each still has spare, so
+         * re-running can never over-allocate.
+         */
+        const consumed = money(Math.max(0, Math.min(fin.advanceAvailable, fin.total - fin.amountPaid)));
+        if (consumed > 0) {
+          let left = consumed;
+          const receipts = d.prepare(
+            `SELECT id, amount, adjusted_amount, refunded_amount FROM advances
+              WHERE admission_id=? ORDER BY id`
+          ).all(aid) as any[];
+          const bump = d.prepare('UPDATE advances SET adjusted_amount = adjusted_amount + ? WHERE id=?');
+          for (const r of receipts) {
+            if (left <= 0) break;
+            const spare = money(Number(r.amount) - Number(r.adjusted_amount) - Number(r.refunded_amount));
+            if (spare <= 0) continue;
+            const take = money(Math.min(spare, left));
+            bump.run(take, r.id);
+            left = money(left - take);
+          }
+        }
+        if (adm.bill_id) {
+          d.prepare(`UPDATE bills SET finalized_at=?, finalized_by=?, status=?, advance_adjusted=? WHERE id=?`)
+            .run(now, by, fin.balanceDue > 0.5 ? 'open' : 'paid', consumed, adm.bill_id);
+        }
+      });
+      tx();
+
+      logAudit(d, actor(), 'ip_discharge_approved', 'ip_admissions', aid,
+        `${adm.admission_number} · by ${by || '—'}${override ? ` · OVERRIDE (balance ₹${fin.balanceDue}): ${override}` : ''}`);
+      broadcastEvent('ip:discharged', { admissionId: aid, outcome: adm.outcome });
+      return { ok: true as const, ...fin, overridden: !!override };
+    } catch (err: any) {
+      return fail(`Could not approve the discharge: ${err?.message || String(err)}`);
     }
   });
 
@@ -707,7 +1192,7 @@ export function registerIpdBillingIpc() {
           .run(total, new Date().toISOString(), billId);
       }
 
-      logAudit(d, null, 'bill_created', 'bills', billId, `${billNumber} · ${billType}${nameOverride ? ' · ' + nameOverride : ''}`);
+      logAudit(d, actor(), 'bill_created', 'bills', billId, `${billNumber} · ${billType}${nameOverride ? ' · ' + nameOverride : ''}`);
       broadcastEvent('bill:created', { billId });
       return { ok: true, id: billId, bill_number: billNumber, patient_name_override: nameOverride || null };
     } catch (err: any) {
@@ -759,10 +1244,18 @@ export function registerIpdBillingIpc() {
   // ---------- Bill: preview / add / finalise ----------
   /** Running bill for an admission — "what's the bill till now". */
   ipcMain.handle('bill:previewAdmission', (_e, admissionId: number) => {
+    // Money is reception / ward-in-charge / manager / admin work. Hiding the
+    // panel in the renderer is presentation; this is the actual gate, so a
+    // signed-in nurse or doctor cannot reach the amount by any other route.
+    // No-op when the clinic runs without logins — there is no identity to check.
+    requireRole(['receptionist', 'ward_incharge', 'manager'], 'view the bill');
     const d = db();
     try {
       const aid = requireId(admissionId, 'Admission');
       const billId = getOrCreateAdmissionBill(d, aid);
+      // Bring per-day bed/nursing charges up to date before showing the bill, so
+      // the running total always reflects the stay so far. No-op once posted.
+      try { accrueStayCharges(d, aid); } catch { /* never block the preview */ }
       const totals = recalcBill(d, billId);
       const items = d.prepare(
         `SELECT bi.*, ch.name AS charge_head_name, ch.category, ch.colour
@@ -861,11 +1354,23 @@ export function registerIpdBillingIpc() {
         return fail(`Cannot discount a bill that is "${bill.status}".`);
       }
 
-      const cap = discountCapForRole(s.discount_caps_json, role);
+      /**
+       * Derive the role from the SESSION, never from the caller's argument.
+       *
+       * The cap is the only thing standing between a receptionist and a 100%
+       * discount, and it was being checked against a role string the renderer
+       * passed in — so the check enforced whatever the caller claimed to be.
+       * With logins on, the main process knows who this is; use that. Without
+       * logins there is no identity to appeal to, so the supplied role stands
+       * (and requireRole is a no-op by the same reasoning).
+       */
+      requireRole(['receptionist', 'ward_incharge', 'manager'], 'apply a discount');
+      const effectiveRole = actor()?.role ?? role;
+      const cap = discountCapForRole(s.discount_caps_json, effectiveRole);
       const asPercent = type === 'percent' ? amount : (bill.subtotal > 0 ? (amount / bill.subtotal) * 100 : 0);
       if (asPercent > cap) {
         return fail(
-          `This discount is ${asPercent.toFixed(1)}% but the "${role}" role is limited to ${cap}%. ` +
+          `This discount is ${asPercent.toFixed(1)}% but the "${effectiveRole}" role is limited to ${cap}%. ` +
           `Ask an administrator, or raise the limit in Settings → Billing → Discounts.`
         );
       }
@@ -873,7 +1378,7 @@ export function registerIpdBillingIpc() {
       d.prepare('UPDATE bills SET discount=?, discount_type=?, discount_reason=?, discount_by=? WHERE id=?')
         .run(amount, type, reason ?? null, by ?? null, bid);
       const totals = recalcBill(d, bid);
-      logAudit(d, null, 'bill_discounted', 'bills', bid, `${amount} ${type} by ${role}${reason ? ' · ' + reason : ''}`);
+      logAudit(d, actor(), 'bill_discounted', 'bills', bid, `${amount} ${type} by ${role}${reason ? ' · ' + reason : ''}`);
       return { ok: true, totals };
     } catch (err: any) {
       return fail(`Could not apply the discount: ${err?.message || String(err)}`);
@@ -1091,8 +1596,10 @@ export function registerIpdBillingIpc() {
              VALUES (?,?,?,0,?,?,?)`
           ).run(saleNo, patientId, rate * qty, rate * qty, 'IPD-bill', input?.administered_by ?? null);
           const saleId = Number(sale.lastInsertRowid);
+          // drug_master_id — NOT the legacy drug_id column, which FKs the old
+          // drug_inventory table and would fail for any catalogue drug.
           const saleItem = d.prepare(
-            `INSERT INTO pharmacy_sale_items (sale_id, drug_id, drug_name, qty, rate, amount) VALUES (?,?,?,?,?,?)`
+            `INSERT INTO pharmacy_sale_items (sale_id, drug_master_id, drug_name, qty, rate, amount) VALUES (?,?,?,?,?,?)`
           ).run(saleId, order.drug_master_id, `${order.drug_name}${order.dose ? ' ' + order.dose : ''}`, qty, rate, rate * qty);
           const saleItemId = Number(saleItem.lastInsertRowid);
 
@@ -1239,7 +1746,7 @@ export function registerIpdBillingIpc() {
         ['routine', 'urgent', 'emergency'].includes(input.urgency) ? input.urgency : 'routine',
         input.notes ?? null
       );
-      logAudit(d, null, 'admission_requested', 'admission_requests', Number(info.lastInsertRowid));
+      logAudit(d, actor(), 'admission_requested', 'admission_requests', Number(info.lastInsertRowid));
       broadcastEvent('ip:admissionRequested', { id: Number(info.lastInsertRowid), patientId });
       return { ok: true, id: Number(info.lastInsertRowid) };
     } catch (err: any) {
@@ -1425,7 +1932,7 @@ export function registerIpdBillingIpc() {
          LEFT JOIN wards w ON w.id = a.ward_id
          LEFT JOIN (SELECT admission_id, SUM(total) AS total, SUM(IFNULL(amount_paid, 0)) AS paid
                     FROM bills WHERE status IS NULL OR status <> 'cancelled' GROUP BY admission_id) bill ON bill.admission_id = a.id
-         LEFT JOIN (SELECT admission_id, SUM(amount) AS advance FROM advances GROUP BY admission_id) adv ON adv.admission_id = a.id
+         LEFT JOIN (SELECT admission_id, SUM(amount - refunded_amount) AS advance FROM advances GROUP BY admission_id) adv ON adv.admission_id = a.id
          WHERE date(a.admitted_at) BETWEEN ? AND ?
          GROUP BY ward ORDER BY revenue DESC`
       ).all(...range) as any[];
@@ -1478,8 +1985,20 @@ export function registerIpdBillingIpc() {
       ).all(...range) as any[];
 
       const outstanding = d.prepare(
+        /**
+         * Driven by money owed, not by a status whitelist.
+         *
+         * The whitelist missed every bill left at the column's default status —
+         * which is most lab and OPD bills — and included 'finalised', a value
+         * nothing ever writes (the code spells it 'paid'). Outstanding therefore
+         * under-reported real debt while listing settled bills as owing.
+         */
         `SELECT COALESCE(SUM(total - amount_paid - advance_adjusted), 0) AS due
-         FROM bills WHERE status IN ('open','part_paid','finalised') AND status != 'cancelled'`
+           FROM bills
+          WHERE COALESCE(status,'') <> 'cancelled'
+            AND cancelled_at IS NULL
+            AND paid_at IS NULL
+            AND (total - amount_paid - advance_adjusted) > 0.5`
       ).get() as { due: number };
 
       const gst = d.prepare(
@@ -1545,6 +2064,28 @@ export function registerIpdBillingIpc() {
   });
 
   // ---------- Advances ----------
+  /**
+   * The advance receipts on one admission, with what is still refundable.
+   *
+   * advances:refund existed but nothing could call it usefully: there was no way
+   * to discover an advance's id, so the app told staff money was owed back and
+   * gave them no means to return it. This is the missing half.
+   */
+  ipcMain.handle('advances:list', (_e, admissionId: number) => {
+    const d = db();
+    try {
+      const aid = requireId(admissionId, 'Admission');
+      const rows = d.prepare(
+        `SELECT id, amount, adjusted_amount, refunded_amount, mode, received_by, created_at,
+                (amount - adjusted_amount - refunded_amount) AS refundable
+           FROM advances WHERE admission_id=? ORDER BY id`
+      ).all(aid);
+      return { ok: true as const, rows };
+    } catch (err: any) {
+      return { ok: false as const, error: err?.message || String(err), rows: [] };
+    }
+  });
+
   ipcMain.handle('advances:refund', (_e, advanceId: number, amount: number, reason: string, by?: string) => {
     const d = db();
     try {
@@ -1563,7 +2104,7 @@ export function registerIpdBillingIpc() {
 
       d.prepare('UPDATE advances SET refunded_amount=refunded_amount+?, refunded_at=?, refunded_by=?, refund_reason=? WHERE id=?')
         .run(amt, new Date().toISOString(), by ?? null, reason, id);
-      logAudit(d, null, 'advance_refunded', 'advances', id, `₹${amt} · ${reason}`);
+      logAudit(d, actor(), 'advance_refunded', 'advances', id, `₹${amt} · ${reason}`);
       return { ok: true, refunded: amt, remaining: money(available - amt) };
     } catch (err: any) {
       return fail(`Could not process the refund: ${err?.message || String(err)}`);

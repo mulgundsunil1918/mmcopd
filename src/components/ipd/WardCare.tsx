@@ -51,6 +51,35 @@ export function WardCare({ admissionId }: { admissionId: number }) {
   );
 }
 
+/**
+ * One vitals box.
+ *
+ * MUST stay at module scope. It used to be declared inside the vitals form, so
+ * every keystroke produced a brand-new component type — React then unmounted the
+ * live <input> and mounted a replacement, and the caret went with it. Nurses had
+ * to click the box again after every single character: "99" was two clicks and
+ * two keystrokes. Defining it out here keeps the element identity stable, so the
+ * field simply holds focus the way any normal input does.
+ */
+function VitalField({ label, unit, value, onChange }: {
+  label: string;
+  unit?: string;
+  value: number | undefined;
+  onChange: (v: number | undefined) => void;
+}) {
+  return (
+    <div>
+      <label className="label">{label}{unit ? ` (${unit})` : ''}</label>
+      <input
+        className="input"
+        type="number"
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
+      />
+    </div>
+  );
+}
+
 // ===================================================================
 // Medication Administration Record (MAR)
 function MedsSection({ admissionId }: { admissionId: number }) {
@@ -65,6 +94,13 @@ function MedsSection({ admissionId }: { admissionId: number }) {
   const [busy, setBusy] = useState(false);
 
   const { data: orders = [] } = useQuery({ queryKey: ['ip-meds', admissionId], queryFn: () => window.electronAPI.ipd.medOrders(admissionId) });
+  // The medication administration record: every dose given, who gave it, when.
+  // It was written on every "Give" but never shown anywhere, so the ward could
+  // not answer "was the 2pm dose given?" without asking the nurse who gave it.
+  const { data: mar = [] } = useQuery({
+    queryKey: ['ip-mar', admissionId],
+    queryFn: () => window.electronAPI.ipd.medAdminList(admissionId),
+  });
   const { data: drugMatches = [] } = useQuery({
     queryKey: ['drug-search-mar', drug],
     queryFn: () => window.electronAPI.pharmacy.listDrugs({ q: drug, activeOnly: true }),
@@ -149,6 +185,37 @@ function MedsSection({ admissionId }: { admissionId: number }) {
           ))}
         </div>
       )}
+
+      {/* Medication Administration Record — every dose actually given.
+          The rows were being written on each "Give" and never displayed, so the
+          ward could not answer "was the 2pm dose given?" without asking. */}
+      <div className="card p-4">
+        <div className="text-[11px] uppercase tracking-wide font-bold text-gray-500 dark:text-slate-400 mb-2">Doses given</div>
+        {(mar as any[]).length === 0 ? (
+          <div className="text-[12px] text-gray-500">No doses recorded yet. Press <b>Give</b> on an order above.</div>
+        ) : (
+          <table className="w-full text-[12px]">
+            <thead>
+              <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
+                <th className="py-1.5">Drug</th>
+                <th className="py-1.5 text-right w-16">Qty</th>
+                <th className="py-1.5">When</th>
+                <th className="py-1.5">Given by</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(mar as any[]).map((dose: any) => (
+                <tr key={dose.id} className="border-b border-gray-100 dark:border-slate-800">
+                  <td className="py-1.5 text-gray-900 dark:text-slate-100">{dose.drug_name}</td>
+                  <td className="py-1.5 text-right tabular-nums">{dose.qty ?? '—'}</td>
+                  <td className="py-1.5 text-gray-600 dark:text-slate-300">{fmtDateTime(dose.administered_at || dose.created_at)}</td>
+                  <td className="py-1.5 text-gray-600 dark:text-slate-300">{dose.administered_by || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }
@@ -245,24 +312,17 @@ function VitalsSection({ admissionId }: { admissionId: number }) {
     if (ok) setF({});
   };
 
-  const Field = ({ k, label, unit }: { k: string; label: string; unit?: string }) => (
-    <div>
-      <label className="label">{label}{unit ? ` (${unit})` : ''}</label>
-      <input className="input" type="number" value={f[k] ?? ''} onChange={(e) => setF({ ...f, [k]: e.target.value === '' ? undefined : Number(e.target.value) })} />
-    </div>
-  );
-
   return (
     <div className="space-y-3">
       <div className="card p-4">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Field k="temperature" label="Temp" unit="°F" />
-          <Field k="pulse" label="Pulse" unit="/min" />
-          <Field k="respiration" label="Resp" unit="/min" />
-          <Field k="spo2" label="SpO₂" unit="%" />
-          <Field k="bp_systolic" label="BP sys" />
-          <Field k="bp_diastolic" label="BP dia" />
-          <Field k="pain_score" label="Pain" unit="0-10" />
+          <VitalField label="Temp" unit="°F" value={f.temperature} onChange={(v) => setF((p: any) => ({ ...p, temperature: v }))} />
+          <VitalField label="Pulse" unit="/min" value={f.pulse} onChange={(v) => setF((p: any) => ({ ...p, pulse: v }))} />
+          <VitalField label="Resp" unit="/min" value={f.respiration} onChange={(v) => setF((p: any) => ({ ...p, respiration: v }))} />
+          <VitalField label="SpO₂" unit="%" value={f.spo2} onChange={(v) => setF((p: any) => ({ ...p, spo2: v }))} />
+          <VitalField label="BP sys" value={f.bp_systolic} onChange={(v) => setF((p: any) => ({ ...p, bp_systolic: v }))} />
+          <VitalField label="BP dia" value={f.bp_diastolic} onChange={(v) => setF((p: any) => ({ ...p, bp_diastolic: v }))} />
+          <VitalField label="Pain" unit="0-10" value={f.pain_score} onChange={(v) => setF((p: any) => ({ ...p, pain_score: v }))} />
           <div className="flex items-end">
             <button className="btn-primary text-xs w-full" disabled={busy} onClick={submit}>
               {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Record

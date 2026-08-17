@@ -106,6 +106,12 @@ export function BillPrint({ admissionId, billId, onClose }: {
               {s.clinic_phone && <>☎ {s.clinic_phone} </>}
               {s.clinic_registration_no && <> · Reg. {s.clinic_registration_no}</>}
               {s.gst_enabled && s.clinic_gstin && <> · GSTIN: {s.clinic_gstin}</>}
+              {/* Legal name and state code are required on a GST invoice and were
+                  collected in Settings but never printed anywhere. */}
+              {s.gst_enabled && s.clinic_legal_name && s.clinic_legal_name !== s.clinic_name && (
+                <> · {s.clinic_legal_name}</>
+              )}
+              {s.gst_enabled && s.clinic_state_code && <> · State code: {s.clinic_state_code}</>}
             </div>
           </div>
         </div>
@@ -134,6 +140,12 @@ export function BillPrint({ admissionId, billId, onClose }: {
             {bill?.admission_number && <div className="text-slate-600"><b>Admission:</b> {bill.admission_number}</div>}
             {bill?.ward && <div className="text-slate-600">{bill.ward}{bill.bed_number ? ` / ${bill.bed_number}` : ''}</div>}
             {bill?.doctor_name && <div className="text-slate-600">Dr. {bill.doctor_name}</div>}
+            {/* Once the discharge is approved the bill is frozen — say so on the print. */}
+            {bill?.finalized_at && (
+              <div className="text-emerald-700 font-semibold">
+                FINAL BILL{bill.finalized_by ? ` · approved by ${bill.finalized_by}` : ''}
+              </div>
+            )}
           </div>
         </div>
 

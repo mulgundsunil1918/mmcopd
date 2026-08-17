@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Plus, Calendar, Search, Clock4, Loader2, CheckCircle2, Printer, ArrowDownNarrowWide, ArrowUpNarrowWide, Columns, List } from 'lucide-react';
@@ -6,7 +7,6 @@ import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
 import { OpdSlipFor } from '../components/OpdSlipFor';
-import { SendWhatsAppButton } from '../components/SendWhatsAppButton';
 import { colorForDoctor } from '../lib/doctor-colors';
 import { useToast } from '../hooks/useToast';
 import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut';
@@ -129,7 +129,7 @@ export function Appointments() {
       {/* Top bar */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Appointments</h1>
+          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5">Appointments<PageHelp page="appointments" /></h1>
           <p className="text-xs text-gray-500 dark:text-slate-400">Manage today's queue across all doctors.</p>
         </div>
         <div className="flex items-center gap-2">
@@ -193,7 +193,6 @@ export function Appointments() {
                     <div className="text-[11px] text-gray-500 dark:text-slate-400">{a.doctor_name}</div>
                   </div>
                   <div className="flex items-center gap-1">
-                    <SendWhatsAppButton appointment={a} variant="icon" />
                     <button className="btn-primary text-xs" onClick={() => setPrintAppt(a)}>
                       <Printer className="w-3.5 h-3.5" /> Print
                     </button>
@@ -407,7 +406,6 @@ export function Appointments() {
 
                     {/* Actions */}
                     <div className="flex items-center gap-1">
-                      <SendWhatsAppButton appointment={a} variant="pill" />
                       <button
                         className="btn-ghost text-xs"
                         onClick={() => setPrintAppt(a)}

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { HelpTip } from '../HelpTip';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Loader2, Info } from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
@@ -34,7 +35,7 @@ export function BillingSettings({
       {/* ---- GST registration ---- */}
       <div className="card p-5 space-y-4">
         <div>
-          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">GST &amp; Invoicing</div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">GST &amp; Invoicing<HelpTip title="GST & Invoicing"><><p>Whether your bills carry tax and what they are called.</p><p>If the clinic is not GST-registered, leave this off — bills print as plain receipts with no tax lines. Switching it on turns bills into tax invoices, so only do it once you actually hold a GSTIN.</p></></HelpTip></div>
           <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
             How bills are taxed and titled. If your clinic is not GST-registered, leave this off — bills print as
             simple receipts with no tax.
@@ -182,7 +183,7 @@ function ChargeHeadsEditor() {
     <div className="card p-5 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Charge Heads</div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">Charge Heads<HelpTip title="Charge Heads"><><p>Your price list for things that are not consultations, medicines or lab tests — bed, nursing, oxygen, procedure charges and so on.</p><p>A charge head gives an item a standard name and rate, so every bill reads the same and staff are not typing prices from memory.</p></></HelpTip></div>
           <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
             Everything your clinic can put on a bill — consultation, bed, nursing, procedures, oxygen, and so on.
             Each gets a colour so staff can see at a glance where a bill's money is going.
@@ -283,7 +284,7 @@ function ChargeHeadsEditor() {
 
 // =====================================================================
 
-const DISCOUNT_ROLES = ['receptionist', 'nurse', 'ward_incharge', 'doctor', 'admin'];
+const DISCOUNT_ROLES = ['receptionist', 'nurse', 'ward_incharge', 'manager', 'doctor', 'admin'];
 
 function DiscountSettings({
   draft, set,
@@ -302,7 +303,7 @@ function DiscountSettings({
   return (
     <div className="card p-5 space-y-4">
       <div>
-        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Discounts</div>
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">Discounts<HelpTip title="Discounts"><><p>How much each role may take off a bill, and whether they must say why.</p><p>The cap is enforced when the discount is applied — going over it is refused, naming the limit. Requiring a reason is what makes a discount reviewable later.</p></></HelpTip></div>
         <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
           The most each role may take off a bill. A discount above the limit is refused and must be applied by someone
           with a higher cap. Every discount is recorded in the audit log.

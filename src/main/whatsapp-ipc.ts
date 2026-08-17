@@ -5,6 +5,7 @@
 //            wa:webhookVerify, wa:webhookIngest, wa:processQueue
 
 import { ipcMain } from 'electron';
+import { obscure, reveal } from '../services/whatsapp/token';
 import type Database from 'better-sqlite3';
 import { getDb } from '../db/db';
 import { checkHealth, listTemplates, sendTemplate } from '../services/whatsapp/meta-api';
@@ -19,22 +20,9 @@ import type {
   WaMessage,
 } from '../types/whatsapp';
 
-// Simple XOR-based obfuscation — keeps token out of plaintext in SQLite.
-// Not encryption; SQLite file itself must be protected by OS ACLs.
-function obscure(token: string): string {
-  const key = 'CureDesk-WA-v1';
-  return Buffer.from(
-    token.split('').map((c, i) => c.charCodeAt(0) ^ key.charCodeAt(i % key.length)).join(',')
-  ).toString('base64');
-}
-function reveal(enc: string): string {
-  const key = 'CureDesk-WA-v1';
-  return Buffer.from(enc, 'base64')
-    .toString()
-    .split(',')
-    .map((n, i) => String.fromCharCode(parseInt(n) ^ key.charCodeAt(i % key.length)))
-    .join('');
-}
+// obscure/reveal now live in ../services/whatsapp/token so the queue worker
+// can use them too — it could not, and was sending the obfuscated blob as the
+// bearer token, so every queued message failed to authenticate.
 
 export function registerWhatsAppIpc() {
   const db = () => getDb();
@@ -316,29 +304,11 @@ export function registerWhatsAppIpc() {
 
   ipcMain.handle('wa:campaignLaunch', async (_e, campaignId: number) => {
     const d = db();
-    const campaign = d.prepare(`SELECT * FROM wa_campaigns WHERE id=?`).get(campaignId) as any;
-    if (!campaign) return { ok: false, error: 'Campaign not found' };
-    if (campaign.status !== 'draft') return { ok: false, error: 'Campaign already launched' };
-
-    const patients = buildSegmentPatients(d, campaign.segment);
-    if (patients.length === 0) return { ok: false, error: 'No patients match this segment' };
-
-    // Populate recipients
-    const ins = d.prepare(
-      `INSERT INTO wa_campaign_recipients (campaign_id, patient_id, phone, patient_name) VALUES (?,?,?,?)`
-    );
-    const tx = d.transaction(() => {
-      for (const p of patients) ins.run(campaignId, p.id, normalizePhone(p.phone), p.name);
-    });
-    tx();
-
-    d.prepare(
-      `UPDATE wa_campaigns SET status='running', total_count=?, started_at=datetime('now'), updated_at=datetime('now') WHERE id=?`
-    ).run(patients.length, campaignId);
-
+    const r = launchCampaign(d, campaignId);
+    if (!r.ok) return r;
     // Run async in background — don't await to avoid blocking IPC
     sendCampaignBatch(campaignId).catch((e) => console.error('[WA campaign]', e));
-    return { ok: true, total: patients.length };
+    return { ok: true, total: r.total };
   });
 
   ipcMain.handle('wa:campaignRecipients', (_e, campaignId: number) => {
@@ -561,6 +531,37 @@ function buildSegmentPatients(db: Database.Database, segment: string): PatientRo
 }
 
 /** Send campaign messages in batches of 10, 1s between batches. */
+/**
+ * Turn a draft campaign into a running one: expand its segment into recipient
+ * rows and mark it running.
+ *
+ * Split out because the SCHEDULER did not do it. runScheduledCampaigns called
+ * sendCampaignBatch directly, which only reads rows from wa_campaign_recipients
+ * — and a draft campaign has none. So a scheduled broadcast expanded to nothing,
+ * sent nothing, and was then marked completed: the clinic saw "done" against a
+ * campaign that never reached a single patient.
+ */
+function launchCampaign(d: any, campaignId: number): { ok: boolean; total?: number; error?: string } {
+  const campaign = d.prepare(`SELECT * FROM wa_campaigns WHERE id=?`).get(campaignId) as any;
+  if (!campaign) return { ok: false, error: 'Campaign not found' };
+  if (campaign.status !== 'draft') return { ok: false, error: 'Campaign already launched' };
+
+  const patients = buildSegmentPatients(d, campaign.segment);
+  if (patients.length === 0) return { ok: false, error: 'No patients match this segment' };
+
+  const ins = d.prepare(
+    `INSERT INTO wa_campaign_recipients (campaign_id, patient_id, phone, patient_name) VALUES (?,?,?,?)`
+  );
+  d.transaction(() => {
+    for (const p of patients) ins.run(campaignId, p.id, normalizePhone(p.phone), p.name);
+  })();
+
+  d.prepare(
+    `UPDATE wa_campaigns SET status='running', total_count=?, started_at=datetime('now'), updated_at=datetime('now') WHERE id=?`
+  ).run(patients.length, campaignId);
+  return { ok: true, total: patients.length };
+}
+
 async function sendCampaignBatch(campaignId: number): Promise<void> {
   const d = getDb();
   const campaign = d.prepare(`SELECT * FROM wa_campaigns WHERE id=?`).get(campaignId) as any;
@@ -710,6 +711,13 @@ export async function runScheduledCampaigns(): Promise<void> {
 
   for (const c of due) {
     try {
+      // Expand the segment first — a draft has no recipient rows, so sending
+      // straight away delivered nothing and still reported success.
+      const r = launchCampaign(getDb(), c.id);
+      if (!r.ok && r.error !== 'Campaign already launched') {
+        console.warn('[WA scheduled campaign] could not launch', c.id, r.error);
+        continue;
+      }
       await sendCampaignBatch(c.id);
     } catch (e) {
       console.warn('[WA scheduled campaign]', c.id, e);

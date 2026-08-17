@@ -10,6 +10,7 @@ import type { Role } from '../hooks/useAuth';
 const ROLE_LABELS: Record<Role, string> = {
   admin: 'Admin',
   staff: 'Staff (Reception + Doctor)',
+  manager: 'Manager',
   receptionist: 'Receptionist',
   doctor: 'Doctor',
   nurse: 'Nurse',
@@ -21,6 +22,7 @@ const ROLE_LABELS: Record<Role, string> = {
 /** What each role is for — shown under the picker so clinics assign correctly. */
 const ROLE_HELP: Record<Role, string> = {
   admin: 'Full access including settings, users, billing and danger-zone actions.',
+  manager: 'Runs the business side — billing, accounts, analytics, insurance and the IPD bill. Sees money everywhere, but not Settings, Users or the danger zone.',
   staff: 'Default combined reception + doctor access. Not assignable to a real account.',
   receptionist: 'Register patients, book appointments, admit to a ward, take payments and raise bills.',
   doctor: 'Consultations, prescriptions, ward rounds, progress notes and discharge summaries.',
@@ -43,6 +45,7 @@ const CREATABLE_ROLES = (Object.keys(ROLE_LABELS) as Role[])
 /** Colour per role for the badge — helps scan the user list at a glance. */
 const ROLE_COLOR: Record<Role, string> = {
   admin: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
+  manager: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
   staff: 'bg-gray-100 text-gray-600',
   receptionist: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
   doctor: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
@@ -55,6 +58,7 @@ const ROLE_COLOR: Record<Role, string> = {
 /** What each role can open — shown in the access reference so admins assign correctly. */
 const ROLE_ACCESS: { role: CreatableRole; screens: string }[] = [
   { role: 'admin', screens: 'Everything — all modules, Settings, Users, Billing, Danger Zone.' },
+  { role: 'manager', screens: 'Billing, Accounts, Analytics, TPA, Services, IPD (including the bill), Patient Log. No Settings or Users.' },
   { role: 'receptionist', screens: 'Reception, Appointments, Billing, Accounts, IPD admit, Patient Log, Analytics.' },
   { role: 'doctor', screens: 'Appointments, Doctor console, IPD ward care, Lab orders, Pediatrics.' },
   { role: 'nurse', screens: 'IPD ward care (vitals, medications, I/O, nursing notes), Pediatrics.' },
@@ -85,10 +89,23 @@ function UsersInner() {
     queryKey: ['users'],
     queryFn: () => window.electronAPI.auth.listUsers(),
   });
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const loginsOn = settings?.require_login === true;
 
   const updateMut = useMutation({
     mutationFn: ({ id, patch }: { id: number; patch: any }) => window.electronAPI.auth.updateUser(id, patch),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); toast('Saved'); },
+    // The backend refuses to strand a clinic without an admin — surface that verbatim.
+    onError: (e: any) => toast(e?.message || 'Could not update this user', 'error'),
+  });
+
+  const turnOnLogins = useMutation({
+    mutationFn: () => window.electronAPI.settings.save({ require_login: true } as any),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settings'] });
+      toast('Staff sign-in is ON — each person now signs in with their own account', 'success');
+    },
+    onError: (e: any) => toast(e?.message || 'Could not turn on sign-in', 'error'),
   });
 
   return (
@@ -104,6 +121,38 @@ function UsersInner() {
           <button className="btn-primary" onClick={() => setCreating(true)}><Plus className="w-4 h-4" /> Add User</button>
         </div>
       </div>
+
+      {/* Where accounts live, so a multi-PC clinic isn't surprised. */}
+      {settings?.network_mode === 'client' && (
+        <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/20 p-3 text-[12px] text-blue-900 dark:text-blue-200">
+          Staff accounts come from the <b>main computer</b>, so you create each person once and they can
+          sign in at any station. If the main computer is unreachable, an account created on
+          <b> this</b> PC still works as an emergency sign-in so you can reach Settings and fix the connection.
+        </div>
+      )}
+
+      {/* Roles do nothing until staff sign-in is switched on. Without this notice a
+          clinic creates a pharmacist, marks them Active, and correctly observes
+          that nothing changed — the single most confusing thing in the app. */}
+      {settings && !loginsOn && (
+        <div className="rounded-xl border-2 border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4 flex items-start gap-3 flex-wrap">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-[260px]">
+            <div className="text-[13px] font-bold text-amber-900 dark:text-amber-100">Staff sign-in is OFF — these accounts are not in use yet</div>
+            <p className="text-[12px] text-amber-800 dark:text-amber-200 mt-0.5 leading-relaxed">
+              Everyone on this computer currently shares one session and can reach everything.
+              The roles below only take effect once each person signs in as themselves.
+            </p>
+          </div>
+          <button className="btn-primary text-xs shrink-0" disabled={turnOnLogins.isPending}
+            onClick={() => {
+              if (!window.confirm('Turn on staff sign-in?\n\nEveryone will need their own username and password from now on. Make sure you know the admin password before continuing.')) return;
+              turnOnLogins.mutate();
+            }}>
+            {turnOnLogins.isPending ? 'Turning on…' : 'Turn on staff sign-in'}
+          </button>
+        </div>
+      )}
 
       <section className="card p-4">
         <table className="w-full text-sm">
@@ -138,9 +187,12 @@ function UsersInner() {
                 <td className="py-2 text-[11px] text-gray-500 dark:text-slate-400">{u.last_login_at ? fmtDateTime(u.last_login_at) : 'never'}</td>
                 <td className="py-2">
                   <button
-                    onClick={() => updateMut.mutate({ id: u.id, patch: { is_active: u.is_active ? 0 : 1 } })}
+                    onClick={() => {
+                      if (u.is_active && !window.confirm(`Deactivate ${u.username}?\n\nThey will not be able to sign in until you switch this back on.`)) return;
+                      updateMut.mutate({ id: u.id, patch: { is_active: u.is_active ? 0 : 1 } });
+                    }}
                     className={u.is_active ? 'badge bg-green-100 text-green-700' : 'badge bg-gray-200 text-gray-600'}
-                    title="Click to toggle"
+                    title={u.is_active ? 'This person may sign in — click to block sign-in' : 'Blocked from signing in — click to allow'}
                   >
                     {u.is_active ? 'Active' : 'Inactive'}
                   </button>
@@ -204,6 +256,7 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const [displayName, setDisplayName] = useState('');
   const { data: doctors = [] } = useQuery({ queryKey: ['doctors'], queryFn: () => window.electronAPI.doctors.list(true) });
   const [doctorId, setDoctorId] = useState<number | ''>('');
+  const [err, setErr] = useState<string | null>(null);
 
   const create = useMutation({
     mutationFn: () => window.electronAPI.auth.createUser({
@@ -211,6 +264,14 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
       doctor_id: role === 'doctor' && doctorId !== '' ? Number(doctorId) : undefined,
     }),
     onSuccess: onCreated,
+    // Usernames are UNIQUE and stored lowercase. Without this, a duplicate made
+    // the Create button look simply dead.
+    onError: (e: any) => {
+      const msg = String(e?.message || '');
+      setErr(/UNIQUE|constraint/i.test(msg)
+        ? `The username "${username.trim().toLowerCase()}" is already taken — pick another.`
+        : (msg || 'Could not create this user.'));
+    },
   });
 
   return (
@@ -235,7 +296,8 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
         )}
         <div className="flex justify-end gap-2 pt-2">
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={() => create.mutate()} disabled={!username || !password || create.isPending}>
+          {err && <div className="text-[12px] text-red-600 dark:text-red-400 flex-1 self-center">{err}</div>}
+          <button className="btn-primary" onClick={() => { setErr(null); create.mutate(); }} disabled={!username || !password || create.isPending}>
             {create.isPending ? 'Creating…' : 'Create User'}
           </button>
         </div>

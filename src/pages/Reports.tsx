@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { BarChart3, Download, Database, FolderOpen, HardDriveDownload } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { BarChart3, Download, Database, FolderOpen } from 'lucide-react';
 import { EmptyState } from '../components/EmptyState';
 import { useToast } from '../hooks/useToast';
 import { cn, fmtDate, fmtDateTime, formatINR, todayISO } from '../lib/utils';
@@ -126,11 +126,6 @@ function BackupSection() {
     queryFn: () => window.electronAPI.backup.list(),
     refetchInterval: 30_000,
   });
-  const now = useMutation({
-    mutationFn: () => window.electronAPI.backup.now(),
-    onSuccess: (r) => toast(`Backup created — ${r.totalBundles} total`),
-    onError: (e: any) => toast(e.message || 'Backup failed', 'error'),
-  });
   return (
     <section className="card p-5">
       <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
@@ -142,16 +137,13 @@ function BackupSection() {
           <button className="btn-secondary" onClick={() => window.electronAPI.backup.open()}>
             <FolderOpen className="w-4 h-4" /> Open Folder
           </button>
-          <button className="btn-primary" onClick={() => now.mutate()} disabled={now.isPending}>
-            <HardDriveDownload className="w-4 h-4" /> {now.isPending ? 'Backing up…' : 'Backup Now'}
-          </button>
         </div>
       </div>
       <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-3">
         Auto-backup runs on every app launch (max 1/day) + hourly while running. Last 30 backups are kept. Destination: <code>Settings → Default Location → Backup Folder</code> (defaults to <code>userData/backups</code>).
       </p>
       {backups.length === 0 ? (
-        <div className="text-xs text-gray-500 dark:text-slate-400">No backups yet. Click "Backup Now" to create the first one.</div>
+        <div className="text-xs text-gray-500 dark:text-slate-400">No backups yet — use the Backup button in the sidebar to create the first one.</div>
       ) : (
         <table className="w-full text-sm">
           <thead>

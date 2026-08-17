@@ -94,8 +94,14 @@ export function BillPreview({ admissionId, compact }: { admissionId: number; com
             <>
               {advanceAvailable > 0 && <Row label="Advance available" value={rupee(advanceAvailable)} muted />}
               {amountPaid > 0 && <Row label="Paid" value={rupee(amountPaid)} muted />}
-              <Row label="Balance due" value={rupee(balanceDue)} bold
-                className={balanceDue > 0 ? 'text-red-600' : 'text-emerald-600'} />
+              {/* A negative balance is not "settled" — the clinic owes money back.
+                  Shown in its own words so nobody reads a refund as a zero. */}
+              {balanceDue < -0.5 ? (
+                <Row label="Refund due to patient" value={rupee(Math.abs(balanceDue))} bold className="text-blue-600" />
+              ) : (
+                <Row label="Balance due" value={rupee(balanceDue)} bold
+                  className={balanceDue > 0 ? 'text-red-600' : 'text-emerald-600'} />
+              )}
             </>
           )}
         </div>

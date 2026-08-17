@@ -8,6 +8,7 @@ import type Database from 'better-sqlite3';
  */
 export type Role =
   | 'admin'
+  | 'manager'
   | 'receptionist'
   | 'doctor'
   | 'nurse'
@@ -39,6 +40,9 @@ export function createUser(
       'INSERT INTO users (username, password_hash, salt, role, display_name, doctor_id, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)'
     )
     .run(input.username.trim().toLowerCase(), password_hash, salt, input.role, input.display_name ?? null, input.doctor_id ?? null);
+  // The Users screen labels this field "Temporary Password", so honour that: the
+  // new member must choose their own at first sign-in.
+  db.prepare('UPDATE users SET must_change_password=1 WHERE id=?').run(info.lastInsertRowid);
   const row = db.prepare('SELECT id, username, role, display_name, doctor_id FROM users WHERE id=?').get(info.lastInsertRowid) as any;
   return row;
 }
@@ -86,6 +90,27 @@ export function updateUser(
   id: number,
   patch: { role?: Role; display_name?: string; doctor_id?: number | null; is_active?: 0 | 1; must_change_password?: 0 | 1 }
 ) {
+  // Never let the clinic remove its own last way in. Deactivating (or demoting)
+  // the only active admin makes login impossible — verifyLogin matches
+  // is_active=1 only — and would leave the app recoverable solely by editing the
+  // database by hand. Refuse it here, where every caller goes through.
+  const wouldDropAdmin =
+    patch.is_active === 0 || (patch.role !== undefined && patch.role !== 'admin');
+  if (wouldDropAdmin) {
+    const target = db.prepare('SELECT role, is_active FROM users WHERE id=?').get(id) as
+      { role: string; is_active: number } | undefined;
+    if (target && target.role === 'admin' && target.is_active === 1) {
+      const others = (db.prepare(
+        "SELECT COUNT(*) AS c FROM users WHERE role='admin' AND is_active=1 AND id<>?"
+      ).get(id) as { c: number }).c;
+      if (others === 0) {
+        throw new Error(
+          'This is the only active administrator. Make another user an admin first — otherwise nobody could sign in to manage this clinic.'
+        );
+      }
+    }
+  }
+
   const fields: string[] = [];
   const params: any[] = [];
   if (patch.role) { fields.push('role=?'); params.push(patch.role); }

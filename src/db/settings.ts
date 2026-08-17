@@ -60,6 +60,8 @@ export function getAllSettings(db: Database.Database): Settings {
         '📍 {{clinic_address}}\n☎️ {{clinic_phone}}\n\n' +
         'Please arrive 10 minutes early. For any change, simply reply to this message or call us.\n\nThank you,\n*{{clinic_name}}*',
     whatsapp_country_code: map.whatsapp_country_code || '91',
+    aisensy_signup_url: map.aisensy_signup_url || '',
+    aisensy_connected_on: map.aisensy_connected_on || '',
     appointments_default_sort: (map.appointments_default_sort as any) || 'oldest_first',
     records_list_window: (map.records_list_window as any) || 'month',
     followup_enabled: map.followup_enabled !== 'false',
@@ -129,6 +131,12 @@ export function getAllSettings(db: Database.Database): Settings {
     discharge_summary_enabled: map.discharge_summary_enabled !== 'false',
     lab_auto_bill: map.lab_auto_bill !== 'false',
     role_access_json: map.role_access_json || '',
+    // Per-install sidebar customisation: JSON array of { to, hidden } in the
+    // user's chosen order. Empty = default order, nothing hidden.
+    sidebar_layout: map.sidebar_layout || '',
+    /** What this COMPUTER is for — 'everything' | 'reception' | 'doctor' | 'pharmacy' | 'lab' | 'ward'.
+     *  Station-local (never synced from the host), so each PC answers for itself. */
+    station_role: map.station_role || 'everything',
 
     // ===== Access / login =====
     // Default OFF so existing single-user installs keep working without setting
