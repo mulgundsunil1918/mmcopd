@@ -600,7 +600,24 @@ const M1_TYPE_META: { key: string; label: string; icon: string; color: string }[
 function loadM1Templates(): Record<string, string> {
   try {
     const saved = localStorage.getItem(M1_TEMPLATES_KEY);
-    return saved ? { ...DEFAULT_M1_TEMPLATES, ...JSON.parse(saved) } : { ...DEFAULT_M1_TEMPLATES };
+    if (!saved) return { ...DEFAULT_M1_TEMPLATES };
+    const parsed = JSON.parse(saved) as Record<string, unknown>;
+    // Self-heal corrupted emojis. An earlier build (or an edit through a lossy
+    // path) left the Unicode replacement character (U+FFFD, "�") where emojis
+    // should be, and because a SAVED copy overrides the default, the corruption
+    // survived every upgrade — WhatsApp then showed "�" instead of 🙏/📅/🎟️.
+    // Any saved entry that still carries a "�" is discarded so the clean default
+    // takes over; genuine custom templates (no "�") are kept untouched.
+    const clean: Record<string, string> = {};
+    let repaired = false;
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === 'string' && !v.includes('�')) clean[k] = v;
+      else repaired = true;
+    }
+    const merged = { ...DEFAULT_M1_TEMPLATES, ...clean };
+    // Persist the repair so it happens once, not on every load.
+    if (repaired) { try { localStorage.setItem(M1_TEMPLATES_KEY, JSON.stringify(merged)); } catch { /* ignore */ } }
+    return merged;
   } catch { return { ...DEFAULT_M1_TEMPLATES }; }
 }
 

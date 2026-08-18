@@ -487,6 +487,24 @@ function seedCountersFromExistingData(db: Database.Database) {
   } catch { /* appointments table absent */ }
 }
 
+/**
+ * Delete any settings value corrupted with the Unicode replacement character
+ * (U+FFFD, "�"). An earlier build stored mojibake emojis in text like the
+ * WhatsApp template; because a stored value overrides the code default, the
+ * corruption survived every upgrade and WhatsApp showed "�" instead of 🙏/📅.
+ * Removing the row lets the clean built-in default take over. Only touches rows
+ * that actually contain "�", so a user's genuine customisation is never lost.
+ */
+function repairMojibakeSettings(db: Database.Database) {
+  try {
+    const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[];
+    const del = db.prepare('DELETE FROM settings WHERE key=?');
+    for (const r of rows) {
+      if (typeof r.value === 'string' && r.value.includes('�')) del.run(r.key);
+    }
+  } catch { /* settings table absent on a very old db */ }
+}
+
 /** Fill a setting only if it is currently missing OR empty. Never overwrites a user's value. */
 function setSettingIfEmpty(db: Database.Database, key: string, value: string) {
   const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key) as { value: string } | undefined;
@@ -604,6 +622,7 @@ export function runMigrations(db: Database.Database) {
   makeBillPatientNullable(db);
   migrateBillItemsFromJson(db);
   repairZeroedBillTotals(db);   // undo totals zeroed by the preview path (see above)
+  repairMojibakeSettings(db);   // drop "�"-corrupted values so clean defaults return
   seedDefaultChargeHeads(db);
 
   // Free follow-up policy: every paid visit grants N free follow-up visits within X days
