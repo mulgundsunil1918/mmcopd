@@ -2,21 +2,26 @@ import { useMemo } from 'react';
 import { referenceCurves, chartLabel, type GrowthChart as ChartType, type Sex } from '../../lib/peds/growth';
 
 /**
- * WHO growth chart: reference SD/centile curves with the child's measurements
- * plotted on top. Pure SVG (theme-aware via currentColor and explicit strokes),
- * no charting library.
+ * WHO growth chart: the OFFICIAL WHO percentile curves with the child's
+ * measurements plotted on top. Pure SVG, no charting library.
+ *
+ * The WHO Child Growth Standards printed charts draw the 3rd, 15th, 50th, 85th
+ * and 97th percentile lines (NOT the CDC 3/10/25/50/75/90 set) — so those are
+ * exactly the lines drawn here, matching the percentile bands the assessment
+ * text reports. Each percentile is converted to its z-score (probit) and fed
+ * through the same LMS reference machinery, so the curves come straight from the
+ * official WHO LMS tables.
  *
  * X axis: age in months (0–60). Y axis: the measured quantity (kg / cm).
- * Reference lines shown: −3, −2, median, +2, +3 SD, shaded normal band ±2.
  */
-const Z_LINES = [-3, -2, 0, 2, 3];
-const Z_STYLE: Record<number, { colour: string; label: string; dash?: string }> = {
-  [-3]: { colour: '#ef4444', label: '-3 SD', dash: '3 3' },
-  [-2]: { colour: '#f59e0b', label: '-2 SD' },
-  [0]: { colour: '#2563eb', label: 'Median' },
-  [2]: { colour: '#f59e0b', label: '+2 SD' },
-  [3]: { colour: '#ef4444', label: '+3 SD', dash: '3 3' },
-};
+const PCTS: { pct: number; z: number; colour: string; label: string; dash?: string }[] = [
+  { pct: 3,  z: -1.88079, colour: '#ef4444', label: '3rd',  dash: '3 3' },
+  { pct: 15, z: -1.03643, colour: '#f59e0b', label: '15th' },
+  { pct: 50, z: 0,        colour: '#2563eb', label: '50th' },
+  { pct: 85, z: 1.03643,  colour: '#f59e0b', label: '85th' },
+  { pct: 97, z: 1.88079,  colour: '#ef4444', label: '97th', dash: '3 3' },
+];
+const Z_LINES = PCTS.map((p) => p.z);
 
 const UNIT: Record<ChartType, string> = { wfa: 'kg', lhfa: 'cm', hcfa: 'cm', bfa: 'kg/m²' };
 
@@ -41,18 +46,18 @@ export function GrowthChart({ chart, sex, points }: {
   const xOf = (ageM: number) => padL + (ageM / maxAgeM) * plotW;
   const yOf = (v: number) => padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
 
-  // Build each reference line's path across the age range (days → months).
-  const linePaths = Z_LINES.map((z, zi) => {
+  // Build each percentile line's path across the age range (days → months).
+  const linePaths = PCTS.map((pc, zi) => {
     const d = curves
       .filter((c) => c.day <= maxAgeM * 30.44)
       .map((c, i) => `${i === 0 ? 'M' : 'L'} ${xOf(c.day / 30.44).toFixed(1)} ${yOf(c.values[zi]).toFixed(1)}`)
       .join(' ');
-    return { z, d };
+    return { ...pc, d };
   });
 
-  // Shaded normal band between -2 and +2.
+  // Shaded normal band between the 3rd and 97th percentiles (the WHO normal range).
   const bandPath = (() => {
-    const zLo = Z_LINES.indexOf(-2), zHi = Z_LINES.indexOf(2);
+    const zLo = 0, zHi = PCTS.length - 1; // 3rd … 97th
     const pts = curves.filter((c) => c.day <= maxAgeM * 30.44);
     if (pts.length === 0) return '';
     const top = pts.map((c, i) => `${i === 0 ? 'M' : 'L'} ${xOf(c.day / 30.44).toFixed(1)} ${yOf(c.values[zHi]).toFixed(1)}`).join(' ');
@@ -95,9 +100,9 @@ export function GrowthChart({ chart, sex, points }: {
         {/* normal band */}
         {bandPath && <path d={bandPath} fill="#3b82f6" fillOpacity={0.06} stroke="none" />}
 
-        {/* reference lines */}
-        {linePaths.map(({ z, d }) => (
-          <path key={z} d={d} fill="none" stroke={Z_STYLE[z].colour} strokeWidth={z === 0 ? 1.8 : 1} strokeDasharray={Z_STYLE[z].dash} strokeOpacity={0.85} />
+        {/* percentile reference lines */}
+        {linePaths.map((pl) => (
+          <path key={pl.pct} d={pl.d} fill="none" stroke={pl.colour} strokeWidth={pl.pct === 50 ? 1.8 : 1} strokeDasharray={pl.dash} strokeOpacity={0.85} />
         ))}
 
         {/* child's measurements — line + points */}
@@ -115,9 +120,9 @@ export function GrowthChart({ chart, sex, points }: {
       </svg>
       {/* legend */}
       <div className="flex flex-wrap gap-3 mt-1 text-[10px] text-gray-500">
-        {Z_LINES.map((z) => (
-          <span key={z} className="inline-flex items-center gap-1">
-            <span className="inline-block w-4 h-0.5" style={{ background: Z_STYLE[z].colour }} /> {Z_STYLE[z].label}
+        {PCTS.map((pc) => (
+          <span key={pc.pct} className="inline-flex items-center gap-1">
+            <span className="inline-block w-4 h-0.5" style={{ background: pc.colour }} /> {pc.label}
           </span>
         ))}
         <span className="inline-flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: 'var(--chart-ink)' }} /> This child</span>
