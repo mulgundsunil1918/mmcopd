@@ -18,6 +18,10 @@
  */
 import { exec } from 'node:child_process';
 import { powerSaveBlocker } from 'electron';
+import { parseStandbyTimeout } from './powercfg-parse';
+
+// Re-exported so existing importers (and tests, via the pure module) are stable.
+export { parseStandbyTimeout };
 
 /**
  * Keep the HOST awake for as long as it is serving the clinic.
@@ -95,24 +99,6 @@ function run(cmd: string, timeoutMs = 6000): Promise<string> {
       resolve('');
     }
   });
-}
-
-/**
- * Parse the AC standby timeout out of `powercfg /query`.
- *
- * The value is a hex index in SECONDS on the "Current AC Power Setting Index"
- * line; 0 means never sleep. Exported for testing, because getting this wrong
- * in either direction is bad: a false alarm trains people to ignore warnings,
- * and a missed one leaves the clinic exposed.
- */
-export function parseStandbyTimeout(out: string): { known: boolean; seconds: number } {
-  // Prefer the AC line; powercfg prints AC then DC.
-  const m = out.match(/Current AC Power Setting Index:\s*(0x[0-9a-fA-F]+|\d+)/);
-  if (!m) return { known: false, seconds: 0 };
-  const raw = m[1];
-  const seconds = raw.startsWith('0x') ? parseInt(raw, 16) : parseInt(raw, 10);
-  if (!Number.isFinite(seconds)) return { known: false, seconds: 0 };
-  return { known: true, seconds };
 }
 
 /** Read this PC's sleep-on-AC setting. Windows only; safe everywhere else. */

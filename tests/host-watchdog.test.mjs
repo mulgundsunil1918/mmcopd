@@ -7,7 +7,6 @@
  * calls redirected to a file so we can assert on what it would have told the user.
  */
 import { spawn } from 'node:child_process';
-import net from 'node:net';
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -21,10 +20,22 @@ const check = (name, ok, detail) => {
   console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`);
 };
 
-// A WEDGED server: completes the TCP handshake, then never replies. This is
-// exactly what the host looked like — port open in 602ms, no HTTP in 5s.
-const wedged = net.createServer(() => { /* accept and ignore, forever */ });
-await new Promise((r) => wedged.listen(PORT, '127.0.0.1', r));
+// Backstop: this test drives real sockets and a child process, so a bug in the
+// teardown must never hang the whole suite (as it once did). Fail loudly after
+// 25s no matter what.
+setTimeout(() => { console.log('\nFAILURES ABOVE — test exceeded 25s hard timeout'); process.exit(1); }, 25_000).unref();
+
+// ONE server whose behaviour flips via a flag — no close/rebind on the same
+// port (which deadlocks while the watchdog child keeps opening probe sockets).
+//   wedged=true  → accept the request and never answer (port open, no HTTP),
+//                  exactly the real host: TCP connects, HTTP times out.
+//   wedged=false → answer 200, i.e. recovered.
+let wedged = true;
+const server = http.createServer((req, res) => {
+  if (wedged) return; // hold the socket open, never respond
+  res.writeHead(200); res.end('{"ok":true}');
+});
+await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
 
 // The watchdog body, with notify() writing to a file instead of the OS.
 const body = `
@@ -76,18 +87,19 @@ check('does not repeat the alert while still down',
   (read().match(/stopped responding/g) || []).length === alertCount, 'alerted once, not every probe');
 
 console.log('\nscenario 2 — the server starts answering again');
-await new Promise((r) => wedged.close(r));
-const healthy = http.createServer((req, res) => { res.writeHead(200); res.end('{"ok":true}'); });
-await new Promise((r) => healthy.listen(PORT, '127.0.0.1', r));
-await wait(1200);
+// Flip the same server to healthy — the child's next probes now succeed and it
+// should announce recovery. No socket teardown, so nothing can deadlock.
+wedged = false;
+await wait(1500);
 check('announces recovery on its own', read().includes('responding again'));
 
 console.log('\nscenario 3 — CureDesk exits');
 child.kill();
-await wait(200);
+await wait(300);
 check('watchdog does not outlive the app', child.killed || child.exitCode !== null);
 
-await new Promise((r) => healthy.close(r));
+// Child is dead → no new probe sockets; force-drop any lingering one, then close.
+await new Promise((r) => { try { server.closeAllConnections(); } catch { /* older node */ } server.close(() => r()); });
 try { fs.unlinkSync(OUT); } catch { /* ignore */ }
 console.log(pass ? '\nALL PASS' : '\nFAILURES ABOVE');
 process.exit(pass ? 0 : 1);

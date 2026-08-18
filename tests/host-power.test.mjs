@@ -3,7 +3,7 @@
  * trains staff to ignore warnings, a missed one leaves the clinic exposed.
  * Fixtures are real `powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE` output.
  */
-import { parseStandbyTimeout } from '../.vite-test/host-power.mjs';
+import { parseStandbyTimeout } from '../.vite-test/powercfg-parse.mjs';
 
 let pass = true;
 const check = (name, ok, detail) => {
