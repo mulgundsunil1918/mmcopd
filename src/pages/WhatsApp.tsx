@@ -652,7 +652,14 @@ function Module1Section() {
 
   const buildMessage = (typeKey: string, appt: any) => {
     const ctx = { ...buildContext(appt, settings as any), review_link: reviewLink || '[Set Google Review link]' };
-    return renderTemplate(templates[typeKey] ?? DEFAULT_M1_TEMPLATES[typeKey] ?? '', ctx);
+    let tpl = templates[typeKey] ?? DEFAULT_M1_TEMPLATES[typeKey] ?? '';
+    // Last-line guarantee against the "�" WhatsApp corruption. The built-in
+    // templates are UTF-8 clean (verified in the bundle), so a "�" here means the
+    // value came from a corrupted saved/older copy. Fall back to the clean
+    // built-in for this type so a replacement character can never reach WhatsApp,
+    // no matter where the corruption crept in.
+    if (tpl.includes('�') && DEFAULT_M1_TEMPLATES[typeKey]) tpl = DEFAULT_M1_TEMPLATES[typeKey];
+    return renderTemplate(tpl, ctx);
   };
 
   const sendToPatient = async (appt: any, typeKey: string) => {

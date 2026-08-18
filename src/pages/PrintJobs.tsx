@@ -32,9 +32,10 @@ export function PrintJobs() {
     else toast(r.error || 'Could not update', 'error');
   };
   const cancel = async (job: any) => {
+    if (!window.confirm(`Delete this print job?\n\n"${job.title}"${job.patient_name ? ` — ${job.patient_name}` : ''}\n\nIt will be removed from this list without printing.`)) return;
     const r = await window.electronAPI.printJobs.cancel(job.id);
-    if (r.ok) { toast('Removed', 'info'); qc.invalidateQueries({ queryKey: ['print-jobs'] }); }
-    else toast(r.error || 'Could not remove', 'error');
+    if (r.ok) { toast('Deleted', 'info'); qc.invalidateQueries({ queryKey: ['print-jobs'] }); }
+    else toast(r.error || 'Could not delete', 'error');
   };
 
   return (
@@ -65,7 +66,7 @@ export function PrintJobs() {
               <div className="flex gap-1.5">
                 <button className="btn-primary text-xs" onClick={() => setOpened(j)}><Printer className="w-3.5 h-3.5" /> Open &amp; print</button>
                 <button className="btn-ghost text-xs" onClick={() => markPrinted(j)} title="Mark printed"><Check className="w-3.5 h-3.5" /></button>
-                <button className="btn-ghost text-xs text-red-600" onClick={() => cancel(j)} title="Remove"><X className="w-3.5 h-3.5" /></button>
+                <button className="btn-ghost text-xs text-red-600" onClick={() => cancel(j)} title="Delete this job"><X className="w-3.5 h-3.5" /> Delete</button>
               </div>
             </div>
           ))}

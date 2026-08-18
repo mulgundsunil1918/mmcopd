@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Plus, Calendar, Search, Clock4, Loader2, CheckCircle2, Printer, ArrowDownNarrowWide, ArrowUpNarrowWide, Columns, List } from 'lucide-react';
+import { Plus, Calendar, Search, Clock4, Loader2, CheckCircle2, Printer, ArrowDownNarrowWide, ArrowUpNarrowWide, Columns, List, X } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
@@ -161,54 +161,53 @@ export function Appointments() {
         </div>
       </div>
 
-      {/* Ready-for-Print banner (always shown if there's any) */}
-      {appts.filter((a) => a.status === 'Ready for Print').length > 0 && (
-        <div className="rounded-xl border-2 border-cyan-400 bg-cyan-50 dark:bg-cyan-900/30 p-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <Printer className="w-5 h-5 text-cyan-700 dark:text-cyan-300" />
-              <div>
-                <div className="text-sm font-bold text-cyan-900 dark:text-cyan-100">
-                  Ready for Print ({appts.filter((a) => a.status === 'Ready for Print').length})
-                </div>
+      {/* Ready-for-Print tray. Bounded height + internal scroll so a busy day
+          (20 patients waiting) can never push the whole queue off screen, and
+          compact one-line rows so many fit in that fixed space. Each row prints
+          or dismisses just itself; the rest stay. */}
+      {(() => {
+        const ready = appts.filter((a) => a.status === 'Ready for Print');
+        if (ready.length === 0) return null;
+        return (
+          <div className="rounded-xl border-2 border-cyan-400 bg-cyan-50 dark:bg-cyan-900/30 p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Printer className="w-5 h-5 text-cyan-700 dark:text-cyan-300 shrink-0" />
+              <div className="min-w-0">
+                <div className="text-sm font-bold text-cyan-900 dark:text-cyan-100">Ready for Print ({ready.length})</div>
                 <div className="text-[11px] text-cyan-800 dark:text-cyan-200">
-                  Doctor has completed these consultations. Print the OPD slip and hand to the patient.
+                  Doctor has finished these. Print the OPD slip and hand it over, then Dismiss.
+                  {ready.length > 5 && <span className="opacity-80"> · scroll for more</span>}
                 </div>
               </div>
             </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 mt-3">
-            {appts
-              .filter((a) => a.status === 'Ready for Print')
-              .map((a) => (
+            {/* ~5 compact rows tall, then scrolls inside itself. */}
+            <div className="mt-2 space-y-1.5 overflow-y-auto pr-1" style={{ maxHeight: '13.5rem' }}>
+              {ready.map((a) => (
                 <div
                   key={a.id}
-                  className="bg-white dark:bg-slate-800 border border-cyan-300 dark:border-cyan-700 rounded-lg p-3 flex items-center justify-between"
+                  className="bg-white dark:bg-slate-800 border border-cyan-300 dark:border-cyan-700 rounded-lg px-3 py-2 flex items-center gap-3"
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-bold text-gray-700 dark:text-slate-200">#{a.token_number}</span>
-                      <span className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">{a.patient_name}</span>
-                    </div>
-                    <div className="text-[11px] text-gray-500 dark:text-slate-400">{a.doctor_name}</div>
-                  </div>
-                  <div className="flex items-center gap-1">
+                  <span className="text-[11px] font-bold text-gray-700 dark:text-slate-200 shrink-0">#{a.token_number}</span>
+                  <span className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">{a.patient_name}</span>
+                  <span className="text-[11px] text-gray-500 dark:text-slate-400 truncate hidden sm:block">{a.doctor_name}</span>
+                  <div className="flex items-center gap-1.5 ml-auto shrink-0">
                     <button className="btn-primary text-xs" onClick={() => setPrintAppt(a)}>
                       <Printer className="w-3.5 h-3.5" /> Print
                     </button>
                     <button
-                      className="btn-ghost text-[11px]"
-                      title="Mark Done (already printed)"
+                      className="btn-ghost text-xs"
+                      title="Remove from this list (already handed over)"
                       onClick={() => updateStatus.mutate({ id: a.id, status: 'Done' })}
                     >
-                      ✓
+                      <X className="w-3.5 h-3.5" /> Dismiss
                     </button>
                   </div>
                 </div>
               ))}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Summary */}
       {queueOn ? (
