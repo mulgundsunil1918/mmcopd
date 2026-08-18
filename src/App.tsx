@@ -124,35 +124,29 @@ export default function App() {
   const wizardOverlay = wizardOpen ? <WelcomeWizard onClose={() => setWizardOpen(false)} /> : null;
   const needsSetupBanner = !!settings && !settings.clinic_name && settings.network_mode === 'local';
 
-  // Host/Client pick must come BEFORE the licence gate. While the first-run
-  // wizard is open (mode not yet chosen), suppress the activation screen so a
-  // fresh install can pick "Client" without ever seeing a key prompt — clients
-  // inherit the host's licence over the LAN. Once the wizard closes, the gate
-  // applies again: Host → activation screen; Client → licence comes from host
-  // (license:* is proxied), so it never blocks.
-  const licenseGate = wizardOpen ? null : <LicenseGate />;
-  // Client PCs whose host is off/unreachable get a clear blocking screen instead
-  // of a broken app. Only ever shows in Client mode (its live status is the only
-  // one that goes disconnected/error).
   /*
-   * Offline is decided by the MAIN PROCESS's view of the connection, not the
-   * renderer's WebSocket.
-   *
-   * Keying it on the socket meant the overlay hid itself every five seconds:
-   * the reconnect loop flips status to 'connecting', which is neither
-   * 'disconnected' nor 'error', so the gate lifted on each retry and exposed a
-   * blank, unusable app. The very early failure path sets 'idle', which also
-   * slipped through. The user saw an empty window with a green light and no
-   * explanation — the app knew the host was gone and said nothing.
-   *
-   * client.state is the same signal the diagnostics panel reports, so the
-   * sidebar light, this gate and Settings can no longer disagree with each
-   * other. 'degraded' deliberately does NOT gate: the host is answering slowly
-   * but still answering, and blocking the whole app would be worse than
-   * letting a slow clinic keep working.
+   * Connection facts, read from the MAIN PROCESS (not the renderer socket), so
+   * the licence gate, the offline overlay, the sidebar light and Settings all
+   * agree. network.status() is a local call that returns the CONFIGURED mode
+   * regardless of host reachability, so `isClient` stays true even while the
+   * host is down — which is exactly when we must not prompt for a licence.
    */
   const clientState = (netStatus as any)?.client?.state as 'idle' | 'connected' | 'degraded' | 'offline' | undefined;
   const isClient = (netStatus as any)?.mode === 'client';
+
+  // The licence gate is suppressed entirely on a CLIENT: an extra PC has no
+  // licence of its own — it borrows the host's over the LAN — so it must never
+  // show the activation screen. This was the "every time it disconnects it asks
+  // me to activate again" report: when the host was briefly unreachable the
+  // client could not read the host's licence and fell through to the activation
+  // prompt, making it look as though the clinic had to be set up afresh every
+  // morning. It does not — the client remembers the host and reconnects on its
+  // own; a disconnected client shows the "reconnecting to the main computer"
+  // overlay below instead, and the host desk handles any real renewal.
+  const licenseGate = (wizardOpen || isClient) ? null : <LicenseGate />;
+  // 'degraded' deliberately does NOT gate: the host is answering slowly but
+  // still answering, and blocking the whole app would be worse than letting a
+  // slow clinic keep working.
   const hostOffline = (
     <HostOfflineOverlay
       offline={
