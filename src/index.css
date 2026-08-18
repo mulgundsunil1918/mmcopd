@@ -28,7 +28,11 @@
      --------------------------------------------------------------------- */
   :root { --chart-ink: #0f172a; --chart-paper: #ffffff; }
   html.dark { --chart-ink: #ffffff; --chart-paper: #0f172a; }
-  .print-area, .print-area * { --chart-ink: #0f172a; --chart-paper: #ffffff; }
+  /* Any paper-like surface (print sheet OR an on-screen white card) pins the ink
+     dark, so the child's trend LINE stays visible even when the app is in dark
+     mode but the chart is drawn on a white card. The dot itself uses fixed
+     colours with a halo, so it is covered regardless. */
+  .print-area, .print-area *, .paper, .paper * { --chart-ink: #0f172a; --chart-paper: #ffffff; }
 
   /* Kill the up/down spinner buttons on every number input — receptionists kept
      accidentally scroll-changing values on focused fields. The matching JS

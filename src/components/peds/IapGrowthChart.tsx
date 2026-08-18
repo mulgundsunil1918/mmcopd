@@ -70,11 +70,11 @@ export function IapGrowthChart({ metric, sex, points }: {
   const yTicks = 6, xTicks = maxY - minY; // one tick per year
 
   return (
-    <div className="card p-3 overflow-x-auto">
+    <div className="card p-3">
       <div className="text-[12px] font-semibold text-gray-900 dark:text-slate-100 mb-1">
         {IAP_METRIC_LABEL[metric]} · {sex === 'M' ? 'Boys' : 'Girls'} · IAP 2015 · 5–18y
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ maxWidth: W, minWidth: 480 }} className="text-gray-400">
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ maxWidth: W, display: 'block' }} className="text-gray-400">
         {Array.from({ length: yTicks + 1 }).map((_, i) => {
           const v = yMin + (i / yTicks) * (yMax - yMin);
           const y = yOf(v);
@@ -109,7 +109,7 @@ export function IapGrowthChart({ metric, sex, points }: {
             <path d={childPts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xOf(p.ageY).toFixed(1)} ${yOf(p.value).toFixed(1)}`).join(' ')}
               fill="none" stroke="var(--chart-ink)" strokeWidth={1.6} />
             {childPts.map((p, i) => (
-              <circle key={i} cx={xOf(p.ageY)} cy={yOf(p.value)} r={3.2} fill="var(--chart-ink)" stroke="var(--chart-paper)" strokeWidth={1} />
+              <g key={i}><circle cx={xOf(p.ageY)} cy={yOf(p.value)} r={5} fill="#ffffff" /><circle cx={xOf(p.ageY)} cy={yOf(p.value)} r={3.6} fill="#0f172a" stroke="#ffffff" strokeWidth={1} /></g>
             ))}
           </>
         )}
