@@ -390,7 +390,7 @@ export function ConsultationPanel({
                 <input
                   className="input"
                   list="rx-drug-master"
-                  placeholder="Drug name (e.g. Paracetamol 500mg)"
+                  placeholder="Type any drug — pick from list or enter your own"
                   value={row.drug_name}
                   onChange={(e) => {
                     const typed = e.target.value;
@@ -401,11 +401,22 @@ export function ConsultationPanel({
                     );
                   }}
                 />
-                {row.drug_master_id != null && (
+                {/*
+                  The field is free-text: the list only SUGGESTS the pharmacy
+                  catalogue, it never restricts. A drug the clinic doesn't stock
+                  is still saved and printed on the slip — it just isn't linked to
+                  inventory. Doctors read the missing green tick as "rejected", so
+                  say plainly that a typed-in drug is accepted.
+                */}
+                {row.drug_master_id != null ? (
                   <div className="text-[10px] text-emerald-700 dark:text-emerald-300 mt-0.5">
                     ✓ linked to inventory · auto-deducts on dispense
                   </div>
-                )}
+                ) : row.drug_name.trim() ? (
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    ✎ custom drug — will print on the prescription (not stocked here)
+                  </div>
+                ) : null}
               </div>
               <input className="input" placeholder="Dosage (1 tab)" value={row.dosage} onChange={(e) => setRx(idx, { dosage: e.target.value })} />
               <input className="input" placeholder="Frequency (1-0-1)" value={row.frequency} onChange={(e) => setRx(idx, { frequency: e.target.value })} />
