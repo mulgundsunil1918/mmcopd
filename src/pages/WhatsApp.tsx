@@ -578,7 +578,35 @@ function GuidePanel({ onClose }: { onClose: () => void }) {
 
 // ── Module 1 — WhatsApp Business App ─────────────────────────────────────────
 // Default message templates — variables: {{patient_name}} {{doctor_name}} {{date}} {{time}} {{token}} {{clinic_name}} {{clinic_phone}} {{clinic_address}} {{review_link}}
-const M1_TEMPLATES_KEY = 'curedesk_wa_m1_templates_v1';
+// Bumped v1 → v2 to ABANDON any saved copy from earlier builds. Those saves
+// carried emoji-corrupted text (shown as "�" in WhatsApp) in forms that on-load
+// repair could not always catch — including a split surrogate pair, which is not
+// the U+FFFD character in the string but still encodes to "�" in the wa.me link.
+// A new key means the old broken save is simply never read again; templates
+// start from the clean built-ins (and any clean custom text is migrated across).
+const M1_TEMPLATES_KEY = 'curedesk_wa_m1_templates_v2';
+const M1_TEMPLATES_KEY_OLD = 'curedesk_wa_m1_templates_v1';
+
+/**
+ * Is this string safe to send as-is, or does it carry corrupted emoji?
+ * Corrupt if it contains the replacement character (U+FFFD, "�") OR any LONE
+ * surrogate (half of an emoji's code-unit pair) — the latter is invisible as a
+ * character but turns into "�" the moment it is URL-encoded for WhatsApp.
+ */
+function isEmojiSafe(s: string): boolean {
+  if (s.includes('�')) return false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 0xD800 && c <= 0xDBFF) {           // high surrogate — must be followed by a low one
+      const n = s.charCodeAt(i + 1);
+      if (!(n >= 0xDC00 && n <= 0xDFFF)) return false;
+      i++;
+    } else if (c >= 0xDC00 && c <= 0xDFFF) {    // lone low surrogate
+      return false;
+    }
+  }
+  return true;
+}
 const DEFAULT_M1_TEMPLATES: Record<string, string> = {
   confirmed:  `Namaste {{patient_name}} 🙏\n\nYour appointment at *{{clinic_name}}* is confirmed!\n\n👨‍⚕️ *Doctor:* {{doctor_name}}\n📅 *Date:* {{date}}  🕒 *Time:* {{time}}\n🎟️ *Token:* #{{token}}\n\nPlease arrive 10 minutes early.\n\n📍 {{clinic_address}}\n☎️ {{clinic_phone}}\n\nThank you,\n*{{clinic_name}}*`,
   visit_done: `Hello {{patient_name}} 👋\n\nThank you for visiting *{{clinic_name}}* today! We hope you had a wonderful experience.\n\nFor any follow-up or queries, please call us at {{clinic_phone}}.\n\nTake care! 🙏\n*{{clinic_name}}*`,
@@ -598,25 +626,32 @@ const M1_TYPE_META: { key: string; label: string; icon: string; color: string }[
 ];
 
 function loadM1Templates(): Record<string, string> {
+  const readClean = (key: string): Record<string, string> => {
+    try {
+      const saved = localStorage.getItem(key);
+      if (!saved) return {};
+      const parsed = JSON.parse(saved) as Record<string, unknown>;
+      const clean: Record<string, string> = {};
+      // Keep only entries that are safe (no "�", no lone surrogate). Corrupted
+      // entries are dropped so the clean built-in default takes their place.
+      for (const [k, v] of Object.entries(parsed)) {
+        if (typeof v === 'string' && isEmojiSafe(v)) clean[k] = v;
+      }
+      return clean;
+    } catch { return {}; }
+  };
   try {
-    const saved = localStorage.getItem(M1_TEMPLATES_KEY);
-    if (!saved) return { ...DEFAULT_M1_TEMPLATES };
-    const parsed = JSON.parse(saved) as Record<string, unknown>;
-    // Self-heal corrupted emojis. An earlier build (or an edit through a lossy
-    // path) left the Unicode replacement character (U+FFFD, "�") where emojis
-    // should be, and because a SAVED copy overrides the default, the corruption
-    // survived every upgrade — WhatsApp then showed "�" instead of 🙏/📅/🎟️.
-    // Any saved entry that still carries a "�" is discarded so the clean default
-    // takes over; genuine custom templates (no "�") are kept untouched.
-    const clean: Record<string, string> = {};
-    let repaired = false;
-    for (const [k, v] of Object.entries(parsed)) {
-      if (typeof v === 'string' && !v.includes('�')) clean[k] = v;
-      else repaired = true;
-    }
+    // Prefer the new key. If it's empty, migrate CLEAN entries out of the old
+    // v1 key one time — corrupted v1 entries are left behind and never used.
+    const current = localStorage.getItem(M1_TEMPLATES_KEY);
+    const clean = current !== null ? readClean(M1_TEMPLATES_KEY) : readClean(M1_TEMPLATES_KEY_OLD);
     const merged = { ...DEFAULT_M1_TEMPLATES, ...clean };
-    // Persist the repair so it happens once, not on every load.
-    if (repaired) { try { localStorage.setItem(M1_TEMPLATES_KEY, JSON.stringify(merged)); } catch { /* ignore */ } }
+    // Persist under the new key so this evaluation happens once, and remove the
+    // old (possibly corrupted) copy so it can never resurface.
+    try {
+      localStorage.setItem(M1_TEMPLATES_KEY, JSON.stringify(merged));
+      localStorage.removeItem(M1_TEMPLATES_KEY_OLD);
+    } catch { /* ignore */ }
     return merged;
   } catch { return { ...DEFAULT_M1_TEMPLATES }; }
 }
@@ -654,11 +689,11 @@ function Module1Section() {
     const ctx = { ...buildContext(appt, settings as any), review_link: reviewLink || '[Set Google Review link]' };
     let tpl = templates[typeKey] ?? DEFAULT_M1_TEMPLATES[typeKey] ?? '';
     // Last-line guarantee against the "�" WhatsApp corruption. The built-in
-    // templates are UTF-8 clean (verified in the bundle), so a "�" here means the
-    // value came from a corrupted saved/older copy. Fall back to the clean
-    // built-in for this type so a replacement character can never reach WhatsApp,
-    // no matter where the corruption crept in.
-    if (tpl.includes('�') && DEFAULT_M1_TEMPLATES[typeKey]) tpl = DEFAULT_M1_TEMPLATES[typeKey];
+    // templates are UTF-8 clean (verified in the bundle), so anything unsafe here
+    // (a "�" OR a split-surrogate emoji) came from a corrupted saved/older copy.
+    // Fall back to the clean built-in for this type so a replacement character
+    // can never reach WhatsApp, no matter where the corruption crept in.
+    if (!isEmojiSafe(tpl) && DEFAULT_M1_TEMPLATES[typeKey]) tpl = DEFAULT_M1_TEMPLATES[typeKey];
     return renderTemplate(tpl, ctx);
   };
 
