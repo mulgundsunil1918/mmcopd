@@ -56,7 +56,14 @@ const appVersion = JSON.parse(
 
 export default defineConfig({
   base: '/mmcopd/',
-  define: { __DEMO_VERSION__: JSON.stringify(`${appVersion}-demo`) },
+  // __IS_DEMO__ is a COMPILE-TIME true only in the showcase build. Guarded with
+  // `typeof` in code so the Electron build (where it is undefined) is unaffected,
+  // and used to dead-code-eliminate personal literals (e.g. the support email)
+  // out of the public bundle entirely — not just hide them at runtime.
+  define: {
+    __DEMO_VERSION__: JSON.stringify(`${appVersion}-demo`),
+    __IS_DEMO__: 'true',
+  },
   plugins: [react(), postBuildPlugin()],
   build: {
     outDir: 'dist-demo',

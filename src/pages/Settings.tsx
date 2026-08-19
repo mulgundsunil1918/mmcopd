@@ -10,6 +10,11 @@ import { copyText } from '../lib/clipboard';
 import { Check } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { ImageUpload } from '../components/ImageUpload';
+
+// Injected as `true` only by the demo build (vite.demo.config.ts); undefined in
+// the Electron build. Used with a typeof guard so personal literals can be
+// stripped from the public bundle.
+declare const __IS_DEMO__: boolean;
 import { SlipPreviewLauncher } from '../components/SlipPreviewLauncher';
 import { OpdSlip } from '../components/OpdSlip';
 import { promptDialog } from '../lib/promptDialog';
@@ -4611,7 +4616,9 @@ function MigrationPanel() {
           <Download className="w-3.5 h-3.5" /> Download CSV template
         </button>
         <span className="text-[11px] text-gray-500 dark:text-slate-400">
-          {(window as any).__CUREDESK_DEMO__
+          {/* Compile-time gate (not a runtime check) so the real email literal is
+              dead-code-eliminated from the public demo bundle, not just hidden. */}
+          {(typeof __IS_DEMO__ !== 'undefined' && __IS_DEMO__)
             ? <>Then send it to your CureDesk support contact.</>
             : <>Then email it to <b>mulgundsunil@gmail.com</b> — or send it over WhatsApp.</>}
         </span>
