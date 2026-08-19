@@ -4611,7 +4611,9 @@ function MigrationPanel() {
           <Download className="w-3.5 h-3.5" /> Download CSV template
         </button>
         <span className="text-[11px] text-gray-500 dark:text-slate-400">
-          Then email it to <b>mulgundsunil@gmail.com</b> — or send it over WhatsApp.
+          {(window as any).__CUREDESK_DEMO__
+            ? <>Then send it to your CureDesk support contact.</>
+            : <>Then email it to <b>mulgundsunil@gmail.com</b> — or send it over WhatsApp.</>}
         </span>
       </div>
       <div className="mt-3 rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-900/20 p-3 text-[11.5px] text-blue-900 dark:text-blue-100 leading-relaxed">
