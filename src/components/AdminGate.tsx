@@ -50,6 +50,11 @@ export function AdminGate({ children, title = 'Administrator area' }: { children
         <p className="text-xs text-gray-500 dark:text-slate-400 mt-1 mb-6">
           Enter the admin password to unlock clinic-wide settings, user management, and destructive operations.
         </p>
+        {(window as any).__CUREDESK_DEMO__ && (
+          <div className="text-[12px] text-blue-800 dark:text-blue-200 bg-blue-50 dark:bg-blue-900/25 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2 mb-4 text-center">
+            Demo admin password: <b className="font-mono">1234</b>
+          </div>
+        )}
         <div>
           <input
             type="password"

@@ -46,6 +46,9 @@ function safeFill(api: any): any {
 
 // Install the mock on window before anything else runs.
 (window as any).electronAPI = safeFill(createMockElectronAPI());
+// Mark this as the public showcase so setup-only gates (e.g. the "choose a
+// backup folder" prompt) stay hidden — backups are meaningless in the demo.
+(window as any).__CUREDESK_DEMO__ = true;
 
 // Now the normal app boot sequence — same as src/renderer.tsx.
 import React from 'react';
@@ -75,20 +78,47 @@ document.addEventListener('wheel', (e) => {
   }
 }, { passive: true });
 
+/**
+ * Keep the showcase from ever going blank. A stray click that trips an
+ * unhandled render error would otherwise leave a white page; this catches it
+ * and offers a one-click reload (the demo state is all in-memory, so a reload
+ * simply restores the sample data).
+ */
+class DemoErrorBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center', fontFamily: 'system-ui, sans-serif' }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>The demo hit a snag</div>
+          <div style={{ color: '#64748b', marginBottom: 16 }}>Nothing is lost — this is a live showcase. Reload to start fresh.</div>
+          <button onClick={() => window.location.reload()} style={{ background: '#2563eb', color: '#fff', border: 0, borderRadius: 10, padding: '10px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+            Reload the demo
+          </button>
+        </div>
+      </div>
+    );
+  }
+}
+
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <ToastProvider>
-          <AuthProvider>
-            <HashRouter>
-              <MobileGate />
-              <DemoBanner />
-              <App />
-            </HashRouter>
-          </AuthProvider>
-        </ToastProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
+    <DemoErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <ToastProvider>
+            <AuthProvider>
+              <HashRouter>
+                <MobileGate />
+                <DemoBanner />
+                <App />
+              </HashRouter>
+            </AuthProvider>
+          </ToastProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
+    </DemoErrorBoundary>
   </React.StrictMode>
 );

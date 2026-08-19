@@ -19,16 +19,16 @@ export const DEFAULT_WHATSAPP_TEMPLATE =
 /** Available placeholders for the WhatsApp template. */
 export const WHATSAPP_PLACEHOLDERS: { token: string; sample: string; help: string }[] = [
   { token: '{{patient_name}}', sample: 'Suresh Patil', help: "Patient's full name" },
-  { token: '{{doctor_name}}', sample: 'Dr. Sunil Mulgund', help: 'Consulting doctor' },
+  { token: '{{doctor_name}}', sample: 'Dr. A. Sharma', help: 'Consulting doctor' },
   { token: '{{date}}', sample: '25 Apr 2026', help: 'Appointment date' },
   { token: '{{time}}', sample: '10:30 AM', help: 'Appointment time (12-hr)' },
   { token: '{{token}}', sample: '7', help: 'Token / queue number' },
   { token: '{{room}}', sample: '101', help: 'Doctor consulting room number' },
   { token: '{{visit_id}}', sample: 'MMC0007/V42', help: 'UHID / Visit ID combo' },
   { token: '{{uhid}}', sample: 'MMC0007', help: "Patient's UHID" },
-  { token: '{{clinic_name}}', sample: 'Mulgund Multispeciality Clinic', help: 'Clinic name' },
+  { token: '{{clinic_name}}', sample: 'City Care Clinic', help: 'Clinic name' },
   { token: '{{clinic_phone}}', sample: '+91 99000 00000', help: 'Clinic phone' },
-  { token: '{{clinic_address}}', sample: 'Mulgund, Karnataka', help: 'Clinic address' },
+  { token: '{{clinic_address}}', sample: 'Sample City, State', help: 'Clinic address' },
 ];
 
 export interface WhatsAppContext {

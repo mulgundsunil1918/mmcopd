@@ -43,7 +43,7 @@ export function SlipPreviewLauncher() {
   const activeDoctors = (doctors as Doctor[]).filter((d) => d.is_active);
   const pickedDoctor: Doctor = activeDoctors.find((d) => d.id === selectedDoctorId) ?? activeDoctors[0] ?? {
     id: 1,
-    name: 'Dr. Sunil Mulgund',
+    name: 'Dr. A. Sharma',
     specialty: 'General Physician',
     phone: '9019263206',
     email: 'sunil@mmc.clinic',

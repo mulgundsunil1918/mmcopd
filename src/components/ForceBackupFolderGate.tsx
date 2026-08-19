@@ -26,6 +26,8 @@ export function ForceBackupFolderGate() {
   useEffect(() => {
     (async () => {
       try {
+        // Never nag on the public showcase — backups are meaningless there.
+        if ((window as any).__CUREDESK_DEMO__) return;
         let snoozed = false;
         try { snoozed = sessionStorage.getItem('caredesk:backup-folder-snoozed') === '1'; } catch { /* ignore */ }
         if (snoozed) return;

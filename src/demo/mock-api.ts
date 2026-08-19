@@ -153,7 +153,7 @@ export function createMockElectronAPI(): any {
         patients = patients.map((p) => p.id === id ? { ...p, ...input } : p);
         return r(patients.find((x) => x.id === id));
       },
-      knownPlaces: () => r({ places: ['Mulgund', 'Gadag', 'Lakshmeshwar'], districts: ['Gadag', 'Haveri'] }),
+      knownPlaces: () => r({ places: ['Shantipur', 'Gadag', 'Lakshmeshwar'], districts: ['Gadag', 'Haveri'] }),
       recentAppointments: (id: number, limit = 5) => r(appointments.filter((a) => a.patient_id === id).slice(0, limit)),
       log: (filter: any) => {
         const from = filter?.from || '';
@@ -230,7 +230,7 @@ export function createMockElectronAPI(): any {
       }),
       summaryForAppointment: () => r({
         enabled: true, mode: 'today_paid' as const,
-        doctor_name: 'Dr. Sunil', free_remaining: 2,
+        doctor_name: 'Dr. A. Sharma', free_remaining: 2,
         valid_till: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
       }),
     },
@@ -252,7 +252,7 @@ export function createMockElectronAPI(): any {
           id, bill_number: `BL-${String(id).padStart(4, '0')}`,
           patient_id: input.patient_id, doctor_id: input.doctor_id,
           patient_name: 'Demo Patient', patient_uhid: 'PT-DEMO-0001',
-          doctor_name: input.doctor_id ? 'Dr. Sunil' : null,
+          doctor_name: input.doctor_id ? 'Dr. A. Sharma' : null,
           items_json: JSON.stringify([{ description: input.description, qty: 1, rate: input.amount, amount: input.amount }]),
           subtotal: input.amount, total: input.amount, payment_mode: input.payment_mode,
           notes: input.notes, bill_kind: 'misc',
@@ -263,7 +263,7 @@ export function createMockElectronAPI(): any {
       },
       list: () => r([
         { id: 9001, bill_number: 'BL-9001', patient_name: 'Geeta Hosamani', patient_uhid: 'PT-20260427-0042', doctor_name: 'Dr. Priya Patil', payment_mode: 'Cash', total: 250, notes: 'Booster dose 2/3', items_json: JSON.stringify([{ description: 'Vaccination — TT booster', qty: 1, rate: 250, amount: 250 }]), created_at: new Date(Date.now() - 3 * 3600000).toISOString() },
-        { id: 9002, bill_number: 'BL-9002', patient_name: 'Ramesh Mali', patient_uhid: 'PT-20260427-0041', doctor_name: 'Dr. Sunil Mulgund', payment_mode: 'UPI', total: 300, notes: '', items_json: JSON.stringify([{ description: 'Wound dressing', qty: 1, rate: 300, amount: 300 }]), created_at: new Date(Date.now() - 86400000).toISOString() },
+        { id: 9002, bill_number: 'BL-9002', patient_name: 'Ramesh Mali', patient_uhid: 'PT-20260427-0041', doctor_name: 'Dr. A. Sharma', payment_mode: 'UPI', total: 300, notes: '', items_json: JSON.stringify([{ description: 'Wound dressing', qty: 1, rate: 300, amount: 300 }]), created_at: new Date(Date.now() - 86400000).toISOString() },
         { id: 9003, bill_number: 'BL-9003', patient_name: 'Anitha Kulkarni', patient_uhid: 'PT-20260427-0040', doctor_name: null, payment_mode: 'Cash', total: 150, notes: 'Acute asthma', items_json: JSON.stringify([{ description: 'Nebulization', qty: 1, rate: 150, amount: 150 }]), created_at: new Date(Date.now() - 2 * 86400000).toISOString() },
       ]),
       summary: () => r({
@@ -276,7 +276,7 @@ export function createMockElectronAPI(): any {
         ],
         byDoctor: [
           { doctor_name: 'Dr. Priya Patil', doctor_color: '#0ea5e9', count: 8, revenue: 2000 },
-          { doctor_name: 'Dr. Sunil Mulgund', doctor_color: '#10b981', count: 6, revenue: 1750 },
+          { doctor_name: 'Dr. A. Sharma', doctor_color: '#10b981', count: 6, revenue: 1750 },
           { doctor_name: null, doctor_color: null, count: 4, revenue: 500 },
         ],
       }),
@@ -463,7 +463,7 @@ export function createMockElectronAPI(): any {
           byHour: Array.from({ length: 14 }, (_, i) => ({ hour: 8 + i, total: 500 + Math.floor(Math.random() * 4000) })),
           byDoctor: doctors.map((d) => ({ doctor: d.name, count: 10 + Math.floor(Math.random() * 30), total: 5000 + Math.floor(Math.random() * 25000) })),
           byMode: [{ mode: 'Cash', total: totalAll * 0.5, count: 60 }, { mode: 'UPI', total: totalAll * 0.35, count: 30 }, { mode: 'Card', total: totalAll * 0.15, count: 10 }],
-          byPlace: ['Mulgund', 'Gadag', 'Lakshmeshwar', 'Naregal', 'Annigeri'].map((p) => ({ place: p, total: 3000 + Math.floor(Math.random() * 12000) })),
+          byPlace: ['Shantipur', 'Gadag', 'Lakshmeshwar', 'Naregal', 'Annigeri'].map((p) => ({ place: p, total: 3000 + Math.floor(Math.random() * 12000) })),
           topPatients: patients.slice(0, 10).map((p, i) => ({ name: `${p.first_name} ${p.last_name}`, uhid: p.uhid, total: 5000 - i * 300 })),
         });
       },
@@ -473,7 +473,7 @@ export function createMockElectronAPI(): any {
         totalVisits: appointments.length,
         uniquePatients: new Set(appointments.map((a) => a.patient_id)).size,
         missingPlace: 4,
-        byPlace: ['Mulgund', 'Gadag', 'Lakshmeshwar', 'Naregal', 'Annigeri', 'Hulkoti', 'Ron'].map((name) => ({ name, visits: 10 + Math.floor(Math.random() * 30), patients: 8 })),
+        byPlace: ['Shantipur', 'Gadag', 'Lakshmeshwar', 'Naregal', 'Annigeri', 'Hulkoti', 'Ron'].map((name) => ({ name, visits: 10 + Math.floor(Math.random() * 30), patients: 8 })),
         byDistrict: [{ name: 'Gadag', visits: 80, patients: 45 }, { name: 'Haveri', visits: 12, patients: 8 }],
         byState: [{ name: 'Karnataka', visits: 95, patients: 50 }],
       }),

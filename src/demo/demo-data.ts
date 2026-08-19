@@ -35,12 +35,12 @@ function isoAt(date: string, time: string) {
 
 // ---------- Settings ----------
 export const DEMO_SETTINGS: Settings = {
-  clinic_name: 'Mulgund Multispeciality Clinic',
-  clinic_address: '1st Floor, Arihant Plaza, Rotary Circle, Gadag - 582 101',
-  clinic_phone: '9019263206',
-  clinic_email: 'mulgundsunil@gmail.com',
+  clinic_name: 'City Care Multispeciality Clinic',
+  clinic_address: '123 MG Road, Sample City - 000000',
+  clinic_phone: '9000000000',
+  clinic_email: 'clinic@example.com',
   clinic_tagline: 'Trusted Care',
-  clinic_registration_no: '13567',
+  clinic_registration_no: 'REG-0000',
   clinic_logo: '',
   slot_duration: 30,
   consultation_fee: 250,
@@ -52,7 +52,7 @@ export const DEMO_SETTINGS: Settings = {
   app_mode: 'full',
   default_state: 'Karnataka',
   default_district: 'Gadag',
-  known_villages: 'Mulgund, Gadag, Lakshmeshwar, Naregal, Shirahatti',
+  known_villages: 'Shantipur, Gadag, Lakshmeshwar, Naregal, Shirahatti',
   backup_folder: '',
   backup_reminder_time: '21:00',
   usb_reminder_weekday: 1,
@@ -142,18 +142,18 @@ export const DEMO_SETTINGS: Settings = {
 
 // ---------- Doctors ----------
 export const DEMO_DOCTORS: Doctor[] = [
-  { id: 1, name: 'Dr. Sunil Mulgund', specialty: 'General Physician', phone: '9900000001', email: 'sunil@mmc.clinic', room_number: '101', is_active: 1, default_fee: 500, qualifications: 'MBBS, MD (Medicine)', registration_no: 'KMC-12345', signature: null, color: '#10b981', available_from: '09:00', available_to: '21:00' },
-  { id: 2, name: 'Dr. Priya Patil', specialty: 'Pediatrician', phone: '9900000002', email: 'priya@mmc.clinic', room_number: '102', is_active: 1, default_fee: 600, qualifications: 'MBBS, DCH', registration_no: 'KMC-23456', signature: null, color: '#0ea5e9', available_from: '10:00', available_to: '18:00' },
-  { id: 3, name: 'Dr. Rahul Desai', specialty: 'Orthopedic', phone: '9900000003', email: 'rahul@mmc.clinic', room_number: '103', is_active: 1, default_fee: 700, qualifications: 'MBBS, MS (Ortho)', registration_no: 'KMC-34567', signature: null, color: '#f59e0b', available_from: '17:00', available_to: '20:00' },
-  { id: 4, name: 'Dr. Sunita Mulgund', specialty: 'ENT', phone: '9900000004', email: 'sunita@mmc.clinic', room_number: '1', is_active: 1, default_fee: 600, qualifications: 'MBBS, MS (ENT)', registration_no: 'KMC-45678', signature: null, color: '#8b5cf6', available_from: '11:00', available_to: '17:00' },
-  { id: 5, name: 'Dr. Veeresh', specialty: 'OBG', phone: '9900000005', email: 'veeresh@mmc.clinic', room_number: '3', is_active: 1, default_fee: 500, qualifications: 'MBBS, MD (OBG)', registration_no: 'KMC-56789', signature: null, color: '#ec4899', available_from: '09:00', available_to: '13:00' },
+  { id: 1, name: 'Dr. A. Sharma', specialty: 'General Physician', phone: '9000000001', email: 'doctor1@example.com', room_number: '101', is_active: 1, default_fee: 500, qualifications: 'MBBS, MD (Medicine)', registration_no: 'KMC-12345', signature: null, color: '#10b981', available_from: '09:00', available_to: '21:00' },
+  { id: 2, name: 'Dr. P. Rao', specialty: 'Pediatrician', phone: '9000000002', email: 'doctor2@example.com', room_number: '102', is_active: 1, default_fee: 600, qualifications: 'MBBS, DCH', registration_no: 'KMC-23456', signature: null, color: '#0ea5e9', available_from: '10:00', available_to: '18:00' },
+  { id: 3, name: 'Dr. M. Iyer', specialty: 'Orthopedic', phone: '9000000003', email: 'doctor3@example.com', room_number: '103', is_active: 1, default_fee: 700, qualifications: 'MBBS, MS (Ortho)', registration_no: 'KMC-34567', signature: null, color: '#f59e0b', available_from: '17:00', available_to: '20:00' },
+  { id: 4, name: 'Dr. R. Menon', specialty: 'ENT', phone: '9000000004', email: 'doctor4@example.com', room_number: '1', is_active: 1, default_fee: 600, qualifications: 'MBBS, MS (ENT)', registration_no: 'KMC-45678', signature: null, color: '#8b5cf6', available_from: '11:00', available_to: '17:00' },
+  { id: 5, name: 'Dr. K. Nair', specialty: 'OBG', phone: '9000000005', email: 'doctor5@example.com', room_number: '3', is_active: 1, default_fee: 500, qualifications: 'MBBS, MD (OBG)', registration_no: 'KMC-56789', signature: null, color: '#ec4899', available_from: '09:00', available_to: '13:00' },
 ];
 
 // ---------- Patients ----------
 const FIRST_NAMES_M = ['Suresh', 'Mahesh', 'Rajesh', 'Anil', 'Mohan', 'Vikram', 'Kiran', 'Arjun', 'Shivaraj', 'Basavaraj', 'Mallikarjun', 'Veerappa', 'Ravi', 'Manjunath', 'Prakash', 'Hanumanth', 'Channappa', 'Santosh', 'Ashok', 'Naveen'];
 const FIRST_NAMES_F = ['Sushma', 'Lakshmi', 'Saraswati', 'Renuka', 'Mahadevi', 'Bhagya', 'Shanta', 'Geeta', 'Padma', 'Kavita', 'Rekha', 'Pushpa', 'Indira', 'Yamuna', 'Sangeeta', 'Anitha', 'Vidya', 'Sunita', 'Nanda', 'Roopa'];
-const LAST_NAMES = ['Patil', 'Hiremath', 'Desai', 'Kulkarni', 'Goudar', 'Hubballi', 'Kamatar', 'Joshi', 'Madiwalar', 'Kerur', 'Naregal', 'Lakshmeshwar', 'Mulgund', 'Annigeri', 'Hosur', 'Doddagoudar', 'Pujari', 'Ronad', 'Math', 'Doddamath'];
-const PLACES = ['Mulgund', 'Gadag', 'Lakshmeshwar', 'Naregal', 'Shirahatti', 'Annigeri', 'Hulkoti', 'Ron', 'Hosalli', 'Holealur', 'Betageri', 'Doni', 'Kalkeri', 'Yelvigi', 'Soratur'];
+const LAST_NAMES = ['Patil', 'Hiremath', 'Desai', 'Kulkarni', 'Goudar', 'Hubballi', 'Kamatar', 'Joshi', 'Madiwalar', 'Kerur', 'Naregal', 'Lakshmeshwar', 'Shetty', 'Annigeri', 'Hosur', 'Doddagoudar', 'Pujari', 'Ronad', 'Math', 'Doddamath'];
+const PLACES = ['Shantipur', 'Gadag', 'Lakshmeshwar', 'Naregal', 'Shirahatti', 'Annigeri', 'Hulkoti', 'Ron', 'Hosalli', 'Holealur', 'Betageri', 'Doni', 'Kalkeri', 'Yelvigi', 'Soratur'];
 const PROFESSIONS = ['Farmer', 'Housewife', 'Teacher', 'Driver', 'Shopkeeper', 'Student', 'Retired', 'Tailor', 'Carpenter', 'Mason', 'Govt. employee', 'Daily wage', 'Mechanic', 'Electrician', 'Vendor'];
 const BLOOD_GROUPS = ['O+', 'A+', 'B+', 'AB+', 'O-', 'A-', 'B-', null, null, null]; // many unknown
 

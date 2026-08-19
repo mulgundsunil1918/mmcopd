@@ -13,8 +13,8 @@ import { PHARMACY_CATALOG } from '../data/pharmacy-catalog';
 
 const FIRST_M = ['Ramesh', 'Suresh', 'Mahesh', 'Basavaraj', 'Shivaraj', 'Ganesh', 'Prakash', 'Manjunath', 'Vittal', 'Naveen', 'Arjun', 'Kiran', 'Anil', 'Sunil', 'Veerappa', 'Praveen', 'Santosh', 'Mallikarjun', 'Nagaraj', 'Chandru'];
 const FIRST_F = ['Sangeeta', 'Kavita', 'Sunita', 'Yamuna', 'Geeta', 'Indira', 'Rekha', 'Shanta', 'Vidya', 'Padma', 'Bhagya', 'Anitha', 'Rohini', 'Lakshmi', 'Saraswati', 'Mahadevi', 'Roopa', 'Shweta', 'Divya', 'Meena'];
-const LAST = ['Kulkarni', 'Patil', 'Desai', 'Hegde', 'Naik', 'Math', 'Doddamath', 'Hiremath', 'Annigeri', 'Naregal', 'Ronad', 'Lakshmeshwar', 'Madiwalar', 'Pujari', 'Kamatar', 'Hubballi', 'Mulgund', 'Angadi', 'Badiger', 'Gadag'];
-const PLACES = ['Gadag', 'Betageri', 'Mulgund', 'Lakshmeshwar', 'Ron', 'Naregal', 'Shirhatti', 'Hubballi', 'Dharwad', 'Annigeri'];
+const LAST = ['Kulkarni', 'Patil', 'Desai', 'Hegde', 'Naik', 'Math', 'Doddamath', 'Hiremath', 'Annigeri', 'Naregal', 'Ronad', 'Lakshmeshwar', 'Madiwalar', 'Pujari', 'Kamatar', 'Hubballi', 'Shetty', 'Angadi', 'Badiger', 'Gadag'];
+const PLACES = ['Gadag', 'Betageri', 'Shantipur', 'Lakshmeshwar', 'Ron', 'Naregal', 'Shirhatti', 'Hubballi', 'Dharwad', 'Annigeri'];
 const BLOOD = ['O+', 'A+', 'B+', 'AB+', 'O-', 'B-', 'A-'];
 const PAY = ['Cash', 'UPI', 'Card'];
 
@@ -44,7 +44,7 @@ export function seedSampleData(db: Database.Database): { patients: number; bills
     if (docIds.length === 0) {
       const insD = db.prepare('INSERT INTO doctors (name, specialty, room_number, default_fee) VALUES (?, ?, ?, ?)');
       const docs: [string, string, string, number][] = [
-        ['Dr. Sunil Mulgund', 'General Medicine', '101', 300],
+        ['Dr. A. Sharma', 'General Medicine', '101', 300],
         ['Dr. Anjali Deshpande', 'Pediatrics', '102', 350],
         ['Dr. Ravi Kulkarni', 'Orthopaedics', '103', 500],
         ['Dr. Meera Patil', 'Obstetrics & Gynaecology', '104', 400],
