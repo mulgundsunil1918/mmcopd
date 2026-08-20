@@ -162,10 +162,15 @@ export function SalesEnquiryFab() {
       {/* Modal */}
       {open && (
         <div
+          className="cd-enq-overlay"
           onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}
-          style={{ position: 'fixed', inset: 0, zIndex: 2147483001, background: 'rgba(15,23,42,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          style={{ position: 'fixed', inset: 0, height: '100dvh', zIndex: 2147483001, background: 'rgba(15,23,42,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, overflowY: 'auto' }}
         >
-          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 540, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,.35)', fontFamily: 'inherit' }}>
+          {/* Keyboard-safe modal: dvh shrinks it above the on-screen keyboard on a
+              phone; the mobile rules top-align it and pad the form so a focused
+              field can scroll clear of the keyboard. */}
+          <style>{`.cd-enq-modal{max-height:92vh;max-height:92dvh}@media (max-width:520px){.cd-enq-overlay{align-items:flex-start !important}.cd-enq-form{padding-bottom:22vh}}`}</style>
+          <div className="cd-enq-modal" style={{ background: '#fff', borderRadius: 16, padding: 24, width: '100%', maxWidth: 540, overflowY: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,.35)', fontFamily: 'inherit' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#0f172a' }}>Sales Enquiry</h3>
               <button type="button" onClick={() => setOpen(false)} aria-label="Close" style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 24, lineHeight: 1, color: '#64748b' }}>×</button>
@@ -173,7 +178,17 @@ export function SalesEnquiryFab() {
             <p style={{ marginTop: 4, marginBottom: 16, color: '#475569', fontSize: 13.5 }}>
               Tell us about your clinic and the plan you need — we usually reply the same day.
             </p>
-            <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
+            <form
+              className="cd-enq-form"
+              onSubmit={submit}
+              onFocusCapture={(e) => {
+                const el = e.target as HTMLElement;
+                if (/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) {
+                  window.setTimeout(() => { try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { /* noop */ } }, 300);
+                }
+              }}
+              style={{ display: 'flex', flexDirection: 'column', gap: 13 }}
+            >
               <div>
                 <label style={label}>Your name</label>
                 <input name="name" required autoComplete="name" placeholder="Dr / Owner name" style={input} />

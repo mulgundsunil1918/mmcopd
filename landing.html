@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>CureDesk HMS — Hospital Management Software for India</title>
-<meta name="description" content="Offline-first hospital management software for India. Reception, doctor, pharmacy, 170+ lab tests, IPD, pediatrics (WHO & IAP growth), insurance/TPA, discharge summaries, billing and analytics — all in one Windows app, role-based." />
+<title>CureDesk HMS — Offline Hospital Software, Built by a Doctor</title>
+<meta name="description" content="Hospital management software built by a doctor, for doctors. Runs 100% offline on your own Windows PC — no internet, opens instantly and never hangs. Reception, OPD, pharmacy, 170+ lab tests, IPD, pediatrics (WHO & IAP), TPA, billing and analytics in one app. Launch offer: first 100 clinics get 20% off." />
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Crect width='256' height='256' rx='56' fill='%232563eb'/%3E%3Crect x='104' y='52' width='48' height='152' rx='10' fill='white'/%3E%3Crect x='52' y='104' width='152' height='48' rx='10' fill='white'/%3E%3Ccircle cx='196' cy='196' r='16' fill='white'/%3E%3Ccircle cx='196' cy='196' r='8' fill='%232563eb'/%3E%3Ccircle cx='196' cy='196' r='4' fill='white'/%3E%3C/svg%3E" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -68,7 +68,10 @@
   }
   .nav-inner {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 14px 0;
+    /* Longhand, NOT `padding: 14px 0` — the shorthand would override the
+       container's `padding: 0 24px` side gutters and shove the mobile
+       hamburger flush against the screen edge. */
+    padding-top: 14px; padding-bottom: 14px;
   }
   .brand {
     display: flex; align-items: center; gap: 10px;
@@ -172,6 +175,20 @@
     font-size: 18px; color: #475569; max-width: 540px;
     margin-bottom: 32px;
   }
+  .hero-offer {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    background: linear-gradient(135deg, #fffbeb, #fef3c7);
+    border: 1px solid #fcd34d; border-radius: 12px;
+    padding: 12px 16px; margin: 22px 0 26px;
+  }
+  .hero-offer-badge {
+    flex-shrink: 0; background: #d97706; color: #fff; font-weight: 800;
+    font-size: 12.5px; padding: 5px 11px; border-radius: 999px; white-space: nowrap;
+  }
+  .hero-offer-text { font-size: 14px; color: #78350f; line-height: 1.45; }
+  .hero-offer-text s { color: #a16207; opacity: 0.8; }
+  .hero-offer-price { color: #b45309; font-size: 16px; }
+  @media (max-width: 500px) { .hero-offer-text { font-size: 13px; } }
   .hero-ctas { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 28px; }
   .hero-ctas a { font-size: 15px; }
   .hero-ctas .btn-primary { padding: 14px 24px !important; font-size: 15px !important; }
@@ -451,9 +468,9 @@
   /* ===== Modal for "Download" CTA ===== */
   .modal-overlay {
     display: none;
-    position: fixed; inset: 0; background: rgba(15,23,42,0.7);
+    position: fixed; inset: 0; height: 100dvh; background: rgba(15,23,42,0.7);
     z-index: 100; align-items: center; justify-content: center;
-    padding: 20px;
+    padding: 20px; overflow-y: auto;
   }
   .modal-overlay.open { display: flex; }
   .modal {
@@ -461,7 +478,21 @@
     max-width: 440px; width: 100%; text-align: center;
     box-shadow: 0 30px 60px -10px rgba(0,0,0,0.4);
     animation: pop 0.25s ease;
-    max-height: calc(100vh - 40px); overflow-y: auto;   /* tall forms scroll inside */
+    max-height: calc(100vh - 40px);
+    /* dvh tracks the *visible* viewport, so when the mobile keyboard opens the
+       modal shrinks to the space above it and its inner scroll can reach the
+       bottom fields (contact / email). vh above is the fallback for old browsers. */
+    max-height: calc(100dvh - 40px);
+    overflow-y: auto; -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain; scroll-padding-bottom: 24px;
+    margin: auto;
+  }
+  /* On a phone, top-align the modal and pad the form so a focused field can
+     always scroll clear of the on-screen keyboard. */
+  @media (max-width:520px){
+    .modal-overlay{ align-items: flex-start; padding: 8px; }
+    .enq-modal{ padding: 22px 18px; }
+    #enqForm{ padding-bottom: 28vh; }
   }
   @keyframes pop { from { transform: scale(0.92); opacity: 0; } to { transform: scale(1); opacity: 1; } }
   .modal-icon {
@@ -524,21 +555,27 @@
 <section class="hero">
   <div class="container hero-grid">
     <div>
-      <span class="hero-pill"><span class="dot"></span> 🏥 Built for Indian hospitals &amp; clinics</span>
-      <h1>The complete hospital software<br><span class="accent">that works offline.</span></h1>
+      <span class="hero-pill"><span class="dot"></span> 🩺 Built by a doctor, for doctors</span>
+      <h1>The complete hospital software<br><span class="accent">that runs fully offline.</span></h1>
       <p class="lead">
-        Registration, appointments, consultation, pharmacy, laboratory, in-patient, billing, WhatsApp,
-        and analytics — all in one Windows app. Run it on a single PC, or link reception, every doctor's
-        cabin, and the pharmacy counter over your hospital network. Your data never leaves your computer.
+        Built by a practising doctor who was tired of slow, internet-dependent software. CureDesk runs
+        <b>100% offline</b> on your own Windows PC — registration, OPD, pharmacy, laboratory, IPD, billing,
+        and analytics in one app that <b>opens instantly and never hangs</b>. No internet, no cloud, no
+        waiting. Run it on a single PC or link every counter over your hospital network — your data never
+        leaves your computer.
       </p>
+      <div class="hero-offer">
+        <span class="hero-offer-badge">🎉 Launch offer</span>
+        <span class="hero-offer-text">First <b>100 clinics</b> get <b>20% off</b> — <s>₹8,999</s> <b class="hero-offer-price">₹7,199/yr</b>. Avail now before the offer expires.</span>
+      </div>
       <div class="hero-ctas">
-        <a href="#" class="enquiry-cta" onclick="event.preventDefault(); openEnquiry();">📩 Sales Enquiry</a>
+        <a href="#" class="enquiry-cta" onclick="event.preventDefault(); openEnquiry();">📩 Claim the launch offer</a>
         <a href="demo.html" class="btn-primary">▶ Try Live Demo</a>
       </div>
       <div class="hero-trust">
-        <span class="check-row"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> No internet required</span>
+        <span class="check-row"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> 100% offline — no internet ever</span>
+        <span class="check-row"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Instant — no hang, no loading</span>
         <span class="check-row"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> One-time payment</span>
-        <span class="check-row"><svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Schedule H ready</span>
       </div>
     </div>
 
@@ -982,6 +1019,16 @@
   .quote-2y .l { font-size:10.5px; font-weight:800; color:#a5b4fc; text-transform:uppercase; letter-spacing:.08em; } .quote-2y .v { font-size:20px; font-weight:900; color:#fff; font-variant-numeric:tabular-nums; margin-top:2px; } .quote-2y .s { font-size:11px; color:rgba(255,255,255,.45); }
   .quote-cta { display:block; width:100%; text-align:center; background:#818cf8; color:#1e1b4b; font-weight:800; font-size:14px; padding:13px; border-radius:10px; margin-top:16px; transition:background .18s; } .quote-cta:hover { background:#a5b4fc; }
   .price-foot { text-align:center; font-size:12px; color:#64748b; margin-top:18px; }
+  .launch-offer-banner {
+    display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap;
+    background:linear-gradient(135deg,#f59e0b,#d97706); color:#fff;
+    border-radius:14px; padding:16px 22px; margin:4px auto 30px; max-width:820px;
+    box-shadow:0 12px 30px rgba(217,119,6,.32); text-align:center;
+  }
+  .lob-badge { flex-shrink:0; background:rgba(255,255,255,.22); font-weight:800; font-size:13px; padding:6px 13px; border-radius:999px; white-space:nowrap; }
+  .lob-text { font-size:14.5px; line-height:1.5; }
+  .lob-text s { opacity:.75; }
+  .lob-price { font-size:18px; }
 </style>
 <section class="section pricing-sec" id="pricing">
   <div class="container">
@@ -995,6 +1042,11 @@
         <span class="price-chip">🖥️ <b>Multi-station</b> included</span>
         <span class="price-chip">🔄 Free updates</span>
       </div>
+    </div>
+
+    <div class="launch-offer-banner">
+      <span class="lob-badge">🎉 Launch offer · first 100 clinics</span>
+      <span class="lob-text"><b>20% off the base plan</b> — <s>₹8,999</s> <b class="lob-price">₹7,199 / yr</b>. Avail now before the offer expires.</span>
     </div>
 
     <div class="calc-grid">
@@ -1050,10 +1102,6 @@
           <div class="lbl">Per year<small>pay upfront · 1 month free 🎁</small></div>
           <div class="amt">₹<span id="annualTotal">8,999</span></div>
         </div>
-        <div class="quote-2y">
-          <div class="l">2-year plan · save 10%</div>
-          <div class="v">₹<span id="twoYearTotal">16,198</span> <span class="s">for 2 years</span></div>
-        </div>
         <a href="#contact" class="quote-cta">Get this quote →</a>
         <p style="font-size:11px;color:rgba(255,255,255,.4);text-align:center;margin-top:10px;">Prices exclude GST. Unlimited patients &amp; users.</p>
       </div>
@@ -1067,7 +1115,6 @@
     const mods = [...document.querySelectorAll('.calc-mod[data-price]')];
     const itemsEl = document.getElementById('quoteItems');
     const annualEl = document.getElementById('annualTotal');
-    const twoYrEl = document.getElementById('twoYearTotal');
     const inr = (n) => n.toLocaleString('en-IN');
     function recompute() {
       let total = base.price;
@@ -1081,7 +1128,6 @@
       });
       itemsEl.innerHTML = rows;
       annualEl.textContent = inr(total);
-      twoYrEl.textContent = inr(Math.round(total * 2 * 0.9));
     }
     mods.forEach((m) => {
       m.addEventListener('click', (e) => {
@@ -1280,15 +1326,15 @@
       </div>
       <div>
         <h4>Resources</h4>
-        <a href="https://github.com/mulgundsunil1918/mmcopd" target="_blank">GitHub Repo</a>
         <a href="demo.html">Walkthrough</a>
-        <a href="#download" onclick="event.preventDefault(); openDownload();">System Requirements</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#compare">Compare</a>
       </div>
       <div>
         <h4>Get in touch</h4>
         <a href="mailto:help@curedesk.co.in?subject=CureDesk%20HMS%20enquiry">help@curedesk.co.in</a>
+        <a data-wa-link href="#" onclick="return openWhatsApp(event)">💬 Reach out on WhatsApp</a>
         <a href="mailto:help@curedesk.co.in?subject=CureDesk%20HMS%20-%20Request%20a%20quote">Request a Quote</a>
-        <a href="mailto:help@curedesk.co.in?subject=CureDesk%20HMS%20-%20Schedule%20a%20demo%20call">Schedule Demo Call</a>
       </div>
     </div>
     <div class="footer-bottom">
@@ -1337,13 +1383,21 @@
   /* Floating sales-enquiry launcher — sits in the corner at 50% opacity and
      rises to full on hover/focus, so it's inviting but never in the way. */
   .enq-fab-wrap{ position:fixed; right:20px; bottom:20px; z-index:900; display:flex; align-items:center; gap:10px; }
-  .enq-fab{ display:inline-flex; align-items:center; gap:9px; background:linear-gradient(135deg,#4f46e5,#2563eb); color:#fff; font-weight:800; padding:15px 24px; border-radius:999px; font-size:15px; box-shadow:0 12px 30px rgba(79,70,229,.38); cursor:pointer; border:none; opacity:.5; transition:opacity .18s ease, transform .18s ease; }
+  /* Light-colour floating buttons: enquiry = light-blue pill, mail = frosted
+     white circle with a blue icon — matches the light theme, no dark navy. */
+  .enq-fab{ display:inline-flex; align-items:center; gap:9px; background:linear-gradient(135deg,#3b82f6,#2563eb); color:#fff; font-weight:800; padding:15px 24px; border-radius:999px; font-size:15px; box-shadow:0 12px 30px rgba(37,99,235,.34); cursor:pointer; border:1px solid rgba(255,255,255,.5); opacity:.72; transition:opacity .18s ease, transform .18s ease; }
   .enq-fab:hover, .enq-fab:focus-visible{ opacity:1; transform:translateY(-2px); outline:none; }
   .enq-fab svg{ width:18px; height:18px; }
-  .enq-fab-mail{ display:inline-flex; align-items:center; justify-content:center; width:48px; height:48px; border-radius:50%; background:#0f172a; color:#fff; box-shadow:0 10px 24px rgba(15,23,42,.32); opacity:.5; transition:opacity .18s ease, transform .18s ease; }
+  .enq-fab-mail{ display:inline-flex; align-items:center; justify-content:center; width:48px; height:48px; border-radius:50%; background:rgba(255,255,255,.92); color:#2563eb; border:1px solid rgba(37,99,235,.28); box-shadow:0 10px 24px rgba(37,99,235,.22); opacity:.72; transition:opacity .18s ease, transform .18s ease; }
   .enq-fab-mail:hover, .enq-fab-mail:focus-visible{ opacity:1; transform:translateY(-2px); outline:none; }
   .enq-fab-mail svg{ width:20px; height:20px; }
-  @media (max-width:520px){ .enq-fab-wrap{ right:14px; bottom:14px; gap:8px; } .enq-fab{ padding:13px 18px; font-size:14px; } .enq-fab-mail{ width:44px; height:44px; } }
+  /* On a phone the pill covered the hero text — collapse to an icon-only circle. */
+  @media (max-width:520px){
+    .enq-fab-wrap{ right:14px; bottom:14px; gap:8px; }
+    .enq-fab-label{ display:none; }
+    .enq-fab{ width:52px; height:52px; padding:0; gap:0; justify-content:center; border-radius:50%; }
+    .enq-fab-mail{ width:46px; height:46px; }
+  }
 </style>
 
 <!-- Floating Sales Enquiry launcher (translucent until hovered) -->
@@ -1353,7 +1407,7 @@
   </a>
   <button class="enq-fab" type="button" onclick="openEnquiry()" aria-label="Open the sales enquiry form">
     <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-    Sales Enquiry
+    <span class="enq-fab-label">Sales Enquiry</span>
   </button>
 </div>
 
@@ -1420,8 +1474,10 @@
       <div class="enq-status" id="enqStatus" aria-live="polite"></div>
       <div class="modal-actions">
         <button type="submit" class="btn-primary" id="enqSubmit" style="font-size:14px;">Send enquiry</button>
+        <button type="button" class="enq-wa-btn" onclick="enquiryToWhatsApp()" title="Send this enquiry on WhatsApp — reaches us instantly">💬 Send on WhatsApp</button>
         <button type="button" class="btn-secondary" onclick="closeEnquiry();" style="border:1px solid #cbd5e1;background:#fff;cursor:pointer;font-size:14px;font-weight:600;padding:10px 18px;border-radius:10px;">Cancel</button>
       </div>
+      <p class="enq-wa-hint">Prefer instant? <b>Send on WhatsApp</b> reaches us straight away — no email needed.</p>
     </form>
   </div>
 </div>
@@ -1451,11 +1507,38 @@
   function openDownload() { openEnquiry(); }
   function closeDownload() { document.getElementById('dlModal').classList.remove('open'); }
 
+  // ===== Reach out on WhatsApp =====
+  // Set this to the clinic's WhatsApp business number in full international form,
+  // digits only (country code + number, no +, spaces or dashes). e.g. India
+  // 98800 12345 → '919880012345'. If left blank, the WhatsApp links stay hidden.
+  const WA_NUMBER = '919019263206';
+  const WA_TEXT = "Hi, I'm interested in CureDesk HMS. Please share the details.";
+  function openWhatsApp(e) {
+    if (e) e.preventDefault();
+    if (!WA_NUMBER) return false;
+    window.open('https://wa.me/' + WA_NUMBER + '?text=' + encodeURIComponent(WA_TEXT), '_blank');
+    return false;
+  }
+  // Hide every WhatsApp link until a number is configured, so we never ship a
+  // dead "Reach out on WhatsApp" button.
+  document.querySelectorAll('[data-wa-link]').forEach(function (a) {
+    if (!WA_NUMBER) a.style.display = 'none';
+  });
+
   // ===== Sales enquiry =====
   const ENQ_BASE = 8999;
   const ENQ_PRICES = { 'Laboratory': 999, 'Pharmacy': 1999, 'In-Patient (IPD)': 4999, 'WhatsApp Basic': 999, 'WhatsApp Pro': 1999 };
   function openEnquiry() { document.getElementById('enqModal').classList.add('open'); calcTotal(); }
   function closeEnquiry() { document.getElementById('enqModal').classList.remove('open'); }
+  // Mobile keyboards cover the bottom of the form. When a field is focused, wait
+  // for the keyboard to animate in, then scroll that field to the middle of the
+  // (now shorter) visible area so the user can see what they're typing.
+  document.addEventListener('focusin', function (e) {
+    const t = e.target;
+    if (!t || !t.closest || !t.closest('#enqForm')) return;
+    if (!/^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName)) return;
+    setTimeout(function () { try { t.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) {} }, 300);
+  });
   function waPick(el) { // WhatsApp Basic / Pro are mutually exclusive — pick one
     if (!el.checked) return;
     document.querySelectorAll('#enqForm input[data-wa]').forEach((x) => { if (x !== el) x.checked = false; });
@@ -1472,28 +1555,24 @@
     document.querySelectorAll('#enqForm input[name=addon]:checked').forEach((x) => { total += parseInt(x.dataset.price || '0', 10); });
     out.textContent = total.toLocaleString('en-IN');
   }
-  async function submitEnquiry(e) {
-    e.preventDefault();
-    const form = e.target;
-    const btn = document.getElementById('enqSubmit');
-    const status = document.getElementById('enqStatus');
+  // Gather + validate the enquiry fields. Returns the composed data, or null if
+  // a required field is missing (and focuses/flags it). Shared by the email
+  // submit and the WhatsApp send so both stay in lock-step.
+  function collectEnquiry(status) {
+    const form = document.getElementById('enqForm');
     const fd = new FormData(form);
     const d = Object.fromEntries(fd.entries());
-    if (d._honey) return false;                       // bot trap tripped — silently drop
-
-    // Required fields — enforced in JS too (not just the `required` attributes).
+    if (d._honey) return null;                        // bot trap tripped — silently drop
     const fail = (msg, field) => {
-      status.className = 'enq-status err'; status.textContent = msg;
+      if (status) { status.className = 'enq-status err'; status.textContent = msg; }
       const f = form.querySelector('[name="' + field + '"]'); if (f) f.focus();
-      return false;
+      return null;
     };
     for (const [k, label] of [['name', 'Your name'], ['place', 'Place / City'], ['state', 'State'], ['contact', 'Contact number'], ['email', 'Email']]) {
       if (!String(d[k] || '').trim()) return fail(label + ' is required.', k);
     }
     if (String(d.contact).replace(/\D/g, '').length < 10) return fail('Enter a valid 10-digit contact number.', 'contact');
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(d.email).trim())) return fail('Enter a valid email address.', 'email');
-
-    // Compose the subscription line + estimated annual total.
     const addons = fd.getAll('addon');
     if (fd.get('notsure')) {
       d.subscription = 'Not sure — please recommend a plan';
@@ -1506,6 +1585,36 @@
       addons.forEach((a) => { t += ENQ_PRICES[a] || 0; });
       d.total = '₹' + t.toLocaleString('en-IN') + ' / yr';
     }
+    return d;
+  }
+
+  // Instant, spam-proof channel: opens WhatsApp with the whole enquiry pre-typed.
+  function enquiryToWhatsApp() {
+    const status = document.getElementById('enqStatus');
+    const d = collectEnquiry(status);
+    if (!d) return;
+    if (!WA_NUMBER) { if (status) { status.className = 'enq-status err'; status.textContent = 'WhatsApp is not configured yet — please use Send enquiry.'; } return; }
+    const msg =
+      '*CureDesk HMS — Sales Enquiry*\n' +
+      'Name: ' + d.name + '\n' +
+      'Place / City: ' + d.place + '\n' +
+      'State: ' + d.state + '\n' +
+      'Plan: ' + d.subscription + '\n' +
+      'Estimated total: ' + d.total + '\n' +
+      'Contact: ' + d.contact + '\n' +
+      'Email: ' + d.email;
+    window.open('https://wa.me/' + WA_NUMBER + '?text=' + encodeURIComponent(msg), '_blank');
+    if (status) { status.className = 'enq-status ok'; status.textContent = '✓ Opening WhatsApp — just press send there and it reaches us instantly.'; }
+  }
+
+  // Email channel: FormSubmit AJAX endpoint (CORS-enabled, no page navigation).
+  async function submitEnquiry(e) {
+    e.preventDefault();
+    const btn = document.getElementById('enqSubmit');
+    const status = document.getElementById('enqStatus');
+    const d = collectEnquiry(status);
+    if (!d) return false;
+
     status.className = 'enq-status'; status.textContent = '';
     const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Sending…';
     const payload = {
@@ -1521,32 +1630,24 @@
         body: JSON.stringify(payload),
       });
       const j = await r.json().catch(() => ({}));
-      // FormSubmit needs a one-time activation: the FIRST submission emails a
-      // confirmation link to help@curedesk.co.in and does NOT deliver until it's
-      // clicked. Its JSON says success:"false" then — surface that honestly
-      // instead of a false "sent".
       if (!r.ok || j.success === 'false' || j.success === false) {
         const m = (j.message || '').toLowerCase();
         if (m.includes('activat') || m.includes('confirm')) {
           status.className = 'enq-status err';
           status.textContent = 'Almost there — we need to confirm this form once. We’ve emailed a confirmation link to our team; enquiries will arrive right after.';
-          btn.disabled = false; btn.textContent = orig;
-          return false;
+          btn.disabled = false; btn.textContent = orig; return false;
         }
         throw new Error(j.message || ('HTTP ' + r.status));
       }
       status.className = 'enq-status ok';
       status.textContent = '✓ Thank you! Your enquiry has been sent — we’ll be in touch shortly.';
-      form.reset(); calcTotal();
+      document.getElementById('enqForm').reset(); calcTotal();
       btn.textContent = 'Sent ✓';
       setTimeout(closeEnquiry, 2800);
     } catch (err) {
-      // Fallback: open the visitor's mail app with everything pre-filled.
-      const body = 'Name: ' + d.name + '%0D%0APlace: ' + d.place + '%0D%0AState: ' + d.state
-        + '%0D%0ASubscription: ' + d.subscription + '%0D%0AEstimated total: ' + d.total
-        + '%0D%0AContact: ' + d.contact + '%0D%0AEmail: ' + d.email;
+      // Fallback: WhatsApp (instant) or a pre-filled mail draft.
       status.className = 'enq-status err';
-      status.innerHTML = 'Couldn’t send automatically. <a href="mailto:help@curedesk.co.in?subject=CureDesk%20Sales%20Enquiry&body=' + body + '">Click here to email us instead</a>.';
+      status.innerHTML = 'Couldn’t send by email. <a href="#" onclick="enquiryToWhatsApp();return false;" style="font-weight:700;">Send on WhatsApp instead →</a>';
       btn.disabled = false; btn.textContent = orig;
     }
     return false;
@@ -1634,5 +1735,194 @@
     }
   })();
 </script>
+<!-- ============================================================
+     FROSTED BLUE — glassmorphism theme layer.
+     Appended last so it wins the cascade. Single hue (blue) in many shades,
+     minimal light-blue gradient field, frosted-glass cards, deep-blue legible
+     text. Tune here without touching the structural CSS above.
+     ============================================================ -->
+<style id="frosted-blue-theme">
+  :root{
+    --fb-ink:#0b2a63;        /* headings — deep blue */
+    --fb-body:#33507d;       /* body — legible blue-slate */
+    --fb-muted:#5f7099;      /* secondary text */
+    --fb-blue:#2563eb; --fb-blue-d:#1d4ed8; --fb-blue-l:#60a5fa;
+    --fb-glass:rgba(255,255,255,.60);
+    --fb-brd:rgba(255,255,255,.85);
+    --fb-brd-blue:rgba(96,165,250,.38);
+    --fb-sh:0 10px 34px rgba(37,99,235,.13);
+    --fb-deep:linear-gradient(155deg,#1e3a8a,#1d4ed8 55%,#2563eb);
+  }
+  /* Light-blue field with soft ambient blobs for the glass to refract over. */
+  body{
+    color:var(--fb-body) !important;
+    background:
+      radial-gradient(50vw 46vh at 8% -6%, rgba(96,165,250,.55), transparent 58%),
+      radial-gradient(46vw 42vh at 110% 6%, rgba(147,197,253,.62), transparent 55%),
+      radial-gradient(44vw 42vh at 92% 102%, rgba(59,130,246,.40), transparent 58%),
+      radial-gradient(48vw 44vh at 26% 106%, rgba(186,230,253,.58), transparent 60%),
+      linear-gradient(160deg,#e8f1ff 0%,#d3e4ff 50%,#e5f1ff 100%) !important;
+    background-attachment:fixed !important;
+  }
+  h1,h2,h3,h4,h5{ color:var(--fb-ink) !important; }
+  .lead{ color:var(--fb-body) !important; }
+  .section-head p{ color:var(--fb-muted) !important; }
+
+  /* Nav — frosted */
+  .nav{
+    background:rgba(255,255,255,.62) !important;
+    backdrop-filter:blur(20px) saturate(150%); -webkit-backdrop-filter:blur(20px) saturate(150%);
+    border-bottom:1px solid rgba(255,255,255,.6) !important;
+    box-shadow:0 6px 24px rgba(37,99,235,.07) !important;
+  }
+  .nav-links a{ color:var(--fb-body); }
+  .nav-links a:hover{ color:var(--fb-blue-d); }
+  .brand{ color:var(--fb-ink) !important; }
+  /* Bridgr strip → blue only (drop the indigo→violet) */
+  .eco-bar{ background:linear-gradient(90deg,#1e3a8a 0%,#1d4ed8 55%,#2563eb 100%) !important; }
+  .eco-cta{ background:rgba(255,255,255,.2) !important; }
+  /* Mobile side menu → frosted glass panel (was plain white) */
+  .nav-toggle{ background:rgba(255,255,255,.75) !important; border:1px solid var(--fb-brd-blue) !important; color:var(--fb-blue-d) !important; }
+  @media (max-width:820px){
+    .nav-links{
+      background:rgba(255,255,255,.98) !important;
+      backdrop-filter:blur(22px) saturate(160%); -webkit-backdrop-filter:blur(22px) saturate(160%);
+      border-bottom:1px solid rgba(37,99,235,.12) !important;
+      box-shadow:0 22px 44px -20px rgba(37,99,235,.4) !important;
+      padding:8px 16px 16px !important;
+      gap:0 !important;
+    }
+    .nav-links a{ color:#1e3a8a !important; border-radius:10px; border-bottom:1px solid rgba(37,99,235,.07); }
+    .nav-links a:last-of-type{ border-bottom:none; }
+    .nav-links a:hover{ background:rgba(37,99,235,.08) !important; }
+  }
+
+  /* Let the blue field show through the sections */
+  .section, .hero, .module-section, .pricing-sec{ background:transparent !important; }
+
+  /* Eyebrows / chips → soft blue glass */
+  .hero-pill, .section-eyebrow, .price-chip, .module-eyebrow{
+    background:rgba(255,255,255,.62) !important;
+    border:1px solid var(--fb-brd-blue) !important;
+    color:var(--fb-blue-d) !important;
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+  }
+
+  /* Frosted glass cards — uniform soft frost: heavier blur, a gentle white
+     veil, thin light border, soft blue-tinted shadow. Clean and legible. */
+  .feat-card, .mock-card, .contact-card, .module-screenshot, .ds-cards,
+  .hero-mock, .cmp-focus, .calc-mod, .modal, .enq-addon{
+    background:linear-gradient(135deg, rgba(255,255,255,.62), rgba(255,255,255,.40)) !important;
+    backdrop-filter:blur(22px) saturate(150%); -webkit-backdrop-filter:blur(22px) saturate(150%);
+    border:1px solid rgba(255,255,255,.85) !important;
+    box-shadow:0 10px 32px rgba(37,99,235,.13), inset 0 1px 0 rgba(255,255,255,.7) !important;
+  }
+  .feat-card p, .calc-info p, .module-lead, .contact-card{ color:var(--fb-body) !important; }
+  .feat-icon{ background:rgba(37,99,235,.12) !important; color:var(--fb-blue-d) !important; }
+  /* Collapse the multi-colour icon tints into one blue */
+  .feat-icon.violet, .feat-icon.pink, .feat-icon.cyan, .feat-icon.emerald, .feat-icon.blue,
+  .emo.violet, .emo.pink, .emo.cyan, .emo.emerald, .emo.blue{
+    background:rgba(37,99,235,.12) !important; color:var(--fb-blue-d) !important;
+  }
+
+  /* Buttons — one clean blue */
+  .btn-primary, .enquiry-cta, .quote-cta{
+    background:linear-gradient(135deg,var(--fb-blue),var(--fb-blue-d)) !important;
+    color:#fff !important; border:none !important;
+    box-shadow:0 10px 26px rgba(37,99,235,.30) !important;
+  }
+  .btn-secondary{
+    background:rgba(255,255,255,.6) !important; color:var(--fb-blue-d) !important;
+    border:1px solid var(--fb-brd-blue) !important;
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+  }
+
+  /* Deep-blue GLASS panels (in-hue, translucent) keep their light text */
+  .stats-section{ background:linear-gradient(135deg, rgba(37,99,235,.82), rgba(29,78,216,.72)) !important; backdrop-filter:blur(20px) saturate(160%); -webkit-backdrop-filter:blur(20px) saturate(160%); border-top:1px solid rgba(255,255,255,.25); border-bottom:1px solid rgba(255,255,255,.25); }
+  .stats-section .stat-num{ color:#fff !important; }
+  .stats-section .stat-label{ color:#cfe0ff !important; }
+  .quote-card{
+    background:linear-gradient(155deg, rgba(37,99,235,.82), rgba(29,78,216,.74)) !important;
+    backdrop-filter:blur(20px) saturate(155%); -webkit-backdrop-filter:blur(20px) saturate(155%);
+    border:1px solid rgba(255,255,255,.35) !important;
+    box-shadow:0 24px 50px -22px rgba(29,78,216,.6), inset 0 1px 0 rgba(255,255,255,.35) !important;
+  }
+  .quote-card h3, .quote-card .amt, .quote-card .v, .quote-card .lbl{ color:#fff !important; }
+  .enq-total{ background:linear-gradient(135deg,#2563eb,#1d4ed8) !important; }
+  footer{ background:linear-gradient(135deg, rgba(30,58,138,.92), rgba(29,78,216,.86)) !important; backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); border-top:1px solid rgba(255,255,255,.2); }
+  .footer-grid h4{ color:#fff !important; }
+  .footer-grid a{ color:#c7dbff !important; }
+  .footer-grid a:hover{ color:#fff !important; }
+
+  /* Launch offer → blue (single-hue). Pricing banner = solid blue glass;
+     hero badge = light glass with a blue chip. */
+  .launch-offer-banner{
+    background:linear-gradient(135deg, rgba(37,99,235,.92), rgba(29,78,216,.86)) !important;
+    backdrop-filter:blur(16px) saturate(150%); -webkit-backdrop-filter:blur(16px) saturate(150%);
+    border:1px solid rgba(255,255,255,.35) !important;
+    box-shadow:0 14px 34px rgba(29,78,216,.34), inset 0 1px 0 rgba(255,255,255,.35) !important;
+  }
+  .lob-badge{ background:rgba(255,255,255,.24) !important; }
+  .hero-offer{
+    background:linear-gradient(135deg, rgba(255,255,255,.55), rgba(255,255,255,.22)) !important;
+    border:1px solid rgba(255,255,255,.9) !important;
+    backdrop-filter:blur(16px) saturate(170%); -webkit-backdrop-filter:blur(16px) saturate(170%);
+    box-shadow:0 8px 26px rgba(37,99,235,.14), inset 0 1px 0 rgba(255,255,255,.7) !important;
+  }
+  .hero-offer-badge{ background:linear-gradient(135deg,#2563eb,#1d4ed8) !important; color:#fff !important; }
+  .hero-offer-text{ color:var(--fb-ink) !important; }
+  .hero-offer-text s{ color:var(--fb-muted) !important; }
+  .hero-offer-price{ color:var(--fb-blue-d) !important; }
+
+  /* Form legibility on glass */
+  .modal h3, .enq-modal h3{ color:var(--fb-ink) !important; }
+  .enq-field input, .enq-field select, .enq-field textarea, .modal input, .modal select{
+    background:rgba(255,255,255,.8) !important;
+    border:1px solid var(--fb-brd-blue) !important;
+    color:var(--fb-ink) !important;
+  }
+
+  /* Roles/compare table header → deep blue instead of near-black */
+  .roles-table th, .roles-table thead th, .cmp-table thead th{
+    background:linear-gradient(135deg,#1e3a8a,#1d4ed8) !important; color:#e0edff !important;
+  }
+
+  /* Demo CTA banner → deep blue glass (keeps its light text) */
+  .demo-banner{
+    background:linear-gradient(135deg, rgba(37,99,235,.9), rgba(29,78,216,.82)) !important;
+    backdrop-filter:blur(18px) saturate(150%); -webkit-backdrop-filter:blur(18px) saturate(150%);
+    border:1px solid rgba(255,255,255,.3) !important;
+    box-shadow:0 20px 44px -18px rgba(29,78,216,.6), inset 0 1px 0 rgba(255,255,255,.35) !important;
+  }
+  .demo-banner h2, .demo-banner h3{ color:#fff !important; }
+
+  /* Kill every remaining indigo/violet — one hue only */
+  .hero h1 .accent, .visitors-num{
+    background:linear-gradient(120deg,#2563eb,#3b82f6,#1d4ed8) !important;
+    -webkit-background-clip:text !important; background-clip:text !important;
+    -webkit-text-fill-color:transparent !important;
+  }
+  .feat-icon.violet{ background:linear-gradient(135deg,#3b82f6,#1d4ed8) !important; }
+  .module-eyebrow.violet{ background:#dbeafe !important; color:#1d4ed8 !important; }
+  .module-screenshot.violet-tint{ background:linear-gradient(135deg,#eff6ff,#dbeafe) !important; }
+  .price-chip b, .calc-price, .enq-base-price, .enq-addon .p, .price-foot a{ color:#1d4ed8 !important; }
+  .quote-card .quote-2y .l, .quote-card .quote-2y .v{ color:#e0edff !important; }
+  /* Access-table markers & status chips → blue shades (page chrome only;
+     product-mockup semantics stay green/amber to depict the real app) */
+  .roles-table td.y{ color:#2563eb !important; }
+  .roles-table td.p{ color:#60a5fa !important; }
+  .pill-amber, .module-eyebrow.amber{ background:#dbeafe !important; color:#1d4ed8 !important; }
+  .feat-icon.amber, .feat-icon.emerald{ background:linear-gradient(135deg,#3b82f6,#1d4ed8) !important; }
+
+  /* WhatsApp send button in the enquiry form (kept in-hue: blue) */
+  .enq-wa-btn{
+    display:inline-flex; align-items:center; gap:6px;
+    border:1.5px solid #1d4ed8; background:rgba(37,99,235,.10); color:#1d4ed8;
+    font-weight:800; font-size:14px; padding:10px 18px; border-radius:10px;
+    cursor:pointer; font-family:inherit; transition:background .15s;
+  }
+  .enq-wa-btn:hover{ background:rgba(37,99,235,.18); }
+  .enq-wa-hint{ margin:8px 0 0; font-size:12px; color:var(--fb-muted); text-align:center; }
+</style>
 </body>
 </html>
