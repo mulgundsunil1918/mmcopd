@@ -46,6 +46,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   whatsapp_api_key: '',
   whatsapp_country_code: '91',
   appointments_default_sort: 'oldest_first',
+  print_patient_language: 'kn',
   followup_enabled: 'true',
   followup_window_days: '7',
   followup_free_visits: '2',

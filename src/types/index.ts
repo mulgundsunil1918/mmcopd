@@ -646,6 +646,11 @@ export interface Settings {
   /** Growth-chart reference default: 'auto' = WHO 0–5y, IAP 5–18y (recommended). */
   peds_growth_default: 'auto' | 'who' | 'iap';
 
+  /** Second language printed under each prescription line on the OPD slip
+   *  (medicine timing/frequency/duration for the patient). 'none' = English only.
+   *  See PATIENT_LANGS in lib/rxLang. */
+  print_patient_language: string;
+
   // ===== IPD admission-request workflow =====
   ipd_admission_requests_enabled: boolean;
 

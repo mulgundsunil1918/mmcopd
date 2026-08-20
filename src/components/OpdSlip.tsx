@@ -4,7 +4,7 @@ import { Printer, X, MapPin, Phone, Mail, HeartPulse } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ageStringFull, fmt12h, fmtDateTime } from '../lib/utils';
-import { rxKannadaLine } from '../lib/rxKannada';
+import { rxLangLine, type PatientLang } from '../lib/rxLang';
 import type { AppointmentWithJoins, Consultation, Doctor, FollowupSummary, LabOrder, PrescriptionItem, Settings, SlipLayout, SlipTemplate, SlipTemplateSection, Vitals } from '../types';
 import { DEFAULT_LAYOUT } from '../db/slip-templates';
 
@@ -573,7 +573,7 @@ function DynamicSections({
   );
 }
 
-function RxTable({ rxItems }: { rxItems: PrescriptionItem[] }) {
+function RxTable({ rxItems, lang }: { rxItems: PrescriptionItem[]; lang: PatientLang }) {
   if (rxItems.length === 0) return null;
   return (
     <table className="w-full mb-2" style={{ borderCollapse: 'collapse', fontSize: 'inherit' }}>
@@ -588,7 +588,7 @@ function RxTable({ rxItems }: { rxItems: PrescriptionItem[] }) {
       </thead>
       <tbody>
         {rxItems.map((r, idx) => {
-          const kn = rxKannadaLine(r);
+          const kn = rxLangLine(r, lang);
           return (
             <Fragment key={idx}>
               <tr style={{ borderBottom: kn ? 'none' : '1px dotted #e2e8f0' }}>
@@ -715,7 +715,7 @@ function PageTwo({
       )}
 
       <Section title={adviceSection?.title || 'Advice / Prescription (Rx)'} grow>
-        {layout.showRxTable && <RxTable rxItems={rxItems} />}
+        {layout.showRxTable && <RxTable rxItems={rxItems} lang={(settings.print_patient_language as PatientLang) || 'kn'} />}
         <BlankArea value={readSection(consultation, 'advice')} grow={afterAdvice.length === 0} />
       </Section>
 
@@ -769,7 +769,7 @@ function SinglePageContent({
       )}
 
       <Section title={adviceSection?.title || 'Advice / Prescription (Rx)'} grow>
-        {layout.showRxTable && <RxTable rxItems={rxItems} />}
+        {layout.showRxTable && <RxTable rxItems={rxItems} lang={(settings.print_patient_language as PatientLang) || 'kn'} />}
         <BlankArea value={readSection(consultation, 'advice')} grow={afterAdvice.length === 0} />
       </Section>
 
@@ -854,13 +854,17 @@ function FollowUpBox({ followup, settings, showQr = true }: { followup: Followup
         className="text-[12px] uppercase tracking-wider font-bold pb-1 mb-2 text-center"
         style={{ color: '#064e3b', borderBottom: '1px solid #a7f3d0' }}
       >
-        FOLLOW-UP · ಮರು ಭೇಟಿ
+        FOLLOW-UP{((settings.print_patient_language as PatientLang) || 'kn') === 'kn' ? ' · ಮರು ಭೇಟಿ' : ''}
       </div>
       <div className="flex items-center gap-3">
         {/* Left: bilingual text */}
         <div className={`flex-1 min-w-0 ${qrCount === 0 ? 'text-center' : ''}`}>
           <div className="text-[12px] leading-snug" style={{ color: '#064e3b' }}>{englishLine}</div>
-          <div className="text-[12px] leading-snug mt-1.5" style={{ color: '#064e3b' }}>{kannadaLine}</div>
+          {/* The follow-up sentence is localised in Kannada only; other languages
+              show the English line (the Rx schedule above is translated for all). */}
+          {((settings.print_patient_language as PatientLang) || 'kn') === 'kn' && (
+            <div className="text-[12px] leading-snug mt-1.5" style={{ color: '#064e3b' }}>{kannadaLine}</div>
+          )}
         </div>
         {/* Right: QR codes */}
         {qrCount > 0 && (

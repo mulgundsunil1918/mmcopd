@@ -124,6 +124,7 @@ export const DEMO_SETTINGS: Settings = {
   peds_calculators_enabled: true,
   peds_vaccine_schedule: 'iap',
   peds_growth_default: 'auto',
+  print_patient_language: 'kn',
   ipd_admission_requests_enabled: true,
   discharge_summary_enabled: true,
   lab_auto_bill: true,

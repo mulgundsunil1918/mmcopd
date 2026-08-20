@@ -125,6 +125,8 @@ export function getAllSettings(db: Database.Database): Settings {
     peds_calculators_enabled: map.peds_calculators_enabled !== 'false',
     peds_vaccine_schedule: (map.peds_vaccine_schedule as any) || 'iap',
     peds_growth_default: (map.peds_growth_default as any) || 'auto',
+    // Default 'kn' preserves the original Kannada-only behaviour for existing clinics.
+    print_patient_language: map.print_patient_language || 'kn',
 
     // ===== IPD admission requests =====
     ipd_admission_requests_enabled: map.ipd_admission_requests_enabled !== 'false',

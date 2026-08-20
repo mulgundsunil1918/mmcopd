@@ -637,6 +637,8 @@ export function runMigrations(db: Database.Database) {
   setSettingIfEmpty(db, 'followup_enabled', 'true');
   setSettingIfEmpty(db, 'followup_window_days', '7');
   setSettingIfEmpty(db, 'followup_free_visits', '2');
+  // Existing clinics keep the original Kannada second-language on printed OPD slips.
+  setSettingIfEmpty(db, 'print_patient_language', 'kn');
   setSettingIfEmpty(db, 'followup_grace_days', '2');
   addColumnIfMissing(db, 'bills', 'is_relaxed_followup', 'INTEGER NOT NULL DEFAULT 0');
 

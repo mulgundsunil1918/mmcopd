@@ -7,6 +7,7 @@ import type { SlipLayout } from '../db/slip-templates';
 import { format, parseISO } from 'date-fns';
 import { cn } from '../lib/utils';
 import { copyText } from '../lib/clipboard';
+import { PATIENT_LANGS } from '../lib/rxLang';
 import { Check } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { ImageUpload } from '../components/ImageUpload';
@@ -85,6 +86,7 @@ const SETTINGS_SEARCH: { tab: SettingsTab; label: string; hint: string; keywords
   { tab: 'clinic', label: 'App Mode', hint: 'Which modules show in the sidebar', keywords: 'app mode module sidebar reception pharmacy doctor lab ipd' },
   { tab: 'doctors', label: 'Doctors', hint: 'Fees, signature, colour, template', keywords: 'doctor fee signature colour color template room specialty' },
   { tab: 'doctors', label: 'OPD Slip Body Templates', hint: 'Consultation & printed-slip sections', keywords: 'opd slip template section body specialty growth layout' },
+  { tab: 'doctors', label: 'Patient Language on Printed Slip', hint: 'Second language under each medicine', keywords: 'language kannada hindi tamil telugu malayalam marathi bilingual multilingual print opd slip patient second regional' },
   { tab: 'doctors', label: 'Consultation Quick-Fill Templates', hint: 'One-tap clinical text by department', keywords: 'quick fill template consultation clinical department specialty history examination' },
   { tab: 'workflow', label: 'Fees, Queue Flow & Display', hint: 'Consultation fee, queue toggle', keywords: 'fee queue flow waiting done pending consultation display badge billing slot' },
   { tab: 'workflow', label: 'Patient Registration Fee', hint: 'One-time registration fee', keywords: 'registration fee one time' },
@@ -231,6 +233,9 @@ export function SettingsPage() {
               </SettingsGroup>
               <SettingsGroup title="OPD Slip Body Templates" subtitle="Per-specialty sections for the consultation panel and printed slip. Edit a template, then hit Preview to see exactly how it prints — right there.">
                 <SlipTemplatesEditor />
+              </SettingsGroup>
+              <SettingsGroup title="Patient Language on Printed Slip" subtitle="A second language printed under each medicine on the OPD slip — the schedule (when & how to take it) in the patient's own language. The doctor's typed notes always print exactly as written.">
+                <PatientLanguagePicker />
               </SettingsGroup>
               <SettingsGroup title="Consultation Quick-Fill Templates" subtitle="One-tap clinical text for a consultation. Shared for the clinic, or saved under a doctor’s name so only that doctor sees it.">
                 <ClinicalTemplatesEditor />
@@ -5352,6 +5357,33 @@ function LabSettingsCard() {
       <div className="text-[11px] text-gray-500 dark:text-slate-400">
         Covers pathology (haematology, biochemistry, serology, microbiology, histopathology…) and radiology. Set prices, enable/disable
         and add your own tests under <b>Laboratory → Test Catalog</b>.
+      </div>
+    </div>
+  );
+}
+
+function PatientLanguagePicker() {
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { draft, set, reset, dirty, saving, save } = useSectionDraft(settings, ['print_patient_language']);
+  if (!settings) return <div className="card p-6 text-center"><Loader2 className="w-4 h-4 animate-spin mx-auto text-gray-400" /></div>;
+  return (
+    <div className="card p-5 space-y-3">
+      <div className="max-w-md">
+        <label className="label">Language printed for the patient</label>
+        <select className="input" value={draft.print_patient_language ?? 'kn'} onChange={(e) => set('print_patient_language', e.target.value as any)}>
+          {PATIENT_LANGS.map((l) => (
+            <option key={l.code} value={l.code}>
+              {l.en}{l.native !== '—' ? ` — ${l.native}` : ''}{!l.pack ? ' (English only for now)' : l.needsReview ? ' (verify wording)' : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="text-[11px] text-gray-500 dark:text-slate-400 leading-relaxed">
+        Only standard timing, frequency, duration and food instructions are translated — e.g. <b>1-0-1</b>, <b>BD</b>, <b>“after food”</b>, <b>“5 days”</b>. Anything the app can’t confidently translate simply prints in English, so a patient never sees a wrong instruction. Languages marked <b>“verify wording”</b> are best-effort — have a native speaker confirm them before you rely on them; ones marked <b>“English only for now”</b> await a local word-list.
+      </div>
+      <div className="flex items-center gap-2">
+        {dirty && <button className="btn-ghost text-xs" onClick={reset}>Reset</button>}
+        <button className="btn-primary text-xs" disabled={!dirty || saving} onClick={save}>{saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}</button>
       </div>
     </div>
   );
