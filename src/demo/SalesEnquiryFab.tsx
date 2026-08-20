@@ -127,6 +127,16 @@ export function SalesEnquiryFab() {
       {/* Floating launcher */}
       <div style={{ position: 'fixed', right: 20, bottom: 20, zIndex: 2147483000, display: 'flex', alignItems: 'center', gap: 10 }}>
         <a
+          href="/"
+          title="Back to the CureDesk website"
+          aria-label="Back to the CureDesk website"
+          style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 48, height: 48, borderRadius: '50%', background: '#0f172a', color: '#fff', textDecoration: 'none', boxShadow: '0 10px 24px rgba(15,23,42,.32)', opacity: 0.5, transition: 'opacity .18s, transform .18s' }}
+          onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.5'; e.currentTarget.style.transform = 'none'; }}
+        >
+          <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>
+        </a>
+        <a
           href={`mailto:${ENQUIRY_EMAIL}?subject=CureDesk%20HMS%20enquiry`}
           title={`Email ${ENQUIRY_EMAIL}`}
           aria-label={`Email us at ${ENQUIRY_EMAIL}`}
