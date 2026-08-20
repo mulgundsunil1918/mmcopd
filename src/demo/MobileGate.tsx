@@ -45,21 +45,29 @@ export function MobileGate() {
       style={{ background: 'linear-gradient(160deg,#0f172a 0%,#1e3a8a 100%)' }}
     >
       <div className="max-w-sm my-auto">
-        <div className="text-6xl mb-4" aria-hidden>🖥️</div>
+        <div className="text-5xl mb-4" aria-hidden>📱&nbsp;→&nbsp;🖥️</div>
         <h1 className="text-2xl font-extrabold text-white mb-3" style={{ textWrap: 'balance' as any }}>
-          Best viewed on a desktop
+          Exploring on your phone?
         </h1>
-        <p className="text-[13.5px] text-blue-100/90 leading-relaxed mb-2">
-          <b className="text-white">CureDesk HMS</b> is a full hospital management system built for desktop
-          workstations — the reception, the doctor’s cabin and the billing counter.
+        <p className="text-[13.5px] text-blue-100/90 leading-relaxed mb-5">
+          <b className="text-white">CureDesk HMS</b> is a full hospital system built for desktop workstations —
+          reception, the doctor’s cabin, the billing counter. This live demo uses a wide, multi-panel layout, so
+          for the best experience we recommend opening it on a computer.
         </p>
-        <p className="text-[13.5px] text-blue-100/80 leading-relaxed mb-5">
-          The live demo uses a wide, multi-panel layout that doesn’t fit a phone. Please open this on a
-          <b className="text-white"> laptop or desktop</b>, or switch your browser to <b className="text-white">“Desktop site”</b>.
-        </p>
+        <div className="rounded-xl bg-white/10 border border-white/15 p-3.5 text-[12.5px] text-blue-100/90 mb-4 text-left leading-relaxed">
+          <div className="font-bold text-white mb-2">👍 For the best experience</div>
+          <div className="mb-2.5">
+            <span className="font-semibold text-white">✅ Best:</span> open this on a <b className="text-white">laptop or desktop</b>.
+          </div>
+          <div className="font-semibold text-white mb-1">📱 Staying on your phone? Do these two things:</div>
+          <div className="pl-1">
+            <div className="mb-1"><b className="text-white">1.</b> Turn on <b className="text-white">Desktop site</b> — open your browser menu (<b className="text-white">⋮</b> on Chrome, <b className="text-white">Aa</b> on Safari) and tick <b className="text-white">“Desktop site”</b>.</div>
+            <div><b className="text-white">2.</b> Rotate your phone to <b className="text-white">landscape</b> (turn it sideways).</div>
+          </div>
+        </div>
         <div className="rounded-xl bg-white/10 border border-white/15 p-3 text-[12px] text-blue-100/90 mb-6 text-left">
-          <div className="font-semibold text-white mb-1">📋 Open on a computer</div>
-          Copy this link and open it on a desktop browser:
+          <div className="font-semibold text-white mb-1">📋 Or open on a computer</div>
+          Copy this link and open it in a desktop browser:
           <div className="mt-1.5 font-mono text-[11px] break-all text-white/90 bg-black/20 rounded px-2 py-1.5">{href}</div>
         </div>
         <button
