@@ -449,22 +449,25 @@ export function createMockElectronAPI(): any {
       summary: () => {
         const totalAll = bills.reduce((s, b) => s + b.total, 0);
         const today = totalAll * 0.04;
+        const nBills = bills.length || 1;
+        const maxBill = bills.reduce((m, b) => Math.max(m, b.total), 0);
         return r({
-          today: { total: today, delta: 0.12 },
-          yesterday: { total: today * 0.85 },
-          week: { total: totalAll * 0.18 },
-          prevWeek: { total: totalAll * 0.16 },
-          month: { total: totalAll * 0.55 },
-          prevMonth: { total: totalAll * 0.5 },
-          allTime: { total: totalAll },
+          today: { total: today, count: 8, delta: 0.12, byMode: [{ payment_mode: 'Cash', total: today * 0.55, count: 4 }, { payment_mode: 'UPI', total: today * 0.35, count: 3 }, { payment_mode: 'Card', total: today * 0.1, count: 1 }] },
+          yesterday: { total: today * 0.85, count: 7 },
+          week: { total: totalAll * 0.18, count: 42 },
+          prevWeek: { total: totalAll * 0.16, count: 38 },
+          month: { total: totalAll * 0.55, count: 180 },
+          prevMonth: { total: totalAll * 0.5, count: 165 },
+          allTime: { total: totalAll, count: nBills, avg: Math.round(totalAll / nBills), max: maxBill },
+          range: { bills: { total: totalAll * 0.7, count: Math.round(nBills * 0.7) }, pharma: { total: totalAll * 0.3, count: Math.round(nBills * 0.3) } },
           byDay: Array.from({ length: 14 }, (_, i) => ({ day: new Date(Date.now() - (13 - i) * 86400000).toISOString().slice(0, 10), total: 1500 + Math.floor(Math.random() * 4000) })),
           byMonth: Array.from({ length: 6 }, (_, i) => ({ month: `2026-${String(i + 1).padStart(2, '0')}`, total: 30000 + Math.floor(Math.random() * 30000) })),
           byWeekday: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((wd) => ({ weekday: wd, total: 5000 + Math.floor(Math.random() * 8000) })),
           byHour: Array.from({ length: 14 }, (_, i) => ({ hour: 8 + i, total: 500 + Math.floor(Math.random() * 4000) })),
           byDoctor: doctors.map((d) => ({ doctor: d.name, count: 10 + Math.floor(Math.random() * 30), total: 5000 + Math.floor(Math.random() * 25000) })),
-          byMode: [{ mode: 'Cash', total: totalAll * 0.5, count: 60 }, { mode: 'UPI', total: totalAll * 0.35, count: 30 }, { mode: 'Card', total: totalAll * 0.15, count: 10 }],
+          byMode: [{ payment_mode: 'Cash', total: totalAll * 0.5, count: 60 }, { payment_mode: 'UPI', total: totalAll * 0.35, count: 30 }, { payment_mode: 'Card', total: totalAll * 0.15, count: 10 }],
           byPlace: ['Shantipur', 'Gadag', 'Lakshmeshwar', 'Naregal', 'Annigeri'].map((p) => ({ place: p, total: 3000 + Math.floor(Math.random() * 12000) })),
-          topPatients: patients.slice(0, 10).map((p, i) => ({ name: `${p.first_name} ${p.last_name}`, uhid: p.uhid, total: 5000 - i * 300 })),
+          topPatients: patients.slice(0, 10).map((p, i) => ({ name: `${p.first_name} ${p.last_name}`, uhid: p.uhid, total: 5000 - i * 300, bills: Math.max(1, 6 - Math.floor(i / 2)) })),
         });
       },
     },

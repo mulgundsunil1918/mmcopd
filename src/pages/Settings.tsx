@@ -4869,7 +4869,7 @@ const SUB_MODULES: { key: string; name: string; desc: string; base?: boolean }[]
   { key: 'pharmacy', name: 'Pharmacy', desc: 'Dispensing, FEFO inventory, sales' },
   { key: 'ipd', name: 'In-Patient (IPD)', desc: 'Admissions, wards, discharge, TPA' },
   { key: 'whatsapp', name: 'WhatsApp Basic', desc: 'One-click send with name-filled templates' },
-  { key: 'whatsapp_pro', name: 'WhatsApp Pro', desc: 'Meta Cloud API — auto-reminders, 2-way inbox, campaigns' },
+  { key: 'whatsapp_pro', name: 'WhatsApp Pro', desc: 'AiSensy (WhatsApp Business API) — auto-reminders, 2-way inbox, campaigns' },
 ];
 
 const SUB_BASE_PRICE = 8999;
@@ -4878,7 +4878,7 @@ const SUB_ADDON_PRICES: Record<string, { name: string; price: number; note?: str
   pharmacy: { name: 'Pharmacy', price: 1999 },
   ipd: { name: 'In-Patient (IPD)', price: 4999 },
   whatsapp: { name: 'WhatsApp Basic', price: 999, note: 'click-to-send', group: 'wa' },
-  whatsapp_pro: { name: 'WhatsApp Pro', price: 1999, note: 'Meta-API', group: 'wa' },
+  whatsapp_pro: { name: 'WhatsApp Pro', price: 1999, note: 'AiSensy', group: 'wa' },
 };
 
 function SubscriptionTab() {
