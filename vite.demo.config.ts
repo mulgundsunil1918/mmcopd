@@ -34,12 +34,17 @@ function postBuildPlugin() {
       if (fs.existsSync(demoPath)) {
         fs.copyFileSync(demoPath, path.join(dist, '404.html'));
       }
-      // Static multi-station setup/recovery guide → served at /mmcopd/multi-station.html
+      // Static multi-station setup/recovery guide → served at /multi-station.html
       // (linked from the in-app Network settings). It's a standalone HTML file.
       const guideSrc = path.resolve(__dirname, 'multi-station.html');
       if (fs.existsSync(guideSrc)) {
         fs.copyFileSync(guideSrc, path.join(dist, 'multi-station.html'));
       }
+      // Custom domain: a CNAME file in the published output tells GitHub Pages to
+      // serve the site at curedesk.co.in (and 301-redirect the old
+      // <user>.github.io/mmcopd/* URLs to it — so existing pamphlet QR codes keep
+      // working). Must match the apex A records set at the registrar.
+      fs.writeFileSync(path.join(dist, 'CNAME'), 'curedesk.co.in\n');
     },
   };
 }
@@ -55,7 +60,9 @@ const appVersion = JSON.parse(
 ).version as string;
 
 export default defineConfig({
-  base: '/mmcopd/',
+  // Served at the ROOT of the custom domain (https://curedesk.co.in/), so assets
+  // resolve from '/'. (Was '/mmcopd/' when hosted under the github.io subpath.)
+  base: '/',
   // __IS_DEMO__ is a COMPILE-TIME true only in the showcase build. Guarded with
   // `typeof` in code so the Electron build (where it is undefined) is unaffected,
   // and used to dead-code-eliminate personal literals (e.g. the support email)

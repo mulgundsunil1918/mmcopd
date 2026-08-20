@@ -2597,7 +2597,7 @@ function NetworkSetupGuide() {
 
       <button
         className="btn-secondary text-xs w-fit"
-        onClick={() => window.electronAPI.app.openExternal('https://mulgundsunil1918.github.io/mmcopd/multi-station.html').catch(() => { /* ignore */ })}
+        onClick={() => window.electronAPI.app.openExternal('https://curedesk.co.in/multi-station.html').catch(() => { /* ignore */ })}
         title="Opens the full illustrated, printable Setup & Recovery guide in your browser"
       >
         📄 Open the illustrated Setup &amp; Recovery guide (printable) →

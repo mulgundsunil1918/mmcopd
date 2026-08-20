@@ -27,9 +27,18 @@ function safeFill(api: any): any {
         // Mutations → { ok: true }; single-object reads → {}; everything else
         // (list-style reads) → [] so a render that maps the result never
         // crashes in the showcase.
-        const isMutation = /^(save|add|update|delete|remove|set|create|give|pay|refund|seed|recalc|reject|approve|transfer|discharge|admit|request|stop|respond)/.test(prop) || /Save$|Add$|Update$|Delete$|Status$/.test(prop);
-        const isObject = /^(get|preview|status|config|health|info|joinCode|previewById|previewAdmission)/.test(prop) || /Config$|Status$|By[A-Z]/.test(prop);
-        return (..._args: any[]) => Promise.resolve(isMutation ? { ok: true } : isObject ? {} : []);
+        //
+        // IMPORTANT: default ambiguous reads to [] (array), NOT {}. Most read
+        // methods in this app return lists that the UI immediately `.map()`s, so
+        // a `{}`/`{ok:true}` fallback throws "x.map is not a function" (this
+        // crashed the Settings → Discharge Templates view: `dischargeTemplatesList`
+        // starts with the mutation verb "discharge", so it was mis-classified as a
+        // mutation and returned `{ok:true}`). List-shaped names win FIRST, before
+        // the mutation-verb check, so any *List/*Rows/*Log/*Entries read → [].
+        const isList = /(List|Rows|History|Log|Entries|Items|Records)$|^(list|all|search)/.test(prop);
+        const isMutation = /^(save|add|update|delete|remove|set|create|give|pay|refund|seed|recalc|reject|approve|transfer|discharge|admit|request|stop|respond)/.test(prop) || /Save$|Add$|Update$|Delete$/.test(prop);
+        const isObject = /^(preview|config|health|info|joinCode)/.test(prop) || /Config$|Status$|Info$|Health$|Settings$|By[A-Z]/.test(prop);
+        return (..._args: any[]) => Promise.resolve(isList ? [] : isMutation ? { ok: true } : isObject ? {} : []);
       }
       return fallbackFn;
     },
@@ -61,6 +70,7 @@ import { ThemeProvider } from '../hooks/useTheme';
 import { AuthProvider } from '../hooks/useAuth';
 import { DemoBanner } from './DemoBanner';
 import { MobileGate } from './MobileGate';
+import { SalesEnquiryFab } from './SalesEnquiryFab';
 import '../index.css';
 
 const queryClient = new QueryClient({
@@ -114,6 +124,7 @@ createRoot(document.getElementById('root')!).render(
                 <MobileGate />
                 <DemoBanner />
                 <App />
+                <SalesEnquiryFab />
               </HashRouter>
             </AuthProvider>
           </ToastProvider>

@@ -438,6 +438,8 @@ function createWindow() {
         lower.startsWith('mailto:') ||
         lower.startsWith('https://www.google.com/maps') ||
         lower.startsWith('https://maps.google.com/') ||
+        lower.startsWith('https://curedesk.co.in/') ||
+        lower.startsWith('https://www.curedesk.co.in/') ||
         lower.startsWith('https://mulgundsunil1918.github.io/mmcopd/') ||
         lower.startsWith('https://bridgr.co.in/');
       if (!ok) return { ok: false, error: 'URL not allowed' };

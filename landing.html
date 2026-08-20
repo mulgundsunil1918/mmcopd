@@ -1228,18 +1228,18 @@
       or anything else you'd like to know about CureDesk. We read every message and usually reply the same day.
     </p>
     <div class="contact-cards">
-      <a class="contact-card" href="mailto:help@bridgr.co.in?subject=CureDesk%20HMS%20enquiry">
+      <a class="contact-card" href="mailto:help@curedesk.co.in?subject=CureDesk%20HMS%20enquiry">
         <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
         <span>
           <span class="cc-label">Sales &amp; general</span>
-          <span class="cc-value">help@bridgr.co.in</span>
+          <span class="cc-value">help@curedesk.co.in</span>
         </span>
       </a>
-      <a class="contact-card" href="mailto:mulgundsunil@gmail.com?subject=CureDesk%20HMS%20enquiry">
+      <a class="contact-card" href="mailto:help@curedesk.co.in?subject=CureDesk%20HMS%20-%20Request%20a%20quote">
         <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
         <span>
-          <span class="cc-label">Direct</span>
-          <span class="cc-value">mulgundsunil@gmail.com</span>
+          <span class="cc-label">Quotes &amp; demos</span>
+          <span class="cc-value">help@curedesk.co.in</span>
         </span>
       </a>
     </div>
@@ -1286,10 +1286,9 @@
       </div>
       <div>
         <h4>Get in touch</h4>
-        <a href="mailto:help@bridgr.co.in?subject=CureDesk%20HMS%20enquiry">help@bridgr.co.in</a>
-        <a href="mailto:mulgundsunil@gmail.com?subject=CureDesk%20HMS%20enquiry">mulgundsunil@gmail.com</a>
-        <a href="mailto:help@bridgr.co.in?subject=CureDesk%20HMS%20-%20Request%20a%20quote">Request a Quote</a>
-        <a href="mailto:help@bridgr.co.in?subject=CureDesk%20HMS%20-%20Schedule%20a%20demo%20call">Schedule Demo Call</a>
+        <a href="mailto:help@curedesk.co.in?subject=CureDesk%20HMS%20enquiry">help@curedesk.co.in</a>
+        <a href="mailto:help@curedesk.co.in?subject=CureDesk%20HMS%20-%20Request%20a%20quote">Request a Quote</a>
+        <a href="mailto:help@curedesk.co.in?subject=CureDesk%20HMS%20-%20Schedule%20a%20demo%20call">Schedule Demo Call</a>
       </div>
     </div>
     <div class="footer-bottom">
@@ -1334,7 +1333,30 @@
   .enq-status.ok{ color:#059669; font-weight:700; }
   .enq-status.err{ color:#dc2626; font-weight:600; }
   .enq-status.err a{ color:#4f46e5; font-weight:700; }
+
+  /* Floating sales-enquiry launcher — sits in the corner at 50% opacity and
+     rises to full on hover/focus, so it's inviting but never in the way. */
+  .enq-fab-wrap{ position:fixed; right:20px; bottom:20px; z-index:900; display:flex; align-items:center; gap:10px; }
+  .enq-fab{ display:inline-flex; align-items:center; gap:9px; background:linear-gradient(135deg,#4f46e5,#2563eb); color:#fff; font-weight:800; padding:15px 24px; border-radius:999px; font-size:15px; box-shadow:0 12px 30px rgba(79,70,229,.38); cursor:pointer; border:none; opacity:.5; transition:opacity .18s ease, transform .18s ease; }
+  .enq-fab:hover, .enq-fab:focus-visible{ opacity:1; transform:translateY(-2px); outline:none; }
+  .enq-fab svg{ width:18px; height:18px; }
+  .enq-fab-mail{ display:inline-flex; align-items:center; justify-content:center; width:48px; height:48px; border-radius:50%; background:#0f172a; color:#fff; box-shadow:0 10px 24px rgba(15,23,42,.32); opacity:.5; transition:opacity .18s ease, transform .18s ease; }
+  .enq-fab-mail:hover, .enq-fab-mail:focus-visible{ opacity:1; transform:translateY(-2px); outline:none; }
+  .enq-fab-mail svg{ width:20px; height:20px; }
+  @media (max-width:520px){ .enq-fab-wrap{ right:14px; bottom:14px; gap:8px; } .enq-fab{ padding:13px 18px; font-size:14px; } .enq-fab-mail{ width:44px; height:44px; } }
 </style>
+
+<!-- Floating Sales Enquiry launcher (translucent until hovered) -->
+<div class="enq-fab-wrap">
+  <a class="enq-fab-mail" href="mailto:help@curedesk.co.in?subject=CureDesk%20HMS%20enquiry" title="Email help@curedesk.co.in" aria-label="Email us at help@curedesk.co.in">
+    <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+  </a>
+  <button class="enq-fab" type="button" onclick="openEnquiry()" aria-label="Open the sales enquiry form">
+    <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    Sales Enquiry
+  </button>
+</div>
+
 <div class="modal-overlay" id="enqModal" onclick="if (event.target===this) closeEnquiry();">
   <div class="modal enq-modal">
     <div class="modal-icon">
@@ -1413,10 +1435,10 @@
     <h3>Coming Soon</h3>
     <p>The downloadable Windows installer launches publicly soon. Email us for early access and we'll send the Setup.exe directly when it's ready.</p>
     <p style="margin-top:-6px;">
-      <a href="mailto:help@bridgr.co.in?subject=CureDesk%20HMS%20-%20Early%20access%20request" style="color:#4f46e5;font-weight:700;">help@bridgr.co.in</a>
+      <a href="mailto:help@curedesk.co.in?subject=CureDesk%20HMS%20-%20Early%20access%20request" style="color:#4f46e5;font-weight:700;">help@curedesk.co.in</a>
     </p>
     <div class="modal-actions">
-      <a href="mailto:help@bridgr.co.in?subject=CureDesk%20HMS%20-%20Early%20access%20request" class="btn-primary" style="font-size:14px;">Email for Early Access</a>
+      <a href="mailto:help@curedesk.co.in?subject=CureDesk%20HMS%20-%20Early%20access%20request" class="btn-primary" style="font-size:14px;">Email for Early Access</a>
       <a href="demo.html" class="btn-secondary" style="border:1px solid #cbd5e1;background:#fff;font-size:14px;font-weight:600;padding:10px 18px;border-radius:10px;">Try Live Demo</a>
       <button class="btn-secondary" onclick="closeDownload();" style="border:1px solid #cbd5e1;background:#fff;cursor:pointer;font-size:14px;font-weight:600;padding:10px 18px;border-radius:10px;">Close</button>
     </div>
@@ -1493,14 +1515,14 @@
       _replyto: d.email, _template: 'table', _captcha: 'false',
     };
     try {
-      const r = await fetch('https://formsubmit.co/ajax/help@bridgr.co.in', {
+      const r = await fetch('https://formsubmit.co/ajax/help@curedesk.co.in', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify(payload),
       });
       const j = await r.json().catch(() => ({}));
       // FormSubmit needs a one-time activation: the FIRST submission emails a
-      // confirmation link to help@bridgr.co.in and does NOT deliver until it's
+      // confirmation link to help@curedesk.co.in and does NOT deliver until it's
       // clicked. Its JSON says success:"false" then — surface that honestly
       // instead of a false "sent".
       if (!r.ok || j.success === 'false' || j.success === false) {
@@ -1524,7 +1546,7 @@
         + '%0D%0ASubscription: ' + d.subscription + '%0D%0AEstimated total: ' + d.total
         + '%0D%0AContact: ' + d.contact + '%0D%0AEmail: ' + d.email;
       status.className = 'enq-status err';
-      status.innerHTML = 'Couldn’t send automatically. <a href="mailto:help@bridgr.co.in?subject=CureDesk%20Sales%20Enquiry&body=' + body + '">Click here to email us instead</a>.';
+      status.innerHTML = 'Couldn’t send automatically. <a href="mailto:help@curedesk.co.in?subject=CureDesk%20Sales%20Enquiry&body=' + body + '">Click here to email us instead</a>.';
       btn.disabled = false; btn.textContent = orig;
     }
     return false;
