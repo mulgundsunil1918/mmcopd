@@ -1,5 +1,6 @@
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
+import { RouteErrorBoundary } from './RouteErrorBoundary';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { StatusBar } from './StatusBar';
@@ -30,6 +31,12 @@ export function Layout() {
     return () => window.removeEventListener('keydown', fn);
   }, []);
 
+  // In the public demo, contain any single-screen crash to the content area so
+  // the sidebar/rest of the app stay usable (keyed by route below → recovers on
+  // navigation). Never wraps the real Electron app.
+  const location = useLocation();
+  const isDemo = typeof window !== 'undefined' && (window as any).__CUREDESK_DEMO__ === true;
+
   return (
     <div className="h-full flex flex-col bg-white">
       <div className="flex flex-1 min-h-0 relative">
@@ -47,7 +54,11 @@ export function Layout() {
         <main className="flex-1 flex flex-col overflow-hidden">
           <TopBar />
           <div className="flex-1 overflow-auto">
-            <Outlet />
+            {isDemo ? (
+              <RouteErrorBoundary key={location.pathname}><Outlet /></RouteErrorBoundary>
+            ) : (
+              <Outlet />
+            )}
           </div>
         </main>
       </div>
