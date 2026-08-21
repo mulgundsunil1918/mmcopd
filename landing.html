@@ -251,6 +251,20 @@
     font-size: 18px; color: #475569; max-width: 540px;
     margin-bottom: 32px;
   }
+  .faq-list { max-width: 820px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  .faq-item { border-radius: 14px; overflow: hidden; }
+  .faq-item summary {
+    list-style: none; cursor: pointer; user-select: none;
+    padding: 18px 22px; font-weight: 700; font-size: 16px; color: #0f2a63;
+    display: flex; justify-content: space-between; align-items: center; gap: 18px;
+  }
+  .faq-item summary::-webkit-details-marker { display: none; }
+  .faq-item summary::after { content: '+'; font-size: 24px; font-weight: 400; line-height: 1; color: #2563eb; flex-shrink: 0; transition: transform .2s ease; }
+  .faq-item[open] summary::after { content: '\2212'; } /* minus */
+  .faq-item .faq-a { padding: 0 22px 18px; font-size: 14.5px; line-height: 1.62; color: #475569; }
+  .faq-item .faq-a a { color: #1d4ed8; font-weight: 600; }
+  @media (max-width: 500px) { .faq-item summary { font-size: 15px; padding: 15px 17px; } .faq-item .faq-a { padding: 0 17px 15px; } }
+
   .hero-offer {
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     background: linear-gradient(135deg, #fffbeb, #fef3c7);
@@ -620,6 +634,7 @@
       <a href="#pricing">Pricing</a>
       <a href="#compare">Compare</a>
       <a href="#demo">Demo</a>
+      <a href="#faq">FAQ</a>
       <a href="#contact">Contact</a>
       <a href="demo.html" class="btn-secondary">Try Live Demo →</a>
       <a href="#download" class="btn-primary" onclick="event.preventDefault(); openDownload();">Download</a>
@@ -1341,6 +1356,67 @@
   </div>
 </div>
 
+<!-- ============== FAQ ============== -->
+<section class="section" id="faq">
+  <div class="container">
+    <div class="section-head">
+      <span class="section-eyebrow">❓ FAQ</span>
+      <h2>Questions, answered.</h2>
+      <p>What clinics ask before switching to CureDesk. Still unsure? <a href="#" onclick="event.preventDefault(); openEnquiry();" style="color:#1d4ed8;font-weight:700;">Send an enquiry →</a></p>
+    </div>
+    <div class="faq-list">
+      <details class="faq-item">
+        <summary>Does CureDesk work without internet?</summary>
+        <div class="faq-a">Yes — CureDesk runs <b>100% offline</b> on your own Windows PC. Registration, consultations, pharmacy, laboratory, billing and reports all work with no internet at all, and your data never leaves your computer. Internet is only needed for optional extras like WhatsApp messaging or cloud backup.</div>
+      </details>
+      <details class="faq-item">
+        <summary>Is it a one-time payment or a monthly subscription?</summary>
+        <div class="faq-a">You pay <b>once a year, upfront</b> — a flat annual licence you own, with no per-patient, no per-user and no monthly cloud fees. The base plan is ₹8,999/year (first 100 clinics get 20% off → ₹7,199), and you add only the optional modules you need.</div>
+      </details>
+      <details class="faq-item">
+        <summary>Which modules does CureDesk include?</summary>
+        <div class="faq-a">The base covers reception &amp; appointments, doctor consultation with prescriptions, pediatrics (WHO &amp; IAP growth charts), GST billing and analytics. Optional add-ons: Laboratory (170+ tests), Pharmacy (with FEFO &amp; Schedule H register), In-Patient / IPD, and WhatsApp.</div>
+      </details>
+      <details class="faq-item">
+        <summary>Can several computers use CureDesk at the same time?</summary>
+        <div class="faq-a">Yes. Run it on a single PC, or link reception, every doctor's cabin and the pharmacy counter over your clinic's local network (LAN) — all sharing one database. Multi-station is included; you pair a station with a 6-character code, no IP-address typing.</div>
+      </details>
+      <details class="faq-item">
+        <summary>Is my patient data safe and private?</summary>
+        <div class="faq-a">Completely — your data lives only on your own computer, never on anyone's cloud. Staff log in with role-based accounts (reception, doctor, pharmacy…) using hashed passwords, with a full audit trail of who changed what. Daily automatic backups and one-click restore are built in.</div>
+      </details>
+      <details class="faq-item">
+        <summary>What are the system requirements?</summary>
+        <div class="faq-a">A Windows PC running Windows 10 or later. No dedicated server and no internet connection are required — CureDesk installs and runs on an ordinary desktop or laptop.</div>
+      </details>
+      <details class="faq-item">
+        <summary>Can I try CureDesk before buying?</summary>
+        <div class="faq-a">Yes — there's a free <a href="demo.html">live demo</a> you can click through in your browser (it opens with sample patients and data). When you're ready, send a sales enquiry and you'll get the Windows installer with a licence key that activates online.</div>
+      </details>
+      <details class="faq-item">
+        <summary>Does CureDesk send WhatsApp messages to patients?</summary>
+        <div class="faq-a">Yes. <b>WhatsApp Basic</b> sends one-click appointment confirmations that you review before they go out. <b>WhatsApp Pro</b> connects the official WhatsApp Business API through AiSensy for scheduled reminders, a shared reply inbox and receipts.</div>
+      </details>
+    </div>
+  </div>
+</section>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    { "@type": "Question", "name": "Does CureDesk work without internet?", "acceptedAnswer": { "@type": "Answer", "text": "Yes — CureDesk runs 100% offline on your own Windows PC. Registration, consultations, pharmacy, laboratory, billing and reports all work with no internet at all, and your data never leaves your computer. Internet is only needed for optional extras like WhatsApp messaging or cloud backup." } },
+    { "@type": "Question", "name": "Is CureDesk a one-time payment or a monthly subscription?", "acceptedAnswer": { "@type": "Answer", "text": "You pay once a year, upfront — a flat annual licence you own, with no per-patient, no per-user and no monthly cloud fees. The base plan is Rs 8,999 per year (first 100 clinics get 20% off, so Rs 7,199), and you add only the optional modules you need." } },
+    { "@type": "Question", "name": "Which modules does CureDesk include?", "acceptedAnswer": { "@type": "Answer", "text": "The base covers reception and appointments, doctor consultation with prescriptions, pediatrics (WHO and IAP growth charts), GST billing and analytics. Optional add-ons: Laboratory (170+ tests), Pharmacy (with FEFO and Schedule H register), In-Patient / IPD, and WhatsApp." } },
+    { "@type": "Question", "name": "Can several computers use CureDesk at the same time?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Run it on a single PC, or link reception, every doctor's cabin and the pharmacy counter over your clinic's local network (LAN) — all sharing one database. Multi-station is included; you pair a station with a 6-character code, no IP-address typing." } },
+    { "@type": "Question", "name": "Is my patient data safe and private?", "acceptedAnswer": { "@type": "Answer", "text": "Completely — your data lives only on your own computer, never on anyone's cloud. Staff log in with role-based accounts (reception, doctor, pharmacy) using hashed passwords, with a full audit trail of who changed what. Daily automatic backups and one-click restore are built in." } },
+    { "@type": "Question", "name": "What are the system requirements?", "acceptedAnswer": { "@type": "Answer", "text": "A Windows PC running Windows 10 or later. No dedicated server and no internet connection are required — CureDesk installs and runs on an ordinary desktop or laptop." } },
+    { "@type": "Question", "name": "Can I try CureDesk before buying?", "acceptedAnswer": { "@type": "Answer", "text": "Yes — there is a free live demo you can click through in your browser, opening with sample patients and data. When you're ready, send a sales enquiry and you'll get the Windows installer with a licence key that activates online." } },
+    { "@type": "Question", "name": "Does CureDesk send WhatsApp messages to patients?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. WhatsApp Basic sends one-click appointment confirmations that you review before they go out. WhatsApp Pro connects the official WhatsApp Business API through AiSensy for scheduled reminders, a shared reply inbox and receipts." } }
+  ]
+}
+</script>
+
 <!-- ============== CONTACT ============== -->
 <div class="container" id="contact">
   <div class="contact-block">
@@ -1887,7 +1963,7 @@
   /* Frosted glass cards — uniform soft frost: heavier blur, a gentle white
      veil, thin light border, soft blue-tinted shadow. Clean and legible. */
   .feat-card, .mock-card, .contact-card, .module-screenshot, .ds-cards,
-  .hero-mock, .cmp-focus, .calc-mod, .modal, .enq-addon{
+  .hero-mock, .cmp-focus, .calc-mod, .modal, .enq-addon, .faq-item{
     background:linear-gradient(135deg, rgba(255,255,255,.62), rgba(255,255,255,.40)) !important;
     backdrop-filter:blur(22px) saturate(150%); -webkit-backdrop-filter:blur(22px) saturate(150%);
     border:1px solid rgba(255,255,255,.85) !important;
