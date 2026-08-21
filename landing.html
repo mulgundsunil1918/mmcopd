@@ -376,7 +376,14 @@
   .feat-icon.sky { background: linear-gradient(135deg, #0ea5e9, #0369a1); }
 
   /* Roles & access table */
-  .roles-wrap { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 16px; box-shadow: 0 10px 30px -18px rgba(15,23,42,.25); background: #fff; }
+  .roles-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid #e2e8f0; border-radius: 16px; box-shadow: 0 10px 30px -18px rgba(15,23,42,.25); background: #fff; }
+  /* Wide tables (roles, compare) can't fit on a phone, so they scroll sideways —
+     this cue makes that discoverable instead of looking cut off. Desktop hides it. */
+  .swipe-hint { display: none; }
+  @media (max-width: 760px) {
+    .swipe-hint { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; font-weight: 700; color: #2563eb; margin: 0 0 8px; letter-spacing: .01em; }
+    .swipe-hint svg { width: 15px; height: 15px; }
+  }
   .roles-table { width: 100%; border-collapse: collapse; min-width: 720px; font-size: 13.5px; }
   .roles-table th, .roles-table td { padding: 12px 14px; text-align: center; border-bottom: 1px solid #eef2f7; white-space: nowrap; }
   .roles-table thead th { background: linear-gradient(135deg,#1e3a8a,#4338ca); color: #fff; font-weight: 700; font-size: 12.5px; letter-spacing: .01em; }
@@ -832,6 +839,7 @@
       <h2>Role-based access, out of the box.</h2>
       <p>Every staff member logs in with their own password. What they can open is decided by their role — so reception can't change clinical notes, and a lab tech only sees the lab. The admin controls it all.</p>
     </div>
+    <div class="swipe-hint"><svg fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg> Swipe the table sideways to see every role <svg fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
     <div class="roles-wrap">
       <table class="roles-table">
         <thead>
@@ -1280,7 +1288,7 @@
 <!-- ============== COMPARISON ============== -->
 <style>
   .cmp-sec { background:linear-gradient(180deg,#eef2ff,#f8fafc); }
-  .cmp-wrap { overflow-x:auto; border:1px solid #e2e8f0; border-radius:16px; box-shadow:0 14px 34px -22px rgba(15,23,42,.35); background:#fff; }
+  .cmp-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; border:1px solid #e2e8f0; border-radius:16px; box-shadow:0 14px 34px -22px rgba(15,23,42,.35); background:#fff; }
   .cmp-table { width:100%; border-collapse:collapse; min-width:820px; font-size:13.5px; }
   .cmp-table th, .cmp-table td { padding:13px 14px; text-align:center; border-bottom:1px solid #eef2f7; }
   .cmp-table thead th { background:linear-gradient(135deg,#0f172a,#312e81); color:#fff; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; white-space:nowrap; }
@@ -1302,6 +1310,7 @@
       <h2>One flat price. Works offline. Everything in one app.</h2>
       <p>Most clinic software is cloud-only and priced per doctor, per month. CureDesk is built for Indian hospitals &amp; clinics where the internet drops and every rupee counts.</p>
     </div>
+    <div class="swipe-hint"><svg fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg> Swipe the table sideways to compare <svg fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
     <div class="cmp-wrap">
       <table class="cmp-table">
         <thead>
