@@ -556,6 +556,14 @@
   .footer-grid h4 { font-size: 12px; font-weight: 700; color: #fff; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; }
   .footer-grid a { display: block; padding: 4px 0; color: #94a3b8; transition: color 0.15s; }
   .footer-grid a:hover { color: #fff; }
+  .footer-social { display: flex; gap: 10px; margin-top: 16px; }
+  .footer-social a, .footer-social .fs-share {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; padding: 0; border-radius: 50%;
+    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.28);
+    color: #fff; cursor: pointer; transition: background 0.15s, transform 0.15s;
+  }
+  .footer-social a:hover, .footer-social .fs-share:hover { background: rgba(255,255,255,0.24); transform: translateY(-2px); color: #fff; }
   .footer-bottom {
     border-top: 1px solid rgba(255,255,255,0.06); padding-top: 20px;
     display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px;
@@ -1472,6 +1480,14 @@
           <strong style="color: #fff; font-size: 16px;">CureDesk HMS</strong>
         </div>
         <p style="max-width: 320px; line-height: 1.6;">A modern, offline-first hospital management system for hospitals &amp; clinics across India. One Windows app, every workflow.</p>
+        <div class="footer-social">
+          <a href="https://www.instagram.com/curedesk.co.in" target="_blank" rel="noopener" aria-label="CureDesk on Instagram" title="Follow @curedesk.co.in on Instagram">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+          </a>
+          <button type="button" class="fs-share" onclick="shareCureDesk()" aria-label="Share CureDesk" title="Share CureDesk">
+            <svg width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          </button>
+        </div>
       </div>
       <div>
         <h4>Product</h4>
@@ -1490,6 +1506,8 @@
         <h4>Get in touch</h4>
         <a href="mailto:help@curedesk.co.in?subject=CureDesk%20HMS%20enquiry">help@curedesk.co.in</a>
         <a data-wa-link href="#" onclick="return openWhatsApp(event)">💬 Reach out on WhatsApp</a>
+        <a href="#" onclick="shareCureDesk(); return false;">Share CureDesk</a>
+        <a href="https://www.instagram.com/curedesk.co.in" target="_blank" rel="noopener">Instagram</a>
         <a href="mailto:help@curedesk.co.in?subject=CureDesk%20HMS%20-%20Request%20a%20quote">Request a Quote</a>
       </div>
     </div>
