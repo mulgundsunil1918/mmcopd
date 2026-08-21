@@ -40,6 +40,12 @@ function postBuildPlugin() {
       if (fs.existsSync(guideSrc)) {
         fs.copyFileSync(guideSrc, path.join(dist, 'multi-station.html'));
       }
+      // SEO static assets: robots.txt + sitemap.xml (crawling) and og-image.png
+      // (the social-share / rich-link preview). Served from the site root.
+      for (const f of ['robots.txt', 'sitemap.xml', 'og-image.png']) {
+        const src = path.resolve(__dirname, f);
+        if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dist, f));
+      }
       // Custom domain: a CNAME file in the published output tells GitHub Pages to
       // serve the site at curedesk.co.in (and 301-redirect the old
       // <user>.github.io/mmcopd/* URLs to it — so existing pamphlet QR codes keep

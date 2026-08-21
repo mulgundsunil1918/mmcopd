@@ -1,0 +1,5 @@
+# CureDesk HMS — https://curedesk.co.in
+User-agent: *
+Allow: /
+
+Sitemap: https://curedesk.co.in/sitemap.xml
