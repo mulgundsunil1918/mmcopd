@@ -1442,9 +1442,11 @@
       </a>
     </div>
     <p class="contact-note">Tell us your hospital / clinic name and city, and we'll tailor the walkthrough to how you actually work.</p>
-    <div style="text-align:center; margin-top:26px;">
+    <div style="text-align:center; margin-top:26px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
       <a href="#" class="enquiry-cta enquiry-cta-lg" onclick="event.preventDefault(); openEnquiry();">📩 Send a Sales Enquiry</a>
+      <button type="button" class="share-btn" onclick="shareCureDesk()">📲 Share with a colleague</button>
     </div>
+    <p class="share-note">Know a doctor or clinic who'd want this? Send it to them in one tap.</p>
   </div>
 </div>
 
@@ -1501,6 +1503,14 @@
   .enquiry-cta{ display:inline-flex; align-items:center; gap:8px; background:linear-gradient(135deg,#4f46e5,#2563eb); color:#fff; font-weight:800; padding:14px 26px; border-radius:12px; font-size:15px; box-shadow:0 8px 22px rgba(79,70,229,.30); cursor:pointer; border:none; text-decoration:none; transition:transform .15s ease, filter .15s ease; }
   .enquiry-cta:hover{ filter:brightness(1.06); transform:translateY(-1px); }
   .enquiry-cta-lg{ padding:17px 36px; font-size:17px; }
+  .share-btn{
+    display:inline-flex; align-items:center; gap:8px; cursor:pointer;
+    background:rgba(255,255,255,.7); color:#1d4ed8; font-weight:800; font-size:17px;
+    padding:17px 30px; border-radius:12px; border:1.5px solid rgba(37,99,235,.35);
+    font-family:inherit; transition:background .15s, transform .15s;
+  }
+  .share-btn:hover{ background:#fff; transform:translateY(-1px); }
+  .share-note{ text-align:center; margin-top:12px; font-size:12.5px; color:#64748b; }
   .enq-modal{ max-width:540px; text-align:left; }
   .enq-modal h3{ text-align:center; }
   .enq-modal .enq-sub{ text-align:center; color:#475569; margin-top:-4px; }
@@ -1665,6 +1675,17 @@
   // 98800 12345 → '919880012345'. If left blank, the WhatsApp links stay hidden.
   const WA_NUMBER = '919019263206';
   const WA_TEXT = "Hi, I'm interested in CureDesk HMS. Please share the details.";
+  // "Share with a colleague" — native share sheet (WhatsApp / SMS / etc.) on
+  // phones; WhatsApp share as the desktop fallback.
+  const SHARE_URL = 'https://curedesk.co.in/';
+  const SHARE_TEXT = 'Check out CureDesk HMS — the complete hospital & clinic software that runs 100% offline on Windows. Built by a doctor, for doctors.';
+  function shareCureDesk() {
+    if (navigator.share) {
+      navigator.share({ title: 'CureDesk HMS', text: SHARE_TEXT, url: SHARE_URL }).catch(function () {});
+    } else {
+      window.open('https://wa.me/?text=' + encodeURIComponent(SHARE_TEXT + ' ' + SHARE_URL), '_blank');
+    }
+  }
   function openWhatsApp(e) {
     if (e) e.preventDefault();
     if (!WA_NUMBER) return false;
