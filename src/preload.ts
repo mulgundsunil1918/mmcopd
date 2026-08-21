@@ -817,66 +817,6 @@ const api = {
     pickFile: (opts?: { title?: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) =>
       ipcRenderer.invoke('dialog:pickFile', opts || {}) as Promise<string | null>,
   },
-  wa: {
-    connect: (input: { phone_number_id: string; waba_id: string; access_token: string; display_name: string; phone_number: string }) =>
-      ipcRenderer.invoke('wa:connect', input) as Promise<{ ok: boolean; id?: number; error?: string }>,
-    health: (accountId: number) =>
-      ipcRenderer.invoke('wa:health', accountId) as Promise<{ ok: boolean; display_name?: string; phone_number?: string; quality_rating?: string; error?: string }>,
-    disconnect: (accountId: number) =>
-      ipcRenderer.invoke('wa:disconnect', accountId) as Promise<{ ok: boolean }>,
-    account: (accountId: number) =>
-      ipcRenderer.invoke('wa:account', accountId) as Promise<any>,
-    accounts: () =>
-      ipcRenderer.invoke('wa:accounts') as Promise<any[]>,
-    templates: (accountId: number) =>
-      ipcRenderer.invoke('wa:templates', accountId) as Promise<any[]>,
-    syncTemplates: (accountId: number) =>
-      ipcRenderer.invoke('wa:syncTemplates', accountId) as Promise<{ ok: boolean; synced?: number; error?: string }>,
-    automationRules: (accountId: number) =>
-      ipcRenderer.invoke('wa:automationRules', accountId) as Promise<any[]>,
-    setRule: (accountId: number, trigger: string, patch: any) =>
-      ipcRenderer.invoke('wa:setRule', accountId, trigger, patch) as Promise<{ ok: boolean }>,
-    queueStats: (accountId: number) =>
-      ipcRenderer.invoke('wa:queueStats', accountId) as Promise<{ pending: number; sent_today: number; failed_today: number; total_today: number }>,
-    queueSend: (accountId: number, toPhone: string, templateName: string, vars: Record<string, string>, patientId?: number, appointmentId?: number) =>
-      ipcRenderer.invoke('wa:queueSend', accountId, toPhone, templateName, vars, patientId, appointmentId) as Promise<{ ok: boolean }>,
-    processQueue: () =>
-      ipcRenderer.invoke('wa:processQueue') as Promise<{ ok: boolean }>,
-    messages: (accountId: number, conversationId: number, limit?: number) =>
-      ipcRenderer.invoke('wa:messages', accountId, conversationId, limit) as Promise<any[]>,
-    conversations: (accountId: number, status?: string) =>
-      ipcRenderer.invoke('wa:conversations', accountId, status) as Promise<any[]>,
-    webhookToken: (accountId: number) =>
-      ipcRenderer.invoke('wa:webhookToken', accountId) as Promise<string | null>,
-    ingestWebhookEvents: (accountId: number, events: Array<{ event_type: string; payload: unknown }>) =>
-      ipcRenderer.invoke('wa:ingestWebhookEvents', accountId, events) as Promise<{ ok: boolean; ingested: number }>,
-    relayConfig: () =>
-      ipcRenderer.invoke('wa:relayConfig') as Promise<{ url: string; secret: string }>,
-    setRelayConfig: (url: string, secret: string) =>
-      ipcRenderer.invoke('wa:setRelayConfig', url, secret) as Promise<{ ok: boolean }>,
-    analytics: (accountId: number, from: string, to: string) =>
-      ipcRenderer.invoke('wa:analytics', accountId, from, to) as Promise<any>,
-    campaigns: (accountId: number) =>
-      ipcRenderer.invoke('wa:campaigns', accountId) as Promise<any[]>,
-    campaignCreate: (accountId: number, input: any) =>
-      ipcRenderer.invoke('wa:campaignCreate', accountId, input) as Promise<{ ok: boolean; id?: number; error?: string }>,
-    campaignDelete: (campaignId: number) =>
-      ipcRenderer.invoke('wa:campaignDelete', campaignId) as Promise<{ ok: boolean }>,
-    campaignPreview: (accountId: number, segment: string) =>
-      ipcRenderer.invoke('wa:campaignPreview', accountId, segment) as Promise<{ id: number; phone: string; name: string }[]>,
-    campaignLaunch: (campaignId: number) =>
-      ipcRenderer.invoke('wa:campaignLaunch', campaignId) as Promise<{ ok: boolean; total?: number; error?: string }>,
-    campaignRecipients: (campaignId: number) =>
-      ipcRenderer.invoke('wa:campaignRecipients', campaignId) as Promise<any[]>,
-    sendText: (accountId: number, conversationId: number, text: string) =>
-      ipcRenderer.invoke('wa:sendText', accountId, conversationId, text) as Promise<{ ok: boolean; wam_id?: string; error?: string }>,
-    resolveConversation: (conversationId: number, status: 'open' | 'resolved') =>
-      ipcRenderer.invoke('wa:resolveConversation', conversationId, status) as Promise<{ ok: boolean }>,
-    aiSuggest: (accountId: number, conversationId: number) =>
-      ipcRenderer.invoke('wa:aiSuggest', accountId, conversationId) as Promise<{ ok: boolean; suggestions?: string[]; error?: string }>,
-    sendFeedbackRequest: (accountId: number, conversationId: number) =>
-      ipcRenderer.invoke('wa:sendFeedbackRequest', accountId, conversationId) as Promise<{ ok: boolean; error?: string }>,
-  },
 };
 
 contextBridge.exposeInMainWorld('electronAPI', api);

@@ -7,9 +7,6 @@ import { registerIpdBillingIpc, runDailyAccrual } from './main/ipd-billing-ipc';
 import { registerPedsIpc } from './main/peds-ipc';
 import { installIpcRegistry, setReadOnlyMode } from './main/ipc-registry';
 import { getLicenseStatus, activateLicense, activateOnline, machineFingerprint } from './main/licensing/license';
-import { registerWhatsAppIpc, pollRelayServer, runScheduledCampaigns } from './main/whatsapp-ipc';
-import { processQueue } from './services/whatsapp/queue-worker';
-import { runAutomationScheduler } from './services/whatsapp/scheduler';
 import { startNetworkServer, stopNetworkServer, networkServerStatus, getJoinCode, regenerateJoinCode, getLocalLanIP, setPreferredIp, runSelfTest } from './main/network-server';
 import { discoverServers, pairWithCode, addWindowsFirewallRule } from './main/network-discovery';
 import { installNetworkClient, networkClientStatus, uninstallNetworkClient, reconnectNow, setClientStateListener, setUrlPersister } from './main/network-client';
@@ -877,7 +874,6 @@ app.whenReady().then(async () => {
   // IPD + billing live in their own module rather than growing ipc.ts further.
   registerIpdBillingIpc();
   registerPedsIpc();
-  registerWhatsAppIpc();
 
   // ===== Licensing =====
   const applyLicense = () => {
@@ -940,16 +936,6 @@ app.whenReady().then(async () => {
     } catch { /* never let the tick crash the app */ }
   }, 60_000);
 
-  // WhatsApp background workers — queue flush + automation scheduler + relay poll
-  const waWorker = () => {
-    const d = getDb();
-    processQueue(d).catch((e) => console.warn('[WA queue]', e));
-    runAutomationScheduler(d);
-    pollRelayServer().catch((e) => console.warn('[WA relay]', e));
-    runScheduledCampaigns().catch((e) => console.warn('[WA scheduled]', e));
-  };
-  setInterval(waWorker, 60_000);
-  waWorker();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

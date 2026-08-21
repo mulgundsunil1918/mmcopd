@@ -16,7 +16,6 @@ import { useLicensedModules } from '../hooks/useLicensedModules';
 import { buildWhatsAppUrl, renderTemplate, DEFAULT_WHATSAPP_TEMPLATE, buildContext } from '../lib/whatsapp';
 import type { WaAutomationTrigger } from '../types/whatsapp';
 
-type Tab = 'dashboard' | 'connect' | 'templates' | 'automation' | 'queue' | 'inbox' | 'campaigns' | 'broadcast';
 type ActiveModule = 'module1' | 'module2';
 
 function safeClipboard(text: string) {
@@ -46,39 +45,6 @@ const TRIGGERS: { key: WaAutomationTrigger; label: string; desc: string }[] = [
 ];
 
 // ── Status badge ──────────────────────────────────────────────────────────────
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    connected:    'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-    disconnected: 'bg-gray-100 text-gray-600 dark:bg-slate-800 dark:text-slate-400',
-    error:        'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-    pending:      'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-  };
-  const icon: Record<string, React.ReactNode> = {
-    connected:    <CheckCircle2 className="w-3 h-3" />,
-    disconnected: <XCircle className="w-3 h-3" />,
-    error:        <AlertCircle className="w-3 h-3" />,
-    pending:      <Clock className="w-3 h-3" />,
-  };
-  return (
-    <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold', map[status] ?? map.disconnected)}>
-      {icon[status] ?? null} {status}
-    </span>
-  );
-}
-
-// CureDesk-hosted relay — clinics never need to deploy their own server.
-const CAREDESK_RELAY_URL = 'https://curedesk-relay.curedesk.workers.dev';
-
-// ── Relay config panel (shown inside ConnectTab) ──────────────────────────────
-
-// ── Connect tab ───────────────────────────────────────────────────────────────
-
-// ── Templates tab ─────────────────────────────────────────────────────────────
-
-// ── Automation tab ────────────────────────────────────────────────────────────
-
-// ── Queue tab ─────────────────────────────────────────────────────────────────
-
 // ── Segment metadata ──────────────────────────────────────────────────────────
 const SEGMENTS = [
   { key: 'all',                label: 'All Patients',                    desc: 'Every patient with a phone number on record' },
@@ -90,26 +56,6 @@ const SEGMENTS = [
   { key: 'health_awareness',   label: 'Health Awareness (visited 90d)',   desc: 'Active patients — ideal for health tips, seasonal alerts, preventive care' },
   { key: 'promotion',          label: 'Health Package Promotion (all)',   desc: 'All patients — broadcast health packages, camp announcements, offers' },
 ] as const;
-
-// ── Campaigns tab ─────────────────────────────────────────────────────────────
-
-// ── Inbox tab ─────────────────────────────────────────────────────────────────
-
-// ── Broadcast tab ─────────────────────────────────────────────────────────────
-function getBodyText(template: any): string {
-  const body = (template.components as any[])?.find((c: any) => c.type === 'BODY');
-  return body?.text ?? '';
-}
-
-function extractVarCount(bodyText: string): number {
-  const matches = [...bodyText.matchAll(/\{\{(\d+)\}\}/g)];
-  if (!matches.length) return 0;
-  return Math.max(...matches.map((m) => parseInt(m[1])));
-}
-
-function applyVars(bodyText: string, vars: Record<string, string>): string {
-  return bodyText.replace(/\{\{(\d+)\}\}/g, (_, n) => vars[n] || `{{${n}}}`);
-}
 
 const BLAST_SEGMENTS = [
   { key: 'all',                label: 'All Patients',         desc: 'Every registered patient with a phone number' },
