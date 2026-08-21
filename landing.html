@@ -1425,18 +1425,11 @@
       Write to us for pricing, a walkthrough for your hospital, early access to the Windows installer,
       or anything else you'd like to know about CureDesk. We read every message and usually reply the same day.
     </p>
-    <div class="contact-cards">
-      <a class="contact-card" href="mailto:help@curedesk.co.in?subject=CureDesk%20HMS%20enquiry">
+    <div class="contact-cards" style="display:flex; justify-content:center;">
+      <a class="contact-card" href="mailto:help@curedesk.co.in?subject=CureDesk%20HMS%20enquiry" style="max-width:380px;">
         <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
         <span>
-          <span class="cc-label">Sales &amp; general</span>
-          <span class="cc-value">help@curedesk.co.in</span>
-        </span>
-      </a>
-      <a class="contact-card" href="mailto:help@curedesk.co.in?subject=CureDesk%20HMS%20-%20Request%20a%20quote">
-        <svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
-        <span>
-          <span class="cc-label">Quotes &amp; demos</span>
+          <span class="cc-label">Email us — sales, quotes &amp; demos</span>
           <span class="cc-value">help@curedesk.co.in</span>
         </span>
       </a>
@@ -2085,7 +2078,14 @@
   .roles-table td.y{ color:#2563eb !important; }
   .roles-table td.p{ color:#60a5fa !important; }
   .pill-amber, .module-eyebrow.amber{ background:#dbeafe !important; color:#1d4ed8 !important; }
-  .feat-icon.amber, .feat-icon.emerald{ background:linear-gradient(135deg,#3b82f6,#1d4ed8) !important; }
+  /* Uniform feature-card icons — every chip is the same solid-blue tile with a
+     white glyph (earlier per-colour overrides left a mix of solid + pale). This
+     rule is last, so it wins over all the .feat-icon rules above. */
+  .feat-icon, .feat-icon.violet, .feat-icon.pink, .feat-icon.cyan,
+  .feat-icon.emerald, .feat-icon.blue, .feat-icon.amber{
+    background:linear-gradient(135deg,#3b82f6,#1d4ed8) !important;
+    color:#fff !important;
+  }
 
   /* WhatsApp send button in the enquiry form (kept in-hue: blue) */
   .enq-wa-btn{
