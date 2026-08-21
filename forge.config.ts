@@ -60,6 +60,12 @@ const config: ForgeConfig = {
     }),
     new FusesPlugin({
       version: FuseVersion.V1,
+      // Re-sign the fuse-patched binary with an AD-HOC signature (codesign -s -),
+      // never a keychain identity. Without this, the fuse step would grab the
+      // "Apple Distribution/Development" identity from the keychain and hang on a
+      // GUI permission prompt during headless builds. We distribute unsigned via
+      // GitHub, so ad-hoc is correct.
+      resetAdHocDarwinSignature: true,
       [FuseV1Options.RunAsNode]: false,
       [FuseV1Options.EnableCookieEncryption]: true,
       [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
