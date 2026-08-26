@@ -9,6 +9,15 @@ import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 import { PublisherGithub } from '@electron-forge/publisher-github';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+// Stamp every installer with the version so a .dmg is as self-identifying as the
+// Windows .exe (…-Setup-<version>.exe). Read straight from package.json so it can
+// never drift from the real build version.
+const APP_VERSION: string = JSON.parse(
+  readFileSync(resolve(__dirname, 'package.json'), 'utf8'),
+).version;
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -32,7 +41,10 @@ const config: ForgeConfig = {
       setupExe: 'CureDesk-HMS-Setup.exe',
     }),
     new MakerDMG({
-      name: 'CureDesk HMS',
+      // Versioned filename → CureDesk-HMS-<version>.dmg (matches the Windows
+      // installer's naming); `title` keeps the mounted volume name clean.
+      name: `CureDesk-HMS-${APP_VERSION}`,
+      title: 'CureDesk HMS',
       format: 'ULFO',
     }, ['darwin']),
     // ZIP fallback for Windows + macOS — extract the zip and run the .exe
