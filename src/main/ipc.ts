@@ -27,11 +27,28 @@ export function runFullBackup(root: string, label: 'backup' | 'pre-restore' = 'b
 export function isBackupServiceReady() {
   return _performBackupToRoot !== null;
 }
-/** Full backup to the clinic's configured folder (falls back to userData/backups,
- *  which always works). Used to force a safety backup before an app update. */
+/**
+ * Where backups go. If the clinic has picked a folder (ideally a USB drive or a
+ * Google-Drive folder) use it; otherwise default to Documents/CureDesk Backups —
+ * OUTSIDE the app's data folder. The old default (userData/backups) lived INSIDE
+ * %APPDATA%\CureDesk HMS\, so deleting that folder (or a reinstall that wipes it)
+ * destroyed the backups along with the live database. Documents survives all of
+ * that; userData/backups is kept only as a last resort if Documents won't resolve.
+ */
+export function defaultBackupRoot(): string {
+  try { return path.join(app.getPath('documents'), 'CureDesk Backups'); }
+  catch { return path.join(app.getPath('userData'), 'backups'); }
+}
+export function backupRoot(s: { backup_folder?: string | null } | null | undefined): string {
+  const picked = (s?.backup_folder || '').trim();
+  return picked || defaultBackupRoot();
+}
+
+/** Full backup to the clinic's configured folder (falls back to Documents/CureDesk
+ *  Backups, which always works). Used to force a safety backup before an app update. */
 export async function runConfiguredBackup(label: 'backup' | 'pre-restore' = 'backup') {
   const s = getAllSettings(getDb()) as any;
-  const root = s.backup_folder || path.join(app.getPath('userData'), 'backups');
+  const root = backupRoot(s);
   if (!fs.existsSync(root)) fs.mkdirSync(root, { recursive: true });
   return runFullBackup(root, label);
 }
@@ -3503,7 +3520,7 @@ export function registerIpc() {
     const s = getAllSettings(getDb());
     const invalid = validateFolderPath(s.backup_folder);
     if (invalid) throw new Error(invalid);
-    const root = s.backup_folder || path.join(app.getPath('userData'), 'backups');
+    const root = backupRoot(s);
     if (!fs.existsSync(root)) fs.mkdirSync(root, { recursive: true });
     const r = await performBackupToRoot(root, 'backup');
     logAudit(getDb(), actor(), 'backup_run', 'backups', undefined, `${r.bundleDir} · ${r.documentCount} docs`);
@@ -3775,7 +3792,7 @@ export function registerIpc() {
     // 1) Safety-backup the current data first (always, no matter what)
     try {
       const s = getAllSettings(getDb());
-      const safeDir = s.backup_folder || path.join(userData, 'backups');
+      const safeDir = backupRoot(s);
       if (!fs.existsSync(safeDir)) fs.mkdirSync(safeDir, { recursive: true });
       const r = await performBackupToRoot(safeDir, 'pre-restore');
       logAudit(getDb(), actor(), 'pre_restore_backup', 'backups', undefined, r.bundleDir);
@@ -3817,7 +3834,7 @@ export function registerIpc() {
   ipcMain.handle('backup:list', () => {
     const userData = app.getPath('userData');
     const s = getAllSettings(getDb());
-    const dir = s.backup_folder || path.join(userData, 'backups');
+    const dir = backupRoot(s);
     if (!fs.existsSync(dir)) return [];
     return fs.readdirSync(dir)
       .filter((f: string) => f.startsWith('caredesk-') && f.endsWith('.sqlite'))
@@ -3831,7 +3848,7 @@ export function registerIpc() {
 
   ipcMain.handle('backup:open', () => {
     const s = getAllSettings(getDb());
-    const dir = s.backup_folder || path.join(app.getPath('userData'), 'backups');
+    const dir = backupRoot(s);
     shell.openPath(dir);
   });
 
@@ -3867,7 +3884,7 @@ export function registerIpc() {
 
   ipcMain.handle('backup:status', () => {
     const s = getAllSettings(getDb());
-    const dir = s.backup_folder || path.join(app.getPath('userData'), 'backups');
+    const dir = backupRoot(s);
     return scanBackupStatus(dir);
   });
 
