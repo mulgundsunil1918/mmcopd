@@ -71,6 +71,26 @@
   Delete "$LOCALAPPDATA\Programs\CureDesk HMS\Uninstall CureDesk HMS.exe"
 !macroend
 
+; ---------------------------------------------------------------------------
+; customUnInit — runs in the UNINSTALLER's .onInit, BEFORE any file is removed.
+;
+; The install path (customInit) already kills a running CureDesk so its files
+; can be overwritten, but the UNINSTALL path never did — so if the app (or its
+; out-of-process watchdog / LAN server) is still running, the uninstaller hits
+; "cannot delete <file>: it is being used by another process" and aborts,
+; leaving a half-removed install that can't be uninstalled OR reinstalled.
+; Stop it first: graceful WM_CLOSE (lets better-sqlite3 close the DB cleanly),
+; then /F /T as a backstop for a wedged process + its watchdog.
+; This touches ONLY the running process — never %APPDATA% (patient data).
+; ---------------------------------------------------------------------------
+!macro customUnInit
+  DetailPrint "Closing CureDesk if it is running..."
+  nsExec::Exec 'taskkill /IM "CureDesk HMS.exe"'
+  Sleep 2500
+  nsExec::Exec 'taskkill /F /T /IM "CureDesk HMS.exe"'
+  Sleep 1200
+!macroend
+
 ; Custom NSIS hooks for CureDesk HMS.
 ; electron-builder runs `customUnInstall` near the end of the uninstall flow
 ; (after the program files are gone, before the uninstaller exits).
