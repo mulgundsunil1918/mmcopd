@@ -23,5 +23,10 @@ tools/.keygen-data/
 tools/keygen.enc
 tools/keygen-vault.json
 keygen-portable/
+keygen 2.0/
+# Belt-and-suspenders: the encrypted signing key + its vault must never be
+# committed, no matter what the distributed keygen folder is renamed to.
+**/keygen.enc
+**/keygen-vault.json
 .cache/
 .vite-test/
