@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, Notification, Tray, Menu, nativeImage, she
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { registerIpc, runFullBackup, isBackupServiceReady, runConfiguredBackup, requireRole } from './main/ipc';
 import { registerIpdBillingIpc, runDailyAccrual } from './main/ipd-billing-ipc';
 import { registerPedsIpc } from './main/peds-ipc';
@@ -860,6 +861,50 @@ function consumeResetMarkerIfPresent() {
   }
 }
 
+/**
+ * Make the clinic-data folder a bit harder to lose to an accidental delete.
+ * Two low-friction guards:
+ *   1. A loud DO-NOT-DELETE marker inside the folder, so anyone who opens it
+ *      understands it holds ALL clinic data and is told to back up instead.
+ *   2. (Windows) the Hidden attribute, so the folder doesn't show in Explorer
+ *      and can't be casually dragged to the Recycle Bin.
+ * Neither blocks the app (it reads the folder programmatically) nor the
+ * uninstaller's own data-wipe prompt. This is FRICTION, not security — the real
+ * protection against data loss is an off-device backup (Settings → Backup).
+ */
+function protectDataFolder() {
+  try {
+    const userData = app.getPath('userData');
+    if (!fs.existsSync(userData)) return;
+    const marker = path.join(userData, 'DO-NOT-DELETE — CureDesk clinic data.txt');
+    if (!fs.existsSync(marker)) {
+      fs.writeFileSync(
+        marker,
+        '====================================================\r\n' +
+        '  ⚠   DO NOT DELETE OR MOVE THIS FOLDER   ⚠\r\n' +
+        '====================================================\r\n\r\n' +
+        'This folder holds ALL of your clinic\'s CureDesk HMS data:\r\n' +
+        '   - every patient record, prescription and lab report\r\n' +
+        '   - all bills, payments and accounts\r\n' +
+        '   - doctors, settings, audit logs and local backups\r\n\r\n' +
+        'Deleting this folder ERASES EVERYTHING, permanently. It cannot\r\n' +
+        'be undone and support cannot recover it.\r\n\r\n' +
+        'To free space or move to a new PC safely, use the app:\r\n' +
+        '        Settings  ->  Backup\r\n\r\n' +
+        'IMPORTANT: keep an automatic backup on a USB drive or Google\r\n' +
+        'Drive, so your data survives even if this computer is lost,\r\n' +
+        'stolen, wiped, or this folder is deleted.\r\n',
+        'utf8',
+      );
+    }
+    if (process.platform === 'win32') {
+      // Best-effort: hide the folder so it isn't casually found and deleted.
+      // Never block startup if attrib is unavailable.
+      execFile('attrib', ['+h', userData], () => { /* ignore */ });
+    }
+  } catch { /* folder-protection must never crash startup */ }
+}
+
 app.whenReady().then(async () => {
   // FIRST thing — process any pending hard reset from the last run. Must run
   // before getDb / Electron storage to avoid re-locking files.
@@ -867,6 +912,8 @@ app.whenReady().then(async () => {
   // Splash first — appears immediately while DB + IPC + main window spin up.
   showSplash();
   getDb();
+  // Harden the data folder against an accidental delete (marker + hide on Win).
+  protectDataFolder();
   // Wrap ipcMain.handle BEFORE registerIpc so every channel gets recorded into
   // ipcHandlers (network-server.ts reads from there to expose POST /ipc/:channel).
   installIpcRegistry();
