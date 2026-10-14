@@ -293,9 +293,9 @@ export function SettingsPage() {
               <SettingsGroup title="Backup, Restore & Updates" subtitle="Where backups go, daily auto-backup, weekly USB reminder, restore, and app updates.">
                 <BackupSettings />
               </SettingsGroup>
-              {/* "Reset all clinic data" (HardResetPanel) is intentionally hidden — too
-                  destructive to expose in normal clinic Settings. Restore this block if a
-                  supervised factory-reset is ever needed. */}
+              <SettingsGroup title="Factory Reset" subtitle="Erase ALL CureDesk data on THIS computer and start fresh — for handing the PC to a new clinic, or clearing test data. Your backups are NOT touched. Admin only, with a double confirmation.">
+                <HardResetPanel />
+              </SettingsGroup>
             </>
           )}
 
