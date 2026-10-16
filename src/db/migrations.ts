@@ -780,6 +780,20 @@ export function runMigrations(db: Database.Database) {
   addColumnIfMissing(db, 'appointments', 'patient_group', 'TEXT');
   addColumnIfMissing(db, 'appointments', 'procedure_tags', 'TEXT');
 
+  // Referring (external) doctors — who referred the patient in. The name chosen
+  // at booking is snapshotted onto the appointment (survives list edits) and
+  // printed on the OPD slip. The list itself is managed in Settings.
+  addColumnIfMissing(db, 'appointments', 'referred_by', 'TEXT');
+  db.exec(`CREATE TABLE IF NOT EXISTS referring_doctors (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT NOT NULL,
+    qualification TEXT,
+    place         TEXT,
+    phone         TEXT,
+    is_active     INTEGER NOT NULL DEFAULT 1,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+
   /**
    * Real link from a lab bill back to its order.
    *

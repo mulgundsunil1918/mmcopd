@@ -115,6 +115,19 @@ export interface Appointment {
   created_at: string;
   patient_group: string | null;
   procedure_tags: string | null;
+  /** Name of the external doctor who referred the patient in (snapshot). */
+  referred_by: string | null;
+}
+
+/** An external doctor who refers patients to this clinic. Managed in Settings. */
+export interface ReferringDoctor {
+  id: number;
+  name: string;
+  qualification: string | null;
+  place: string | null;
+  phone: string | null;
+  is_active: number;
+  created_at: string;
 }
 
 export interface AppointmentWithJoins extends Appointment {

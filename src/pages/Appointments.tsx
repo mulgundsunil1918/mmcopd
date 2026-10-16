@@ -512,6 +512,8 @@ function BookAppointmentModal({
   const [notes, setNotes] = useState('');
   const [patientGroup, setPatientGroup] = useState('');
   const [procedureTags, setProcedureTags] = useState('');
+  const [referredBy, setReferredBy] = useState('');          // name stored on the appointment ('' = none)
+  const [referredByOther, setReferredByOther] = useState(false); // true = typing a name not in the managed list
   const [feeMode, setFeeMode] = useState<'regular' | 'special' | 'custom' | 'free_followup' | 'relaxed_followup' | null>(null);
   const [customFee, setCustomFee] = useState<string>('');
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('Cash');
@@ -527,6 +529,8 @@ function BookAppointmentModal({
     setNotes('');
     setPatientGroup('');
     setProcedureTags('');
+    setReferredBy('');
+    setReferredByOther(false);
     setFeeMode(null);
     setCustomFee('');
     setPaymentMode('Cash');
@@ -540,6 +544,13 @@ function BookAppointmentModal({
   }, [open]);
 
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+
+  // The managed "Referred by" list (Settings → Doctors & Templates → Referring Doctors).
+  const { data: referringDoctors = [] } = useQuery({
+    queryKey: ['referring-doctors'],
+    queryFn: () => window.electronAPI.referringDoctors.list(true),
+    enabled: open,
+  });
 
   const selectedDoctor = doctors.find((d) => d.id === doctorId);
   // Regular fee comes from the selected doctor's default_fee (falls back to clinic setting).
@@ -631,6 +642,7 @@ function BookAppointmentModal({
         appointment_date: apptDate,
         appointment_time: chosenTime,
         notes: notes || null,
+        referred_by: referredBy.trim() || null,
         patient_group: patientGroup || null,
         procedure_tags: procedureTags
           ? JSON.stringify(procedureTags.split(',').map((t) => t.trim()).filter(Boolean))
@@ -1014,6 +1026,49 @@ function BookAppointmentModal({
             placeholder="e.g. Fever since 3 days, sore throat, body ache"
           />
           <div className="text-[10px] text-gray-500 mt-0.5">Shown to the doctor and on the OPD slip.</div>
+        </div>
+
+        {/* Referred by — the outside doctor who sent this patient. Managed list in
+            Settings; prints on the OPD slip under the consulting doctor. */}
+        <div>
+          <label className="label">Referred by <span className="text-gray-400 font-normal">(optional)</span></label>
+          {referredByOther ? (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-500 dark:text-slate-400 whitespace-nowrap">Dr.</span>
+              <input
+                className="input"
+                autoFocus
+                value={referredBy}
+                onChange={(e) => setReferredBy(e.target.value)}
+                placeholder="Type the referring doctor's name"
+              />
+              <button
+                type="button"
+                className="text-xs text-gray-500 hover:underline whitespace-nowrap"
+                onClick={() => { setReferredByOther(false); setReferredBy(''); }}
+              >
+                Pick from list
+              </button>
+            </div>
+          ) : (
+            <select
+              className="input"
+              value={referringDoctors.some((r) => r.name === referredBy) ? referredBy : ''}
+              onChange={(e) => {
+                if (e.target.value === '__other__') { setReferredByOther(true); setReferredBy(''); }
+                else setReferredBy(e.target.value);
+              }}
+            >
+              <option value="">— none —</option>
+              {referringDoctors.map((r) => (
+                <option key={r.id} value={r.name}>Dr. {r.name}{r.place ? ` · ${r.place}` : ''}</option>
+              ))}
+              <option value="__other__">Other (type a name)…</option>
+            </select>
+          )}
+          <div className="text-[10px] text-gray-500 mt-0.5">
+            Prints on the OPD slip below the consulting doctor. Manage this list in Settings → Doctors &amp; Templates → Referring Doctors.
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3">

@@ -496,6 +496,12 @@ function DoctorPatientBlocks({ appointment, doctor, regDate }: { appointment: Ap
         {doctor.qualifications && <div className="text-[12px] font-medium" style={{ color: '#1e40af' }}>{doctor.qualifications}</div>}
         <div className="text-[12px]" style={{ color: '#475569' }}>{doctor.specialty}{doctor.room_number ? ` · Room ${doctor.room_number}` : ''}</div>
         {doctor.registration_no && <div className="text-[13px]" style={{ color: '#64748b' }}>Reg: {doctor.registration_no}</div>}
+        {appointment.referred_by && (
+          <div className="text-[12px] mt-1 pt-1 border-t border-gray-200">
+            <span className="uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Referred by</span>{' '}
+            <span className="font-semibold" style={{ color: '#0f172a' }}>Dr. {appointment.referred_by}</span>
+          </div>
+        )}
       </div>
       <div className="border border-gray-300 rounded p-2">
         <div className="text-[13px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Patient</div>

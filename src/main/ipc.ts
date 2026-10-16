@@ -707,6 +707,37 @@ export function registerIpc() {
     return db.prepare('SELECT * FROM doctors WHERE id=?').get(info.lastInsertRowid);
   });
 
+  // ===== Referring (external) doctors — the managed list behind the
+  // "Referred by" field on an appointment. Added/edited in Settings like the
+  // consulting-doctor list, but these are outside doctors referring patients in. =====
+  ipcMain.handle('referringDoctors:list', (_e, activeOnly = true) => {
+    return getDb()
+      .prepare(`SELECT * FROM referring_doctors ${activeOnly ? 'WHERE is_active=1' : ''} ORDER BY name COLLATE NOCASE`)
+      .all();
+  });
+  ipcMain.handle('referringDoctors:create', (_e, d: { name: string; qualification?: string | null; place?: string | null; phone?: string | null }) => {
+    const db = getDb();
+    const name = String(d?.name || '').trim();
+    if (!name) throw new Error('Referring doctor name is required.');
+    const info = db
+      .prepare('INSERT INTO referring_doctors (name, qualification, place, phone, is_active) VALUES (?, ?, ?, ?, 1)')
+      .run(name, d.qualification?.trim() || null, d.place?.trim() || null, d.phone?.trim() || null);
+    return db.prepare('SELECT * FROM referring_doctors WHERE id=?').get(info.lastInsertRowid);
+  });
+  ipcMain.handle('referringDoctors:update', (_e, id: number, d: { name?: string; qualification?: string | null; place?: string | null; phone?: string | null; is_active?: number }) => {
+    const db = getDb();
+    const name = d.name !== undefined ? String(d.name).trim() : undefined;
+    if (name !== undefined && !name) throw new Error('Referring doctor name is required.');
+    db.prepare(
+      'UPDATE referring_doctors SET name=COALESCE(?,name), qualification=?, place=?, phone=?, is_active=COALESCE(?,is_active) WHERE id=?'
+    ).run(name ?? null, d.qualification?.trim() || null, d.place?.trim() || null, d.phone?.trim() || null, d.is_active ?? null, id);
+    return db.prepare('SELECT * FROM referring_doctors WHERE id=?').get(id);
+  });
+  ipcMain.handle('referringDoctors:delete', (_e, id: number) => {
+    getDb().prepare('DELETE FROM referring_doctors WHERE id=?').run(id);
+    return { ok: true };
+  });
+
   // Every table that references doctors(id) — must all be counted, otherwise hard delete
   // succeeds the count check but FK-fails at the DELETE itself.
   const countDoctorRefs = (db: any, id: number) => {
@@ -848,8 +879,8 @@ export function registerIpc() {
 
     const info = db
       .prepare(
-        `INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, token_number, consultation_token, visit_number, visit_id, status, notes, patient_group, procedure_tags)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, token_number, consultation_token, visit_number, visit_id, status, notes, patient_group, procedure_tags, referred_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         payload.patient_id,
@@ -863,7 +894,8 @@ export function registerIpc() {
         payload.status ?? (getAllSettings(db).queue_flow_enabled ? 'Waiting' : 'Done'),
         payload.notes ?? null,
         (payload as any).patient_group ?? null,
-        (payload as any).procedure_tags ?? null
+        (payload as any).procedure_tags ?? null,
+        ((payload as any).referred_by ?? null) || null
       );
 
     const created = db

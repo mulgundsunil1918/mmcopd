@@ -37,6 +37,7 @@ import type {
   PrescriptionItem,
   PurchaseInvoice,
   PurchaseInvoiceInput,
+  ReferringDoctor,
   Settings,
   Vitals,
   Wholesaler,
@@ -160,6 +161,12 @@ const api = {
     deactivate: (id: number) =>
       ipcRenderer.invoke('doctors:deactivate', id) as Promise<{ ok: boolean; doctorName?: string; error?: string }>,
   },
+  referringDoctors: {
+    list: (activeOnly = true) => ipcRenderer.invoke('referringDoctors:list', activeOnly) as Promise<ReferringDoctor[]>,
+    create: (d: Partial<ReferringDoctor>) => ipcRenderer.invoke('referringDoctors:create', d) as Promise<ReferringDoctor>,
+    update: (id: number, d: Partial<ReferringDoctor>) => ipcRenderer.invoke('referringDoctors:update', id, d) as Promise<ReferringDoctor>,
+    delete: (id: number) => ipcRenderer.invoke('referringDoctors:delete', id) as Promise<{ ok: boolean }>,
+  },
   appointments: {
     bookedSlots: (doctorId: number, date: string) =>
       ipcRenderer.invoke('appointments:bookedSlots', doctorId, date) as Promise<{ appointment_time: string }[]>,
@@ -169,6 +176,7 @@ const api = {
       appointment_date: string;
       appointment_time: string;
       notes?: string | null;
+      referred_by?: string | null;
       status?: AppointmentStatus;
     }) => ipcRenderer.invoke('appointments:create', payload) as Promise<AppointmentWithJoins>,
     list: (filter: { date?: string; doctor_id?: number; status?: AppointmentStatus }) =>
