@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { HeartPulse, Printer, X } from 'lucide-react';
 import type { Settings } from '../../types';
+import { parseDbDate } from '../../lib/utils';
 
 /**
  * Printable bill on the clinic letterhead, matching the OPD slip's header so a
@@ -136,7 +137,7 @@ export function BillPrint({ admissionId, billId, onClose }: {
           <div className="text-right space-y-0.5">
             <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">{title === 'RECEIPT' ? 'Receipt' : 'Invoice'} details</div>
             <div><b>No:</b> {bill?.bill_number || '—'}</div>
-            <div className="text-slate-600"><b>Date:</b> {bill?.created_at ? new Date(bill.created_at).toLocaleString('en-IN') : new Date().toLocaleString('en-IN')}</div>
+            <div className="text-slate-600"><b>Date:</b> {bill?.created_at ? (parseDbDate(bill.created_at) || new Date()).toLocaleString('en-IN') : new Date().toLocaleString('en-IN')}</div>
             {bill?.admission_number && <div className="text-slate-600"><b>Admission:</b> {bill.admission_number}</div>}
             {bill?.ward && <div className="text-slate-600">{bill.ward}{bill.bed_number ? ` / ${bill.bed_number}` : ''}</div>}
             {bill?.doctor_name && <div className="text-slate-600">Dr. {bill.doctor_name}</div>}

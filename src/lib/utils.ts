@@ -75,19 +75,39 @@ export function dobFromAge(years: number, months: number, days: number): string 
  * cases — every plain user-facing date should go through fmtDate() with no
  * pattern so the whole app stays consistent.
  */
+/**
+ * Parse a timestamp from the database into a correct Date.
+ *
+ * Our tables store timestamps two ways: the SQLite column default `datetime('now')`
+ * returns UTC as "YYYY-MM-DD HH:MM:SS" (no 'T', no 'Z'), while explicit writes use
+ * `new Date().toISOString()` ("…Z"). `parseISO`/`new Date()` read the first form as
+ * LOCAL time, so every default-stamped time (e.g. patient registration) printed off
+ * by the machine's UTC offset — 5:30 behind in IST — which looked like a "random /
+ * wrong registered time". Here a timezone-LESS datetime is normalised to explicit
+ * UTC; a value that already carries a 'Z'/offset, or a date-only value, is left to
+ * parseISO (both already correct). No timestamp is stored as local time, so reading
+ * the bare form as UTC is the right fix.
+ */
+export function parseDbDate(d: string | Date | null | undefined): Date | null {
+  if (d === null || d === undefined || d === '') return null;
+  if (d instanceof Date) return isNaN(d.getTime()) ? null : d;
+  // "YYYY-MM-DD HH:MM[:SS][.fff]" with no timezone marker → it's UTC from SQLite.
+  const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?)$/.exec(d.trim());
+  const date = m ? new Date(`${m[1]}T${m[2]}Z`) : parseISO(d);
+  return isNaN(date.getTime()) ? null : date;
+}
+
 // A missing or malformed date returns an em-dash instead of throwing
 // "Invalid time value", which would otherwise crash whatever screen renders it.
 export function fmtDate(d: string | Date | null | undefined, pattern = 'do MMMM yyyy') {
-  if (d === null || d === undefined || d === '') return '—';
-  const date = typeof d === 'string' ? parseISO(d) : d;
-  if (!(date instanceof Date) || isNaN(date.getTime())) return '—';
+  const date = parseDbDate(d);
+  if (!date) return '—';
   return format(date, pattern);
 }
 
 export function fmtDateTime(d: string | Date | null | undefined) {
-  if (d === null || d === undefined || d === '') return '—';
-  const date = typeof d === 'string' ? parseISO(d) : d;
-  if (!(date instanceof Date) || isNaN(date.getTime())) return '—';
+  const date = parseDbDate(d);
+  if (!date) return '—';
   return format(date, "do MMMM yyyy '·' hh:mm a");
 }
 

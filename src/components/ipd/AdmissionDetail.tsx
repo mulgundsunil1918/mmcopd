@@ -8,7 +8,7 @@ import { BillPreview } from '../billing/BillPreview';
 import { BillPrint } from '../billing/BillPrint';
 import { DischargeModal } from './DischargeModal';
 import { DischargeApproval } from './DischargeApproval';
-import { fmtDateTime } from '../../lib/utils';
+import { fmtDateTime, parseDbDate } from '../../lib/utils';
 import { canSeeMoney } from '../../lib/billingAccess';
 import { TransferBedModal } from './TransferBedModal';
 
@@ -49,8 +49,8 @@ export function AdmissionDetail({ admissionId, onClose }: { admissionId: number;
   }
 
   const daysIn = (() => {
-    const t = new Date(admission.admitted_at).getTime();
-    return Number.isNaN(t) ? 0 : Math.max(1, Math.floor((Date.now() - t) / 86_400_000) + 1);
+    const d = parseDbDate(admission.admitted_at);
+    return d ? Math.max(1, Math.floor((Date.now() - d.getTime()) / 86_400_000) + 1) : 0;
   })();
 
   return (

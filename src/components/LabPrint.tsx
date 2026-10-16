@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { HeartPulse, Printer, X } from 'lucide-react';
-import { formatINR } from '../lib/utils';
+import { formatINR, parseDbDate } from '../lib/utils';
 import type { Settings } from '../types';
 
 /**
@@ -58,7 +58,7 @@ export function LabPrint({ order, items, mode, onClose }: {
           <div className="text-right space-y-0.5">
             <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Order</div>
             <div className="text-slate-700 font-medium font-mono">{order.order_number || '—'}</div>
-            <div className="text-slate-600">{order.ordered_at ? new Date(order.ordered_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : new Date().toLocaleDateString('en-IN')}</div>
+            <div className="text-slate-600">{order.ordered_at ? (parseDbDate(order.ordered_at) || new Date()).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : new Date().toLocaleDateString('en-IN')}</div>
           </div>
         </div>
 

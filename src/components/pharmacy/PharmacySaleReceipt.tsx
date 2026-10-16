@@ -12,6 +12,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { HeartPulse, Printer, X } from 'lucide-react';
 import type { Settings } from '../../types';
+import { parseDbDate } from '../../lib/utils';
 
 const inr = (n: number) =>
   (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -94,7 +95,7 @@ export function PharmacySaleReceipt({ saleId, onClose }: { saleId: number; onClo
             <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Sale details</div>
             <div><b>No:</b> {(sale as any).sale_number || '—'}</div>
             <div className="text-slate-600">
-              <b>Date:</b> {(sale as any).created_at ? new Date((sale as any).created_at).toLocaleString('en-IN') : new Date().toLocaleString('en-IN')}
+              <b>Date:</b> {(sale as any).created_at ? (parseDbDate((sale as any).created_at) || new Date()).toLocaleString('en-IN') : new Date().toLocaleString('en-IN')}
             </div>
             <div className="text-slate-600"><b>Payment:</b> {(sale as any).payment_mode || '—'}</div>
             {(sale as any).sold_by && <div className="text-slate-600">By: {(sale as any).sold_by}</div>}
