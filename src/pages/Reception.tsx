@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PageHelp } from '../components/PageHelp';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -6,13 +6,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, UserPlus, Phone, Cake, Pencil, Calendar as CalendarIcon, IdCard, ChevronDown, ChevronRight, FileText, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { Patient, PatientInput } from '../types';
-import { ageString, ageStringFull, dobFromAge, fmtDate, cn } from '../lib/utils';
+import { ageString, ageStringFull, dobFromAge, fmtDate, cn, fmtDateTime } from '../lib/utils';
 import { INDIAN_STATES } from '../lib/india';
 import { TOP_PROFESSIONS } from '../lib/professions';
 import { ALL_NEARBY_PLACES, KARNATAKA_DISTRICTS } from '../lib/places';
 import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
 import { MedicalRecord } from '../components/MedicalRecord';
+import { PatientRadiology } from '../components/radiology/PatientRadiology';
 import { useToast } from '../hooks/useToast';
 import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut';
 
@@ -328,7 +329,14 @@ function PatientForm({
     setCollectRegFeeNow(settings.registration_fee_default_timing === 'at_registration');
   }, [regFeeEnabled, settings?.registration_fee_default_timing]);
 
+  // Set by the "Register & Book Appointment" button just before the form submits.
+  // Consumed (and cleared) at the top of the handler so a failed validation can never
+  // leave it armed for the next plain "Register Patient".
+  const bookAfterRef = useRef(false);
+
   const onSubmit = handleSubmit(async (raw) => {
+    const bookAfter = bookAfterRef.current;
+    bookAfterRef.current = false;
     // Age is mandatory (via DOB — either directly provided or derived from Y/M/D)
     if (!raw.dob && totalDays <= 0) {
       toast('Age is required', 'error');
@@ -377,6 +385,8 @@ function PatientForm({
         }
       }
       onSaved(saved);
+      // "Register & Book": straight into booking this patient — no hunting for them again.
+      if (bookAfter && !initial) onBookAppointment(saved.id);
     } catch (e: any) {
       toast(e.message || 'Save failed', 'error');
     }
@@ -572,9 +582,21 @@ function PatientForm({
 
         <div className="flex justify-end gap-2 mt-6">
           <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
-          <button type="submit" className="btn-primary" disabled={isSubmitting}>
+          <button type="submit" className="btn-primary" disabled={isSubmitting}
+            onClick={() => { bookAfterRef.current = false; }}>
             {isSubmitting ? 'Saving…' : initial ? 'Update Patient' : 'Register Patient'}
           </button>
+          {!initial && (
+            <button
+              type="submit"
+              className="btn-primary bg-green-600 hover:bg-green-700 focus:ring-green-500"
+              disabled={isSubmitting}
+              onClick={() => { bookAfterRef.current = true; }}
+              title="Save this patient and go straight to booking their appointment"
+            >
+              <CalendarIcon className="w-4 h-4" /> Register &amp; Book Appointment
+            </button>
+          )}
           {initial && (
             <button
               type="button"
@@ -644,6 +666,7 @@ function PatientCard({
           <div>
             <div className="text-xs text-gray-500 flex items-center gap-1"><IdCard className="w-3 h-3" />{patient.uhid}</div>
             <h2 className="text-2xl font-bold text-gray-900 mt-1">{patient.first_name} {patient.last_name}</h2>
+            {patient.created_at && <div className="text-[11px] text-gray-400 mt-0.5">Registered {fmtDateTime(patient.created_at)}</div>}
             <div className="mt-3 flex flex-wrap gap-4 text-sm text-gray-600">
               <span className="flex items-center gap-1"><Cake className="w-3.5 h-3.5" /> {fmtDate(patient.dob)} · {ageStringFull(patient.dob)} · {patient.gender}</span>
               <span className="flex items-center gap-1"><Phone className="w-3.5 h-3.5" /> {patient.phone}</span>
@@ -660,6 +683,8 @@ function PatientCard({
       </div>
 
       <MedicalRecord patientId={patient.id} />
+
+      <PatientRadiology patientId={patient.id} />
 
       <div className="card p-6">
         <div className="flex items-center justify-between mb-3">

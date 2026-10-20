@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { registerIpc, runFullBackup, isBackupServiceReady, runConfiguredBackup, requireRole } from './main/ipc';
 import { registerIpdBillingIpc, runDailyAccrual } from './main/ipd-billing-ipc';
+import { registerRadiologyIpc } from './main/radiology-ipc';
 import { registerPedsIpc } from './main/peds-ipc';
 import { installIpcRegistry, setReadOnlyMode } from './main/ipc-registry';
 import { getLicenseStatus, activateLicense, activateOnline, machineFingerprint } from './main/licensing/license';
@@ -920,6 +921,7 @@ app.whenReady().then(async () => {
   registerIpc();
   // IPD + billing live in their own module rather than growing ipc.ts further.
   registerIpdBillingIpc();
+  registerRadiologyIpc();
   registerPedsIpc();
 
   // ===== Licensing =====

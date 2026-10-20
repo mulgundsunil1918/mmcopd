@@ -16,6 +16,7 @@ const ROLE_LABELS: Record<Role, string> = {
   nurse: 'Nurse',
   ward_incharge: 'Ward In-charge',
   lab_tech: 'Lab Tech',
+  radiology_tech: 'Radiology Tech',
   pharmacist: 'Pharmacist',
 };
 
@@ -29,6 +30,7 @@ const ROLE_HELP: Record<Role, string> = {
   nurse: 'Record vitals, give medicines, intake/output and nursing notes for admitted patients.',
   ward_incharge: 'Everything a nurse can do, plus countersign entries, correct errors and authorise bed transfers.',
   lab_tech: 'Accept lab orders and enter results.',
+  radiology_tech: 'Take radiology orders, perform the scan, write and print the report.',
   pharmacist: 'Dispense medicines, manage stock, batches and purchase invoices.',
 };
 
@@ -52,6 +54,7 @@ const ROLE_COLOR: Record<Role, string> = {
   nurse: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
   ward_incharge: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
   lab_tech: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300',
+  radiology_tech: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
   pharmacist: 'bg-lime-100 text-lime-700 dark:bg-lime-900/40 dark:text-lime-300',
 };
 
@@ -64,6 +67,7 @@ const ROLE_ACCESS: { role: CreatableRole; screens: string }[] = [
   { role: 'nurse', screens: 'IPD ward care (vitals, medications, I/O, nursing notes), Pediatrics.' },
   { role: 'ward_incharge', screens: 'Everything a nurse sees, plus countersign and authorise transfers.' },
   { role: 'lab_tech', screens: 'Laboratory — accept orders, enter results.' },
+  { role: 'radiology_tech', screens: 'Radiology — take orders, perform scans, write and print reports.' },
   { role: 'pharmacist', screens: 'Pharmacy — dispense, stock, batches, purchase invoices.' },
 ];
 

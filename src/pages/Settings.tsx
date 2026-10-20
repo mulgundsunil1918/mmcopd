@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building2, Baby, Search, Stethoscope, Plus, Pencil, Wallet, ListChecks, Save, Database as DbIcon, Calendar as CalIcon, ArrowRight, Loader2, AlertTriangle, Trash2, User as UserIcon, IndianRupee, PenTool, Power, AlertCircle, ArrowUp, ArrowDown, Eye, FileText, MapPin, Syringe, RefreshCw, Sparkles, HardDrive, Sun, Copy, FlaskConical, ShieldCheck, KeyRound, Lock, BadgeCheck, Wifi, Download } from 'lucide-react';
@@ -11,6 +11,9 @@ import { PATIENT_LANGS } from '../lib/rxLang';
 import { Check } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { ImageUpload } from '../components/ImageUpload';
+import { PrintHeader, resolveLetterhead, LOGO_SIZES, LOGO_MM, LOGO_SIZE_LABEL } from '../components/print/PrintHeader';
+import { clockInfo } from '../lib/clock';
+import { Letterhead as OpdLetterhead } from '../components/OpdSlip';
 
 // Injected as `true` only by the demo build (vite.demo.config.ts); undefined in
 // the Electron build. Used with a typeof guard so personal literals can be
@@ -48,6 +51,7 @@ const IPD_MODES = new Set<AppMode>(['full']);
 const MODE_ROUTES: Record<string, Set<AppMode>> = {
   '/doctor-select': DOCTOR_MODES,
   '/lab': LAB_MODES,
+  '/radiology': LAB_MODES,
   '/pharmacy': PHARMACY_MODES,
   '/ipd': IPD_MODES,
   '/discharge-summary': IPD_MODES,
@@ -57,7 +61,7 @@ const MODE_ROUTES: Record<string, Set<AppMode>> = {
 const MENU_PREVIEW: { path: string; label: string }[] = [
   { path: '/reception', label: 'Reception' }, { path: '/appointments', label: 'Appointments' },
   { path: '/whatsapp', label: 'Communication' }, { path: '/doctor-select', label: 'Doctors' },
-  { path: '/lab', label: 'Laboratory' }, { path: '/pharmacy', label: 'Pharmacy' },
+  { path: '/lab', label: 'Laboratory' }, { path: '/radiology', label: 'Radiology' }, { path: '/pharmacy', label: 'Pharmacy' },
   { path: '/ipd', label: 'IPD' }, { path: '/discharge-summary', label: 'Discharge Summary' },
   { path: '/pediatrics', label: 'Pediatrics' }, { path: '/print-jobs', label: 'Print Jobs' },
   { path: '/tpa', label: 'Insurance / TPA' }, { path: '/patient-log', label: 'Patient Log' },
@@ -217,6 +221,9 @@ export function SettingsPage() {
               <SettingsGroup title="Clinic Identity" subtitle="Name, logo, address, contact details printed on every OPD slip.">
                 <ClinicInfo />
               </SettingsGroup>
+              <SettingsGroup title="Letterhead & Logo" subtitle="How the top of every printed document looks — bills, OPD slip, lab, radiology, pharmacy. Put your logo beside the clinic name, or use a wide logo as the entire header.">
+                <LetterheadSettings />
+              </SettingsGroup>
               <SettingsGroup title="Prescription QR Codes" subtitle="Show 1 or 2 QR codes on the prescription page 2 — e.g. website link and Google Maps location.">
                 <PrescriptionQr />
               </SettingsGroup>
@@ -289,6 +296,9 @@ export function SettingsPage() {
                 {netStatus?.mode === 'client'
                   ? <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-800 text-[13px] text-amber-800 dark:text-amber-300 flex items-start gap-2"><Lock className="w-4 h-4 shrink-0 mt-0.5" /><span><b>Managed on the main computer.</b> Staff role permissions are set on the Host PC and apply to every connected computer.</span></div>
                   : <RoleAccessEditor />}
+              </SettingsGroup>
+              <SettingsGroup title="Date & Time on this computer" subtitle="Every time CureDesk shows or prints — registration, bills, lab and radiology reports — comes from this computer's clock and time zone.">
+                <ClockCheck />
               </SettingsGroup>
               <SettingsGroup title="Startup & Background" subtitle="Auto-launch with Windows, minimize to tray, start hidden.">
                 <StartupBehavior />
@@ -1396,9 +1406,10 @@ function ClinicInfo() {
           label="Clinic Logo"
           value={settings.clinic_logo}
           onChange={(v) => logoSave.mutate({ clinic_logo: v || '' })}
-          aspect="square"
+          aspect="wide"
+          maxDim={2400}
           placeholder="Click or drop"
-          hint="⚠ Upload a high-quality logo (JPG / PNG). Max 5 MB. Logo saves immediately on upload."
+          hint="Square or wide logo — JPG / PNG, max 5 MB. Saves immediately. A wide logo can be printed as the whole header: see Letterhead below."
         />
         <div className="flex-1 grid grid-cols-2 gap-4">
           <TxtField label="Clinic Name *" value={draft.clinic_name ?? ''} onChange={(v) => set('clinic_name', v)} />
@@ -1421,6 +1432,223 @@ function ClinicInfo() {
           </div>
         </div>
       </div>
+    </section>
+  );
+}
+
+// =====================================================================
+// Letterhead & Logo — the top of every printed document, with a live preview.
+// Two styles: logo beside the clinic details, or a wide logo as the WHOLE header
+// (clinic name & tagline then are not printed — the image already carries them).
+// =====================================================================
+const LH_KEYS = ['lh_style', 'lh_logo_size', 'lh_show_name', 'lh_show_tagline', 'lh_show_contact', 'lh_banner_max_mm'] as const;
+
+/** Shows an A4-width sheet scaled down to fit its container, so the preview is the real layout. */
+function ScaledSheet({ children, heightMm }: { children: React.ReactNode; heightMm: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [w, setW] = useState(520);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setW(e.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const sheetPx = (210 * 96) / 25.4;
+  const k = Math.min(1, Math.max(0.2, w / sheetPx));
+  return (
+    <div ref={ref} className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-100 dark:bg-slate-800 overflow-hidden"
+      style={{ height: ((heightMm * 96) / 25.4) * k }}>
+      <div style={{ width: sheetPx, transform: `scale(${k})`, transformOrigin: 'top left' }}>{children}</div>
+    </div>
+  );
+}
+
+function LetterheadPreview({ settings, view }: { settings: Settings; view: 'bill' | 'opd' }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const sampleAppt: any = {
+    id: 1, token_number: 12, appointment_date: today, appointment_time: '10:30',
+    patient_name: 'Sample Patient', patient_uhid: 'PT-0001',
+  };
+  const sampleDoctor: any = { name: 'Dr. Sample', room_number: '101' };
+  const bar = (w: string) => <div style={{ height: 7, width: w, background: '#e2e8f0', borderRadius: 4 }} />;
+  return (
+    <ScaledSheet heightMm={view === 'opd' ? 92 : 86}>
+      <div className="paper" style={{ width: '210mm', padding: '12mm 14mm', background: '#ffffff', color: '#0f172a', boxSizing: 'border-box', minHeight: '100%' }}>
+        {view === 'bill' ? (
+          <>
+            <PrintHeader settings={settings} />
+            <div className="text-center my-3">
+              <span className="inline-block px-4 py-1 rounded font-bold tracking-wide" style={{ background: '#eff6ff', color: '#1e3a8a', fontSize: 14 }}>SAMPLE BILL</span>
+            </div>
+            <div className="space-y-2.5 mt-4">{bar('70%')}{bar('92%')}{bar('55%')}{bar('80%')}</div>
+          </>
+        ) : (
+          <OpdLetterhead appointment={sampleAppt} doctor={sampleDoctor} settings={settings} logoSize="large" />
+        )}
+      </div>
+    </ScaledSheet>
+  );
+}
+
+function LetterheadSettings() {
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, [...LH_KEYS]);
+  const [view, setView] = useState<'bill' | 'opd'>('bill');
+  if (!settings) return null;
+
+  const merged = { ...settings, ...draft } as Settings;
+  const lh = resolveLetterhead(merged);
+  const banner = lh.style === 'banner';
+  const hasLogo = !!settings.clinic_logo;
+
+  const Toggle = ({ k, label, hint }: { k: 'lh_show_name' | 'lh_show_tagline' | 'lh_show_contact'; label: string; hint?: string }) => (
+    <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-slate-300 cursor-pointer">
+      <input type="checkbox" className="mt-0.5" checked={merged[k] !== false} onChange={(e) => set(k, e.target.checked)} />
+      <span>{label}{hint && <span className="block text-[11px] text-gray-500 dark:text-slate-400">{hint}</span>}</span>
+    </label>
+  );
+
+  const StyleCard = ({ active, onClick, title, desc, mini }: { active: boolean; onClick: () => void; title: string; desc: string; mini: React.ReactNode }) => (
+    <button type="button" onClick={onClick}
+      className={cn('text-left rounded-lg border-2 p-3 transition',
+        active ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30' : 'border-gray-200 dark:border-slate-700 hover:border-blue-300')}>
+      <div className="h-9 mb-2 flex items-center">{mini}</div>
+      <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">{title}</div>
+      <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5 leading-snug">{desc}</div>
+    </button>
+  );
+  const blk = (w: number | string, h = 6, c = '#94a3b8') => <div style={{ width: w, height: h, background: c, borderRadius: 3 }} />;
+
+  return (
+    <section className="card p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <FileText className="w-4 h-4 text-blue-600" />
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Letterhead</h2>
+        </div>
+        <SaveBar dirty={dirty} saving={saving} onSave={save} onReset={reset} />
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {/* ---- controls ---- */}
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <StyleCard
+              active={!banner} onClick={() => set('lh_style', 'logo_text')}
+              title="Logo + clinic name"
+              desc="Your logo beside the clinic name, tagline and address."
+              mini={<div className="flex items-center gap-2">{blk(30, 30, '#60a5fa')}<div className="space-y-1">{blk(54, 7, '#475569')}{blk(38, 5)}{blk(46, 5)}</div></div>}
+            />
+            <StyleCard
+              active={banner} onClick={() => set('lh_style', 'banner')}
+              title="Wide logo = whole header"
+              desc="Your logo spans the full width. Clinic name & tagline are skipped — the image already carries them."
+              mini={<div style={{ width: '100%', height: 26, background: '#60a5fa', borderRadius: 4 }} />}
+            />
+          </div>
+
+          {banner && !hasLogo && (
+            <div className="text-[12px] rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 px-3 py-2">
+              No logo uploaded yet — add your wide logo under <b>Clinic Identity</b> above. Until then the classic header prints.
+            </div>
+          )}
+
+          {!banner ? (
+            <>
+              <div>
+                <label className="label">Logo size</label>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {LOGO_SIZES.map((sz) => (
+                    <button key={sz} type="button" onClick={() => set('lh_logo_size', sz)}
+                      className={cn('py-1.5 rounded-lg border text-center transition-colors',
+                        lh.logoSize === sz ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-slate-300 hover:border-blue-400')}>
+                      <div className="text-[11px] font-semibold">{LOGO_SIZE_LABEL[sz]}</div>
+                      <div className="text-[9px] opacity-80">{LOGO_MM[sz]} mm</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Toggle k="lh_show_name" label="Print the clinic name" />
+                <Toggle k="lh_show_tagline" label="Print the tagline" />
+                <Toggle k="lh_show_contact" label="Print address, phone & registration no." />
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <label className="label">Tallest the banner may print</label>
+                <select className="input" value={lh.bannerMaxMm} onChange={(e) => set('lh_banner_max_mm', Number(e.target.value))}>
+                  <option value={25}>Compact — 25 mm</option>
+                  <option value={40}>Standard — 40 mm</option>
+                  <option value={60}>Tall — 60 mm</option>
+                </select>
+                <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-1">It always fills the full width; this only caps the height so a very tall image can't push the bill down the page.</p>
+              </div>
+              <div className="space-y-2">
+                <Toggle k="lh_show_contact" label="Also print address, phone & registration no. under the banner" hint="Leave off if your logo image already shows them." />
+              </div>
+              <p className="text-[11px] text-gray-500 dark:text-slate-400">
+                Tip: for the sharpest print use a wide image about <b>2480 × 400 px</b> (A4 width). GST / drug-licence numbers still print on bills — they're never hidden.
+              </p>
+            </>
+          )}
+        </div>
+
+        {/* ---- live preview ---- */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs font-semibold text-gray-700 dark:text-slate-300 uppercase tracking-wide">Live preview</div>
+            <div className="flex gap-0.5 p-0.5 rounded-md bg-gray-100 dark:bg-slate-800/60 text-[11px] font-semibold">
+              {([['bill', 'Bills & reports'], ['opd', 'OPD slip']] as const).map(([v, l]) => (
+                <button key={v} type="button" onClick={() => setView(v)}
+                  className={cn('px-2.5 py-1 rounded', view === v ? 'bg-white dark:bg-slate-900 text-blue-700 shadow-sm' : 'text-gray-500')}>{l}</button>
+              ))}
+            </div>
+          </div>
+          <LetterheadPreview settings={merged} view={view} />
+          <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-2">
+            This is the actual header that prints. Changes show here instantly; press <b>Save</b> to apply them to every document.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+
+/** What this PC thinks the time is — the first thing to check when a registered time "looks wrong". */
+function ClockCheck() {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
+  const c = clockInfo(now);
+  return (
+    <section className="card p-5 space-y-3">
+      <div className="flex items-center gap-4 flex-wrap">
+        <div>
+          <div className="text-2xl font-bold tabular-nums text-gray-900 dark:text-slate-100">{format(now, 'hh:mm:ss a')}</div>
+          <div className="text-xs text-gray-500 dark:text-slate-400">{format(now, 'EEEE, do MMMM yyyy')}</div>
+        </div>
+        <div className="text-sm">
+          <div className="font-semibold text-gray-900 dark:text-slate-100">{c.zone || 'Time zone unknown'}</div>
+          <div className="text-gray-500 dark:text-slate-400">{c.offsetLabel}{c.isIndia ? ' · India Standard Time ✓' : ''}</div>
+        </div>
+      </div>
+      {c.isIndia ? (
+        <p className="text-[12px] text-emerald-700 dark:text-emerald-300">
+          This PC is on India time. A patient registered right now shows the time on this clock.
+        </p>
+      ) : (
+        <p className="text-[12px] rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 px-3 py-2">
+          <b>This PC is not on India Standard Time (UTC+05:30).</b> Registered, billed and reported times will follow this clock, so they will
+          look wrong to anyone on India time. Fix it in Windows → <b>Settings → Time &amp; language → Date &amp; time → Time zone</b>
+          (choose “(UTC+05:30) Chennai, Kolkata, Mumbai, New Delhi”). If you are outside India you can ignore this.
+        </p>
+      )}
+      <p className="text-[11px] text-gray-500 dark:text-slate-400">
+        Compare the time above with your phone. If they match, every time CureDesk shows is correct; if they differ, change it in Windows — CureDesk follows the PC.
+      </p>
     </section>
   );
 }
@@ -3440,20 +3668,24 @@ function SlipTemplatesEditor() {
                   </div>
                 </div>
 
-                {/* Logo size */}
+                {/* Logo on this template. Size and the wide-logo option are clinic-wide —
+                    Settings → Clinic → Letterhead — so every document matches. */}
                 <div>
-                  <label className="label">Logo size</label>
+                  <label className="label">Logo on this slip</label>
                   <div className="flex gap-2">
-                    {(['none', 'small', 'medium', 'large'] as const).map((sz) => (
-                      <button key={sz} onClick={() => updateLayout({ logoSize: sz })}
-                        className={cn('flex-1 py-1.5 text-xs rounded-lg border font-medium capitalize transition-colors',
-                          layout.logoSize === sz
+                    {([['large', 'Show'], ['none', 'Hide']] as const).map(([val, lbl]) => (
+                      <button key={val} onClick={() => updateLayout({ logoSize: val })}
+                        className={cn('flex-1 py-1.5 text-xs rounded-lg border font-medium transition-colors',
+                          (layout.logoSize === 'none') === (val === 'none')
                             ? 'bg-blue-600 text-white border-blue-600'
                             : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-slate-300 hover:border-blue-400')}>
-                        {sz}
+                        {lbl}
                       </button>
                     ))}
                   </div>
+                  <p className="text-[10px] text-gray-500 dark:text-slate-400 mt-1">
+                    Size &amp; wide-logo layout: <b>Settings → Clinic → Letterhead</b>.
+                  </p>
                 </div>
 
                 {/* Header style */}
@@ -5245,7 +5477,7 @@ function BillingIpdTab() {
     'discount_caps_json', 'discount_require_reason',
     'ipd_auto_accrue_bed', 'ipd_auto_accrue_nursing', 'ipd_auto_accrue_doctor_visit',
     'ipd_doctor_visit_mode', 'ipd_transfer_charge_rule', 'ipd_accrual_time', 'ipd_advance_enabled',
-    'tpa_enabled', 'ipd_admission_requests_enabled', 'discharge_summary_enabled', 'lab_auto_bill',
+    'tpa_enabled', 'ipd_admission_requests_enabled', 'discharge_summary_enabled', 'lab_auto_bill', 'radiology_auto_bill',
   ]);
   const { has } = useLicensedModules();
 
@@ -5362,6 +5594,13 @@ function BillingIpdTab() {
         <AccrualToggle label="Auto-raise a bill when a lab test is ordered"
           help="When a doctor or reception orders lab tests, an unpaid bill is created automatically from the test prices, so lab revenue lands in billing instead of being missed. Reception collects it at the counter. Turn off if you bill lab work another way."
           value={draft.lab_auto_bill ?? true} onChange={(v) => set('lab_auto_bill', v)} />
+      </div>
+
+      {/* Radiology auto-billing */}
+      <div className="card p-5">
+        <AccrualToggle label="Auto-raise a bill when a scan is ordered (Radiology)"
+          help="When a doctor or the Radiology desk orders X-Ray, ultrasound, CT or MRI, a bill is created automatically from the scan prices — unpaid if it is to be collected later, or paid on the spot when the desk takes the money while raising the request. Turn off if you bill radiology another way."
+          value={draft.radiology_auto_bill ?? true} onChange={(v) => set('radiology_auto_bill', v)} />
       </div>
 
       <LabSettingsCard />

@@ -1,6 +1,6 @@
 /**
  * Standard investigation catalog for Indian OPD/hospital practice — the ~100 most
- * commonly ordered pathology/lab tests plus ~50 common radiology investigations.
+ * commonly ordered pathology / laboratory tests. (Radiology has its own catalogue in radiology-catalog.ts.)
  *
  * Prices are intentionally 0: every clinic sets its own. Loading the catalog only
  * ADDS tests whose name isn't already present, so it's safe to run on an existing
@@ -8,7 +8,7 @@
  */
 export interface CatalogTest {
   name: string;
-  /** Lab department: haematology | biochemistry | serology | microbiology | clinical_pathology | histopathology | radiology */
+  /** Lab department: haematology | biochemistry | serology | microbiology | clinical_pathology | histopathology */
   category: string;
   sample_type?: string;
   unit?: string;
@@ -152,61 +152,4 @@ export const LAB_CATALOG: CatalogTest[] = [
   { name: 'Bone Marrow Aspiration', category: 'histopathology', sample_type: 'Marrow Aspirate' },
   { name: 'Bone Marrow Biopsy', category: 'histopathology', sample_type: 'Marrow Trephine' },
   { name: 'Immunohistochemistry (IHC) — per marker', category: 'histopathology', sample_type: 'Tissue Block' },
-
-  // ================= RADIOLOGY =================
-  { name: 'X-Ray Chest PA View', category: 'radiology' },
-  { name: 'X-Ray Chest AP/Lateral', category: 'radiology' },
-  { name: 'X-Ray PNS (Water’s View)', category: 'radiology' },
-  { name: 'X-Ray Skull AP/Lateral', category: 'radiology' },
-  { name: 'X-Ray Cervical Spine', category: 'radiology' },
-  { name: 'X-Ray Dorsal Spine', category: 'radiology' },
-  { name: 'X-Ray Lumbosacral Spine', category: 'radiology' },
-  { name: 'X-Ray Pelvis with Both Hips', category: 'radiology' },
-  { name: 'X-Ray Abdomen Erect (KUB)', category: 'radiology' },
-  { name: 'X-Ray Shoulder Joint', category: 'radiology' },
-  { name: 'X-Ray Elbow Joint', category: 'radiology' },
-  { name: 'X-Ray Wrist Joint', category: 'radiology' },
-  { name: 'X-Ray Hand', category: 'radiology' },
-  { name: 'X-Ray Knee Joint', category: 'radiology' },
-  { name: 'X-Ray Ankle Joint', category: 'radiology' },
-  { name: 'X-Ray Foot', category: 'radiology' },
-  { name: 'X-Ray Mastoid', category: 'radiology' },
-  { name: 'Barium Swallow', category: 'radiology' },
-  { name: 'Barium Meal Follow Through', category: 'radiology' },
-  { name: 'Barium Enema', category: 'radiology' },
-  { name: 'Intravenous Pyelogram (IVP)', category: 'radiology' },
-  { name: 'USG Whole Abdomen', category: 'radiology' },
-  { name: 'USG Abdomen & Pelvis', category: 'radiology' },
-  { name: 'USG KUB', category: 'radiology' },
-  { name: 'USG Pelvis', category: 'radiology' },
-  { name: 'USG Obstetric (Dating/Early)', category: 'radiology' },
-  { name: 'USG Anomaly Scan (Level II)', category: 'radiology' },
-  { name: 'USG Obstetric Growth Scan', category: 'radiology' },
-  { name: 'Transvaginal Sonography (TVS)', category: 'radiology' },
-  { name: 'USG Breast', category: 'radiology' },
-  { name: 'USG Thyroid / Neck', category: 'radiology' },
-  { name: 'USG Scrotum', category: 'radiology' },
-  { name: 'Colour Doppler Lower Limb', category: 'radiology' },
-  { name: 'Colour Doppler Carotid', category: 'radiology' },
-  { name: 'USG-Guided FNAC', category: 'radiology' },
-  { name: 'CT Brain (Plain)', category: 'radiology' },
-  { name: 'CT Brain (Contrast)', category: 'radiology' },
-  { name: 'CT Chest', category: 'radiology' },
-  { name: 'HRCT Chest', category: 'radiology' },
-  { name: 'CT Abdomen & Pelvis', category: 'radiology' },
-  { name: 'CT KUB (Plain)', category: 'radiology' },
-  { name: 'CT PNS', category: 'radiology' },
-  { name: 'CT Angiography', category: 'radiology' },
-  { name: 'MRI Brain', category: 'radiology' },
-  { name: 'MRI Cervical Spine', category: 'radiology' },
-  { name: 'MRI Lumbar Spine', category: 'radiology' },
-  { name: 'MRI Knee Joint', category: 'radiology' },
-  { name: 'MRI Whole Abdomen', category: 'radiology' },
-  { name: 'MRCP', category: 'radiology' },
-  { name: 'Mammography (Both Breasts)', category: 'radiology' },
-  { name: 'DEXA Bone Densitometry', category: 'radiology' },
-  { name: 'ECG', category: 'radiology' },
-  { name: '2D Echocardiography', category: 'radiology' },
-  { name: 'Treadmill Test (TMT)', category: 'radiology' },
-  { name: 'Pulmonary Function Test (PFT)', category: 'radiology' },
 ];

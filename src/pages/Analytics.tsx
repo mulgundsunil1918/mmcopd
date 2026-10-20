@@ -613,7 +613,7 @@ function ModulesTab({ from, to }: { from: string; to: string }) {
   if (isLoading || !data) return <div className="text-xs text-gray-500 dark:text-slate-400 p-4">Loading…</div>;
   const mods = data.modules || [];
   const t = data.totals || { revenue: 0, collected: 0, outstanding: 0, count: 0 };
-  const MODULE_HEX: Record<string, string> = { ipd: '#3b82f6', pharmacy: '#10b981', lab: '#d946ef', opd: '#8b5cf6', misc: '#f59e0b' };
+  const MODULE_HEX: Record<string, string> = { ipd: '#3b82f6', pharmacy: '#10b981', lab: '#d946ef', radiology: '#0ea5e9', opd: '#8b5cf6', misc: '#f59e0b' };
   const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
 
   return (

@@ -12,6 +12,14 @@ export function getAllSettings(db: Database.Database): Settings {
     clinic_tagline: map.clinic_tagline || '',
     clinic_registration_no: map.clinic_registration_no || '',
     clinic_logo: map.clinic_logo || '',
+    // Letterhead. Defaults reproduce the classic header (logo + name + tagline + contact),
+    // with the logo at the old OPD-slip 'large' size.
+    lh_style: map.lh_style === 'banner' ? 'banner' : 'logo_text',
+    lh_logo_size: (['sm', 'md', 'lg', 'xl', 'xxl'].includes(map.lh_logo_size) ? map.lh_logo_size : 'lg') as Settings['lh_logo_size'],
+    lh_show_name: map.lh_show_name !== 'false',
+    lh_show_tagline: map.lh_show_tagline !== 'false',
+    lh_show_contact: map.lh_show_contact !== 'false',
+    lh_banner_max_mm: Math.min(80, Math.max(15, parseInt(map.lh_banner_max_mm || '40', 10) || 40)),
     slot_duration: parseInt(map.slot_duration || '30', 10),
     consultation_fee: parseInt(map.consultation_fee || '250', 10),
     special_price: parseInt(map.special_price || '150', 10),
@@ -132,6 +140,7 @@ export function getAllSettings(db: Database.Database): Settings {
     ipd_admission_requests_enabled: map.ipd_admission_requests_enabled !== 'false',
     discharge_summary_enabled: map.discharge_summary_enabled !== 'false',
     lab_auto_bill: map.lab_auto_bill !== 'false',
+    radiology_auto_bill: map.radiology_auto_bill !== 'false',
     role_access_json: map.role_access_json || '',
     // Per-install sidebar customisation: JSON array of { to, hidden } in the
     // user's chosen order. Empty = default order, nothing hidden.

@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { PHARMACY_CATALOG } from '../data/pharmacy-catalog';
 import { LAB_CATALOG } from '../data/lab-catalog';
+import { RADIOLOGY_CATALOG, RADIOLOGY_KNOWN_PRICES } from '../data/radiology-catalog';
 
 const DEFAULT_SETTINGS: Record<string, string> = {
   // Empty by design — every install asks the admin to fill these in via
@@ -198,6 +199,27 @@ export function seedIfEmpty(db: Database.Database) {
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('lab_catalog_seeded', '1')").run();
     });
     tx();
+  }
+
+  /**
+   * Radiology catalogue — its own department now, seeded once.
+   *
+   * An existing clinic that already had imaging tests in its lab catalogue got them (with
+   * its own prices) copied across by the migration, so the table is non-empty and nothing
+   * is added here — we never resurrect a test the clinic deliberately removed. An empty
+   * table (a fresh install, or a clinic that never loaded the imaging tests) gets the
+   * standard list, unpriced: rates are each clinic's own.
+   */
+  const radSeedFlag = db.prepare("SELECT value FROM settings WHERE key='radiology_catalog_seeded'").get() as { value: string } | undefined;
+  if (!radSeedFlag) {
+    const n = (db.prepare('SELECT COUNT(*) AS c FROM radiology_tests').get() as { c: number }).c;
+    const insR = db.prepare('INSERT OR IGNORE INTO radiology_tests (name, modality, price, is_active) VALUES (?, ?, ?, 1)');
+    db.transaction(() => {
+      if (n === 0) {
+        for (const t of RADIOLOGY_CATALOG) insR.run(t.name, t.modality, RADIOLOGY_KNOWN_PRICES[t.name.toLowerCase()] ?? 0);
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('radiology_catalog_seeded', '1')").run();
+    })();
   }
 
   // Seed clinical quick-fill templates (stored as JSON in settings)

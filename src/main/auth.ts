@@ -14,6 +14,7 @@ export type Role =
   | 'nurse'
   | 'ward_incharge'
   | 'lab_tech'
+  | 'radiology_tech'
   | 'pharmacist';
 
 export interface SessionUser {

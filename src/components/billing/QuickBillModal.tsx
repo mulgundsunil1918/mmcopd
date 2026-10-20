@@ -26,6 +26,7 @@ const BILL_TYPES: { id: string; label: string }[] = [
   { id: 'opd_consult', label: 'Consultation' },
   { id: 'pharmacy', label: 'Pharmacy' },
   { id: 'lab', label: 'Laboratory' },
+  { id: 'radiology', label: 'Radiology' },
   { id: 'custom', label: 'Custom' },
 ];
 
@@ -40,9 +41,10 @@ export function QuickBillModal({
   const { user } = useAuth();
   const { has } = useLicensedModules();
   // Only show a module's bill tab if the clinic is licensed for it.
-  const billTabs = BILL_TYPES.filter((t) => (t.id === 'pharmacy' ? has('pharmacy') : t.id === 'lab' ? has('lab') : true));
+  // Radiology is part of the Laboratory add-on, so it follows the same licence.
+  const billTabs = BILL_TYPES.filter((t) => (t.id === 'pharmacy' ? has('pharmacy') : (t.id === 'lab' || t.id === 'radiology') ? has('lab') : true));
   const [billType, setBillType] = useState(
-    BILL_TYPES.some((t) => t.id === presetType) && (presetType === 'pharmacy' ? has('pharmacy') : presetType === 'lab' ? has('lab') : true)
+    BILL_TYPES.some((t) => t.id === presetType) && (presetType === 'pharmacy' ? has('pharmacy') : (presetType === 'lab' || presetType === 'radiology') ? has('lab') : true)
       ? presetType : 'opd_consult');
   const [q, setQ] = useState('');
   const [patient, setPatient] = useState<any | null>(presetPatient ?? null);
@@ -59,6 +61,13 @@ export function QuickBillModal({
   const [labSearch, setLabSearch] = useState('');
   const { data: labTests = [] } = useQuery({ queryKey: ['lab-tests-quick'], queryFn: () => window.electronAPI.lab.listTests(true), enabled: billType === 'lab' });
   const addLabTest = (t: any) => setLines((ls) => {
+    const line: Line = { description: t.name, qty: 1, rate: t.price || 0, is_taxable: false };
+    const blank = ls.findIndex((l) => !l.description && !l.rate);
+    return blank >= 0 ? ls.map((l, i) => (i === blank ? line : l)) : [...ls, line];
+  });
+  const [radSearch, setRadSearch] = useState('');
+  const { data: radTests = [] } = useQuery({ queryKey: ['radiology-tests-quick'], queryFn: () => window.electronAPI.radiology.listTests(true), enabled: billType === 'radiology' });
+  const addRadTest = (t: any) => setLines((ls) => {
     const line: Line = { description: t.name, qty: 1, rate: t.price || 0, is_taxable: false };
     const blank = ls.findIndex((l) => !l.description && !l.rate);
     return blank >= 0 ? ls.map((l, i) => (i === blank ? line : l)) : [...ls, line];
@@ -227,6 +236,28 @@ export function QuickBillModal({
                 ))}
                 {labTests.filter((t: any) => t.name.toLowerCase().includes(labSearch.toLowerCase())).length === 0 && (
                   <div className="px-3 py-2 text-[11px] text-gray-400">No matching test. Add it in Laboratory → Test Catalog (or load the standard catalog).</div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Radiology picker — only on the Radiology tab, pulls from the radiology catalogue with prices.
+            (For a scan that needs a written report, raise it from the Radiology screen instead.) */}
+        {billType === 'radiology' && (
+          <div className="rounded-lg border border-sky-200 dark:border-sky-900/50 bg-sky-50/40 dark:bg-sky-900/10 p-2.5">
+            <input className="input !py-1.5 !text-sm" placeholder="Search X-Ray / ultrasound / CT / MRI scans to add…" value={radSearch} onChange={(e) => setRadSearch(e.target.value)} />
+            {radSearch.trim() && (
+              <div className="mt-1.5 max-h-44 overflow-y-auto rounded border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+                {radTests.filter((t: any) => t.name.toLowerCase().includes(radSearch.toLowerCase())).slice(0, 30).map((t: any) => (
+                  <button key={t.id} onClick={() => { addRadTest(t); setRadSearch(''); }}
+                    className="w-full text-left px-3 py-1.5 text-[12px] border-b last:border-0 border-gray-100 dark:border-slate-800 hover:bg-sky-50 dark:hover:bg-sky-900/20 flex justify-between gap-2">
+                    <span>{t.name}</span>
+                    <span className="tabular-nums text-gray-500">₹{t.price}</span>
+                  </button>
+                ))}
+                {radTests.filter((t: any) => t.name.toLowerCase().includes(radSearch.toLowerCase())).length === 0 && (
+                  <div className="px-3 py-2 text-[11px] text-gray-400">No matching scan. Add it under Radiology → Catalogue &amp; Prices.</div>
                 )}
               </div>
             )}

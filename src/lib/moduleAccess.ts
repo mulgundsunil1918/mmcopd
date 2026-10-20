@@ -32,7 +32,7 @@ import { ROUTE_MODULE, routeLicensed } from '../lib/licenseModules';
  * head: the PC at the pharmacy counter shows pharmacy things. Default 'everything'
  * so an upgrade is a visual non-event — nothing narrows unless a human picks it.
  */
-export const STATION_ROLES = ['everything', 'reception', 'doctor', 'pharmacy', 'lab', 'ward'] as const;
+export const STATION_ROLES = ['everything', 'reception', 'doctor', 'pharmacy', 'lab', 'radiology', 'ward'] as const;
 export type StationRole = typeof STATION_ROLES[number];
 
 export const STATION_LABEL: Record<StationRole, string> = {
@@ -41,6 +41,7 @@ export const STATION_LABEL: Record<StationRole, string> = {
   doctor: 'Doctor cabin',
   pharmacy: 'Pharmacy counter',
   lab: 'Lab bench',
+  radiology: 'Radiology room',
   ward: 'Ward station',
 };
 
@@ -51,9 +52,10 @@ export const STATION_LABEL: Record<StationRole, string> = {
  */
 const STATION_ROUTES: Record<Exclude<StationRole, 'everything'>, string[]> = {
   reception:  ['/reception', '/appointments', '/whatsapp', '/billing', '/miscellaneous', '/accounts', '/patient-log', '/origin', '/print-jobs', '/tpa', '/notifications', '/analytics'],
-  doctor:     ['/appointments', '/doctor-select', '/patient-log', '/pediatrics', '/lab', '/ipd', '/discharge-summary', '/print-jobs', '/whatsapp'],
+  doctor:     ['/appointments', '/doctor-select', '/patient-log', '/pediatrics', '/lab', '/radiology', '/ipd', '/discharge-summary', '/print-jobs', '/whatsapp'],
   pharmacy:   ['/pharmacy', '/print-jobs', '/patient-log'],
   lab:        ['/lab', '/print-jobs', '/patient-log'],
+  radiology:  ['/radiology', '/print-jobs', '/patient-log'],
   ward:       ['/ipd', '/discharge-summary', '/patient-log', '/print-jobs', '/pediatrics'],
 };
 

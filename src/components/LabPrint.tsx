@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
-import { HeartPulse, Printer, X } from 'lucide-react';
+import { Printer, X } from 'lucide-react';
 import { formatINR, parseDbDate } from '../lib/utils';
 import type { Settings } from '../types';
+import { PrintHeader } from './print/PrintHeader';
 
 /**
  * Print a lab document on the clinic letterhead — same header family as the OPD
@@ -10,7 +11,7 @@ import type { Settings } from '../types';
  *   - 'report' : the tests with results, reference ranges and abnormal flags
  */
 export function LabPrint({ order, items, mode, onClose }: {
-  order: { order_number?: string; patient_name?: string; patient_uhid?: string; doctor_name?: string | null; ordered_at?: string };
+  order: { order_number?: string; patient_name?: string; patient_uhid?: string; doctor_name?: string | null; referred_by?: string | null; ordered_at?: string };
   items: any[];
   mode: 'bill' | 'report';
   onClose: () => void;
@@ -29,21 +30,7 @@ export function LabPrint({ order, items, mode, onClose }: {
       </div>
 
       <div className="print-area mx-auto bg-white text-slate-900" style={{ width: '210mm', minHeight: '148mm', padding: '12mm 14mm' }}>
-        <div className="flex items-start gap-4 pb-3" style={{ borderBottom: '2px solid #1e3a8a' }}>
-          {s.clinic_logo ? (
-            <img src={s.clinic_logo} alt="Logo" style={{ width: '18mm', height: '18mm', objectFit: 'contain', border: '1px solid #e2e8f0', borderRadius: 8 }} />
-          ) : (
-            <div className="rounded-lg flex items-center justify-center text-white" style={{ width: '18mm', height: '18mm', background: 'linear-gradient(135deg,#1d4ed8,#4f46e5)' }}>
-              <HeartPulse className="w-8 h-8" />
-            </div>
-          )}
-          <div className="flex-1 min-w-0">
-            <div className="font-extrabold uppercase" style={{ color: '#1e3a8a', fontSize: 22, lineHeight: 1.1 }}>{s.clinic_name || 'CureDesk HMS'}</div>
-            {s.clinic_tagline && <div className="italic" style={{ color: '#1e40af', fontSize: 12 }}>{s.clinic_tagline}</div>}
-            <div className="text-[11px] text-slate-600 mt-1">{s.clinic_address}</div>
-            <div className="text-[11px] text-slate-600">{s.clinic_phone && <>☎ {s.clinic_phone}</>}{s.clinic_registration_no && <> · Reg. {s.clinic_registration_no}</>}</div>
-          </div>
-        </div>
+        <PrintHeader settings={s} />
 
         <div className="text-center my-3">
           <span className="inline-block px-4 py-1 rounded font-bold tracking-wide" style={{ background: '#eff6ff', color: '#1e3a8a', fontSize: 14 }}>{title}</span>
@@ -53,7 +40,8 @@ export function LabPrint({ order, items, mode, onClose }: {
           <div className="space-y-0.5">
             <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Patient</div>
             <div className="font-bold text-[13px] text-slate-900">{order.patient_name || '—'}</div>
-            <div className="text-slate-600">{order.patient_uhid ? <>UHID: {order.patient_uhid}</> : null}{order.doctor_name ? <> · Ref: {order.doctor_name}</> : null}</div>
+            <div className="text-slate-600">{order.patient_uhid ? <>UHID: {order.patient_uhid}</> : null}{order.doctor_name ? <> · Consultant: {order.doctor_name}</> : null}</div>
+            {order.referred_by && <div className="text-slate-600">Referred by: Dr. {order.referred_by}</div>}
           </div>
           <div className="text-right space-y-0.5">
             <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Order</div>

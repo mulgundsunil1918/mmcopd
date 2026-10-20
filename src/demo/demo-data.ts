@@ -42,6 +42,7 @@ export const DEMO_SETTINGS: Settings = {
   clinic_tagline: 'Trusted Care',
   clinic_registration_no: 'REG-0000',
   clinic_logo: '',
+  lh_style: 'logo_text', lh_logo_size: 'lg', lh_show_name: true, lh_show_tagline: true, lh_show_contact: true, lh_banner_max_mm: 40,
   slot_duration: 30,
   consultation_fee: 250,
   special_price: 150,
@@ -127,7 +128,7 @@ export const DEMO_SETTINGS: Settings = {
   print_patient_language: 'kn',
   ipd_admission_requests_enabled: true,
   discharge_summary_enabled: true,
-  lab_auto_bill: true,
+  lab_auto_bill: true, radiology_auto_bill: true,
   role_access_json: '',
   sidebar_layout: '',
   station_role: 'everything',
@@ -246,6 +247,9 @@ export const DEMO_BILLS: (Bill & { patient_name?: string; doctor_name?: string }
       discount_type: 'flat',
       total: fee,
       payment_mode: pick(PAY_MODES),
+      // The real database stores line items as JSON; screens that print a bill
+      // (Invoice, reprint) JSON.parse this, so the sample bills must carry it too.
+      items_json: JSON.stringify([{ description: 'OPD Consultation', qty: 1, rate: fee, amount: fee }]),
       created_at: a.created_at,
       patient_name: a.patient_name,
       doctor_name: a.doctor_name,

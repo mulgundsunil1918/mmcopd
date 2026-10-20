@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, BedDouble, Pill, ShieldCheck, UserCircle2, Lock, Unlock, Activity, Syringe, ChevronLeft, Wifi, Server, LogOut, BookOpen, MessageSquare, Baby, FileText, Printer, Pencil, Eye, EyeOff, GripVertical, Check } from 'lucide-react';
+import { Users, Calendar, Stethoscope, Receipt, Wallet, Bell, Settings as SettingsIcon, HeartPulse, Sun, Moon, History, MapPin, FlaskConical, ScanLine, BedDouble, Pill, ShieldCheck, UserCircle2, Lock, Unlock, Activity, Syringe, ChevronLeft, Wifi, Server, LogOut, BookOpen, MessageSquare, Baby, FileText, Printer, Pencil, Eye, EyeOff, GripVertical, Check } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { cn } from '../lib/utils';
 import { useTheme } from '../hooks/useTheme';
@@ -35,6 +35,7 @@ const NAV: NavItem2[] = [
   { to: '/whatsapp', label: 'Communication', icon: MessageSquare, color: 'text-green-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
   { to: '/doctor-select', label: 'Doctors', icon: Stethoscope, color: 'text-purple-500', modes: DOCTOR_MODES, roles: ['doctor', 'receptionist'] },
   { to: '/lab', label: 'Laboratory', icon: FlaskConical, color: 'text-fuchsia-500', modes: LAB_MODES, roles: ['lab_tech', 'doctor', 'receptionist'] },
+  { to: '/radiology', label: 'Radiology', icon: ScanLine, color: 'text-sky-500', modes: LAB_MODES, roles: ['radiology_tech', 'doctor', 'receptionist'] },
   { to: '/pharmacy', label: 'Pharmacy', icon: Pill, color: 'text-lime-500', modes: PHARMACY_MODES, roles: ['pharmacist', 'doctor', 'receptionist'] },
   { to: '/ipd', label: 'IPD', icon: BedDouble, color: 'text-red-500', modes: IPD_MODES, roles: ['doctor', 'receptionist', 'nurse', 'ward_incharge'] },
   { to: '/discharge-summary', label: 'Discharge Summary', icon: FileText, color: 'text-sky-500', modes: IPD_MODES, roles: ['doctor', 'receptionist', 'nurse'] },
@@ -50,7 +51,7 @@ const NAV: NavItem2[] = [
   // Reports merged into Analytics → Operational Reports tab. Page kept reachable
   // by URL (/reports) but no sidebar entry. Re-enable here if you want it back.
   { to: '/notifications', label: 'Notifications', icon: Bell, color: 'text-pink-500', modes: ALL_MODES, roles: ['receptionist'] },
-  { to: '/help', label: 'Help & Tutorials', icon: BookOpen, color: 'text-blue-500', modes: ALL_MODES, roles: ['receptionist', 'doctor', 'nurse', 'ward_incharge', 'lab_tech', 'pharmacist', 'manager'] },
+  { to: '/help', label: 'Help & Tutorials', icon: BookOpen, color: 'text-blue-500', modes: ALL_MODES, roles: ['receptionist', 'doctor', 'nurse', 'ward_incharge', 'lab_tech', 'radiology_tech', 'pharmacist', 'manager'] },
   { to: '/users', label: 'Users & Access', icon: ShieldCheck, color: 'text-indigo-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'], adminOnly: true },
   { to: '/settings', label: 'Settings', icon: SettingsIcon, color: 'text-slate-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'], adminOnly: true },
 ];
@@ -144,17 +145,25 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
     setDraft({ order: ordered.map((n) => n.to), hidden: { ...hiddenMap } });
     setEditing(true);
   };
+  // Functional updates: each change is applied to the LATEST draft, so two quick changes can
+  // never overwrite each other with a stale copy.
   const moveItem = (from: number | null, to: number) => {
-    if (from === null || from === to || !draft) return;
-    const order = [...draft.order];
-    const [it] = order.splice(from, 1);
-    order.splice(to, 0, it);
-    setDraft({ ...draft, order });
+    if (from === null || from === to) return;
+    setDraft((d) => {
+      if (!d) return d;
+      const order = [...d.order];
+      const [it] = order.splice(from, 1);
+      order.splice(to, 0, it);
+      return { ...d, order };
+    });
   };
   const toggleHidden = (to: string) => {
-    if (!draft || PINNED.has(to)) return;
-    setDraft({ ...draft, hidden: { ...draft.hidden, [to]: !draft.hidden[to] } });
+    if (PINNED.has(to)) return;
+    setDraft((d) => (d ? { ...d, hidden: { ...d.hidden, [to]: !d.hidden[to] } } : d));
   };
+  const hiddenInDraft = draft ? draft.order.filter((to) => draft.hidden[to] && !PINNED.has(to) && permittedMap.has(to)).length : 0;
+  const showAll = () => setDraft((d) => (d ? { ...d, hidden: {} } : d));
+  const hiddenCount = ordered.filter((n) => n.hidden && !PINNED.has(n.to)).length;
   const saveLayout = async () => {
     if (!draft) return;
     const layout = draft.order.map((to) => ({ to, hidden: !!draft.hidden[to] }));
@@ -218,11 +227,19 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
           <>
             <div className="px-1 pb-2 mb-2 border-b sidebar-divider">
               <div className="text-[11px] font-semibold sidebar-title">Customise menu</div>
-              <div className="text-[10px] sidebar-subtitle">Drag ⠿ to reorder · 👁 to hide / show</div>
+              <div className="text-[10px] sidebar-subtitle leading-snug">
+                Drag the <b>⠿</b> handle to reorder. Press <b>Hide</b> to take an item out of the menu and <b>Show</b> to bring it back.
+              </div>
+              {hiddenInDraft > 0 && (
+                <div className="mt-1.5 flex items-center justify-between gap-2 text-[10px] rounded px-1.5 py-1 bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                  <span><b>{hiddenInDraft}</b> hidden</span>
+                  <button type="button" onClick={showAll} className="font-semibold underline underline-offset-2">Show all</button>
+                </div>
+              )}
               <div className="flex gap-1.5 mt-2">
                 <button type="button" onClick={saveLayout} className="flex-1 text-[11px] font-semibold px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-500 inline-flex items-center justify-center gap-1"><Check className="w-3 h-3" /> Save</button>
                 <button type="button" onClick={() => { setEditing(false); setDraft(null); }} className="flex-1 text-[11px] font-semibold px-2 py-1 rounded bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20">Cancel</button>
-                <button type="button" onClick={resetLayout} title="Reset to default order" className="text-[11px] px-2 py-1 rounded bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20">Reset</button>
+                <button type="button" onClick={resetLayout} title="Back to the standard order, nothing hidden" className="text-[11px] px-2 py-1 rounded bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20">Reset</button>
               </div>
             </div>
             {draft.order.map((to, i) => {
@@ -248,12 +265,22 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
                 >
                   <GripVertical className="w-3.5 h-3.5 text-gray-400 shrink-0 cursor-grab" />
                   <Icon className={cn('w-4 h-4', item.color)} />
-                  <span className="flex-1 truncate">{item.label}</span>
+                  <span className={cn('flex-1 truncate', isHidden && 'line-through')}>{item.label}</span>
                   {pinned ? (
                     <Lock className="w-3.5 h-3.5 text-gray-400" />
                   ) : (
-                    <button type="button" onClick={() => toggleHidden(to)} title={isHidden ? 'Show in menu' : 'Hide from menu'} className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10">
-                      {isHidden ? <EyeOff className="w-4 h-4 text-gray-400" /> : <Eye className="w-4 h-4 text-emerald-500" />}
+                    <button
+                      type="button"
+                      onClick={() => toggleHidden(to)}
+                      title={isHidden ? `Bring “${item.label}” back into the menu` : `Hide “${item.label}” from the menu`}
+                      className={cn(
+                        'inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md border transition',
+                        isHidden
+                          ? 'border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                          : 'border-black/15 text-gray-600 hover:bg-black/5 dark:border-white/20 dark:text-gray-300 dark:hover:bg-white/10'
+                      )}
+                    >
+                      {isHidden ? <><EyeOff className="w-3 h-3" /> Show</> : <><Eye className="w-3 h-3" /> Hide</>}
                     </button>
                   )}
                 </div>
@@ -284,6 +311,24 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
               </NavLink>
             );
           })
+        )}
+
+        {/* Always-visible way in — the little pencil beside the clinic name is easy to miss, and a
+            menu item that was hidden should never become impossible to find again. */}
+        {!editing && (
+          <button
+            type="button"
+            onClick={startEdit}
+            title="Reorder the menu, hide items you don't use, or bring hidden ones back"
+            className="sidebar-link w-full mt-1 flex items-center justify-between px-3 py-1.5 rounded-lg text-[11px] transition"
+          >
+            <span className="inline-flex items-center gap-1.5"><Pencil className="w-3 h-3" /> Customise menu</span>
+            {hiddenCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                {hiddenCount} hidden · show
+              </span>
+            )}
+          </button>
         )}
       </nav>
 

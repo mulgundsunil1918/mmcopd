@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { HeartPulse, Phone, MapPin, Clock, CloudUpload, AlertTriangle, Receipt, BedDouble, Printer } from 'lucide-react';
 import { format } from 'date-fns';
 import { QuickBillModal } from './billing/QuickBillModal';
+import { clockInfo } from '../lib/clock';
 
 export function TopBar() {
   const [billOpen, setBillOpen] = useState(false);
@@ -29,6 +30,11 @@ export function TopBar() {
   });
 
   const [now, setNow] = useState(new Date());
+  const zone = clockInfo(now);
+  // The "not India time" chip can be hidden per zone — a clinic outside India should not be nagged.
+  const zoneKey = `tz-chip-hidden:${zone.zone}`;
+  const [zoneChipHidden, setZoneChipHidden] = useState(() => { try { return localStorage.getItem(zoneKey) === '1'; } catch { return false; } });
+  const hideZoneChip = () => { try { localStorage.setItem(zoneKey, '1'); } catch { /* storage blocked */ } setZoneChipHidden(true); };
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
@@ -137,7 +143,20 @@ export function TopBar() {
       {billOpen && <QuickBillModal onClose={() => setBillOpen(false)} />}
 
       {/* Live clock */}
-      <div className="flex items-center gap-2 pl-4 border-l border-gray-200 dark:border-slate-700">
+      <div className="flex items-center gap-2 pl-4 border-l border-gray-200 dark:border-slate-700"
+        title={`This computer's clock: ${format(now, 'EEEE, do MMMM yyyy · hh:mm:ss a')} — ${zone.zone || 'time zone unknown'} (${zone.offsetLabel}). Registration, bill and report times follow this clock.`}>
+        {!zone.isIndia && !zoneChipHidden && (
+          <button
+            type="button"
+            onClick={() => navigate('/settings')}
+            title={`This PC's time zone is ${zone.zone || 'not India'} (${zone.offsetLabel}), not India Standard Time (UTC+05:30). All times shown and printed follow this PC's clock — if that looks wrong, fix the time zone in Windows → Settings → Time & language → Date & time. Click to open Settings.`}
+            className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800"
+          >
+            <AlertTriangle className="w-3 h-3" /> {zone.offsetLabel}
+            <span role="button" aria-label="Hide" className="opacity-60 hover:opacity-100 ml-0.5"
+              onClick={(e) => { e.stopPropagation(); hideZoneChip(); }}>×</span>
+          </button>
+        )}
         <Clock className="w-4 h-4 text-emerald-600" />
         <div className="text-right leading-tight">
           <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 tabular-nums">

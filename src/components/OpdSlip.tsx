@@ -7,6 +7,7 @@ import { ageStringFull, fmt12h, fmtDateTime } from '../lib/utils';
 import { rxLangLine, type PatientLang } from '../lib/rxLang';
 import type { AppointmentWithJoins, Consultation, Doctor, FollowupSummary, LabOrder, PrescriptionItem, Settings, SlipLayout, SlipTemplate, SlipTemplateSection, Vitals } from '../types';
 import { DEFAULT_LAYOUT } from '../db/slip-templates';
+import { LOGO_MM, resolveLetterhead } from './print/PrintHeader';
 
 const RESERVED_KEYS = new Set(['history', 'examination', 'impression', 'advice']);
 
@@ -61,8 +62,6 @@ function splitSectionsWithLayout(sections: SlipTemplateSection[], layout: SlipLa
   }
   return splitSections(sections);
 }
-
-const LOGO_SIZE: Record<SlipLayout['logoSize'], number> = { none: 0, small: 18, medium: 22, large: 28 };
 
 export function OpdSlip({
   appointment,
@@ -249,7 +248,8 @@ function Page({ children, fontSize = 13 }: { children: React.ReactNode; fontSize
   );
 }
 
-function Letterhead({
+/** Exported so Settings → Letterhead can preview the real OPD header. */
+export function Letterhead({
   appointment,
   doctor,
   settings,
@@ -260,8 +260,15 @@ function Letterhead({
   doctor: Doctor;
   settings: Settings;
   compact?: boolean;
+  /** The template's own switch. 'none' = do not print the logo on this template; any other
+   *  value defers to the clinic-wide Letterhead settings (Settings → Clinic → Letterhead). */
   logoSize?: SlipLayout['logoSize'];
 }) {
+  const lh = resolveLetterhead(settings);
+  const showLogo = logoSize !== 'none';
+  // A wide logo used as the whole header: only when one is uploaded and the template allows a logo.
+  const banner = showLogo && lh.style === 'banner' && !!settings.clinic_logo;
+
   const slipDate = (() => {
     try {
       const d = parseISO(`${appointment.appointment_date}T${appointment.appointment_time}:00`);
@@ -277,17 +284,26 @@ function Letterhead({
     return (
       <div style={{ borderTop: '3px solid #1d4ed8', borderBottom: '1px solid #cbd5e1' }} className="pb-2 mb-3 pt-2 flex items-center justify-between" >
         <div className="flex items-center gap-2">
-          {settings.clinic_logo ? (
-            <img src={settings.clinic_logo} alt="Logo" className="w-8 h-8 object-contain rounded" style={{ background: '#ffffff' }} />
-          ) : (
-            <div className="w-8 h-8 rounded flex items-center justify-center text-white" style={{ background: '#1d4ed8' }}>
-              <HeartPulse className="w-5 h-5" />
+          {banner ? (
+            <div>
+              <img src={settings.clinic_logo} alt={settings.clinic_name} style={{ display: 'block', maxHeight: '14mm', maxWidth: '85mm', objectFit: 'contain' }} />
+              <div className="text-[13px]" style={{ color: '#64748b' }}>Continued — Page 2 of 2</div>
             </div>
+          ) : (
+            <>
+              {showLogo && (settings.clinic_logo ? (
+                <img src={settings.clinic_logo} alt="Logo" className="w-8 h-8 object-contain rounded" style={{ background: '#ffffff' }} />
+              ) : (
+                <div className="w-8 h-8 rounded flex items-center justify-center text-white" style={{ background: '#1d4ed8' }}>
+                  <HeartPulse className="w-5 h-5" />
+                </div>
+              ))}
+              <div>
+                {lh.showName && <div className="text-base font-extrabold tracking-tight" style={{ color: '#1e3a8a' }}>{settings.clinic_name || 'CureDesk HMS'}</div>}
+                <div className="text-[13px]" style={{ color: '#64748b' }}>Continued — Page 2 of 2</div>
+              </div>
+            </>
           )}
-          <div>
-            <div className="text-base font-extrabold tracking-tight" style={{ color: '#1e3a8a' }}>{settings.clinic_name || 'CureDesk HMS'}</div>
-            <div className="text-[13px]" style={{ color: '#64748b' }}>Continued — Page 2 of 2</div>
-          </div>
         </div>
         <div className="text-right">
           <div className="text-base font-bold" style={{ color: '#0f172a' }}>{appointment.patient_name}</div>
@@ -308,6 +324,76 @@ function Letterhead({
     }
   })();
 
+  // Contact bar — full width, subtle background (hidden when the clinic switched it off).
+  const contactBar = lh.showContact && (settings.clinic_address || settings.clinic_phone || settings.clinic_email) ? (
+    <div
+      className="px-3 py-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[12px]"
+      style={{ background: '#f8fafc', borderTop: '1px solid #e2e8f0', color: '#334155' }}
+    >
+      {settings.clinic_address && (
+        <span className="inline-flex items-center gap-1.5">
+          <MapPin className="w-3.5 h-3.5" style={{ color: '#1d4ed8' }} />
+          <span>{settings.clinic_address}</span>
+        </span>
+      )}
+      <span className="inline-flex items-center gap-x-3 gap-y-0 flex-wrap">
+        {settings.clinic_phone && (
+          <span className="inline-flex items-center gap-1.5">
+            <Phone className="w-3.5 h-3.5" style={{ color: '#1d4ed8' }} />
+            <span>{settings.clinic_phone}</span>
+          </span>
+        )}
+        {settings.clinic_email && (
+          <span className="inline-flex items-center gap-1.5">
+            <Mail className="w-3.5 h-3.5" style={{ color: '#1d4ed8' }} />
+            <span>{settings.clinic_email}</span>
+          </span>
+        )}
+      </span>
+    </div>
+  ) : null;
+
+  // ---- Wide logo as the whole header: banner on top, visit details as a strip beneath ----
+  if (banner) {
+    return (
+      <div className="mb-3" style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid #cbd5e1' }}>
+        <div style={{ height: 5, background: 'linear-gradient(90deg, #1d4ed8 0%, #4f46e5 50%, #1d4ed8 100%)' }} />
+        <div className="px-3 py-2" style={{ background: '#ffffff' }}>
+          <img
+            src={settings.clinic_logo}
+            alt={settings.clinic_name}
+            style={{ display: 'block', width: '100%', maxHeight: `${lh.bannerMaxMm}mm`, objectFit: 'contain' }}
+          />
+        </div>
+        <div className="flex items-stretch text-center" style={{ borderTop: '1px solid #cbd5e1' }}>
+          <div className="px-3 py-1.5 flex items-center text-[11px] uppercase tracking-widest font-bold" style={{ color: '#1e3a8a', borderRight: '1px solid #cbd5e1' }}>
+            OPD Slip
+          </div>
+          <div className="flex-1 py-1" style={{ borderRight: '1px solid #e2e8f0' }}>
+            <div className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Token</div>
+            <div className="text-xl font-extrabold leading-none" style={{ color: '#0f172a' }}>#{appointment.token_number}</div>
+          </div>
+          {doctor.room_number && (
+            <div className="flex-1 py-1" style={{ borderRight: '1px solid #e2e8f0' }}>
+              <div className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Room</div>
+              <div className="text-xl font-extrabold leading-none" style={{ color: '#1e3a8a' }}>{doctor.room_number}</div>
+            </div>
+          )}
+          <div className="flex-1 py-1" style={{ borderRight: '1px solid #e2e8f0' }}>
+            <div className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Date</div>
+            <div className="text-[12px] font-bold" style={{ color: '#1e3a8a' }}>{apptDateLine}</div>
+          </div>
+          <div className="flex-1 py-1">
+            <div className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Time</div>
+            <div className="text-[12px] font-bold" style={{ color: '#1e3a8a' }}>{apptTimeLine}</div>
+          </div>
+        </div>
+        {contactBar}
+      </div>
+    );
+  }
+
+  // ---- Logo beside the clinic name, visit card on the right (the classic OPD header) ----
   return (
     <div className="mb-3" style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid #cbd5e1' }}>
       {/* === Thin accent stripe (the brand line on top) === */}
@@ -319,24 +405,14 @@ function Letterhead({
         style={{ background: 'linear-gradient(180deg, #f0f7ff 0%, #ffffff 70%)' }}
       >
         <div className="flex items-center justify-between gap-4">
-          {/* === LOGO (size controlled by logoSize prop) === */}
-          {logoSize !== 'none' && (() => {
-            const mm = LOGO_SIZE[logoSize];
-            const innerMm = mm - 4;
+          {/* === LOGO (size from Settings → Clinic → Letterhead) === */}
+          {showLogo && (() => {
+            const mm = LOGO_MM[lh.logoSize];
             return (
               <div className="flex-shrink-0">
                 {settings.clinic_logo ? (
-                  <div
-                    className="rounded-lg flex items-center justify-center"
-                    style={{
-                      width: `${mm}mm`, height: `${mm}mm`,
-                      background: '#ffffff', border: '1px solid #e2e8f0',
-                      boxShadow: '0 1px 2px rgba(15,23,42,0.05)',
-                    }}
-                  >
-                    <img src={settings.clinic_logo} alt="Clinic logo" className="object-contain"
-                      style={{ maxWidth: `${innerMm}mm`, maxHeight: `${innerMm}mm` }} />
-                  </div>
+                  <img src={settings.clinic_logo} alt="Clinic logo" className="object-contain"
+                    style={{ width: `${mm}mm`, height: `${mm}mm` }} />
                 ) : (
                   <div className="rounded-lg flex items-center justify-center text-white shadow"
                     style={{ width: `${mm}mm`, height: `${mm}mm`, background: 'linear-gradient(135deg, #1d4ed8 0%, #4f46e5 100%)' }}>
@@ -349,13 +425,15 @@ function Letterhead({
 
           {/* === IDENTITY (clinic name, tagline, reg) — gets the big middle space === */}
           <div className="min-w-0 flex-1">
-            <div
-              className="font-extrabold tracking-tight uppercase"
-              style={{ color: '#1e3a8a', fontSize: '24px', lineHeight: 1.1, letterSpacing: '0.5px' }}
-            >
-              {settings.clinic_name || 'CureDesk HMS'}
-            </div>
-            {settings.clinic_tagline && (
+            {lh.showName && (
+              <div
+                className="font-extrabold tracking-tight uppercase"
+                style={{ color: '#1e3a8a', fontSize: '24px', lineHeight: 1.1, letterSpacing: '0.5px' }}
+              >
+                {settings.clinic_name || 'CureDesk HMS'}
+              </div>
+            )}
+            {lh.showTagline && settings.clinic_tagline && (
               <div
                 className="italic mt-1 inline-block"
                 style={{
@@ -370,7 +448,7 @@ function Letterhead({
                 {settings.clinic_tagline}
               </div>
             )}
-            {settings.clinic_registration_no && (
+            {lh.showContact && settings.clinic_registration_no && (
               <div
                 className="text-[11px] uppercase tracking-wider mt-1.5 font-semibold"
                 style={{ color: '#475569' }}
@@ -432,32 +510,7 @@ function Letterhead({
         </div>
       </div>
 
-      {/* === Contact bar — full width, subtle background === */}
-      <div
-        className="px-3 py-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[12px]"
-        style={{ background: '#f8fafc', borderTop: '1px solid #e2e8f0', color: '#334155' }}
-      >
-        {settings.clinic_address && (
-          <span className="inline-flex items-center gap-1.5">
-            <MapPin className="w-3.5 h-3.5" style={{ color: '#1d4ed8' }} />
-            <span>{settings.clinic_address}</span>
-          </span>
-        )}
-        <span className="inline-flex items-center gap-x-3 gap-y-0 flex-wrap">
-          {settings.clinic_phone && (
-            <span className="inline-flex items-center gap-1.5">
-              <Phone className="w-3.5 h-3.5" style={{ color: '#1d4ed8' }} />
-              <span>{settings.clinic_phone}</span>
-            </span>
-          )}
-          {settings.clinic_email && (
-            <span className="inline-flex items-center gap-1.5">
-              <Mail className="w-3.5 h-3.5" style={{ color: '#1d4ed8' }} />
-              <span>{settings.clinic_email}</span>
-            </span>
-          )}
-        </span>
-      </div>
+      {contactBar}
     </div>
   );
 }

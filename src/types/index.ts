@@ -130,6 +130,73 @@ export interface ReferringDoctor {
   created_at: string;
 }
 
+// ===== Radiology (its own department, separate from Laboratory) =====
+export type RadiologyStatus = 'ordered' | 'done' | 'reported' | 'cancelled';
+import type { RadiologyModality } from '../data/radiology-catalog';
+export type { RadiologyModality };
+
+export interface RadiologyTest {
+  id: number;
+  name: string;
+  modality: RadiologyModality;
+  price: number;
+  is_active: number;
+  created_at: string;
+}
+
+export interface RadiologyOrderItem {
+  id: number;
+  order_id: number;
+  test_id: number | null;
+  test_name: string;
+  modality: RadiologyModality | null;
+  /** Price at the time of ordering — frozen, so a later catalogue change never rewrites a bill. */
+  price: number;
+  findings: string | null;
+  impression: string | null;
+  is_abnormal: number;
+}
+
+export interface RadiologyOrder {
+  id: number;
+  order_number: string;
+  appointment_id: number | null;
+  patient_id: number;
+  doctor_id: number | null;
+  /** Outside doctor who referred the patient (same field as on the appointment). */
+  referred_by: string | null;
+  /** Clinical history / reason for the scan. */
+  clinical_info: string | null;
+  status: RadiologyStatus;
+  ordered_at: string;
+  performed_at: string | null;
+  reported_at: string | null;
+  reported_by: string | null;
+  notes: string | null;
+}
+
+/** An order as the Radiology screen lists it: header + who + what + the bill it raised. */
+export interface RadiologyOrderRow extends RadiologyOrder {
+  patient_name: string;
+  patient_uhid: string;
+  patient_dob?: string | null;
+  patient_gender?: string | null;
+  patient_phone?: string | null;
+  doctor_name: string | null;
+  /** char(31)-joined test names (names may contain commas). */
+  test_names: string | null;
+  total: number;
+  bill_id: number | null;
+  bill_number: string | null;
+  bill_total: number | null;
+  bill_paid: number | null;
+  bill_status: string | null;
+}
+
+export interface RadiologyOrderDetail extends RadiologyOrderRow {
+  items: RadiologyOrderItem[];
+}
+
 export interface AppointmentWithJoins extends Appointment {
   patient_name: string;
   patient_uhid: string;
@@ -539,6 +606,16 @@ export interface Settings {
   clinic_tagline: string;
   clinic_registration_no: string;
   clinic_logo: string;
+  // ===== Letterhead — the printed header on every document (Settings → Clinic → Letterhead) =====
+  /** 'logo_text' = logo beside name/tagline/address. 'banner' = the uploaded logo IS the whole header. */
+  lh_style: 'logo_text' | 'banner';
+  lh_logo_size: 'sm' | 'md' | 'lg' | 'xl' | 'xxl';
+  lh_show_name: boolean;
+  lh_show_tagline: boolean;
+  /** Address / phone / registration line. */
+  lh_show_contact: boolean;
+  /** Tallest the full-width banner may print, in mm. */
+  lh_banner_max_mm: number;
   slot_duration: number;
   consultation_fee: number;
   special_price: number;
@@ -671,6 +748,8 @@ export interface Settings {
   discharge_summary_enabled: boolean;
   /** Auto-raise an unpaid lab bill when a lab order is placed. Default on. */
   lab_auto_bill: boolean;
+  /** Auto-raise an unpaid radiology bill when a scan is ordered. Default on. */
+  radiology_auto_bill: boolean;
 
   // ===== Customisable role-based access =====
   // JSON map of { [routePath]: Role[] } that OVERRIDES the built-in defaults for

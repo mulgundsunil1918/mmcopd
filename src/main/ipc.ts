@@ -58,6 +58,7 @@ import { NotificationService } from '../services/notifications';
 import { createUser, verifyLogin, ensureDefaultAdmin, changePassword, listUsers, updateUser, logAudit, listAudit, type Role, type SessionUser } from './auth';
 import { verifyResetCode } from './licensing/passwordReset';
 import { requireModule } from './licensing/enforce';
+import { deleteOrdersForPatient as deleteRadiologyForPatient, deleteOrdersForAppointment as deleteRadiologyForAppointment } from './radiology';
 import type {
   Appointment,
   AppointmentStatus,
@@ -396,6 +397,8 @@ export function registerIpc() {
     // Lab orders + their items
     db.prepare('DELETE FROM lab_order_items WHERE lab_order_id IN (SELECT id FROM lab_orders WHERE patient_id = ?)').run(id);
     db.prepare('DELETE FROM lab_orders WHERE patient_id = ?').run(id);
+    // Radiology orders + their items
+    deleteRadiologyForPatient(db, id);
     // Pharmacy sales + items (now safe because dispensing_register no longer references them).
     db.prepare('DELETE FROM pharmacy_sale_items WHERE sale_id IN (SELECT id FROM pharmacy_sales WHERE patient_id = ?)').run(id);
     db.prepare('DELETE FROM pharmacy_sales WHERE patient_id = ?').run(id);
@@ -490,6 +493,8 @@ export function registerIpc() {
       // Lab orders + items linked to this appointment
       db.prepare('DELETE FROM lab_order_items WHERE lab_order_id IN (SELECT id FROM lab_orders WHERE appointment_id = ?)').run(appointmentId);
       db.prepare('DELETE FROM lab_orders WHERE appointment_id = ?').run(appointmentId);
+      // Radiology orders + items linked to this appointment
+      deleteRadiologyForAppointment(db, appointmentId);
       // Pharmacy sales linked to this appointment (now safe — dispensing_register cleared above).
       db.prepare('DELETE FROM pharmacy_sale_items WHERE sale_id IN (SELECT id FROM pharmacy_sales WHERE appointment_id = ?)').run(appointmentId);
       db.prepare('DELETE FROM pharmacy_sales WHERE appointment_id = ?').run(appointmentId);
@@ -746,6 +751,7 @@ export function registerIpc() {
       appointments: c('SELECT COUNT(*) as c FROM appointments WHERE doctor_id=?'),
       consultations: c('SELECT COUNT(*) as c FROM consultations WHERE doctor_id=?'),
       lab_orders: c('SELECT COUNT(*) as c FROM lab_orders WHERE doctor_id=?'),
+      radiology_orders: c('SELECT COUNT(*) as c FROM radiology_orders WHERE doctor_id=?'),
       ip_admissions: c('SELECT COUNT(*) as c FROM ip_admissions WHERE admission_doctor_id=?'),
       dispensed: c('SELECT COUNT(*) as c FROM dispensing_register WHERE doctor_id=?'),
       user_accounts: c('SELECT COUNT(*) as c FROM users WHERE doctor_id=?'),
@@ -1655,9 +1661,11 @@ export function registerIpc() {
   // ===== Lab =====
   ipcMain.handle('lab:listTests', (_e, activeOnly = true) => {
     const db = getDb();
+    // Imaging lives in the Radiology department now. Old rows stay in lab_tests (past lab
+    // orders point at them) but are never offered for new lab work.
     return activeOnly
-      ? db.prepare('SELECT * FROM lab_tests WHERE is_active=1 ORDER BY name').all()
-      : db.prepare('SELECT * FROM lab_tests ORDER BY is_active DESC, name').all();
+      ? db.prepare("SELECT * FROM lab_tests WHERE is_active=1 AND category <> 'radiology' ORDER BY name").all()
+      : db.prepare("SELECT * FROM lab_tests WHERE category <> 'radiology' ORDER BY is_active DESC, name").all();
   });
 
   /**
@@ -1871,7 +1879,8 @@ export function registerIpc() {
          * string cannot be split back apart correctly.
          */
         `SELECT o.*, (p.first_name || ' ' || p.last_name) as patient_name, p.uhid as patient_uhid, d.name as doctor_name,
-                (SELECT group_concat(i.test_name, char(31)) FROM lab_order_items i WHERE i.lab_order_id = o.id) AS test_names
+                (SELECT group_concat(i.test_name, char(31)) FROM lab_order_items i WHERE i.lab_order_id = o.id) AS test_names,
+                (SELECT a.referred_by FROM appointments a WHERE a.id = o.appointment_id) AS referred_by
          FROM lab_orders o
          JOIN patients p ON p.id=o.patient_id
          LEFT JOIN doctors d ON d.id=o.doctor_id
@@ -3049,7 +3058,7 @@ export function registerIpc() {
     // workbook. The .sqlite copy already has everything; this keeps the readable
     // Excel complete too. Secrets/internal tables stay in the .sqlite backup only.
     try {
-      const CURATED = new Set(['patients', 'doctors', 'appointments', 'consultations', 'prescription_items', 'bills', 'lab_orders', 'lab_order_items', 'lab_tests', 'pharmacy_sales', 'pharmacy_sale_items', 'drug_inventory', 'drug_master', 'drug_stock_batches', 'wholesalers', 'purchase_invoices', 'purchase_invoice_items', 'dispensing_register', 'ip_admissions', 'wards', 'beds', 'bed_transfers', 'ip_vitals', 'ip_medication_orders', 'ip_medication_admin', 'ip_progress_notes', 'ip_nursing_notes', 'ip_intake_output', 'ip_diet_orders', 'ip_cross_consultations', 'mlc_register', 'admission_requests', 'bill_items', 'bill_payments', 'advances', 'charge_heads', 'tpa_master', 'tpa_claims', 'discharge_templates', 'peds_growth_measurements', 'peds_vaccine_records', 'patient_allergies', 'patient_conditions', 'patient_family_history']);
+      const CURATED = new Set(['patients', 'doctors', 'appointments', 'consultations', 'prescription_items', 'bills', 'lab_orders', 'lab_order_items', 'lab_tests', 'pharmacy_sales', 'pharmacy_sale_items', 'drug_inventory', 'drug_master', 'drug_stock_batches', 'wholesalers', 'purchase_invoices', 'purchase_invoice_items', 'dispensing_register', 'ip_admissions', 'wards', 'beds', 'bed_transfers', 'ip_vitals', 'ip_medication_orders', 'ip_medication_admin', 'ip_progress_notes', 'ip_nursing_notes', 'ip_intake_output', 'ip_diet_orders', 'ip_cross_consultations', 'mlc_register', 'admission_requests', 'bill_items', 'bill_payments', 'advances', 'charge_heads', 'tpa_master', 'tpa_claims', 'discharge_templates', 'peds_growth_measurements', 'peds_vaccine_records', 'patient_allergies', 'patient_conditions', 'patient_family_history', 'radiology_orders', 'radiology_order_items', 'radiology_tests']);
       const SKIP = new Set(['sqlite_sequence', 'schema_meta', 'settings', 'users']); // secrets/internal → .sqlite backup only
       for (const t of listUserTables(db)) {
         if (CURATED.has(t) || SKIP.has(t)) continue;
@@ -3125,6 +3134,23 @@ export function registerIpc() {
         JOIN patients p ON p.id = lo.patient_id
         ORDER BY lo.ordered_at DESC` },
       { sheet: 'Lab Test Catalog', sql: `SELECT * FROM lab_tests ORDER BY name` },
+      { sheet: 'Radiology Orders', sql: `
+        SELECT o.id, o.order_number, o.status, o.ordered_at, o.performed_at, o.reported_at, o.reported_by,
+               o.referred_by, o.clinical_info, o.notes,
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               d.name as doctor_name
+        FROM radiology_orders o
+        JOIN patients p ON p.id = o.patient_id
+        LEFT JOIN doctors d ON d.id = o.doctor_id
+        ORDER BY o.ordered_at DESC` },
+      { sheet: 'Radiology Reports', sql: `
+        SELECT oi.id, oi.order_id, ro.order_number, oi.test_name, oi.modality, oi.price, oi.findings, oi.impression, oi.is_abnormal,
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name
+        FROM radiology_order_items oi
+        JOIN radiology_orders ro ON ro.id = oi.order_id
+        JOIN patients p ON p.id = ro.patient_id
+        ORDER BY ro.ordered_at DESC` },
+      { sheet: 'Radiology Catalog', sql: `SELECT * FROM radiology_tests ORDER BY name` },
       { sheet: 'Pharmacy Sales', sql: `
         SELECT s.id, s.sale_number, s.subtotal, s.discount, s.total, s.payment_mode, s.created_at,
                p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name
@@ -3312,6 +3338,23 @@ export function registerIpc() {
         JOIN patients p ON p.id = lo.patient_id
         ORDER BY lo.ordered_at DESC` },
       { name: 'lab_test_catalog.csv', sql: `SELECT * FROM lab_tests ORDER BY name` },
+      { name: 'radiology_orders.csv', sql: `
+        SELECT o.id, o.order_number, o.status, o.ordered_at, o.performed_at, o.reported_at, o.reported_by,
+               o.referred_by, o.clinical_info, o.notes,
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               d.name as doctor_name
+        FROM radiology_orders o
+        JOIN patients p ON p.id = o.patient_id
+        LEFT JOIN doctors d ON d.id = o.doctor_id
+        ORDER BY o.ordered_at DESC` },
+      { name: 'radiology_reports.csv', sql: `
+        SELECT oi.id, oi.order_id, ro.order_number, oi.test_name, oi.modality, oi.price, oi.findings, oi.impression, oi.is_abnormal,
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name
+        FROM radiology_order_items oi
+        JOIN radiology_orders ro ON ro.id = oi.order_id
+        JOIN patients p ON p.id = ro.patient_id
+        ORDER BY ro.ordered_at DESC` },
+      { name: 'radiology_test_catalog.csv', sql: `SELECT * FROM radiology_tests ORDER BY name` },
       { name: 'pharmacy_sales.csv', sql: `
         SELECT s.id, s.sale_number, s.subtotal, s.discount, s.total, s.payment_mode, s.created_at,
                p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name
@@ -3677,6 +3720,7 @@ export function registerIpc() {
       add('IPD progress notes', 'ip_progress_notes');
       add('Medication given (MAR)', 'ip_medication_admin');
       add('Lab orders', 'lab_orders');
+      add('Radiology orders', 'radiology_orders');
       add('Pharmacy sales', 'pharmacy_sales');
       add('Uploaded documents', 'patient_documents');
 
@@ -4384,6 +4428,7 @@ export function registerIpc() {
       mk('opd', 'OPD / Consultation', billAgg("bill_type='opd_consult' AND (bill_kind IS NULL OR bill_kind <> 'misc')")),
       mk('ipd', 'IPD (in-patient)', billAgg("bill_type='ipd'")),
       mk('lab', 'Laboratory', billAgg("bill_type='lab'")),
+      mk('radiology', 'Radiology', billAgg("bill_type='radiology'")),
       // Pharmacy sells over the counter — treat sale value as collected.
       { key: 'pharmacy', label: 'Pharmacy', count: phar.count, revenue: Math.round(phar.revenue), collected: Math.round(phar.revenue), outstanding: 0 },
       mk('misc', 'Procedures / Misc', billAgg("bill_kind='misc'")),

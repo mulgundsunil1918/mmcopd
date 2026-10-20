@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
+import { modalityOf } from '../data/radiology-catalog';
 import { createSchema, SCHEMA_VERSION } from './schema';
 import { DEFAULT_SLIP_TEMPLATES } from './slip-templates';
 
@@ -793,6 +794,109 @@ export function runMigrations(db: Database.Database) {
     is_active     INTEGER NOT NULL DEFAULT 1,
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
   )`);
+
+  // ===== Radiology — its own department, separate from Laboratory =====
+  // Orders, line items (with a frozen price and the written report), and a catalogue of
+  // imaging tests grouped by modality. A radiology bill links back via bills.radiology_order_id.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS radiology_tests (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT NOT NULL,
+      modality   TEXT NOT NULL DEFAULT 'other',
+      price      REAL NOT NULL DEFAULT 0,
+      is_active  INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_radiology_tests_name ON radiology_tests(name COLLATE NOCASE);
+
+    CREATE TABLE IF NOT EXISTS radiology_orders (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_number   TEXT NOT NULL UNIQUE,
+      appointment_id INTEGER REFERENCES appointments(id) ON DELETE SET NULL,
+      patient_id     INTEGER NOT NULL REFERENCES patients(id),
+      doctor_id      INTEGER REFERENCES doctors(id),
+      referred_by    TEXT,
+      clinical_info  TEXT,
+      status         TEXT NOT NULL DEFAULT 'ordered',
+      ordered_at     TEXT NOT NULL DEFAULT (datetime('now')),
+      performed_at   TEXT,
+      reported_at    TEXT,
+      reported_by    TEXT,
+      notes          TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_radiology_orders_patient ON radiology_orders(patient_id);
+    CREATE INDEX IF NOT EXISTS idx_radiology_orders_status ON radiology_orders(status, ordered_at);
+    CREATE INDEX IF NOT EXISTS idx_radiology_orders_appt ON radiology_orders(appointment_id);
+
+    CREATE TABLE IF NOT EXISTS radiology_order_items (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id    INTEGER NOT NULL REFERENCES radiology_orders(id) ON DELETE CASCADE,
+      test_id     INTEGER REFERENCES radiology_tests(id),
+      test_name   TEXT NOT NULL,
+      modality    TEXT,
+      price       REAL NOT NULL DEFAULT 0,
+      findings    TEXT,
+      impression  TEXT,
+      is_abnormal INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_radiology_items_order ON radiology_order_items(order_id);
+  `);
+  addColumnIfMissing(db, 'bills', 'radiology_order_id', 'INTEGER REFERENCES radiology_orders(id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_bills_radiology_order ON bills(radiology_order_id);');
+
+  // One-time: imaging tests a clinic had in the old Laboratory catalogue (with the prices it
+  // set) become its Radiology catalogue. The lab rows stay — past lab orders point at them —
+  // but the Laboratory screens no longer list them (see lab:listTests).
+  try {
+    const moved = db.prepare("SELECT value FROM settings WHERE key='radiology_catalog_migrated'").get();
+    if (!moved) {
+      const rows = db.prepare("SELECT name, price, is_active FROM lab_tests WHERE category='radiology'").all() as
+        { name: string; price: number; is_active: number }[];
+      const ins = db.prepare('INSERT OR IGNORE INTO radiology_tests (name, modality, price, is_active) VALUES (?, ?, ?, ?)');
+      db.transaction(() => {
+        for (const r of rows) ins.run(r.name, modalityOf(r.name), Number(r.price) || 0, r.is_active ? 1 : 0);
+        db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('radiology_catalog_migrated', '1')").run();
+      })();
+    }
+  } catch { /* lab_tests absent on a brand-new DB — the seed loads the radiology catalogue instead */ }
+
+  // One-time repair — sample (demo) data loaded by an EARLIER version stored LOCAL clinic-hours
+  // times in columns the app reads as UTC, so every sample patient showed a "registered" time
+  // 5½ hours off in India (looked random). Convert those rows once, using SQLite's own 'utc'
+  // modifier (local → UTC with this machine's zone). Strictly limited to the fictional MMC####
+  // patients and the rows attached to them; real records are never touched. New loads are
+  // written in UTC and set the flag themselves, so this never double-shifts.
+  try {
+    const done = db.prepare("SELECT value FROM settings WHERE key='sample_times_utc'").get();
+    if (!done) {
+      const SAMPLE = "SELECT id FROM patients WHERE uhid GLOB 'MMC[0-9][0-9][0-9][0-9]'";
+      const has = (db.prepare(`SELECT COUNT(*) AS c FROM (${SAMPLE})`).get() as { c: number }).c;
+      db.transaction(() => {
+        if (has > 0) {
+          const fix = (c: string) => `${c} = CASE WHEN ${c} IS NULL THEN NULL ELSE datetime(${c}, 'utc') END`;
+          db.exec(`UPDATE patients SET ${fix('created_at')} WHERE id IN (${SAMPLE})`);
+          const rel: [string, string[]][] = [
+            ['appointments', ['created_at']], ['consultations', ['created_at']], ['bills', ['created_at', 'paid_at']],
+            ['pharmacy_sales', ['created_at']], ['lab_orders', ['ordered_at', 'reported_at']],
+            ['ip_admissions', ['admitted_at', 'discharged_at']],
+          ];
+          for (const [t, cols] of rel) db.exec(`UPDATE ${t} SET ${cols.map(fix).join(', ')} WHERE patient_id IN (${SAMPLE})`);
+        }
+        db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('sample_times_utc', '1')").run();
+      })();
+    }
+  } catch { /* a table is missing on a very old DB — nothing to repair */ }
+
+  // A "Radiology" billing head, so its revenue is colour-coded and reportable on its own and
+  // a GST-registered clinic can set its tax treatment (default: exempt, like other clinical care).
+  try {
+    const has = db.prepare("SELECT 1 FROM charge_heads WHERE category='radiology' LIMIT 1").get();
+    if (!has) {
+      db.prepare(
+        "INSERT OR IGNORE INTO charge_heads (name, category, colour, default_rate, is_taxable, gst_rate, applies_to, sort_order) VALUES ('Radiology', 'radiology', '#0891b2', 0, 0, 0, 'both', 7)"
+      ).run();
+    }
+  } catch { /* charge_heads unavailable — the head is added on the next start */ }
 
   /**
    * Real link from a lab bill back to its order.

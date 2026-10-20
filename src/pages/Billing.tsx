@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, Printer, Receipt, FileText, ListFilter, BedDouble } from 'lucide-react';
+import { PrintHeader } from '../components/print/PrintHeader';
 import { EmptyState } from '../components/EmptyState';
 import { cn, fmtDate, fmtDateTime, formatINR, todayISO } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
@@ -425,23 +426,12 @@ function Invoice({ bill, onNew }: { bill: BillWithJoins; onNew: () => void }) {
       </div>
 
       <div className="print-area card p-8 max-w-2xl mx-auto bg-white">
-        <div className="flex items-center justify-between pb-4 border-b-2 border-gray-900">
-          <div className="flex items-center gap-3">
-            {settings?.clinic_logo ? (
-              <img src={settings.clinic_logo} alt="Logo" className="w-14 h-14 object-contain rounded-lg" style={{ background: '#ffffff' }} />
-            ) : (
-              <div className="w-14 h-14 rounded-lg bg-blue-600 text-white flex items-center justify-center text-2xl font-bold">M</div>
-            )}
-            <div>
-              <div className="text-lg font-bold text-gray-900">{settings?.clinic_name || 'CureDesk HMS'}</div>
-              <div className="text-[11px] text-gray-500">{settings?.clinic_address}</div>
-              {settings?.clinic_phone && <div className="text-[11px] text-gray-500">Ph: {settings.clinic_phone}</div>}
-            </div>
-          </div>
+        <PrintHeader settings={settings ?? {}} accent="#111827" />
+        <div className="flex items-end justify-between mt-3">
+          <div className="text-xs uppercase tracking-wide text-gray-500">Invoice</div>
           <div className="text-right">
-            <div className="text-xs text-gray-500">INVOICE</div>
             <div className="font-bold text-gray-900">{bill.bill_number}</div>
-            <div className="text-[11px] text-gray-500 mt-1">{fmtDateTime(bill.created_at)}</div>
+            <div className="text-[11px] text-gray-500">{fmtDateTime(bill.created_at)}</div>
           </div>
         </div>
 
@@ -501,6 +491,20 @@ function Invoice({ bill, onNew }: { bill: BillWithJoins; onNew: () => void }) {
   );
 }
 
+/** Which department a bill came from — so a Radiology or Lab bill is not mistaken for a consultation. */
+function BillKindBadge({ bill }: { bill: any }) {
+  const t = bill?.bill_type;
+  const map: Record<string, [string, string]> = {
+    radiology: ['Radiology', 'bg-sky-100 text-sky-700'],
+    lab: ['Lab', 'bg-fuchsia-100 text-fuchsia-700'],
+    pharmacy: ['Pharmacy', 'bg-lime-100 text-lime-700'],
+    ipd: ['IPD', 'bg-red-100 text-red-700'],
+  };
+  const hit = map[t] ?? (bill?.bill_kind === 'misc' ? (['Service', 'bg-pink-100 text-pink-700'] as [string, string]) : null);
+  if (!hit) return null;
+  return <span className={`badge ml-2 align-middle text-[9px] ${hit[1]}`}>{hit[0]}</span>;
+}
+
 function BillingHistory() {
   const [q, setQ] = useState('');
   const [from, setFrom] = useState('');
@@ -548,7 +552,10 @@ function BillingHistory() {
           <tbody>
             {bills.map((b) => (
               <tr key={b.id} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="py-2 font-medium text-gray-900">{b.bill_number}</td>
+                <td className="py-2 font-medium text-gray-900">
+                  {b.bill_number}
+                  <BillKindBadge bill={b} />
+                </td>
                 <td className="py-2">{b.patient_name}<div className="text-[11px] text-gray-500">{b.patient_uhid}</div></td>
                 <td className="py-2 text-gray-600">{b.doctor_name || '—'}</td>
                 <td className="py-2 text-gray-600">{fmtDate(b.created_at)}</td>

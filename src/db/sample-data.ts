@@ -22,13 +22,25 @@ const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
 const randInt = (lo: number, hi: number) => lo + Math.floor(Math.random() * (hi - lo + 1));
 const pad = (n: number, w = 2) => String(n).padStart(w, '0');
 
-/** A datetime `d` days ago (with a plausible clinic-hours time), SQLite format. */
+/**
+ * A moment `days` ago at a plausible clinic-hours time.
+ *
+ *   date / time → the LOCAL calendar date and HH:mm, for appointment_date / appointment_time
+ *                 (those are local by design: "the 10:30 slot today").
+ *   dt          → the same instant as UTC 'YYYY-MM-DD HH:MM:SS', for every created_at / ordered_at /
+ *                 admitted_at… column. Those are written by SQLite's datetime('now') everywhere else,
+ *                 i.e. UTC, and the app reads a marker-less timestamp as UTC. This used to write the
+ *                 LOCAL clock time here, so every sample patient showed up "registered" 5½ hours
+ *                 off (in India) — times that looked random.
+ */
 function dtDaysAgo(days: number): { date: string; time: string; dt: string } {
   const d = new Date();
   d.setDate(d.getDate() - days);
   const hh = randInt(9, 19), mm = pick([0, 10, 15, 20, 30, 40, 45, 50]);
   const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  return { date, time: `${pad(hh)}:${pad(mm)}`, dt: `${date} ${pad(hh)}:${pad(mm)}:00` };
+  const instant = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm, 0);
+  const dt = instant.toISOString().slice(0, 19).replace('T', ' ');
+  return { date, time: `${pad(hh)}:${pad(mm)}`, dt };
 }
 function dobForAge(age: number): string {
   const y = new Date().getFullYear() - age;
@@ -180,5 +192,7 @@ export function seedSampleData(db: Database.Database): { patients: number; bills
   });
 
   tx();
+  // These rows already carry UTC timestamps — tell the one-time repair (migrations) to leave them be.
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('sample_times_utc', '1')").run();
   return counts;
 }

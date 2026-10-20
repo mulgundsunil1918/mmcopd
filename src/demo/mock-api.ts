@@ -16,6 +16,7 @@ import {
   DEMO_PHARMACY_SALES, DEMO_DISPENSING, DEMO_CONSULTATIONS, DEMO_RX_ITEMS,
 } from './demo-data';
 import { LAB_CATALOG } from '../data/lab-catalog';
+import { RADIOLOGY_CATALOG, modalityOf } from '../data/radiology-catalog';
 
 /**
  * Injected by vite.demo.config.ts from package.json at build time, so the
@@ -51,7 +52,102 @@ let dispensing = [...DEMO_DISPENSING];
 let consultations = [...DEMO_CONSULTATIONS];
 let rxItems = [...DEMO_RX_ITEMS];
 
+// A few lab orders so the Laboratory screen and its printouts have something to show.
+const labOrders: any[] = [0, 1, 2].map((i) => {
+  const p: any = patients[i] ?? patients[0];
+  const d: any = doctors[i % doctors.length];
+  return {
+    id: i + 1, order_number: `LAB-20261020-00${i + 1}`, appointment_id: null,
+    patient_id: p.id, doctor_id: d.id,
+    status: i === 0 ? 'ordered' : i === 1 ? 'sample_collected' : 'reported',
+    notes: null, ordered_at: new Date(Date.now() - i * 3_600_000).toISOString().slice(0, 19).replace('T', ' '),
+    patient_name: `${p.first_name} ${p.last_name}`, patient_uhid: p.uhid, doctor_name: d.name,
+  };
+});
+// ---- Radiology demo data: a priced catalogue and a few orders in different states ----
+const DEMO_RAD_PRICE: Record<string, number> = {
+  xray: 300, contrast: 1500, usg: 800, doppler: 1800, ct: 3500, mri: 6500, mammography: 1500, dexa: 1200, cardiac: 500, other: 600,
+};
+let radTests: any[] = RADIOLOGY_CATALOG.map((t, i) => ({
+  id: i + 1, name: t.name, modality: t.modality, price: DEMO_RAD_PRICE[t.modality] ?? 500, is_active: 1,
+  created_at: '2026-01-01 09:00:00',
+}));
+const dbTime = (minsAgo: number) => new Date(Date.now() - minsAgo * 60_000).toISOString().slice(0, 19).replace('T', ' ');
+let radOrders: any[] = [];
+let radItems: any[] = [];
+(function seedRadiology() {
+  const mk = (n: number, patientIdx: number, status: string, minsAgo: number, testNames: string[], extra: any = {}) => {
+    const p: any = patients[patientIdx] ?? patients[0];
+    const d: any = doctors[patientIdx % doctors.length];
+    const id = n;
+    radOrders.push({
+      id, order_number: `RAD-20261020-000${n}`, appointment_id: null, patient_id: p.id, doctor_id: d.id,
+      referred_by: extra.referred_by ?? null, clinical_info: extra.clinical_info ?? null, status,
+      ordered_at: dbTime(minsAgo), performed_at: status !== 'ordered' ? new Date(Date.now() - (minsAgo - 20) * 60_000).toISOString() : null,
+      reported_at: status === 'reported' ? new Date(Date.now() - (minsAgo - 45) * 60_000).toISOString() : null,
+      reported_by: status === 'reported' ? 'Dr. R. Iyer' : null, notes: null,
+    });
+    let total = 0;
+    testNames.forEach((name, i) => {
+      const t = radTests.find((x) => x.name === name) ?? radTests[0];
+      total += t.price;
+      radItems.push({
+        id: n * 10 + i, order_id: id, test_id: t.id, test_name: t.name, modality: t.modality, price: t.price,
+        findings: status === 'reported' ? (i === 0 ? 'Both lung fields are clear. Cardiac silhouette and mediastinum are normal. Costophrenic angles are sharp. Bony thorax is unremarkable.' : 'Liver is mildly enlarged with increased echogenicity. No focal lesion. Gallbladder, CBD, spleen and both kidneys are normal.') : null,
+        impression: status === 'reported' ? (i === 0 ? 'Normal chest radiograph.' : 'Grade I fatty liver.') : null,
+        is_abnormal: status === 'reported' && i === 1 ? 1 : 0,
+      });
+    });
+    // its bill
+    const paid = extra.paid ? total : 0;
+    bills = [...bills, {
+      id: 8000 + n, bill_number: `INV/2026-27/90${n}`, appointment_id: null, patient_id: p.id, doctor_id: d.id,
+      items_json: JSON.stringify(testNames.map((name) => { const t = radTests.find((x) => x.name === name) ?? radTests[0]; return { description: t.name, qty: 1, rate: t.price, amount: t.price }; })),
+      subtotal: total, discount: 0, discount_type: 'flat', total, payment_mode: paid ? 'Cash' : 'Pending',
+      bill_kind: 'radiology', bill_type: 'radiology', radiology_order_id: id, amount_paid: paid, status: paid ? 'paid' : 'unpaid',
+      created_at: new Date(Date.now() - minsAgo * 60_000).toISOString(), patient_name: `${p.first_name} ${p.last_name}`, patient_uhid: p.uhid, doctor_name: d.name,
+    } as any];
+  };
+  mk(1, 1, 'ordered', 25, ['X-Ray Chest PA View', 'X-Ray Knee Joint'], { referred_by: 'Ramesh Kumar', clinical_info: 'Fall from stairs, right knee pain, ? fracture', paid: true });
+  mk(2, 2, 'done', 90, ['USG Whole Abdomen'], { clinical_info: 'Upper abdominal pain for 3 days' });
+  mk(3, 3, 'reported', 240, ['X-Ray Chest PA View', 'USG Abdomen & Pelvis'], { referred_by: 'Meena Shetty', paid: true });
+  mk(4, 0, 'ordered', 10, ['CT Brain (Plain)'], { clinical_info: 'Head injury, headache, vomiting' });
+})();
+const radRow = (o: any) => {
+  const p: any = patients.find((x: any) => x.id === o.patient_id) ?? {};
+  const d: any = doctors.find((x: any) => x.id === o.doctor_id);
+  const items = radItems.filter((i) => i.order_id === o.id);
+  const bill: any = bills.find((b: any) => b.radiology_order_id === o.id);
+  return {
+    ...o, patient_name: `${p.first_name} ${p.last_name}`, patient_uhid: p.uhid, patient_dob: p.dob, patient_gender: p.gender, patient_phone: p.phone,
+    doctor_name: d?.name ?? null, test_names: items.map((i) => i.test_name).join('\u001f'),
+    total: items.reduce((s, i) => s + i.price, 0),
+    bill_id: bill?.id ?? null, bill_number: bill?.bill_number ?? null, bill_total: bill?.total ?? null, bill_paid: bill?.amount_paid ?? null, bill_status: bill?.status ?? null,
+  };
+};
+const radDetail = (id: number) => { const o = radOrders.find((x) => x.id === id); return o ? { ...radRow(o), items: radItems.filter((i) => i.order_id === id) } : null; };
+const radSyncBill = (orderId: number) => {
+  const items = radItems.filter((i) => i.order_id === orderId && i.price > 0);
+  const total = items.reduce((s, i) => s + i.price, 0);
+  bills = bills.map((b: any) => b.radiology_order_id === orderId && !(b.amount_paid > 0)
+    ? { ...b, subtotal: total, total, items_json: JSON.stringify(items.map((i) => ({ description: i.test_name, qty: 1, rate: i.price, amount: i.price }))) }
+    : b);
+};
+
+const labItemsFor = (orderId: number) =>
+  labTests.filter((t) => t.category !== 'radiology').slice(orderId * 3, orderId * 3 + 4).map((t, i) => ({
+    id: orderId * 10 + i, lab_order_id: orderId, lab_test_id: t.id, test_name: t.name,
+    result: orderId === 3 ? '12.4' : null, ref_range: t.ref_range, unit: t.unit, is_abnormal: 0, price: t.price,
+  }));
+
 const r = <T>(v: T): Promise<T> => Promise.resolve(v);
+// Static "Services" bills the demo shows (also resolvable by the printable bill).
+const MISC_DEMO_BILLS: any[] = [
+        { id: 9001, bill_number: 'BL-9001', patient_name: 'Geeta Hosamani', patient_uhid: 'PT-20260427-0042', doctor_name: 'Dr. Priya Patil', payment_mode: 'Cash', total: 250, notes: 'Booster dose 2/3', items_json: JSON.stringify([{ description: 'Vaccination — TT booster', qty: 1, rate: 250, amount: 250 }]), created_at: new Date(Date.now() - 3 * 3600000).toISOString() },
+        { id: 9002, bill_number: 'BL-9002', patient_name: 'Ramesh Mali', patient_uhid: 'PT-20260427-0041', doctor_name: 'Dr. A. Sharma', payment_mode: 'UPI', total: 300, notes: '', items_json: JSON.stringify([{ description: 'Wound dressing', qty: 1, rate: 300, amount: 300 }]), created_at: new Date(Date.now() - 86400000).toISOString() },
+        { id: 9003, bill_number: 'BL-9003', patient_name: 'Anitha Kulkarni', patient_uhid: 'PT-20260427-0040', doctor_name: null, payment_mode: 'Cash', total: 150, notes: 'Acute asthma', items_json: JSON.stringify([{ description: 'Nebulization', qty: 1, rate: 150, amount: 150 }]), created_at: new Date(Date.now() - 2 * 86400000).toISOString() },
+];
+
 const noop = () => Promise.resolve();
 
 function nextId(arr: { id: number }[]): number {
@@ -214,12 +310,50 @@ export function createMockElectronAPI(): any {
       create: (input: any) => {
         const id = nextId(bills);
         const total = (input.items || []).reduce((s: number, it: any) => s + (it.amount || 0), 0);
-        const created: any = { id, bill_number: `BL-${String(id).padStart(4, '0')}`, ...input, subtotal: total, total, created_at: new Date().toISOString() };
+        const pt: any = patients.find((p: any) => p.id === input.patient_id);
+        const created: any = {
+          id, bill_number: `BL-${String(id).padStart(4, '0')}`, ...input, subtotal: total, total,
+          items_json: JSON.stringify(input.items || []),
+          patient_name: pt ? `${pt.first_name} ${pt.last_name}` : undefined,
+          patient_uhid: pt?.uhid,
+          created_at: new Date().toISOString(),
+        };
         bills = [...bills, created];
         return r(created);
       },
-      list: () => r(bills),
+      list: () => r(bills.map((b: any) => ({ ...b, patient_uhid: b.patient_uhid ?? patients.find((p: any) => p.id === b.patient_id)?.uhid }))),
       pendingForBilling: () => r([]),
+    },
+    // What the printable bill (BillPrint) loads: the bill header, its lines and totals.
+    billing: {
+      previewById: (id: number) => {
+        const b: any = bills.find((x: any) => x.id === id) ?? MISC_DEMO_BILLS.find((x: any) => x.id === id) ?? bills[0];
+        const pt: any = patients.find((p: any) => p.id === b?.patient_id) ?? patients[0];
+        const lines: any[] = (() => { try { return JSON.parse(b?.items_json || '[]'); } catch { return []; } })();
+        const items = lines.map((l: any, i: number) => ({
+          id: i + 1, description: l.description, qty: l.qty, rate: l.rate, amount: l.amount,
+          is_taxable: 0, hsn_sac: null, cgst: 0, sgst: 0,
+        }));
+        const subtotal = items.reduce((s: number, it: any) => s + it.amount, 0);
+        return r({
+          bill: {
+            ...b,
+            patient_name: b?.patient_name ?? `${pt.first_name} ${pt.last_name}`,
+            patient_uhid: pt.uhid, patient_dob: pt.dob, patient_gender: pt.gender,
+            patient_phone: pt.phone, patient_address: pt.address,
+          },
+          items,
+          totals: {
+            subtotal, discountValue: 0, exemptTotal: subtotal, taxableTotal: 0,
+            cgstTotal: 0, sgstTotal: 0, roundOff: 0, total: subtotal, isTaxInvoice: false,
+          },
+        });
+      },
+      previewAdmission: () => r({ bill: null, items: [], totals: null }),
+      pay: (billId: number, amount: number, mode: string) => {
+        bills = bills.map((b: any) => b.id === billId ? { ...b, amount_paid: (b.amount_paid || 0) + amount, payment_mode: mode, status: (b.amount_paid || 0) + amount >= b.total - 0.01 ? 'paid' : 'part_paid' } : b);
+        return r({ ok: true });
+      },
     },
     followup: {
       checkEligibility: () => r({
@@ -261,11 +395,7 @@ export function createMockElectronAPI(): any {
         bills = [...bills, created];
         return r(created);
       },
-      list: () => r([
-        { id: 9001, bill_number: 'BL-9001', patient_name: 'Geeta Hosamani', patient_uhid: 'PT-20260427-0042', doctor_name: 'Dr. Priya Patil', payment_mode: 'Cash', total: 250, notes: 'Booster dose 2/3', items_json: JSON.stringify([{ description: 'Vaccination — TT booster', qty: 1, rate: 250, amount: 250 }]), created_at: new Date(Date.now() - 3 * 3600000).toISOString() },
-        { id: 9002, bill_number: 'BL-9002', patient_name: 'Ramesh Mali', patient_uhid: 'PT-20260427-0041', doctor_name: 'Dr. A. Sharma', payment_mode: 'UPI', total: 300, notes: '', items_json: JSON.stringify([{ description: 'Wound dressing', qty: 1, rate: 300, amount: 300 }]), created_at: new Date(Date.now() - 86400000).toISOString() },
-        { id: 9003, bill_number: 'BL-9003', patient_name: 'Anitha Kulkarni', patient_uhid: 'PT-20260427-0040', doctor_name: null, payment_mode: 'Cash', total: 150, notes: 'Acute asthma', items_json: JSON.stringify([{ description: 'Nebulization', qty: 1, rate: 150, amount: 150 }]), created_at: new Date(Date.now() - 2 * 86400000).toISOString() },
-      ]),
+      list: () => r([...[...bills].filter((x: any) => x.bill_kind === 'misc').reverse(), ...MISC_DEMO_BILLS]),
       summary: () => r({
         from: '2026-04-01', to: '2026-04-27',
         count: 18, revenue: 4250,
@@ -302,10 +432,61 @@ export function createMockElectronAPI(): any {
     lab: {
       listTests: (activeOnly = true) => r(activeOnly ? labTests.filter((t) => t.is_active === 1) : labTests),
       loadStandardCatalog: () => r({ ok: true, added: 0, total: labTests.length }),
-      listOrders: () => r([]),
+      listOrders: () => r(labOrders),
+      getOrderItems: (id: number) => r(labItemsFor(id)),
       createOrder: () => r({} as any),
       updateOrderStatus: () => r({} as any),
       updateResults: () => r([]),
+    },
+    radiology: {
+      listTests: (activeOnly = true) => r(activeOnly ? radTests.filter((t) => t.is_active === 1) : radTests),
+      upsertTest: (t: any) => {
+        if (t.id) { radTests = radTests.map((x) => x.id === t.id ? { ...x, ...t } : x); return r({ ok: true, test: radTests.find((x) => x.id === t.id) }); }
+        const id = nextId(radTests); const row = { id, modality: modalityOf(t.name || ''), price: 0, is_active: 1, created_at: dbTime(0), ...t };
+        radTests = [...radTests, row]; return r({ ok: true, test: row });
+      },
+      bulkDeleteTests: (ids: number[]) => { radTests = radTests.filter((t) => !ids.includes(t.id)); return r({ ok: true, deleted: ids.length, deactivated: 0 }); },
+      loadStandardCatalog: () => r({ ok: true, added: 0, total: radTests.length }),
+      listOrders: (f: any = {}) => {
+        let rows = radOrders.map(radRow);
+        if (f.status === 'open') rows = rows.filter((o) => o.status === 'ordered' || o.status === 'done');
+        else if (f.status) rows = rows.filter((o) => o.status === f.status);
+        if (f.patient_id) rows = rows.filter((o) => o.patient_id === f.patient_id);
+        if (f.q) { const n = String(f.q).toLowerCase(); rows = rows.filter((o) => `${o.patient_name} ${o.patient_uhid} ${o.order_number}`.toLowerCase().includes(n)); }
+        return r(rows.sort((a, b) => b.id - a.id));
+      },
+      getOrder: (id: number) => r(radDetail(id)),
+      createOrder: (p: any) => {
+        const id = nextId(radOrders);
+        const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const appt: any = p.appointment_id ? appointments.find((a) => a.id === p.appointment_id) : null;
+        radOrders = [...radOrders, { id, order_number: `RAD-${day}-${String(id).padStart(4, '0')}`, appointment_id: p.appointment_id ?? null, patient_id: p.patient_id, doctor_id: p.doctor_id ?? appt?.doctor_id ?? null, referred_by: p.referred_by ?? (appt as any)?.referred_by ?? null, clinical_info: p.clinical_info ?? null, status: 'ordered', ordered_at: dbTime(0), performed_at: null, reported_at: null, reported_by: null, notes: null }];
+        const rows = (p.items || []).map((it: any, i: number) => { const t = radTests.find((x) => x.id === it.test_id); return { id: id * 100 + i, order_id: id, test_id: t?.id ?? null, test_name: t?.name ?? it.test_name, modality: t?.modality ?? 'other', price: it.price ?? t?.price ?? 0, findings: null, impression: null, is_abnormal: 0 }; });
+        radItems = [...radItems, ...rows];
+        const total = rows.reduce((s: number, x: any) => s + x.price, 0);
+        if (total > 0) {
+          const pt: any = patients.find((x) => x.id === p.patient_id);
+          bills = [...bills, { id: 8100 + id, bill_number: `INV/2026-27/91${id}`, appointment_id: p.appointment_id ?? null, patient_id: p.patient_id, items_json: JSON.stringify(rows.map((x: any) => ({ description: x.test_name, qty: 1, rate: x.price, amount: x.price }))), subtotal: total, discount: 0, discount_type: 'flat', total, payment_mode: 'Pending', bill_kind: 'radiology', bill_type: 'radiology', radiology_order_id: id, amount_paid: 0, status: 'unpaid', created_at: new Date().toISOString(), patient_name: pt ? `${pt.first_name} ${pt.last_name}` : '', patient_uhid: pt?.uhid } as any];
+        }
+        return r({ ok: true, order: radDetail(id) });
+      },
+      addItems: (orderId: number, items: any[]) => {
+        const rows = items.map((it, i) => { const t = radTests.find((x) => x.id === it.test_id); return { id: orderId * 100 + 50 + radItems.length + i, order_id: orderId, test_id: t?.id ?? null, test_name: t?.name ?? it.test_name, modality: t?.modality ?? 'other', price: it.price ?? t?.price ?? 0, findings: null, impression: null, is_abnormal: 0 }; });
+        radItems = [...radItems, ...rows]; radSyncBill(orderId);
+        return r({ ok: true, added: rows.length, billChanged: true, note: 'Bill updated.', order: radDetail(orderId) });
+      },
+      removeItem: (orderId: number, itemId: number) => { radItems = radItems.filter((i) => i.id !== itemId); radSyncBill(orderId); return r({ ok: true, billChanged: true, note: 'Bill updated.', order: radDetail(orderId) }); },
+      updateStatus: (orderId: number, status: string) => {
+        radOrders = radOrders.map((o) => o.id === orderId ? { ...o, status, performed_at: o.performed_at ?? new Date().toISOString() } : o);
+        return r({ ok: true, order: radDetail(orderId) });
+      },
+      saveReport: (orderId: number, items: any[], opts: any = {}) => {
+        for (const it of items) radItems = radItems.map((x) => x.id === it.id ? { ...x, ...(it.findings !== undefined ? { findings: it.findings } : {}), ...(it.impression !== undefined ? { impression: it.impression } : {}), ...(it.is_abnormal !== undefined ? { is_abnormal: it.is_abnormal } : {}) } : x);
+        if (opts.finalize) radOrders = radOrders.map((o) => o.id === orderId ? { ...o, status: 'reported', reported_at: new Date().toISOString(), reported_by: opts.reportedBy ?? o.reported_by, performed_at: o.performed_at ?? new Date().toISOString() } : o);
+        else if (opts.reportedBy) radOrders = radOrders.map((o) => o.id === orderId ? { ...o, reported_by: opts.reportedBy } : o);
+        return r({ ok: true, order: radDetail(orderId) });
+      },
+      cancelOrder: (orderId: number) => { radOrders = radOrders.map((o) => o.id === orderId ? { ...o, status: 'cancelled' } : o); bills = bills.map((b: any) => b.radiology_order_id === orderId && !(b.amount_paid > 0) ? { ...b, status: 'cancelled' } : b); return r({ ok: true, note: 'Order cancelled.', order: radDetail(orderId) }); },
     },
     pharmacy: {
       listDrugs: (filter: any = {}) => {
@@ -347,6 +528,26 @@ export function createMockElectronAPI(): any {
         const created: any = { id, sale_number: `PHX-${String(id).padStart(5, '0')}`, ...payload, subtotal: total, total, created_at: new Date().toISOString() };
         pharmSales = [...pharmSales, created];
         return r(created);
+      },
+      saleDetail: (id: number) => {
+        const sale: any = pharmSales.find((x: any) => x.id === id) ?? pharmSales[0];
+        const pt: any = patients.find((p: any) => p.id === sale?.patient_id);
+        const rows = dispensing.filter((d: any) => d.sale_id === sale?.id).slice(0, 12);
+        const items = (rows.length ? rows : dispensing.slice(0, 5)).map((d: any, i: number) => {
+          const m: any = drugMaster.find((x: any) => x.id === d.drug_master_id);
+          return {
+            id: i + 1, drug_name: m?.name ?? 'Medicine', qty: d.qty ?? 1, rate: d.rate ?? 10,
+            amount: (d.qty ?? 1) * (d.rate ?? 10), drug_master_id: d.drug_master_id,
+            generic_name: m?.generic_name, strength: m?.strength, form: m?.form, schedule: m?.schedule ?? 'OTC',
+            batches: `${d.batch_no || 'B1'} (exp ${d.expiry || '2027-12-31'})`,
+          };
+        });
+        const subtotal = items.reduce((s: number, it: any) => s + it.amount, 0);
+        return r({
+          ...sale, subtotal, total: sale?.total ?? subtotal, discount: sale?.discount ?? 0, items,
+          patient_name: pt ? `${pt.first_name} ${pt.last_name}` : null, patient_uhid: pt?.uhid ?? null,
+          patient_phone: pt?.phone ?? null, patient_address: pt?.address ?? null,
+        });
       },
       listSales: () => r(pharmSales.map((s) => ({ ...s, patient_name: patients.find((p) => p.id === s.patient_id)?.first_name || null, patient_uhid: patients.find((p) => p.id === s.patient_id)?.uhid || null }))),
       recordCustomSale: (payload: any) => {
@@ -488,9 +689,10 @@ export function createMockElectronAPI(): any {
           { key: 'ipd', label: 'IPD (in-patient)', count: 25, revenue: 420253, collected: 336332, outstanding: 83921 },
           { key: 'pharmacy', label: 'Pharmacy', count: 45, revenue: 78098, collected: 78098, outstanding: 0 },
           { key: 'lab', label: 'Laboratory', count: 15, revenue: 10770, collected: 5660, outstanding: 5110 },
+          { key: 'radiology', label: 'Radiology', count: 12, revenue: 14600, collected: 11800, outstanding: 2800 },
           { key: 'opd', label: 'OPD / Consultation', count: 20, revenue: 6979, collected: 6979, outstanding: 0 },
         ],
-        totals: { revenue: 516100, collected: 427069, outstanding: 89031, count: 105 },
+        totals: { revenue: 530700, collected: 438869, outstanding: 91831, count: 117 },
       }),
       overview: () => r({
         asOf: new Date().toISOString(),

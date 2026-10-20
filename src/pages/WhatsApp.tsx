@@ -559,6 +559,7 @@ const DEFAULT_M1_TEMPLATES: Record<string, string> = {
   review:     `Hello {{patient_name}} 👋\n\nThank you for visiting *{{clinic_name}}*! 🙏\n\nWe'd love to hear about your experience — could you spare a moment to leave us a Google review?\n\n⭐ {{review_link}}\n\nYour feedback means a lot to us. Thank you!\n*{{clinic_name}}*`,
   rx:         `Hello {{patient_name}} 👋\n\nYour prescription from *{{clinic_name}}* is ready. Please collect it at your earliest convenience.\n\nThank you,\n*{{clinic_name}}*`,
   lab:        `Hello {{patient_name}} 👋\n\nYour lab report is ready at *{{clinic_name}}*. Please collect it at your convenience.\n\nThank you,\n*{{clinic_name}}*`,
+  radiology:  `Hello {{patient_name}} 👋\n\nYour radiology report is ready at *{{clinic_name}}*. Please collect it at your convenience.\n\nThank you,\n*{{clinic_name}}*`,
   bill:       `Hello {{patient_name}} 👋\n\nThank you for visiting *{{clinic_name}}*. Your bill is ready.\n\nFor any queries, call us at {{clinic_phone}}.\n\nThank you!`,
 };
 
@@ -568,6 +569,7 @@ const M1_TYPE_META: { key: string; label: string; icon: string; color: string }[
   { key: 'review',     label: 'Google Review',   icon: '⭐', color: 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800 text-yellow-700 dark:text-yellow-300' },
   { key: 'rx',         label: 'Rx Ready',        icon: '💊', color: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300' },
   { key: 'lab',        label: 'Lab Ready',       icon: '🧪', color: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300' },
+  { key: 'radiology',  label: 'Radiology Ready', icon: '📷', color: 'bg-sky-50 dark:bg-sky-900/20 border-sky-200 dark:border-sky-800 text-sky-700 dark:text-sky-300' },
   { key: 'bill',       label: 'Bill',            icon: '🧾', color: 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300' },
 ];
 

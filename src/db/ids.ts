@@ -142,6 +142,12 @@ export function nextLabOrderNumber(db: Database.Database, when: Date = new Date(
   return `LAB-${day}-${String(allocate(db, `lab:${day}`)).padStart(4, '0')}`;
 }
 
+/** Radiology order number: RAD-YYYYMMDD-0001. Its own series, separate from LAB-… orders. */
+export function nextRadiologyOrderNumber(db: Database.Database, when: Date = new Date()): string {
+  const day = dateKey(when);
+  return `RAD-${day}-${String(allocate(db, `rad:${day}`)).padStart(4, '0')}`;
+}
+
 /** Pharmacy sale number: PHX-YYYYMMDD-0001. Same collision story as lab orders. */
 export function nextSaleNumber(db: Database.Database, when: Date = new Date()): string {
   const day = dateKey(when);

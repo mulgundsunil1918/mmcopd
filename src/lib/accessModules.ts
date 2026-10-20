@@ -14,6 +14,7 @@ export const ACCESS_MODULES: AccessModule[] = [
   { path: '/appointments', label: 'Appointments', defaults: ['receptionist', 'doctor'] },
   { path: '/doctor-select', label: 'Doctor Consultation', defaults: ['doctor', 'receptionist'] },
   { path: '/lab', label: 'Laboratory', defaults: ['lab_tech', 'doctor', 'receptionist'] },
+  { path: '/radiology', label: 'Radiology', defaults: ['radiology_tech', 'doctor', 'receptionist'] },
   { path: '/pharmacy', label: 'Pharmacy', defaults: ['pharmacist', 'doctor', 'receptionist'] },
   { path: '/ipd', label: 'IPD (In-Patient)', defaults: ['doctor', 'receptionist', 'nurse', 'ward_incharge', 'manager'] },
   { path: '/discharge-summary', label: 'Discharge Summary', defaults: ['doctor', 'receptionist', 'nurse'] },
@@ -39,6 +40,7 @@ export const ASSIGNABLE_ROLES: { role: Role; label: string }[] = [
   { role: 'ward_incharge', label: 'Ward In-charge' },
   { role: 'pharmacist', label: 'Pharmacist' },
   { role: 'lab_tech', label: 'Lab Tech' },
+  { role: 'radiology_tech', label: 'Radiology Tech' },
 ];
 
 /** Parse the stored override JSON safely into a { path: Role[] } map. */

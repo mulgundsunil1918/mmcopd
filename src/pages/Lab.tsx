@@ -12,7 +12,8 @@ import type { LabTest } from '../types';
 type Tab = 'orders' | 'catalog';
 
 // First-class lab departments (categories) — used for filter chips + labels.
-const LAB_CATEGORIES = ['haematology', 'biochemistry', 'serology', 'microbiology', 'clinical_pathology', 'histopathology', 'radiology'] as const;
+// Radiology is its own department now (see pages/Radiology.tsx) — no longer a lab category.
+const LAB_CATEGORIES = ['haematology', 'biochemistry', 'serology', 'microbiology', 'clinical_pathology', 'histopathology'] as const;
 const CAT_LABEL: Record<string, string> = {
   haematology: 'Haematology', biochemistry: 'Biochemistry', serology: 'Serology',
   microbiology: 'Microbiology', clinical_pathology: 'Clinical Pathology',
@@ -506,7 +507,7 @@ function CatalogView() {
           <input className="input !py-1.5 !text-sm w-48" placeholder="Search tests…" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
         <div className="flex gap-2">
-          <button className="btn-secondary" disabled={loadCatalog.isPending} onClick={() => loadCatalog.mutate()} title="Add the ~160 standard Indian lab + radiology tests (skips ones you already have)">
+          <button className="btn-secondary" disabled={loadCatalog.isPending} onClick={() => loadCatalog.mutate()} title="Add the standard Indian laboratory tests (skips ones you already have)">
             {loadCatalog.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Load standard catalog
           </button>
           <button className="btn-primary" onClick={() => setEditing({ is_active: 1, price: 0, category: filter !== 'all' ? filter : 'biochemistry' })}>

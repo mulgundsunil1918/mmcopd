@@ -24,6 +24,7 @@ const IPD_MODES = new Set<AppMode>(['full']);
 const ROUTE_MODES: Record<string, Set<AppMode>> = {
   '/doctor-select': DOCTOR_MODES,
   '/lab': LAB_MODES,
+  '/radiology': LAB_MODES,
   '/pharmacy': PHARMACY_MODES,
   '/ipd': IPD_MODES,
   '/discharge-summary': IPD_MODES,
@@ -46,7 +47,7 @@ export function useAccessGuard() {
       settings,
       overrides,
       // Unlisted sub-routes stay permissive: everyone is allowed by default.
-      defaults: mod?.defaults ?? (['receptionist', 'doctor', 'nurse', 'ward_incharge', 'lab_tech', 'pharmacist'] as any),
+      defaults: mod?.defaults ?? (['receptionist', 'doctor', 'nurse', 'ward_incharge', 'lab_tech', 'radiology_tech', 'pharmacist'] as any),
       adminOnly: path === '/users' || path === '/settings',
       inCurrentMode: modes ? modes.has(currentMode) : true,
     });

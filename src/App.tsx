@@ -10,6 +10,7 @@ import { Accounts } from './pages/Accounts';
 import { PatientLog } from './pages/PatientLog';
 import { PatientOrigin } from './pages/PatientOrigin';
 import { Lab } from './pages/Lab';
+import { Radiology } from './pages/Radiology';
 import { Pharmacy } from './pages/Pharmacy';
 import { IPD } from './pages/IPD';
 import { Guard } from './components/RouteGuard';
@@ -191,6 +192,7 @@ export default function App() {
         <Route path="/patient-log" element={<Guard path="/patient-log"><PatientLog /></Guard>} />
         <Route path="/origin" element={<Guard path="/origin"><PatientOrigin /></Guard>} />
         <Route path="/lab" element={<Guard path="/lab"><Lab /></Guard>} />
+        <Route path="/radiology" element={<Guard path="/radiology"><Radiology /></Guard>} />
         <Route path="/pharmacy" element={<Guard path="/pharmacy"><Pharmacy /></Guard>} />
         <Route path="/ipd" element={<Guard path="/ipd"><IPD /></Guard>} />
         <Route path="/discharge-summary" element={<Guard path="/discharge-summary"><DischargeSummary /></Guard>} />

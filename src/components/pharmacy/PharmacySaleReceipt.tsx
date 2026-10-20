@@ -10,8 +10,9 @@
  * outside it is hidden by @media print.
  */
 import { useQuery } from '@tanstack/react-query';
-import { HeartPulse, Printer, X } from 'lucide-react';
+import { Printer, X } from 'lucide-react';
 import type { Settings } from '../../types';
+import { PrintHeader } from '../print/PrintHeader';
 import { parseDbDate } from '../../lib/utils';
 
 const inr = (n: number) =>
@@ -50,31 +51,20 @@ export function PharmacySaleReceipt({ saleId, onClose }: { saleId: number; onClo
 
       <div className="print-area mx-auto bg-white text-slate-900" style={{ width: '210mm', minHeight: '148mm', padding: '12mm 14mm' }}>
         {/* ===== Letterhead ===== */}
-        <div className="flex items-start gap-4 pb-3" style={{ borderBottom: '2px solid #047857' }}>
-          {s.clinic_logo ? (
-            <img src={s.clinic_logo} alt="Logo" style={{ width: '18mm', height: '18mm', objectFit: 'contain', border: '1px solid #e2e8f0', borderRadius: 8 }} />
-          ) : (
-            <div className="rounded-lg flex items-center justify-center text-white" style={{ width: '18mm', height: '18mm', background: 'linear-gradient(135deg,#047857,#059669)' }}>
-              <HeartPulse className="w-8 h-8" />
-            </div>
-          )}
-          <div className="flex-1 min-w-0">
-            <div className="font-extrabold uppercase" style={{ color: '#065f46', fontSize: 22, lineHeight: 1.1 }}>{s.clinic_name || 'CureDesk HMS'}</div>
-            {s.clinic_tagline && <div className="italic" style={{ color: '#047857', fontSize: 12 }}>{s.clinic_tagline}</div>}
-            <div className="text-[11px] text-slate-600 mt-1">{s.clinic_address}</div>
-            <div className="text-[11px] text-slate-600">
-              {s.clinic_phone && <>☎ {s.clinic_phone} </>}
-              {(s as any).pharmacy_drug_license_no && <> · D.L. No: {(s as any).pharmacy_drug_license_no}</>}
-              {s.gst_enabled && s.clinic_gstin && <> · GSTIN: {s.clinic_gstin}</>}
-              {/* Legal name and state code are required on a GST invoice and were
-                  collected in Settings but never printed anywhere. */}
-              {s.gst_enabled && s.clinic_legal_name && s.clinic_legal_name !== s.clinic_name && (
-                <> · {s.clinic_legal_name}</>
-              )}
-              {s.gst_enabled && s.clinic_state_code && <> · State code: {s.clinic_state_code}</>}
-            </div>
-          </div>
-        </div>
+        <PrintHeader
+          settings={s}
+          accent="#047857"
+          legal={
+            (s as any).pharmacy_drug_license_no || (s.gst_enabled && (s.clinic_gstin || s.clinic_state_code || (s.clinic_legal_name && s.clinic_legal_name !== s.clinic_name))) ? (
+              <>
+                {(s as any).pharmacy_drug_license_no && <>D.L. No: {(s as any).pharmacy_drug_license_no}</>}
+                {s.gst_enabled && s.clinic_gstin && <>{(s as any).pharmacy_drug_license_no ? ' · ' : ''}GSTIN: {s.clinic_gstin}</>}
+                {s.gst_enabled && s.clinic_legal_name && s.clinic_legal_name !== s.clinic_name && <> · {s.clinic_legal_name}</>}
+                {s.gst_enabled && s.clinic_state_code && <> · State code: {s.clinic_state_code}</>}
+              </>
+            ) : undefined
+          }
+        />
 
         {/* ===== Title ===== */}
         <div className="text-center my-3">

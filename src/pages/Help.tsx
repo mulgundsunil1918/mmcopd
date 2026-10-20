@@ -13,7 +13,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   BookOpen, Search, ChevronDown, Users, Calendar, Stethoscope, Pill, FlaskConical,
-  BedDouble, Receipt, Syringe, Activity, HardDrive, Wifi, ShieldCheck, MessageSquare, Baby,
+  BedDouble, Receipt, Syringe, Activity, HardDrive, Wifi, ShieldCheck, MessageSquare, Baby, ScanLine,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -138,6 +138,21 @@ const TOPICS: Topic[] = [
           <Step n={4}>Mark the sample collected → enter results → print the report on your letterhead.</Step>
         </ol>
         <div className="mt-2"><Tip>A test that has never been ordered is deleted outright; one with past orders is deactivated instead, so old reports keep their names.</Tip></div>
+      </>
+    ),
+  },
+  {
+    id: 'radiology', icon: ScanLine, title: 'Radiology — X-Ray, ultrasound, CT & MRI', tag: 'Modules',
+    keywords: 'radiology xray x-ray usg ultrasound ct mri scan report findings impression referring doctor bill',
+    body: (
+      <>
+        <ol className="space-y-2">
+          <Step n={1}>Open <Path>Radiology → Catalogue &amp; Prices</Path>, load the standard catalogue once, and <b>set your price</b> against each scan you offer.</Step>
+          <Step n={2}>Scans a doctor orders in a consultation appear on the Radiology desk by themselves. For a walk-in use <b>New Radiology Request</b> — pick the patient, who referred them, the scans, and take payment on the spot or leave the bill for later.</Step>
+          <Step n={3}>Mark <b>Scan done</b>, then write the <b>Findings</b> and <b>Impression</b> and press <b>Mark report ready</b>.</Step>
+          <Step n={4}><b>Print report</b> puts it on your letterhead with the radiologist&rsquo;s name. <b>Print bill</b> prints the radiology bill.</Step>
+        </ol>
+        <div className="mt-2"><Tip>Radiology bills show in Billing History with a Radiology tag, and in Analytics as their own revenue line. A scan left at ₹0 is done but never charged for.</Tip></div>
       </>
     ),
   },

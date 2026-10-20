@@ -38,6 +38,9 @@ import type {
   PurchaseInvoice,
   PurchaseInvoiceInput,
   ReferringDoctor,
+  RadiologyTest,
+  RadiologyOrderRow,
+  RadiologyOrderDetail,
   Settings,
   Vitals,
   Wholesaler,
@@ -53,7 +56,8 @@ import type {
  * copies of this union previously drifted apart, which is what made the user
  * form offer a 'staff' role the backend rejected.
  */
-type Role = 'admin' | 'manager' | 'receptionist' | 'doctor' | 'nurse' | 'ward_incharge' | 'lab_tech' | 'pharmacist';
+type RadiologyFail = { ok: false; error: string };
+type Role = 'admin' | 'manager' | 'receptionist' | 'doctor' | 'nurse' | 'ward_incharge' | 'lab_tech' | 'radiology_tech' | 'pharmacist';
 type SessionUser = { id: number; username: string; role: Role; display_name: string | null; doctor_id: number | null };
 
 const api = {
@@ -149,7 +153,7 @@ const api = {
     update: (id: number, d: Partial<Doctor>) => ipcRenderer.invoke('doctors:update', id, d) as Promise<Doctor>,
     dependents: (id: number) =>
       ipcRenderer.invoke('doctors:dependents', id) as Promise<{
-        counts: { appointments: number; consultations: number; lab_orders: number; ip_admissions: number };
+        counts: { appointments: number; consultations: number; lab_orders: number; radiology_orders?: number; ip_admissions: number };
         total: number;
       }>,
     delete: (id: number) =>
@@ -166,6 +170,42 @@ const api = {
     create: (d: Partial<ReferringDoctor>) => ipcRenderer.invoke('referringDoctors:create', d) as Promise<ReferringDoctor>,
     update: (id: number, d: Partial<ReferringDoctor>) => ipcRenderer.invoke('referringDoctors:update', id, d) as Promise<ReferringDoctor>,
     delete: (id: number) => ipcRenderer.invoke('referringDoctors:delete', id) as Promise<{ ok: boolean }>,
+  },
+  // Radiology — its own department. Every mutation resolves to { ok: true, … } or
+  // { ok: false, error } where `error` is the exact, actionable message to show.
+  radiology: {
+    listTests: (activeOnly = true) => ipcRenderer.invoke('radiology:listTests', activeOnly) as Promise<RadiologyTest[]>,
+    upsertTest: (t: Partial<RadiologyTest>) =>
+      ipcRenderer.invoke('radiology:upsertTest', t) as Promise<({ ok: true; test: RadiologyTest }) | RadiologyFail>,
+    bulkDeleteTests: (ids: number[]) =>
+      ipcRenderer.invoke('radiology:deleteTests', ids) as Promise<({ ok: true; deleted: number; deactivated: number }) | RadiologyFail>,
+    loadStandardCatalog: () =>
+      ipcRenderer.invoke('radiology:loadStandardCatalog') as Promise<({ ok: true; added: number; total: number }) | RadiologyFail>,
+    listOrders: (filter: { status?: string; patient_id?: number; window?: string; sort?: string; q?: string; limit?: number } = {}) =>
+      ipcRenderer.invoke('radiology:listOrders', filter) as Promise<RadiologyOrderRow[]>,
+    getOrder: (id: number) => ipcRenderer.invoke('radiology:getOrder', id) as Promise<RadiologyOrderDetail | null>,
+    createOrder: (payload: {
+      patient_id: number;
+      appointment_id?: number | null;
+      doctor_id?: number | null;
+      referred_by?: string | null;
+      clinical_info?: string | null;
+      notes?: string | null;
+      items: { test_id?: number | null; test_name?: string; price?: number | null }[];
+    }) => ipcRenderer.invoke('radiology:createOrder', payload) as Promise<({ ok: true; order: RadiologyOrderDetail }) | RadiologyFail>,
+    addItems: (orderId: number, items: { test_id?: number | null; test_name?: string; price?: number | null }[]) =>
+      ipcRenderer.invoke('radiology:addItems', orderId, items) as Promise<({ ok: true; added: number; billChanged: boolean; note: string; total?: number; order: RadiologyOrderDetail }) | RadiologyFail>,
+    removeItem: (orderId: number, itemId: number) =>
+      ipcRenderer.invoke('radiology:removeItem', orderId, itemId) as Promise<({ ok: true; billChanged: boolean; note: string; total?: number; order: RadiologyOrderDetail }) | RadiologyFail>,
+    updateStatus: (orderId: number, status: 'ordered' | 'done' | 'reported') =>
+      ipcRenderer.invoke('radiology:updateStatus', orderId, status) as Promise<({ ok: true; order: RadiologyOrderDetail }) | RadiologyFail>,
+    saveReport: (
+      orderId: number,
+      items: { id: number; findings?: string | null; impression?: string | null; is_abnormal?: number }[],
+      opts: { reportedBy?: string | null; finalize?: boolean } = {},
+    ) => ipcRenderer.invoke('radiology:saveReport', orderId, items, opts) as Promise<({ ok: true; order: RadiologyOrderDetail }) | RadiologyFail>,
+    cancelOrder: (orderId: number, reason?: string) =>
+      ipcRenderer.invoke('radiology:cancelOrder', orderId, reason) as Promise<({ ok: true; note: string; order: RadiologyOrderDetail }) | RadiologyFail>,
   },
   appointments: {
     bookedSlots: (doctorId: number, date: string) =>

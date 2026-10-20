@@ -242,72 +242,94 @@ html.dark :where(.paper, .print-area) :where(.bg-red-50) { background-color: #fe
 }
 
 /* =======================
-   PRINT
-   Supports both single-page slips and multi-page slips (.print-page wrappers).
+   PRINT — one mechanism for EVERY printable screen
+   (OPD slip, bills, lab / radiology, pharmacy receipts, registers, discharge summary…)
+
+   ROOT CAUSE of "one page of content prints as 2–3 sheets": a print screen is an overlay
+   (position: fixed) that sits on top of the live app. The old rule only HID the app
+   (`visibility: hidden`), which keeps its boxes in layout. So a long list behind the
+   overlay — bill history, the sales table, the patient list — made the DOCUMENT several
+   pages tall, and Chromium repeats a position:fixed element on every page: the same bill
+   printed on page 1, 2 and 3. How many copies you got depended on which screen you were
+   standing on, which is why it looked random and was worst in Billing.
+
+   Fix: don't hide the app, REMOVE it from the layout. Anything that is neither a print
+   sheet (.print-area) nor an ancestor of one becomes display:none, and the ancestors are
+   flattened into plain blocks. The sheet is then the only thing in the document, at the
+   top-left of page 1, whatever screen the print was started from.
    ======================= */
 @media print {
-  /* Root reset — anything that was pinned to a viewport in screen mode must
-     become inert in print mode, otherwise Chromium clips after page 1. */
+  @page { size: A4; margin: 0; }
+
   html, body {
     margin: 0 !important;
     padding: 0 !important;
     height: auto !important;
     min-height: 0 !important;
     overflow: visible !important;
-    background: white !important;
+    background: #ffffff !important;
   }
 
+  /* Fallback for any engine without :has(): at least hide the app visually. */
   body * { visibility: hidden; }
   .print-area, .print-area * { visibility: visible; }
+
+  /* 1. Take everything that is not part of a sheet out of the layout. */
+  body *:not(:has(.print-area)):not(.print-area):not(.print-area *) {
+    display: none !important;
+  }
+
+  /* 2. Flatten the sheet's ancestors (app shell, overlay, scroll containers) so that the
+        screen layout — fixed/absolute, overflow, padding, flex, heights — cannot offset,
+        clip or repeat the sheet. */
+  body *:has(.print-area):not(.print-area) {
+    display: block !important;
+    position: static !important;
+    inset: auto !important;
+    float: none !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    overflow: visible !important;
+    transform: none !important;
+    filter: none !important;
+    backdrop-filter: none !important;
+    background: none !important;
+    box-shadow: none !important;
+    opacity: 1 !important;
+  }
+
   .no-print, .no-print * { display: none !important; }
 
-  /* Default: single print-area gets pinned to the page */
-  .print-area { background: white !important; color: #0f172a !important; }
-
-  /* Lift the print overlay OUT of normal flow with position: absolute pinned to
-     the top-left of the page. Sidebar / TopBar / current page content above
-     the overlay in the DOM still occupy layout space (visibility:hidden keeps
-     boxes intact), so leaving .print-overlay as a static block pushes the
-     actual sheets down and we get blank leading pages. Absolute fixes that. */
-  .print-overlay {
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: auto !important;
-    bottom: auto !important;
-    width: 100% !important;
-    height: auto !important;
-    max-height: none !important;
-    overflow: visible !important;
-    background: white !important;
-    box-shadow: none !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    display: block !important;
-    transform: none !important;
-  }
-  /* Direct children: flatten flex wrappers, reset overflow/position so each
-     .print-page sits in normal block flow. EXCLUDE .no-print so the preview
-     banner and button bar stay hidden via .no-print { display:none }. */
-  .print-overlay > *:not(.no-print) {
+  /* 3. The sheet. NEVER force a full-page min-height in print: a 297mm box plus any
+        sub-pixel rounding is a blank second sheet. (On screen the min-height still makes
+        it look like paper.) */
+  .print-area {
     position: static !important;
-    overflow: visible !important;
-    height: auto !important;
-    max-height: none !important;
-    inset: auto !important;
-    transform: none !important;
-    background: white !important;
+    margin: 0 auto !important;
+    min-height: 0 !important;
     box-shadow: none !important;
-    display: block !important;
-    gap: 0 !important;
-    padding: 0 !important;
-    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
+  /* Long tables: don't split a row across sheets, repeat the header on the next one. */
+  .print-area tr, .print-area img { break-inside: avoid; page-break-inside: avoid; }
+  .print-area thead { display: table-header-group; }
+  .print-area tfoot { display: table-footer-group; }
 
-  /* Multi-page: each .print-page is a full A4 sheet, break after.
+  /* Multi-page slips: each .print-page is one full A4 sheet with a break after it.
      IMPORTANT: do NOT override display here — the <Page> component's inline
-     display:flex / flex-direction:column drives PageOne/PageTwo's flex:1
-     grow behavior. Forcing block kills the layout and the page renders blank. */
+     display:flex / flex-direction:column drives PageOne/PageTwo's flex:1 grow. */
   .print-page {
     width: 210mm !important;
     height: 297mm !important;
@@ -326,7 +348,4 @@ html.dark :where(.paper, .print-area) :where(.bg-red-50) { background-color: #fe
     page-break-after: auto !important;
     break-after: auto !important;
   }
-
-  /* Use @page with zero margin since each .print-page already has internal padding */
-  @page { size: A4; margin: 0; }
 }

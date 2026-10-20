@@ -13,6 +13,8 @@
 // which the hub gates internally.
 export const ROUTE_MODULE: Record<string, string> = {
   '/lab': 'lab',
+  // Radiology is part of the Laboratory add-on — same licence, so no clinic's existing key changes.
+  '/radiology': 'lab',
   '/pharmacy': 'pharmacy',
   '/ipd': 'ipd',
   '/discharge-summary': 'ipd',

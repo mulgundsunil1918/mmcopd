@@ -155,6 +155,7 @@ const CHARGE_CATEGORIES = [
   { value: 'nursing', label: 'Nursing', colour: '#0d9488' },
   { value: 'procedure', label: 'Procedure', colour: '#db2777' },
   { value: 'lab', label: 'Laboratory', colour: '#d97706' },
+  { value: 'radiology', label: 'Radiology', colour: '#0891b2' },
   { value: 'pharmacy', label: 'Pharmacy', colour: '#059669' },
   { value: 'other', label: 'Other', colour: '#64748b' },
 ];

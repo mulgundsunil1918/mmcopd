@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatINR } from '../lib/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FileText, Printer, Save, Send, Plus, Trash2, FlaskConical, Sparkles, X } from 'lucide-react';
+import { FileText, Printer, Save, Send, Plus, Trash2, FlaskConical, ScanLine, Sparkles, X } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
 import { OpdSlipFor } from './OpdSlipFor';
 import { Modal } from './Modal';
+import { RadiologyTestPicker, pickedSummary } from './radiology/RadiologyTestPicker';
 import { RequestAdmissionButton } from './ipd/AdmissionRequests';
 import { PedsGrowthField } from './peds/PedsGrowthField';
 import { PedsVaccineInline } from './peds/PedsVaccineInline';
@@ -35,6 +36,7 @@ export function ConsultationPanel({
   const toast = useToast();
   const [showSlip, setShowSlip] = useState(false);
   const [labPickerOpen, setLabPickerOpen] = useState(false);
+  const [radPickerOpen, setRadPickerOpen] = useState(false);
   const [tplPickerOpen, setTplPickerOpen] = useState(false);
 
   const { data: existing } = useQuery({
@@ -59,6 +61,15 @@ export function ConsultationPanel({
   const relatedLabOrders = useMemo(
     () => labOrders.filter((o) => o.appointment_id === appointment.id),
     [labOrders, appointment.id]
+  );
+  // Scans (X-Ray, ultrasound, CT, MRI) ordered for this visit — a separate department from the lab.
+  const { data: radOrders = [] } = useQuery({
+    queryKey: ['radiology-orders-patient', appointment.patient_id, appointment.id],
+    queryFn: () => window.electronAPI.radiology.listOrders({ patient_id: appointment.patient_id }),
+  });
+  const relatedRadOrders = useMemo(
+    () => radOrders.filter((o) => o.appointment_id === appointment.id),
+    [radOrders, appointment.id]
   );
 
   const [history, setHistory] = useState('');
@@ -467,6 +478,50 @@ export function ConsultationPanel({
         )}
       </div>
 
+      {/* Radiology Orders — X-Ray / ultrasound / CT / MRI go to the Radiology department */}
+      <div className="mt-5 pt-5 border-t border-gray-200 dark:border-slate-700">
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-2">
+            <ScanLine className="w-4 h-4 text-sky-500" /> Radiology Orders
+          </h4>
+          <button className="btn-secondary text-xs" onClick={() => setRadPickerOpen(true)}>
+            <Plus className="w-3.5 h-3.5" /> Order Scans
+          </button>
+        </div>
+        {relatedRadOrders.length === 0 ? (
+          <div className="text-xs text-gray-500 dark:text-slate-400">No scans ordered yet.</div>
+        ) : (
+          <ul className="space-y-1">
+            {relatedRadOrders.map((o) => {
+              const names = (o.test_names || '').split('\u001f').filter(Boolean);
+              return (
+                <li key={o.id} className="flex items-center justify-between gap-3 text-xs border border-gray-200 dark:border-slate-700 rounded-lg px-3 py-2">
+                  <span className="min-w-0">
+                    <span className="font-mono text-gray-700 dark:text-slate-200">{o.order_number}</span>
+                    <span className="text-gray-500 dark:text-slate-400"> · {names[0]}{names.length > 1 ? ` +${names.length - 1} more` : ''}</span>
+                  </span>
+                  <span className="text-gray-500 dark:text-slate-400 whitespace-nowrap">{o.status === 'done' ? 'scan done' : o.status}</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      {radPickerOpen && (
+        <RadiologyOrderPicker
+          appointment={appointment}
+          onClose={() => setRadPickerOpen(false)}
+          onCreated={() => {
+            qc.invalidateQueries({ queryKey: ['radiology-orders-patient', appointment.patient_id, appointment.id] });
+            qc.invalidateQueries({ queryKey: ['radiology-orders'] });
+            qc.invalidateQueries({ queryKey: ['bills'] });
+            setRadPickerOpen(false);
+            toast('Radiology order sent to the Radiology desk');
+          }}
+        />
+      )}
+
       {labPickerOpen && (
         <LabOrderPicker
           appointment={appointment}
@@ -664,6 +719,76 @@ function LabOrderPicker({
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
           <button className="btn-primary" onClick={() => create.mutate()} disabled={selectedCount === 0 || create.isPending}>
             {create.isPending ? 'Creating…' : `Create Order (${selectedCount})`}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/** The doctor orders scans for this visit; the order lands on the Radiology desk and raises its bill. */
+function RadiologyOrderPicker({
+  appointment, onClose, onCreated,
+}: {
+  appointment: AppointmentWithJoins;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const toast = useToast();
+  const { data: tests = [] } = useQuery({
+    queryKey: ['radiology-tests', true],
+    queryFn: () => window.electronAPI.radiology.listTests(true),
+  });
+  const [selected, setSelected] = useState<Record<number, true>>({});
+  const [info, setInfo] = useState('');
+  const [busy, setBusy] = useState(false);
+  const sum = pickedSummary(tests, selected);
+
+  const create = async () => {
+    setBusy(true);
+    try {
+      const r = await window.electronAPI.radiology.createOrder({
+        appointment_id: appointment.id,
+        patient_id: appointment.patient_id,
+        doctor_id: appointment.doctor_id,
+        // The referring doctor on the booking carries across on its own (the server inherits it).
+        clinical_info: info.trim() || null,
+        items: Object.keys(selected).map((id) => ({ test_id: Number(id) })),
+      });
+      if (!r.ok) { toast(r.error, 'error'); return; }
+      onCreated();
+    } catch (e: any) {
+      toast(e?.message || 'Could not create the radiology order', 'error');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <Modal open onClose={onClose} title="Order Scans (Radiology)" size="lg">
+      <div className="space-y-3">
+        <RadiologyTestPicker
+          tests={tests}
+          selected={selected}
+          onToggle={(id, on) => setSelected((s) => { const c = { ...s }; if (on) c[id] = true; else delete c[id]; return c; })}
+          heightClass="max-h-[40vh]"
+        />
+        <div>
+          <label className="label">Clinical information <span className="text-gray-400 font-normal">(for the radiologist)</span></label>
+          <input className="input" value={info} onChange={(e) => setInfo(e.target.value)} placeholder="e.g. Fall, right wrist pain, ? fracture" />
+        </div>
+        {sum.unpriced.length > 0 && (
+          <div className="text-[11px] text-amber-700 dark:text-amber-300">
+            {sum.unpriced.length} selected scan{sum.unpriced.length === 1 ? ' has' : 's have'} no price set and will not appear on the bill.
+          </div>
+        )}
+        <div className="flex justify-end gap-2 items-center">
+          {sum.count > 0 && (
+            <span className="text-[12px] text-gray-600 dark:text-slate-300 mr-auto">
+              {sum.count} scan{sum.count === 1 ? '' : 's'} · <b>{formatINR(sum.total)}</b> <span className="text-gray-400">(auto-billed, unpaid)</span>
+            </span>
+          )}
+          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" onClick={create} disabled={sum.count === 0 || busy}>
+            {busy ? 'Creating…' : `Send to Radiology (${sum.count})`}
           </button>
         </div>
       </div>

@@ -1145,7 +1145,7 @@ export function registerIpdBillingIpc() {
         return fail('Enter a patient name, or pick a registered patient.');
       }
 
-      const billType = ['opd_consult', 'pharmacy', 'lab', 'custom', 'misc'].includes(input?.bill_type) ? input.bill_type : 'custom';
+      const billType = ['opd_consult', 'pharmacy', 'lab', 'radiology', 'custom', 'misc'].includes(input?.bill_type) ? input.bill_type : 'custom';
       const s = getAllSettings(d);
 
       let billId = 0;

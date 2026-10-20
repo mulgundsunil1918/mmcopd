@@ -7,6 +7,7 @@ import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
 import { OpdSlipFor } from '../components/OpdSlipFor';
+import { BookingDoneDialog } from '../components/BookingDoneDialog';
 import { colorForDoctor } from '../lib/doctor-colors';
 import { useToast } from '../hooks/useToast';
 import { useKeyboardShortcut } from '../hooks/useKeyboardShortcut';
@@ -42,6 +43,8 @@ export function Appointments() {
   const [searchQ, setSearchQ] = useState('');
   const [bookOpen, setBookOpen] = useState(false);
   const [printAppt, setPrintAppt] = useState<AppointmentWithJoins | null>(null);
+  // Just booked: offer the consultation paper AND the consultation bill (see BookingDoneDialog).
+  const [booked, setBooked] = useState<{ appt: AppointmentWithJoins; bill: any | null } | null>(null);
   const [sortOrder, setSortOrder] = useState<'oldest_first' | 'newest_first' | null>(null);
   const [consultantView, setConsultantView] = useState(false);
   const toast = useToast();
@@ -443,16 +446,17 @@ export function Appointments() {
         doctors={doctors}
         defaultDate={date}
         preselectedPatientId={preselectedPatient ? Number(preselectedPatient) : undefined}
-        onCreated={(created) => {
+        onCreated={(created, bill) => {
           qc.invalidateQueries({ queryKey: ['appointments'] });
           qc.invalidateQueries({ queryKey: ['stats'] });
           qc.invalidateQueries({ queryKey: ['bills'] });
-          toast('Booked & payment recorded. Opening slip…');
+          toast('Booked & payment recorded.');
           setBookOpen(false);
-          setPrintAppt(created);
+          setBooked({ appt: created, bill });
         }}
       />
 
+      {booked && <BookingDoneDialog appt={booked.appt} bill={booked.bill} onClose={() => setBooked(null)} />}
       {printAppt && <OpdSlipFor appointment={printAppt} onClose={() => setPrintAppt(null)} />}
     </div>
   );
@@ -502,7 +506,7 @@ function BookAppointmentModal({
   doctors: Doctor[];
   defaultDate: string;
   preselectedPatientId?: number;
-  onCreated: (appt: AppointmentWithJoins) => void;
+  onCreated: (appt: AppointmentWithJoins, bill: any | null) => void;
 }) {
   const [patientQuery, setPatientQuery] = useState('');
   const [patient, setPatient] = useState<Patient | null>(null);
@@ -663,7 +667,7 @@ function BookAppointmentModal({
       if (includeRegFee && regFeeAmount > 0) {
         items.push({ description: 'Patient Registration Fee', qty: 1, rate: regFeeAmount, amount: regFeeAmount });
       }
-      await window.electronAPI.bills.create({
+      const bill = await window.electronAPI.bills.create({
         appointment_id: appt.id,
         patient_id: patient.id,
         items,
@@ -677,7 +681,7 @@ function BookAppointmentModal({
         marks_registration_fee_paid: includeRegFee ? 1 : 0,
       });
 
-      onCreated(appt);
+      onCreated(appt, bill ?? null);
     } catch (e: any) {
       toast(e.message || 'Booking failed', 'error');
     }

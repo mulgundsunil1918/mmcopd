@@ -14,7 +14,7 @@
 import { HelpTip } from './HelpTip';
 
 type PageKey =
-  | 'reception' | 'appointments' | 'pharmacy' | 'lab' | 'ipd'
+  | 'reception' | 'appointments' | 'pharmacy' | 'lab' | 'radiology' | 'ipd'
   | 'billing' | 'services' | 'accounts' | 'analytics' | 'communication';
 
 const HELP: Record<PageKey, { title: string; body: React.ReactNode }> = {
@@ -51,6 +51,15 @@ const HELP: Record<PageKey, { title: string; body: React.ReactNode }> = {
       <>
         <p>Investigations, from request to report. Orders raised by a doctor appear here on their own — nothing needs to be sent across.</p>
         <p>Collect the sample, enter results, print the report. A bill is raised automatically from your test prices, so a test priced ₹0 is done but never charged for.</p>
+      </>
+    ),
+  },
+  radiology: {
+    title: 'Radiology',
+    body: (
+      <>
+        <p>X-Ray, ultrasound, CT and MRI, from request to written report. Scans a doctor orders in a consultation appear here by themselves; walk-ins are raised with <b>New Radiology Request</b>.</p>
+        <p>A bill is raised automatically from your scan prices — take payment right here, print the bill, and print the report on your letterhead once the findings and impression are written. Set your prices under <b>Catalogue &amp; Prices</b>; a scan left at ₹0 is done but never charged for.</p>
       </>
     ),
   },
