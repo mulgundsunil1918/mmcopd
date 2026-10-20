@@ -4,6 +4,7 @@ import { CloudUpload, Power, FolderOpen, AlertTriangle, CheckCircle2, HardDriveD
 import { Modal } from './Modal';
 import { useToast } from '../hooks/useToast';
 import { fmtDateTime } from '../lib/utils';
+import { localISO } from '../lib/localDate';
 
 /** Shape of the verified-backup receipt returned by backup.now() / nowTo(). */
 type BackupReceipt = {
@@ -66,8 +67,8 @@ export function BackupAndClose() {
   const lastAgeHours = status?.lastBackupAt
     ? (Date.now() - new Date(status.lastBackupAt).getTime()) / (1000 * 60 * 60)
     : Infinity;
-  const today = new Date().toISOString().slice(0, 10);
-  const backedUpToday = status?.lastBackupAt?.slice(0, 10) === today;
+  const today = localISO();
+  const backedUpToday = !!status?.lastBackupAt && localISO(new Date(status.lastBackupAt)) === today;
 
   const successMessage = (label: string, attachments: number) => {
     const extra = attachments > 0 ? ` + ${attachments} EMR attachment${attachments === 1 ? '' : 's'}` : '';

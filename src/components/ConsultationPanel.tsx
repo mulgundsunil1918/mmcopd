@@ -11,6 +11,7 @@ import { PedsGrowthField } from './peds/PedsGrowthField';
 import { PedsVaccineInline } from './peds/PedsVaccineInline';
 import { ageInDays } from '../lib/peds/growth';
 import type { AppointmentWithJoins, Consultation, Doctor, PrescriptionItem, Vitals } from '../types';
+import { localISO } from '../lib/localDate';
 
 type RxRow = {
   /** When the receptionist later dispenses this Rx, knowing which inventory
@@ -110,7 +111,7 @@ export function ConsultationPanel({
     if (tpl.fields.advice) setAdvice((prev) => prev ? prev + '\n' + tpl.fields.advice : tpl.fields.advice);
     if (tpl.follow_up_days) {
       const d = new Date(); d.setDate(d.getDate() + tpl.follow_up_days);
-      setFollowUp(d.toISOString().slice(0, 10));
+      setFollowUp(localISO(d));
     }
     // Extra section keys
     const extra: Record<string, string> = {};

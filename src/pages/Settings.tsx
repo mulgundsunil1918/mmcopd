@@ -73,6 +73,7 @@ import { INDIAN_STATES } from '../lib/india';
 import { KARNATAKA_PLACES, ALL_NEARBY_PLACES } from '../lib/places';
 import { DOCTOR_COLOR_OPTIONS, colorForDoctor } from '../lib/doctor-colors';
 import type { AppMode, Doctor, ReferringDoctor, Settings } from '../types';
+import { localISO } from '../lib/localDate';
 
 type SettingsTab = 'clinic' | 'doctors' | 'workflow' | 'billing' | 'peds' | 'patients' | 'system' | 'multisystem' | 'subscription';
 
@@ -1465,7 +1466,7 @@ function ScaledSheet({ children, heightMm }: { children: React.ReactNode; height
 }
 
 function LetterheadPreview({ settings, view }: { settings: Settings; view: 'bill' | 'opd' }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localISO();
   const sampleAppt: any = {
     id: 1, token_number: 12, appointment_date: today, appointment_time: '10:30',
     patient_name: 'Sample Patient', patient_uhid: 'PT-0001',

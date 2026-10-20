@@ -9,9 +9,13 @@ import {
 } from 'lucide-react';
 import { IpdAnalyticsTab } from '../components/analytics/IpdAnalyticsTab';
 import { DonutChart, VBarChart, TrendChart } from '../components/analytics/Charts';
+import { Kpi, SectionTitle } from '../components/analytics/Kpi';
+import { PharmacyChecksSection, PharmacyProfitSection, PharmacyValuationSection, SupplierSection } from '../components/analytics/PharmacyProfit';
+import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { cn, fmt12h, fmtDate, fmtDateTime, formatINR, todayISO } from '../lib/utils';
 import { colorForDoctor } from '../lib/doctor-colors';
 import type { Doctor } from '../types';
+import { localISO } from '../lib/localDate';
 
 type Tab = 'overview' | 'finance' | 'modules' | 'ipd' | 'demographics' | 'origin' | 'pharmacy' | 'services' | 'operations';
 
@@ -50,6 +54,8 @@ export function Analytics() {
           <button className="btn-ghost text-xs" onClick={() => { setFrom(daysAgo(7)); setTo(todayISO()); }}>7d</button>
           <button className="btn-ghost text-xs" onClick={() => { setFrom(daysAgo(30)); setTo(todayISO()); }}>30d</button>
           <button className="btn-ghost text-xs" onClick={() => { setFrom(daysAgo(90)); setTo(todayISO()); }}>90d</button>
+          <button className="btn-ghost text-xs" title="From the 1st of this month to today" onClick={() => { setFrom(format(startOfMonth(new Date()), 'yyyy-MM-dd')); setTo(todayISO()); }}>This month</button>
+          <button className="btn-ghost text-xs" title="The whole of last month" onClick={() => { const m = subMonths(new Date(), 1); setFrom(format(startOfMonth(m), 'yyyy-MM-dd')); setTo(format(endOfMonth(m), 'yyyy-MM-dd')); }}>Last month</button>
         </div>
       </div>
 
@@ -120,7 +126,7 @@ function OverviewTab() {
     <div className="space-y-5">
       {/* Today */}
       <section>
-        <SectionTitle icon={<Calendar className="w-4 h-4" />} title="Today" subtitle={fmtDate(new Date().toISOString().slice(0, 10))} />
+        <SectionTitle icon={<Calendar className="w-4 h-4" />} title="Today" subtitle={fmtDate(localISO())} />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Kpi label="Visits today" value={ov.todayVisits} sub={`${ov.todayDone} done`} tone="blue" />
           <Kpi label="Revenue today" value={formatINR(ov.todayRevenue)} tone="emerald" />
@@ -704,16 +710,11 @@ function PharmacyTab({ from, to }: { from: string; to: string }) {
         </div>
       </section>
 
-      {/* Inventory valuation — a live snapshot of stock on hand (not date-filtered) */}
-      <section>
-        <SectionTitle icon={<Pill className="w-4 h-4 text-teal-600" />} title="Inventory on hand" subtitle="Live snapshot across all active batches" />
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Kpi label="SKUs in stock" value={p.valuation?.skus ?? 0} sub={`${Number(p.valuation?.units ?? 0).toLocaleString('en-IN')} units · ${p.lowStockCount ?? 0} low`} tone="blue" />
-          <Kpi label="Stock at cost" value={formatINR(p.valuation?.at_cost ?? 0)} sub="what you paid" tone="indigo" />
-          <Kpi label="Stock at MRP" value={formatINR(p.valuation?.at_mrp ?? 0)} sub={`margin ${formatINR((p.valuation?.at_mrp ?? 0) - (p.valuation?.at_cost ?? 0))}`} tone="emerald" />
-          <Kpi label="Expired stock" value={formatINR(p.expiredStock?.value ?? 0)} sub={`${p.expiredStock?.batches ?? 0} batch(es) · write-off`} tone="rose" />
-        </div>
-      </section>
+      {/* Realised profit on medicines already sold (reports A–H) */}
+      <PharmacyProfitSection from={from} to={to} />
+
+      {/* Stock on hand at four different prices — a snapshot, not profit already made */}
+      <PharmacyValuationSection />
 
       {/* Average basket size — units & ₹ per sale, monthly trend */}
       <section>
@@ -797,6 +798,9 @@ function PharmacyTab({ from, to }: { from: string; to: string }) {
           )}
         </div>
       </div>
+
+      <SupplierSection from={from} to={to} />
+      <PharmacyChecksSection />
     </div>
   );
 }
@@ -960,36 +964,6 @@ function BackupsBlock() {
 /* ============================================================
    SHARED PRESENTATION HELPERS
    ============================================================ */
-function SectionTitle({ icon, title, subtitle }: { icon: React.ReactNode; title: string; subtitle?: string }) {
-  return (
-    <div className="flex items-center gap-2 mb-2">
-      {icon}
-      <div className="text-sm font-bold text-gray-900 dark:text-slate-100">{title}</div>
-      {subtitle && <div className="text-[11px] text-gray-500 dark:text-slate-400">· {subtitle}</div>}
-    </div>
-  );
-}
-
-function Kpi({ label, value, sub, tone = 'blue' }: { label: string; value: string | number; sub?: string; tone?: 'blue' | 'emerald' | 'amber' | 'red' | 'violet' | 'indigo' | 'gray' | 'rose' }) {
-  const tones: Record<string, string> = {
-    blue: 'text-blue-700 bg-blue-100 dark:text-blue-300 dark:bg-blue-900/40',
-    emerald: 'text-emerald-700 bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-900/40',
-    amber: 'text-amber-700 bg-amber-100 dark:text-amber-300 dark:bg-amber-900/40',
-    red: 'text-red-700 bg-red-100 dark:text-red-300 dark:bg-red-900/40',
-    violet: 'text-violet-700 bg-violet-100 dark:text-violet-300 dark:bg-violet-900/40',
-    indigo: 'text-indigo-700 bg-indigo-100 dark:text-indigo-300 dark:bg-indigo-900/40',
-    gray: 'text-gray-600 bg-gray-100 dark:text-slate-300 dark:bg-slate-800',
-    rose: 'text-rose-700 bg-rose-100 dark:text-rose-300 dark:bg-rose-900/40',
-  };
-  return (
-    <div className="card p-3">
-      <div className={cn('inline-block px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wider font-semibold', tones[tone])}>{label}</div>
-      <div className="text-xl font-bold text-gray-900 dark:text-slate-100 mt-1.5">{value}</div>
-      {sub && <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-0.5">{sub}</div>}
-    </div>
-  );
-}
-
 function AlertTile({ label, value, href, tone }: { label: string; value: number; href: string; tone: 'red' | 'amber' | 'gray' }) {
   const tones: Record<string, string> = {
     red: 'border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-800',
@@ -1057,7 +1031,7 @@ function BarListCard({ title, rows, formatValue, full }: {
 function daysAgo(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
+  return format(d, 'yyyy-MM-dd');     // local calendar day (toISOString() is UTC — wrong before 5:30 a.m. in India)
 }
 
 /** Full Services analytics tab — date-range aware; KPIs + daily trend chart +

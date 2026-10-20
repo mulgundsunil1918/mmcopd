@@ -14,6 +14,8 @@
  *   - A bill with no taxable line is a Bill of Supply, not a Tax Invoice.
  */
 
+import { allocatePaise, fromPaise, toPaise } from '../lib/pharmacyMath';
+
 export interface BillLineInput {
   description: string;
   qty: number;
@@ -96,18 +98,20 @@ export function computeBill(inputLines: BillLineInput[], opts: BillOptions = {})
   // Never discount below zero, and never more than the bill is worth.
   const discountValue = money(Math.min(Math.max(rawDiscount, 0), subtotal));
 
-  // Proportional share of the discount per line.
-  const factor = subtotal > 0 ? (subtotal - discountValue) / subtotal : 1;
+  // Each line's share of the discount, in whole paise, adding back to EXACTLY the discount. (Scaling every line by a
+  // factor and rounding each one separately lost or gained a paisa or two on about one discounted bill in four, so the
+  // printed parts did not add up to the total.)
+  const shares = allocatePaise(toPaise(discountValue), base.map((l) => toPaise(l.amount)));
 
   let exemptTotal = 0;
   let taxableTotal = 0;
   let cgstTotal = 0;
   let sgstTotal = 0;
 
-  const lines: ComputedLine[] = base.map((l) => {
+  const lines: ComputedLine[] = base.map((l, idx) => {
     const taxable = gstEnabled && l.is_taxable === true && (l.gst_rate ?? 0) > 0;
     const gst_rate = taxable ? (l.gst_rate ?? 0) : 0;
-    const netAmount = money(l.amount * factor);
+    const netAmount = money(l.amount - fromPaise(shares[idx]));
 
     let cgst = 0;
     let sgst = 0;

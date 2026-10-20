@@ -5,8 +5,9 @@ import crypto from 'node:crypto';
 import * as XLSX from 'xlsx';
 import Database from 'better-sqlite3';
 import { getDb, closeDb } from '../db/db';
-import { nextUHID, nextBillNumber, nextIpNumber, nextVisitNumber, formatVisitId, nextLabOrderNumber, nextSaleNumber } from '../db/ids';
-import { clinicalLineTax, medicineLineTax, gstContext, splitInclusive } from './gst';
+import { nextUHID, nextBillNumber, nextIpNumber, nextVisitNumber, formatVisitId, nextLabOrderNumber } from '../db/ids';
+import { clinicalLineTax } from './gst';
+import { localISO, addDaysISO } from '../lib/localDate';
 import { LAB_CATALOG } from '../data/lab-catalog';
 import { PHARMACY_CATALOG } from '../data/pharmacy-catalog';
 import { seedSampleData } from '../db/sample-data';
@@ -74,8 +75,9 @@ import type {
   Settings,
 } from '../types';
 
+/** Today on the clinic's own clock (the PC's local day) — NOT the UTC date, which in India is yesterday until 5:30 a.m. */
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return localISO();
 }
 
 function pad(n: number, w: number) {
@@ -132,7 +134,10 @@ function verifyAdminPassword(input: string, stored: string): boolean {
 }
 
 // ── Auth rate limiter ─────────────────────────────────────────────────────────
-const authFailures = new Map<string, { count: number; blockedUntil: number }>();
+// Repeated wrong passwords/PINs slow down: free for the first two, then 10 s, 30 s, 2 min, 5 min, 15 min.
+// (The streak used to be wiped whenever the previous block had expired — and the first two "blocks" last 0 s,
+// so it was wiped on EVERY attempt and nothing was ever throttled.) A streak is only forgiven after 15 quiet minutes.
+const authFailures = new Map<string, { count: number; blockedUntil: number; last: number }>();
 
 function checkRateLimit(key: string): boolean {
   const s = authFailures.get(key);
@@ -141,9 +146,10 @@ function checkRateLimit(key: string): boolean {
 
 function recordAuthFailure(key: string) {
   const now = Date.now();
-  const s = authFailures.get(key) ?? { count: 0, blockedUntil: 0 };
-  if (now >= s.blockedUntil) s.count = 0;
+  const s = authFailures.get(key) ?? { count: 0, blockedUntil: 0, last: 0 };
+  if (now - s.last > 15 * 60_000) s.count = 0;
   s.count++;
+  s.last = now;
   const delays = [0, 0, 10_000, 30_000, 120_000, 300_000, 900_000];
   s.blockedUntil = now + (delays[Math.min(s.count, delays.length - 1)] ?? 900_000);
   authFailures.set(key, s);
@@ -220,14 +226,24 @@ export function registerIpc() {
     recordAuthFailure(key);
     return null;
   });
+  const ROLES: Role[] = ['admin', 'manager', 'receptionist', 'doctor', 'nurse', 'ward_incharge', 'lab_tech', 'radiology_tech', 'pharmacist'];
   ipcMain.handle('auth:createUser', (_e, input: { username: string; password: string; role: Role; display_name?: string; doctor_id?: number }) => {
+    if (!String(input?.username ?? '').trim()) throw new Error('Enter a username.');
+    if (String(input?.password ?? '').length < 4) throw new Error('Choose a password of at least 4 characters.');
+    if (!ROLES.includes(input?.role)) throw new Error('Choose a role for this user.');
+    // With sign-in switched on, only an administrator may create another administrator (otherwise any signed-in
+    // account could make itself one). A no-login clinic has no identity to enforce and is unaffected.
+    if (input.role === 'admin') requireRole([], 'create an administrator account');
     const db = getDb();
     const u = createUser(db, input);
     logAudit(db, actor(), 'user_created', 'users', u.id, `role=${input.role}`);
     return u;
   });
   ipcMain.handle('auth:changePassword', (_e, userId: number, newPassword: string) => {
+    if (String(newPassword ?? '').length < 4) throw new Error('Choose a password of at least 4 characters.');
     const db = getDb();
+    // Anyone may change their OWN password; changing someone else's is an administrator's job.
+    if (actor()?.id !== userId) requireRole([], "change another person's password");
     changePassword(db, userId, newPassword);
     logAudit(db, actor(), 'password_changed', 'users', userId);
     return true;
@@ -269,6 +285,7 @@ export function registerIpc() {
   });
   ipcMain.handle('auth:listUsers', () => listUsers(getDb()));
   ipcMain.handle('auth:updateUser', (_e, id: number, patch: any) => {
+    if (patch?.role === 'admin') requireRole([], 'make someone an administrator');
     const db = getDb();
     updateUser(db, id, patch);
     logAudit(db, actor(), 'user_updated', 'users', id, JSON.stringify(patch));
@@ -375,7 +392,25 @@ export function registerIpc() {
 
   // Helper — manually cascades non-FK-cascade dependents so DELETE FROM patients can succeed.
   // Ordering matters: child tables with RESTRICT FKs must be cleared before their parents.
+  /**
+   * Put dispensed units back on the shelf before their sale records are erased.
+   *
+   * Deleting a patient or a visit removes its pharmacy sales and dispensing register — the record that a unit left
+   * a batch. Nothing returned the units, so every deletion permanently shrank stock (and stock value) by whatever
+   * had been "sold" to a record that no longer exists. Erasing a sale means it never happened, so its quantities go
+   * back to the batches they came from. `where` selects the register rows (alias `dr`); `params` bind it.
+   */
+  const restoreDispensedStock = (db: any, where: string, ...params: any[]) => {
+    db.prepare(
+      `UPDATE drug_stock_batches
+          SET qty_remaining = qty_remaining + COALESCE(
+                (SELECT SUM(dr.qty) FROM dispensing_register dr WHERE dr.batch_id = drug_stock_batches.id AND (${where})), 0)
+        WHERE id IN (SELECT dr.batch_id FROM dispensing_register dr WHERE ${where})`
+    ).run(...params, ...params);
+  };
+
   const purgePatient = (db: any, id: number) => {
+    restoreDispensedStock(db, 'dr.patient_id = ? OR dr.sale_id IN (SELECT id FROM pharmacy_sales WHERE patient_id = ?)', id, id);
     // Dispensing register has RESTRICT FKs on pharmacy_sale_items / pharmacy_sales — must go first.
     // Danger Zone semantics: bulk-purging a patient erases their dispensing record alongside everything else.
     db.prepare('DELETE FROM dispensing_register WHERE patient_id = ?').run(id);
@@ -486,6 +521,7 @@ export function registerIpc() {
       .get(appointmentId) as any;
     if (!a) return { ok: false, error: 'Appointment not found' };
     const tx = db.transaction(() => {
+      restoreDispensedStock(db, 'dr.sale_id IN (SELECT id FROM pharmacy_sales WHERE appointment_id = ?)', appointmentId);
       // Dispensing register has RESTRICT FKs on pharmacy_sales/_items — must clear first.
       db.prepare('DELETE FROM dispensing_register WHERE sale_id IN (SELECT id FROM pharmacy_sales WHERE appointment_id = ?)').run(appointmentId);
       // Delete bills tied to this specific appointment (NOT NULL patient_id is fine — the bill goes away entirely)
@@ -540,7 +576,7 @@ export function registerIpc() {
   ipcMain.handle('patients:search', (_e, q: string, opts: { window?: string; sort?: string } = {}) => {
     const db = getDb();
     const like = `%${q.trim()}%`;
-    const activity = "COALESCE((SELECT MAX(appointment_date) FROM appointments WHERE patient_id=p.id), date(p.created_at))";
+    const activity = "COALESCE((SELECT MAX(appointment_date) FROM appointments WHERE patient_id=p.id), date(p.created_at, 'localtime'))";
     const ORDER: Record<string, string> = {
       recent: `${activity} DESC`,
       registered: 'p.created_at DESC',
@@ -555,7 +591,7 @@ export function registerIpc() {
       const win = opts.window || (getAllSettings(db) as any).records_list_window || 'month';
       const DAYS: Record<string, number> = { week: 7, month: 31, quarter: 92 };
       const days = DAYS[win];   // 'all' → undefined → no date restriction
-      const windowClause = days ? `WHERE ${activity} >= date('now', '-${days} days')` : '';
+      const windowClause = days ? `WHERE ${activity} >= date('now', 'localtime', '-${days} days')` : '';
       return db
         .prepare(
           `SELECT p.*, (SELECT MAX(appointment_date) FROM appointments WHERE patient_id=p.id) as last_visit
@@ -611,7 +647,16 @@ export function registerIpc() {
     return { rows, total };
   });
 
+  /** The fields a patient record cannot exist without — named in plain words when one is missing. */
+  function requirePatientFields(input: any) {
+    if (!String(input?.first_name ?? '').trim()) throw new Error("Enter the patient's first name.");
+    if (!String(input?.phone ?? '').trim()) throw new Error("Enter the patient's phone number.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(input?.dob ?? ''))) throw new Error("Enter the patient's date of birth.");
+    if (!['M', 'F', 'Other'].includes(input?.gender)) throw new Error("Choose the patient's gender.");
+  }
+
   ipcMain.handle('patients:create', (_e, input: PatientInput) => {
+    requirePatientFields(input);
     const db = getDb();
     const uhid = generateUHID();
     const stmt = db.prepare(
@@ -637,7 +682,9 @@ export function registerIpc() {
   });
 
   ipcMain.handle('patients:update', (_e, id: number, input: PatientInput) => {
+    requirePatientFields(input);
     const db = getDb();
+    if (!db.prepare('SELECT id FROM patients WHERE id=?').get(id)) throw new Error('That patient was not found.');
     db.prepare(
       `UPDATE patients SET first_name=?, last_name=?, dob=?, gender=?, phone=?, email=?, address=?, blood_group=?, place=?, district=?, state=?, profession=? WHERE id=?`
     ).run(
@@ -696,6 +743,7 @@ export function registerIpc() {
   });
 
   ipcMain.handle('doctors:create', (_e, d: Partial<Doctor>) => {
+    if (!String(d?.name ?? '').trim()) throw new Error("Enter the doctor's name.");
     const db = getDb();
     const info = db
       .prepare(
@@ -1035,66 +1083,84 @@ export function registerIpc() {
       }
     ) => {
       const db = getDb();
+      if (!Array.isArray(payload.items) || payload.items.length === 0) throw new Error('Add at least one line to the bill before saving.');
       const subtotal = payload.items.reduce((s, it) => s + Number(it.amount || 0), 0);
       const discountValue =
         payload.discount_type === 'percent'
           ? (subtotal * payload.discount) / 100
           : payload.discount;
       const total = Math.max(0, subtotal - discountValue);
-      const billNumber = generateBillNumber();
-      const info = db
-        .prepare(
-          `INSERT INTO bills (bill_number, appointment_id, patient_id, items_json, subtotal, discount, discount_type, total, payment_mode, paid_at, amount_paid, status, is_free_followup, is_relaxed_followup, followup_parent_appt_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?)`
-        )
-        .run(
-          billNumber,
-          payload.appointment_id,
-          payload.patient_id,
-          JSON.stringify(payload.items),
-          subtotal,
-          payload.discount,
-          payload.discount_type,
-          total,
-          payload.payment_mode,
-          new Date().toISOString(),
-          // Counter bills are settled the moment they are raised (paid_at is
-          // stamped right here) — but amount_paid was left at 0, so analytics
-          // reported every OPD bill as money still owed.
-          total,
-          payload.is_free_followup ? 1 : 0,
-          payload.is_relaxed_followup ? 1 : 0,
-          payload.followup_parent_appt_id ?? null
-        );
+      const itemsJson = JSON.stringify(payload.items);
 
-      // Real line rows as well as items_json — see the note in misc:create.
-      // Without these, previewing this bill re-totals it from an empty table.
-      {
-        const newBillId = Number(info.lastInsertRowid);
-        const insLine = db.prepare(
-          `INSERT INTO bill_items (bill_id, description, qty, rate, amount, is_taxable, gst_rate, hsn_sac, source)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'opd')`
-        );
-        // Consultation and procedures follow the clinical rule (exempt unless a
-        // charge head says otherwise), so a GST-registered clinic's OPD bill now
-        // prints as a proper BILL OF SUPPLY / TAX INVOICE instead of a plain slip.
-        const opdTax = clinicalLineTax(db, null);
-        for (const it of payload.items) {
-          const qty = Number(it.qty ?? 1) || 1;
-          const amount = Number(it.amount ?? 0) || 0;
-          insLine.run(newBillId, String(it.description ?? 'Item'), qty,
-                      Number(it.rate ?? (qty ? amount / qty : amount)) || 0, amount,
-                      opdTax.is_taxable ? 1 : 0, opdTax.gst_rate, opdTax.hsn_sac);
-        }
-      }
+      // The same charge sent twice (a double-click, or a retry after a reply was lost) must be ONE bill.
+      // Two bills would count the consultation twice in every report and ask the patient to pay twice. Anything
+      // identical — same patient, visit, lines, discount and payment mode — within the last two minutes is the
+      // same request; a genuine second charge later (or with different lines) is unaffected.
+      const dupe = db.prepare(
+        `SELECT id FROM bills
+          WHERE patient_id = ? AND appointment_id IS ? AND items_json = ? AND discount = ? AND payment_mode = ?
+            AND COALESCE(status,'') <> 'cancelled' AND created_at >= datetime('now', '-120 seconds')
+          ORDER BY id DESC LIMIT 1`
+      ).get(payload.patient_id, payload.appointment_id ?? null, itemsJson, payload.discount, payload.payment_mode) as { id: number } | undefined;
 
-      if (payload.marks_registration_fee_paid) {
-        db.prepare("UPDATE patients SET registration_fee_paid=1, registration_fee_paid_at=date('now') WHERE id=?")
-          .run(payload.patient_id);
-      }
+      let billId = dupe ? dupe.id : 0;
+      if (!dupe) {
+        const billNumber = generateBillNumber();
+        // Bill, its lines, the registration flag and the appointment status move together or not at all.
+        db.transaction(() => {
+          const info = db
+            .prepare(
+              `INSERT INTO bills (bill_number, appointment_id, patient_id, items_json, subtotal, discount, discount_type, total, payment_mode, paid_at, amount_paid, status, is_free_followup, is_relaxed_followup, followup_parent_appt_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?)`
+            )
+            .run(
+              billNumber,
+              payload.appointment_id,
+              payload.patient_id,
+              itemsJson,
+              subtotal,
+              payload.discount,
+              payload.discount_type,
+              total,
+              payload.payment_mode,
+              new Date().toISOString(),
+              // Counter bills are settled the moment they are raised (paid_at is
+              // stamped right here) — but amount_paid was left at 0, so analytics
+              // reported every OPD bill as money still owed.
+              total,
+              payload.is_free_followup ? 1 : 0,
+              payload.is_relaxed_followup ? 1 : 0,
+              payload.followup_parent_appt_id ?? null
+            );
+          billId = Number(info.lastInsertRowid);
 
-      if (payload.appointment_id) {
-        db.prepare("UPDATE appointments SET status='Done' WHERE id=?").run(payload.appointment_id);
+          // Real line rows as well as items_json — see the note in misc:create.
+          // Without these, previewing this bill re-totals it from an empty table.
+          const insLine = db.prepare(
+            `INSERT INTO bill_items (bill_id, description, qty, rate, amount, is_taxable, gst_rate, hsn_sac, source)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'opd')`
+          );
+          // Consultation and procedures follow the clinical rule (exempt unless a
+          // charge head says otherwise), so a GST-registered clinic's OPD bill now
+          // prints as a proper BILL OF SUPPLY / TAX INVOICE instead of a plain slip.
+          const opdTax = clinicalLineTax(db, null);
+          for (const it of payload.items) {
+            const qty = Number(it.qty ?? 1) || 1;
+            const amount = Number(it.amount ?? 0) || 0;
+            insLine.run(billId, String(it.description ?? 'Item'), qty,
+                        Number(it.rate ?? (qty ? amount / qty : amount)) || 0, amount,
+                        opdTax.is_taxable ? 1 : 0, opdTax.gst_rate, opdTax.hsn_sac);
+          }
+
+          if (payload.marks_registration_fee_paid) {
+            db.prepare("UPDATE patients SET registration_fee_paid=1, registration_fee_paid_at=date('now', 'localtime') WHERE id=?")
+              .run(payload.patient_id);
+          }
+
+          if (payload.appointment_id) {
+            db.prepare("UPDATE appointments SET status='Done' WHERE id=?").run(payload.appointment_id);
+          }
+        })();
       }
 
       const billResult = db
@@ -1110,7 +1176,7 @@ export function registerIpc() {
            LEFT JOIN doctors d ON d.id=a.doctor_id
            WHERE b.id=?`
         )
-        .get(info.lastInsertRowid) as any;
+        .get(billId) as any;
 
       return billResult;
     }
@@ -1126,11 +1192,11 @@ export function registerIpc() {
       params.push(like, like);
     }
     if (filter?.from) {
-      conditions.push('date(b.created_at) >= ?');
+      conditions.push("date(b.created_at, 'localtime') >= ?");
       params.push(filter.from);
     }
     if (filter?.to) {
-      conditions.push('date(b.created_at) <= ?');
+      conditions.push("date(b.created_at, 'localtime') <= ?");
       params.push(filter.to);
     }
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
@@ -1183,8 +1249,23 @@ export function registerIpc() {
     if (!payload.patient_id) throw new Error('Patient is required');
     if (!payload.description?.trim()) throw new Error('Service description is required');
     if (!(payload.amount >= 0)) throw new Error('Amount must be ≥ 0');
-    const billNumber = generateBillNumber();
     const items = [{ description: payload.description.trim(), qty: 1, rate: payload.amount, amount: payload.amount }];
+    // The same service charged twice (double-click / retry) is ONE bill: identical patient, service and amount in the last two minutes.
+    {
+      const dup = db.prepare(
+        `SELECT b.id FROM bills b
+          WHERE b.patient_id = ? AND b.bill_kind = 'misc' AND b.items_json = ? AND b.total = ?
+            AND COALESCE(b.status,'') <> 'cancelled' AND b.created_at >= datetime('now', '-120 seconds')
+          ORDER BY b.id DESC LIMIT 1`
+      ).get(payload.patient_id, JSON.stringify(items), payload.amount) as { id: number } | undefined;
+      if (dup) {
+        return db.prepare(
+          `SELECT b.*, (p.first_name || ' ' || p.last_name) as patient_name, p.uhid as patient_uhid, d.name as doctor_name
+             FROM bills b JOIN patients p ON p.id=b.patient_id LEFT JOIN doctors d ON d.id=b.doctor_id WHERE b.id=?`
+        ).get(dup.id);
+      }
+    }
+    const billNumber = generateBillNumber();
     const info = db
       .prepare(
         `INSERT INTO bills
@@ -1243,8 +1324,8 @@ export function registerIpc() {
     const db = getDb();
     const conds = ["b.bill_kind='misc'"];
     const params: any[] = [];
-    if (filter.from) { conds.push('date(b.created_at) >= ?'); params.push(filter.from); }
-    if (filter.to)   { conds.push('date(b.created_at) <= ?'); params.push(filter.to); }
+    if (filter.from) { conds.push("date(b.created_at, 'localtime') >= ?"); params.push(filter.from); }
+    if (filter.to)   { conds.push("date(b.created_at, 'localtime') <= ?"); params.push(filter.to); }
     if (filter.doctor_id) { conds.push('b.doctor_id = ?'); params.push(filter.doctor_id); }
     if (filter.q) {
       conds.push("((p.first_name || ' ' || p.last_name) LIKE ? OR p.uhid LIKE ? OR b.notes LIKE ?)");
@@ -1270,15 +1351,15 @@ export function registerIpc() {
   // the requested range with count + revenue. Used to draw the column chart.
   ipcMain.handle('misc:trend', (_e, filter: { from?: string; to?: string } = {}) => {
     const db = getDb();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localISO();
     const from = filter.from || today.slice(0, 8) + '01';
     const to = filter.to || today;
     return db.prepare(`
-      SELECT date(b.created_at) as day,
+      SELECT date(b.created_at, 'localtime') as day,
              COUNT(*) as count,
              COALESCE(SUM(b.total),0) as revenue
       FROM bills b
-      WHERE b.bill_kind='misc' AND date(b.created_at) BETWEEN ? AND ?
+      WHERE b.bill_kind='misc' AND date(b.created_at, 'localtime') BETWEEN ? AND ?
       GROUP BY day
       ORDER BY day ASC
     `).all(from, to);
@@ -1286,19 +1367,19 @@ export function registerIpc() {
 
   ipcMain.handle('misc:summary', (_e, filter: { from?: string; to?: string } = {}) => {
     const db = getDb();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localISO();
     const from = filter.from || today.slice(0, 8) + '01';
     const to = filter.to || today;
     const sc = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { c: number }).c;
     const ss = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { t: number }).t || 0;
-    const count = sc(`SELECT COUNT(*) as c FROM bills WHERE bill_kind='misc' AND date(created_at) BETWEEN ? AND ?`, from, to);
-    const revenue = ss(`SELECT COALESCE(SUM(total),0) as t FROM bills WHERE bill_kind='misc' AND date(created_at) BETWEEN ? AND ?`, from, to);
+    const count = sc(`SELECT COUNT(*) as c FROM bills WHERE bill_kind='misc' AND date(created_at, 'localtime') BETWEEN ? AND ?`, from, to);
+    const revenue = ss(`SELECT COALESCE(SUM(total),0) as t FROM bills WHERE bill_kind='misc' AND date(created_at, 'localtime') BETWEEN ? AND ?`, from, to);
     const topServices = db.prepare(`
       SELECT json_extract(j.value, '$.description') as service,
              COUNT(*) as count,
              COALESCE(SUM(json_extract(j.value, '$.amount')), 0) as revenue
       FROM bills b, json_each(b.items_json) j
-      WHERE b.bill_kind='misc' AND date(b.created_at) BETWEEN ? AND ?
+      WHERE b.bill_kind='misc' AND date(b.created_at, 'localtime') BETWEEN ? AND ?
       GROUP BY service
       ORDER BY revenue DESC
       LIMIT 10
@@ -1309,7 +1390,7 @@ export function registerIpc() {
              COALESCE(SUM(b.total),0) as revenue
       FROM bills b
       LEFT JOIN doctors d ON d.id = b.doctor_id
-      WHERE b.bill_kind='misc' AND date(b.created_at) BETWEEN ? AND ?
+      WHERE b.bill_kind='misc' AND date(b.created_at, 'localtime') BETWEEN ? AND ?
       GROUP BY d.id
       ORDER BY revenue DESC
     `).all(from, to);
@@ -1318,11 +1399,9 @@ export function registerIpc() {
 
   // ===== Free follow-up policy =====
   // Pure function: given an ISO date string + N days, return ISO date string N days later.
-  const addDays = (iso: string, days: number) => {
-    const d = new Date(iso + 'T00:00:00');
-    d.setDate(d.getDate() + days);
-    return d.toISOString().slice(0, 10);
-  };
+  // (Calendar arithmetic, not Date-in-local-midnight → toISOString(): that is the UTC date, which in India is
+  // always the day BEFORE, so every follow-up window used to end a day early.)
+  const addDays = (iso: string, days: number) => addDaysISO(iso, days);
 
   // Booking-time check: can this patient get the next consultation free with this doctor?
   // The check date defaults to today, but pre-bookings can pass a future appointment
@@ -1337,7 +1416,7 @@ export function registerIpc() {
     }
     const today = (checkDate && /^\d{4}-\d{2}-\d{2}$/.test(checkDate))
       ? checkDate
-      : new Date().toISOString().slice(0, 10);
+      : localISO();
     // Most recent PAID anchor visit for this patient + same doctor.
     const paid = db.prepare(`
       SELECT a.id as appt_id, a.appointment_date
@@ -1750,7 +1829,7 @@ export function registerIpc() {
     const insM = db.prepare(`INSERT INTO drug_master (name, generic_name, form, strength, pack_size, schedule, gst_rate, default_mrp, low_stock_threshold, is_active)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 10, 1)`);
     const insB = db.prepare(`INSERT INTO drug_stock_batches (drug_master_id, batch_no, expiry, qty_received, qty_remaining, purchase_price, mrp, received_at, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, date('now'), 1)`);
+      VALUES (?, ?, ?, ?, ?, ?, ?, date('now', 'localtime'), 1)`);
     const exp = new Date(); exp.setMonth(exp.getMonth() + 18);
     const expiryStr = exp.toISOString().slice(0, 10);
     let added = 0, n = 0;
@@ -1784,6 +1863,23 @@ export function registerIpc() {
     }
   });
 
+  /**
+   * Write a lab bill's real line rows (and the legacy items_json) from the order's priced tests — the same
+   * thing radiology does. Lab bills used to carry items_json only, so printing one showed an empty table
+   * until the app was next restarted, and a test added later was silently dropped from the total the next
+   * time the bill was previewed. Replaces the lines the lab order owns (and ones migrated from items_json).
+   */
+  function writeLabBillLines(db: any, billId: number, lines: { id: number | null; description: string; rate: number }[]): string {
+    const tax = clinicalLineTax(db, null);
+    db.prepare("DELETE FROM bill_items WHERE bill_id=? AND source IN ('lab', 'migrated')").run(billId);
+    const ins = db.prepare(
+      `INSERT INTO bill_items (bill_id, description, qty, rate, amount, is_taxable, gst_rate, hsn_sac, source, source_ref_id)
+       VALUES (?, ?, 1, ?, ?, ?, ?, ?, 'lab', ?)`
+    );
+    for (const l of lines) ins.run(billId, l.description, l.rate, l.rate, tax.is_taxable ? 1 : 0, tax.gst_rate, tax.hsn_sac, l.id);
+    return JSON.stringify(lines.map((l) => ({ description: l.description, qty: 1, rate: l.rate, amount: l.rate })));
+  }
+
   ipcMain.handle(
     'lab:createOrder',
     (
@@ -1792,6 +1888,23 @@ export function registerIpc() {
     ) => {
       requireModule('lab', 'Laboratory');
       const db = getDb();
+      if (!Array.isArray(payload?.items) || payload.items.length === 0) throw new Error('Pick at least one test to order.');
+      if (!db.prepare('SELECT id FROM patients WHERE id=?').get(payload.patient_id)) throw new Error('That patient was not found — pick the patient for this lab request.');
+
+      // The same request sent twice (double-click, retry) is ONE order and ONE bill: an identical test list for the
+      // same patient and visit, raised in the last two minutes and not yet started, is the same request.
+      const wanted = payload.items.map((i) => String(i.test_name).trim().toLowerCase()).sort().join('|');
+      const recent = db.prepare(
+        `SELECT o.* FROM lab_orders o
+          WHERE o.patient_id = ? AND o.appointment_id IS ? AND o.status = 'ordered'
+            AND o.ordered_at >= datetime('now', '-120 seconds')
+          ORDER BY o.id DESC`
+      ).all(payload.patient_id, payload.appointment_id ?? null) as any[];
+      for (const o of recent) {
+        const have = (db.prepare('SELECT test_name FROM lab_order_items WHERE lab_order_id=?').all(o.id) as { test_name: string }[])
+          .map((i) => String(i.test_name).trim().toLowerCase()).sort().join('|');
+        if (have === wanted) return o;
+      }
       const d = new Date();
       const ymd = `${d.getFullYear()}${pad(d.getMonth() + 1, 2)}${pad(d.getDate(), 2)}`;
       // Atomic counter, not COUNT(*)+1: deleting an order used to make the
@@ -1808,7 +1921,7 @@ export function registerIpc() {
         const insItem = db.prepare(
           'INSERT INTO lab_order_items (lab_order_id, lab_test_id, test_name, ref_range, unit) VALUES (?, ?, ?, ?, ?)'
         );
-        const priced: { description: string; qty: number; rate: number; amount: number }[] = [];
+        const priced: { id: number; description: string; qty: number; rate: number; amount: number }[] = [];
         for (const it of payload.items) {
           let range: string | null = null;
           let unit: string | null = null;
@@ -1817,8 +1930,8 @@ export function registerIpc() {
             const t = db.prepare('SELECT ref_range, unit, price FROM lab_tests WHERE id=?').get(it.lab_test_id) as any;
             range = t?.ref_range ?? null; unit = t?.unit ?? null; price = Number(t?.price) || 0;
           }
-          insItem.run(orderId, it.lab_test_id ?? null, it.test_name, range, unit);
-          if (price > 0) priced.push({ description: it.test_name, qty: 1, rate: price, amount: price });
+          const itemId = Number(insItem.run(orderId, it.lab_test_id ?? null, it.test_name, range, unit).lastInsertRowid);
+          if (price > 0) priced.push({ id: itemId, description: it.test_name, qty: 1, rate: price, amount: price });
         }
 
         // Auto-raise an (unpaid) lab bill from the ordered tests' prices, so lab
@@ -1827,17 +1940,19 @@ export function registerIpc() {
         if (autoBill && priced.length) {
           const total = priced.reduce((s, r) => s + r.amount, 0);
           const billNumber = nextBillNumber(db);
-          db.prepare(
+          const billInfo = db.prepare(
             `INSERT INTO bills
                (bill_number, appointment_id, patient_id, doctor_id, items_json, subtotal, discount, discount_type,
                 total, payment_mode, bill_kind, bill_type, amount_paid, notes, status)
              VALUES (?, ?, ?, ?, ?, ?, 0, 'flat', ?, 'Pending', 'lab', 'lab', 0, ?, 'unpaid')`
           ).run(
             billNumber, payload.appointment_id, payload.patient_id, payload.doctor_id ?? null,
-            JSON.stringify(priced), total, total, `Lab order ${orderNumber}`
+            '[]', total, total, `Lab order ${orderNumber}`
           );
+          const labBillId = Number(billInfo.lastInsertRowid);
           // Real link, so the bill can be found and re-priced later.
-          db.prepare('UPDATE bills SET lab_order_id=? WHERE bill_number=?').run(orderId, billNumber);
+          db.prepare('UPDATE bills SET lab_order_id=? WHERE id=?').run(orderId, labBillId);
+          db.prepare('UPDATE bills SET items_json=? WHERE id=?').run(writeLabBillLines(db, labBillId, priced.map((p) => ({ id: p.id, description: p.description, rate: p.rate }))), labBillId);
         }
         return orderId;
       });
@@ -1856,7 +1971,7 @@ export function registerIpc() {
     if (!filter.patient_id) {
       const DAYS: Record<string, number> = { week: 7, month: 31, quarter: 92 };
       const days = filter.window ? DAYS[filter.window] : undefined; // 'all'/undefined → no limit
-      if (days) conds.push(`date(o.ordered_at) >= date('now', '-${days} days')`);
+      if (days) conds.push(`date(o.ordered_at, 'localtime') >= date('now', 'localtime', '-${days} days')`);
     }
     const ORDER: Record<string, string> = {
       recent: 'o.ordered_at DESC',
@@ -1900,6 +2015,10 @@ export function registerIpc() {
 
   ipcMain.handle('lab:updateOrderStatus', (_e, orderId: number, status: string) => {
     const db = getDb();
+    if (!['ordered', 'sample_collected', 'reported'].includes(status)) {
+      throw new Error(`"${status}" is not a lab order status. Use ordered, sample_collected or reported.`);
+    }
+    if (!db.prepare('SELECT id FROM lab_orders WHERE id=?').get(orderId)) throw new Error('That lab order was not found.');
     const now = new Date().toISOString();
     const fields: Record<string, any> = { status };
     if (status === 'sample_collected') fields.collected_at = now;
@@ -1956,12 +2075,12 @@ export function registerIpc() {
 
     // Price the current lines. A test with no price is deliberately not billed.
     const rows = db.prepare(
-      `SELECT i.test_name, COALESCE(t.price, 0) AS price
+      `SELECT i.id, i.test_name, COALESCE(t.price, 0) AS price
          FROM lab_order_items i LEFT JOIN lab_tests t ON t.id = i.lab_test_id
-        WHERE i.lab_order_id = ?`
-    ).all(orderId) as { test_name: string; price: number }[];
+        WHERE i.lab_order_id = ? ORDER BY i.id`
+    ).all(orderId) as { id: number; test_name: string; price: number }[];
     const priced = rows.filter((r) => Number(r.price) > 0)
-      .map((r) => ({ description: r.test_name, qty: 1, rate: Number(r.price), amount: Number(r.price) }));
+      .map((r) => ({ id: r.id, description: r.test_name, qty: 1, rate: Number(r.price), amount: Number(r.price) }));
     const total = priced.reduce((s, r) => s + r.amount, 0);
 
     if (!bill) {
@@ -1971,13 +2090,15 @@ export function registerIpc() {
       if (!autoBill) return { billChanged: false, note: 'No bill raised — auto-billing for lab is switched off.' };
       const billNumber = nextBillNumber(db);
       const o = db.prepare('SELECT * FROM lab_orders WHERE id=?').get(orderId) as any;
-      db.prepare(
+      const raised = db.prepare(
         `INSERT INTO bills
            (bill_number, appointment_id, patient_id, doctor_id, items_json, subtotal, discount, discount_type,
             total, payment_mode, bill_kind, bill_type, amount_paid, notes, lab_order_id, status)
-         VALUES (?, ?, ?, ?, ?, ?, 0, 'flat', ?, 'Pending', 'lab', 'lab', 0, ?, ?, 'unpaid')`
+         VALUES (?, ?, ?, ?, '[]', ?, 0, 'flat', ?, 'Pending', 'lab', 'lab', 0, ?, ?, 'unpaid')`
       ).run(billNumber, o.appointment_id, o.patient_id, o.doctor_id ?? null,
-            JSON.stringify(priced), total, total, `Lab order ${order?.order_number ?? orderId}`, orderId);
+            total, total, `Lab order ${order?.order_number ?? orderId}`, orderId);
+      const newBillId = Number(raised.lastInsertRowid);
+      db.prepare('UPDATE bills SET items_json=? WHERE id=?').run(writeLabBillLines(db, newBillId, priced.map((p) => ({ id: p.id, description: p.description, rate: p.rate }))), newBillId);
       return { billChanged: true, total, note: `Bill ${billNumber} raised — ${formatMoney(total)}.` };
     }
 
@@ -1997,8 +2118,9 @@ export function registerIpc() {
     // An unpaid bill may carry a discount; keep it and re-derive the total.
     const discount = Number(bill.discount) || 0;
     const newTotal = Math.max(0, total - (bill.discount_type === 'percent' ? (total * discount) / 100 : discount));
+    const itemsJson = writeLabBillLines(db, bill.id, priced.map((p) => ({ id: p.id, description: p.description, rate: p.rate })));
     db.prepare('UPDATE bills SET items_json=?, subtotal=?, total=? WHERE id=?')
-      .run(JSON.stringify(priced), total, newTotal, bill.id);
+      .run(itemsJson, total, newTotal, bill.id);
     return { billChanged: true, total: newTotal, note: `Bill ${bill.bill_number} updated — now ${formatMoney(newTotal)}.` };
   }
 
@@ -2109,7 +2231,19 @@ export function registerIpc() {
           ORDER BY date(b.expiry) ASC LIMIT 1) as expiry,
         (SELECT b.expiry FROM drug_stock_batches b
           WHERE b.drug_master_id=m.id AND b.is_active=1 AND b.qty_remaining>0
-          ORDER BY date(b.expiry) ASC LIMIT 1) as next_expiry
+          ORDER BY date(b.expiry) ASC LIMIT 1) as next_expiry,
+        -- Price and true cost of the batch FEFO will hand out next (same order the sale uses), so a
+        -- screen can default the rate to the batch's own MRP / selling price instead of the drug's
+        -- stale default MRP.
+        (SELECT b.mrp FROM drug_stock_batches b
+          WHERE b.drug_master_id=m.id AND b.is_active=1 AND b.qty_remaining>0
+          ORDER BY date(b.expiry) ASC, b.received_at ASC LIMIT 1) as next_mrp,
+        (SELECT COALESCE(b.selling_price, b.mrp) FROM drug_stock_batches b
+          WHERE b.drug_master_id=m.id AND b.is_active=1 AND b.qty_remaining>0
+          ORDER BY date(b.expiry) ASC, b.received_at ASC LIMIT 1) as next_selling_price,
+        (SELECT COALESCE(b.unit_cost, b.purchase_price) FROM drug_stock_batches b
+          WHERE b.drug_master_id=m.id AND b.is_active=1 AND b.qty_remaining>0
+          ORDER BY date(b.expiry) ASC, b.received_at ASC LIMIT 1) as next_unit_cost
       FROM drug_master m
       ${where}
       ORDER BY m.name LIMIT 500
@@ -2162,41 +2296,71 @@ export function registerIpc() {
   });
 
   // Manual batch entry (corrections, sample stock without a purchase invoice).
+  //
+  // A batch edit can change what the REMAINING units are worth, but never what units already sold cost:
+  // each sale froze its own unit cost in dispensing_register. Every edit is written to the audit log
+  // with the before/after figures, so a cost or quantity change can always be explained later.
   ipcMain.handle('pharmacy:upsertBatch', (_e, batch: any) => {
     requireModule('pharmacy', 'Pharmacy');
     const db = getDb();
+    const note = (action: string, id: number, detail: unknown) => {
+      try { logAudit(db, actor(), action, 'drug_stock_batches', id, JSON.stringify(detail)); } catch { /* never block stock work */ }
+    };
     if (batch.id) {
+      const before = db.prepare('SELECT * FROM drug_stock_batches WHERE id=?').get(batch.id) as any;
+      // Editing the purchase price is the user stating the cost: the unit cost follows it. Left alone
+      // (e.g. only the quantity changed) the unit cost — which may include freight and free units — stays.
+      const sameRate = (before?.purchase_price ?? null) === (batch.purchase_price ?? null);
+      const unitCost = sameRate ? (before?.unit_cost ?? null) : (batch.purchase_price ?? null);
+      const sellingPrice = batch.selling_price === undefined ? (before?.selling_price ?? null) : (batch.selling_price ?? null);
       db.prepare(`
         UPDATE drug_stock_batches SET
           batch_no=?, expiry=?, manufacture_date=?, qty_received=?, qty_remaining=?, purchase_price=?,
-          mrp=?, manufacturer_license_no=?, is_active=?
+          unit_cost=?, selling_price=?, mrp=?, manufacturer_license_no=?, is_active=?
         WHERE id=?
       `).run(
         batch.batch_no, batch.expiry, batch.manufacture_date ?? null, batch.qty_received, batch.qty_remaining,
-        batch.purchase_price ?? null, batch.mrp ?? 0,
+        batch.purchase_price ?? null, unitCost, sellingPrice, batch.mrp ?? 0,
         batch.manufacturer_license_no ?? null, batch.is_active ?? 1, batch.id
       );
-      return db.prepare('SELECT * FROM drug_stock_batches WHERE id=?').get(batch.id);
+      const after = db.prepare('SELECT * FROM drug_stock_batches WHERE id=?').get(batch.id) as any;
+      const pick = (r: any) => r && ({
+        batch_no: r.batch_no, qty_remaining: r.qty_remaining, purchase_price: r.purchase_price,
+        unit_cost: r.unit_cost, selling_price: r.selling_price, mrp: r.mrp, expiry: r.expiry, is_active: r.is_active,
+      });
+      note('batch.edit', batch.id, { before: pick(before), after: pick(after) });
+      return after;
     }
     const info = db.prepare(`
       INSERT INTO drug_stock_batches
         (drug_master_id, batch_no, expiry, manufacture_date, qty_received, qty_remaining,
-         purchase_price, mrp, manufacturer_license_no, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         purchase_price, unit_cost, selling_price, mrp, manufacturer_license_no, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(drug_master_id, batch_no) DO UPDATE SET
         expiry=excluded.expiry,
         manufacture_date=excluded.manufacture_date,
         qty_received=qty_received + excluded.qty_received,
         qty_remaining=qty_remaining + excluded.qty_remaining,
-        mrp=excluded.mrp
+        mrp=excluded.mrp,
+        selling_price=COALESCE(excluded.selling_price, selling_price),
+        unit_cost = CASE
+          WHEN excluded.unit_cost IS NULL THEN unit_cost
+          WHEN unit_cost IS NULL OR qty_remaining <= 0 THEN excluded.unit_cost
+          ELSE ROUND((qty_remaining * unit_cost + excluded.qty_remaining * excluded.unit_cost) / (qty_remaining + excluded.qty_remaining), 4)
+        END
     `).run(
       batch.drug_master_id, batch.batch_no, batch.expiry, batch.manufacture_date ?? null,
       batch.qty_received, batch.qty_remaining ?? batch.qty_received,
-      batch.purchase_price ?? null, batch.mrp ?? 0,
+      batch.purchase_price ?? null, batch.purchase_price ?? null, batch.selling_price ?? null, batch.mrp ?? 0,
       batch.manufacturer_license_no ?? null, batch.is_active ?? 1
     );
-    return db.prepare('SELECT * FROM drug_stock_batches WHERE drug_master_id=? AND batch_no=?')
-      .get(batch.drug_master_id, batch.batch_no);
+    const row = db.prepare('SELECT * FROM drug_stock_batches WHERE drug_master_id=? AND batch_no=?')
+      .get(batch.drug_master_id, batch.batch_no) as any;
+    note('batch.add', row.id, {
+      batch_no: row.batch_no, qty_added: batch.qty_remaining ?? batch.qty_received,
+      purchase_price: batch.purchase_price ?? null, qty_remaining_now: row.qty_remaining, unit_cost_now: row.unit_cost,
+    });
+    return row;
   });
 
   // Bulk delete drugs — same safety model as doctors:
@@ -2275,7 +2439,7 @@ export function registerIpc() {
       FROM drug_stock_batches b
       JOIN drug_master m ON m.id=b.drug_master_id
       WHERE b.is_active=1 AND b.qty_remaining > 0
-        AND date(b.expiry) <= date('now', '+90 days')
+        AND date(b.expiry) <= date('now', 'localtime', '+90 days')
       ORDER BY date(b.expiry) ASC LIMIT 50
     `).all();
     return { lowStock, expiringSoon };
@@ -2296,7 +2460,7 @@ export function registerIpc() {
         JOIN doctors d ON d.id=a.doctor_id
         WHERE a.id IN (SELECT DISTINCT appointment_id FROM prescription_items)
           AND a.id NOT IN (SELECT COALESCE(appointment_id, 0) FROM pharmacy_sales)
-          AND a.appointment_date >= date('now', '-7 days')
+          AND a.appointment_date >= date('now', 'localtime', '-7 days')
         ORDER BY a.appointment_date DESC, a.appointment_time DESC
         LIMIT 100`
       )
@@ -2307,158 +2471,7 @@ export function registerIpc() {
     return getDb().prepare('SELECT * FROM prescription_items WHERE appointment_id=?').all(appointmentId);
   });
 
-  // FEFO dispense — for each sale line, allocate from drug_stock_batches
-  // ordered by expiry ASC. One sale line may consume multiple batches; emit
-  // one dispensing_register row per batch slice (the legal record).
-  // The whole flow runs in a transaction so partial allocation rolls back.
-  ipcMain.handle(
-    'pharmacy:sell',
-    (
-      _e,
-      payload: {
-        patient_id?: number | null;
-        appointment_id?: number | null;
-        // drug_id (legacy) is treated as drug_master_id (post-migration they're aligned).
-        items: { drug_id?: number | null; drug_master_id?: number | null; drug_name: string; qty: number; rate: number; gst_amount?: number }[];
-        discount?: number;
-        payment_mode?: string;
-        sold_by?: string;
-      }
-    ) => {
-      requireModule('pharmacy', 'Pharmacy');
-      const db = getDb();
-      const d = new Date();
-      const ymd = `${d.getFullYear()}${pad(d.getMonth() + 1, 2)}${pad(d.getDate(), 2)}`;
-      // Atomic counter — see the lab note above.
-      const saleNumber = nextSaleNumber(db, d);
-      const subtotal = payload.items.reduce((s, it) => s + Number(it.qty) * Number(it.rate), 0);
-      const discount = Number(payload.discount ?? 0);
-      const total = Math.max(0, subtotal - discount);
-
-      // Look up the prescribing doctor + an Rx reference once, for the register.
-      let doctorId: number | null = null;
-      let rxReference: string | null = null;
-      if (payload.appointment_id) {
-        const a = db.prepare(
-          `SELECT a.doctor_id, a.appointment_date, a.appointment_time, d.name as doctor_name
-           FROM appointments a JOIN doctors d ON d.id=a.doctor_id WHERE a.id=?`
-        ).get(payload.appointment_id) as any;
-        if (a) {
-          doctorId = a.doctor_id;
-          rxReference = `Rx ${a.appointment_date} ${a.appointment_time} · ${a.doctor_name}`;
-        }
-      }
-
-      const tx = db.transaction(() => {
-        const info = db.prepare(
-          'INSERT INTO pharmacy_sales (sale_number, patient_id, appointment_id, subtotal, discount, total, payment_mode, sold_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-        ).run(
-          saleNumber,
-          payload.patient_id ?? null,
-          payload.appointment_id ?? null,
-          subtotal, discount, total,
-          payload.payment_mode ?? null,
-          payload.sold_by ?? null
-        );
-        const saleId = Number(info.lastInsertRowid);
-
-        const insSaleItem = db.prepare(`
-          INSERT INTO pharmacy_sale_items
-            (sale_id, drug_id, drug_master_id, batch_id, drug_name, qty, rate, amount, gst_amount,
-             gst_rate, cgst, sgst, hsn_sac)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        const insRegister = db.prepare(`
-          INSERT INTO dispensing_register
-            (sale_item_id, sale_id, patient_id, doctor_id, drug_master_id, batch_id,
-             batch_no, expiry, schedule, qty, rate, rx_reference, dispensed_by)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        const decrementBatch = db.prepare(
-          'UPDATE drug_stock_batches SET qty_remaining = qty_remaining - ? WHERE id=?'
-        );
-        const fetchBatches = db.prepare(`
-          SELECT b.id, b.batch_no, b.expiry, b.qty_remaining, m.schedule
-          FROM drug_stock_batches b
-          JOIN drug_master m ON m.id=b.drug_master_id
-          WHERE b.drug_master_id=? AND b.is_active=1 AND b.qty_remaining > 0
-          ORDER BY date(b.expiry) ASC, b.received_at ASC
-        `);
-
-        let saleTaxable = 0, saleExempt = 0, saleCgst = 0, saleSgst = 0;
-        for (const it of payload.items) {
-          const masterId = it.drug_master_id ?? it.drug_id ?? null;
-          const amount = Number(it.qty) * Number(it.rate);
-          // Pick the first FEFO batch for the sale_items row's batch_id (denormalized).
-          const batches = masterId
-            ? (fetchBatches.all(masterId) as Array<{ id: number; batch_no: string; expiry: string; qty_remaining: number; schedule: string }>)
-            : [];
-          const firstBatchId = batches[0]?.id ?? null;
-          // drug_id is the LEGACY column and still FKs drug_inventory, whose ids
-          // are unrelated to drug_master's. Writing a master id here blew up with
-          // "FOREIGN KEY constraint failed" for any drug not in the small legacy
-          // table. The real link is drug_master_id; leave the legacy one NULL.
-          /**
-           * GST on the medicine, extracted from the amount rather than added.
-           *
-           * An Indian MRP is tax-INCLUSIVE, so adding tax on top would overcharge
-           * the patient by the tax and contradict the price printed on the strip.
-           * The rate comes from drug_master; the split is stored per line so a
-           * reprint years later still shows the tax exactly as charged.
-           */
-          const mtax = medicineLineTax(db, masterId);
-          const split = splitInclusive(amount, mtax.gst_rate);
-          saleTaxable += mtax.is_taxable ? split.net : 0;
-          saleExempt += mtax.is_taxable ? 0 : amount;
-          saleCgst += split.cgst;
-          saleSgst += split.sgst;
-          const saleItemInfo = insSaleItem.run(
-            saleId, null, masterId, firstBatchId,
-            it.drug_name, it.qty, it.rate, amount,
-            Number(it.gst_amount ?? (split.cgst + split.sgst)),
-            mtax.gst_rate, split.cgst, split.sgst, mtax.hsn_sac
-          );
-          const saleItemId = Number(saleItemInfo.lastInsertRowid);
-
-          if (masterId) {
-            let need = Number(it.qty);
-            for (const b of batches) {
-              if (need <= 0) break;
-              const take = Math.min(need, b.qty_remaining);
-              decrementBatch.run(take, b.id);
-              insRegister.run(
-                saleItemId, saleId,
-                payload.patient_id ?? null, doctorId,
-                masterId, b.id, b.batch_no, b.expiry, b.schedule || 'OTC',
-                take, it.rate, rxReference, payload.sold_by ?? null
-              );
-              need -= take;
-            }
-            if (need > 0) {
-              throw new Error(`Insufficient stock for ${it.drug_name} — short by ${need}`);
-            }
-          }
-        }
-        // Roll the per-line tax up onto the sale so the receipt (and any reprint)
-        // can show a proper CGST/SGST breakdown without recomputing from stock.
-        const ctx = gstContext(db);
-        db.prepare(
-          `UPDATE pharmacy_sales SET taxable_total=?, exempt_total=?, cgst_total=?, sgst_total=?, is_tax_invoice=?
-            WHERE id=?`
-        ).run(
-          Math.round(saleTaxable * 100) / 100,
-          Math.round(saleExempt * 100) / 100,
-          Math.round(saleCgst * 100) / 100,
-          Math.round(saleSgst * 100) / 100,
-          ctx.enabled && (saleCgst + saleSgst) > 0 ? 1 : 0,
-          saleId,
-        );
-        return saleId;
-      });
-      const id = tx();
-      return db.prepare('SELECT * FROM pharmacy_sales WHERE id=?').get(id);
-    }
-  );
+  // 'pharmacy:sell' (FEFO dispense with frozen unit cost) lives in main/pharmacy-finance*.ts.
 
   /** One sale with its lines + customer — everything a printed receipt needs. */
   ipcMain.handle('pharmacy:saleDetail', (_e, saleId: number) => {
@@ -2488,8 +2501,8 @@ export function registerIpc() {
     const db = getDb();
     const conds: string[] = [];
     const params: any[] = [];
-    if (filter.from) { conds.push('date(s.created_at) >= ?'); params.push(filter.from); }
-    if (filter.to) { conds.push('date(s.created_at) <= ?'); params.push(filter.to); }
+    if (filter.from) { conds.push("date(s.created_at, 'localtime') >= ?"); params.push(filter.from); }
+    if (filter.to) { conds.push("date(s.created_at, 'localtime') <= ?"); params.push(filter.to); }
     const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
     return db
       .prepare(
@@ -2547,106 +2560,8 @@ export function registerIpc() {
   });
 
   // ===== Purchase invoices =====
-  ipcMain.handle('purchase:list', (_e, filter: { from?: string; to?: string; wholesaler_id?: number } = {}) => {
-    const db = getDb();
-    const conds: string[] = [];
-    const params: any[] = [];
-    if (filter.from) { conds.push('date(pi.invoice_date) >= ?'); params.push(filter.from); }
-    if (filter.to) { conds.push('date(pi.invoice_date) <= ?'); params.push(filter.to); }
-    if (filter.wholesaler_id) { conds.push('pi.wholesaler_id = ?'); params.push(filter.wholesaler_id); }
-    const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
-    return db.prepare(`
-      SELECT pi.*, w.name as wholesaler_name, w.drug_license_no as wholesaler_license_no
-      FROM purchase_invoices pi
-      JOIN wholesalers w ON w.id=pi.wholesaler_id
-      ${where}
-      ORDER BY date(pi.invoice_date) DESC, pi.id DESC LIMIT 500
-    `).all(...params);
-  });
-
-  ipcMain.handle('purchase:get', (_e, id: number) => {
-    const db = getDb();
-    const header = db.prepare(`
-      SELECT pi.*, w.name as wholesaler_name, w.drug_license_no as wholesaler_license_no
-      FROM purchase_invoices pi
-      JOIN wholesalers w ON w.id=pi.wholesaler_id
-      WHERE pi.id=?
-    `).get(id) as any;
-    if (!header) return null;
-    const items = db.prepare(`
-      SELECT pii.*, m.name as drug_name, m.generic_name, m.form, m.strength
-      FROM purchase_invoice_items pii
-      JOIN drug_master m ON m.id=pii.drug_master_id
-      WHERE pii.invoice_id=?
-      ORDER BY pii.id
-    `).all(id);
-    return { ...header, items };
-  });
-
-  // Atomic purchase create — header + items + auto-create/update batches.
-  ipcMain.handle('purchase:create', (_e, payload: any) => {
-    const db = getDb();
-    const tx = db.transaction(() => {
-      const info = db.prepare(`
-        INSERT INTO purchase_invoices
-          (invoice_number, wholesaler_id, invoice_date, received_date,
-           subtotal, cgst, sgst, igst, discount, total,
-           payment_mode, payment_status, scan_path, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        payload.invoice_number, payload.wholesaler_id, payload.invoice_date,
-        payload.received_date || new Date().toISOString().slice(0, 10),
-        payload.subtotal ?? 0, payload.cgst ?? 0, payload.sgst ?? 0, payload.igst ?? 0,
-        payload.discount ?? 0, payload.total ?? 0,
-        payload.payment_mode ?? null, payload.payment_status ?? 'unpaid',
-        payload.scan_path ?? null, payload.notes ?? null
-      );
-      const invoiceId = Number(info.lastInsertRowid);
-
-      const insLine = db.prepare(`
-        INSERT INTO purchase_invoice_items
-          (invoice_id, drug_master_id, batch_no, expiry, manufacture_date, qty_received, pack_qty,
-           free_qty, purchase_price, mrp, gst_rate, manufacturer_license_no, line_total)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      const upsertBatch = db.prepare(`
-        INSERT INTO drug_stock_batches
-          (drug_master_id, purchase_item_id, batch_no, expiry, manufacture_date, qty_received, qty_remaining,
-           purchase_price, mrp, manufacturer_license_no, received_at, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, date('now'), 1)
-        ON CONFLICT(drug_master_id, batch_no) DO UPDATE SET
-          expiry=excluded.expiry,
-          manufacture_date=excluded.manufacture_date,
-          qty_received=qty_received + excluded.qty_received,
-          qty_remaining=qty_remaining + excluded.qty_received,
-          mrp=excluded.mrp,
-          purchase_price=excluded.purchase_price,
-          manufacturer_license_no=COALESCE(excluded.manufacturer_license_no, manufacturer_license_no),
-          purchase_item_id=excluded.purchase_item_id
-      `);
-
-      for (const it of (payload.items || [])) {
-        const lineTotal = Number(it.line_total ?? Number(it.qty_received) * Number(it.purchase_price ?? 0));
-        const lineInfo = insLine.run(
-          invoiceId, it.drug_master_id, it.batch_no, it.expiry, (it as any).manufacture_date ?? null,
-          Number(it.qty_received), it.pack_qty ?? null, Number(it.free_qty ?? 0),
-          Number(it.purchase_price), Number(it.mrp), Number(it.gst_rate ?? 12),
-          it.manufacturer_license_no ?? null, lineTotal
-        );
-        const lineId = Number(lineInfo.lastInsertRowid);
-        const totalUnits = Number(it.qty_received) + Number(it.free_qty ?? 0);
-        upsertBatch.run(
-          it.drug_master_id, lineId, it.batch_no, it.expiry, (it as any).manufacture_date ?? null,
-          totalUnits, totalUnits,
-          it.purchase_price ?? null, it.mrp ?? 0,
-          it.manufacturer_license_no ?? null
-        );
-      }
-      return invoiceId;
-    });
-    const newId = tx();
-    return db.prepare('SELECT * FROM purchase_invoices WHERE id=?').get(newId);
-  });
+  // purchase:list / get / create / addPayment live in main/pharmacy-finance*.ts (server-side totals,
+  // idempotent saves, supplier payments).
 
 
   // ===== Stock register (every batch with days-to-expiry) =====
@@ -2654,10 +2569,10 @@ export function registerIpc() {
     const db = getDb();
     const conds: string[] = ['m.is_active=1'];
     if (filter.activeOnly !== false) conds.push('b.is_active=1');
-    if (filter.includeExpired === false) conds.push("date(b.expiry) >= date('now')");
+    if (filter.includeExpired === false) conds.push("date(b.expiry) >= date('now', 'localtime')");
     return db.prepare(`
       SELECT b.id, b.batch_no, b.expiry, b.qty_received, b.qty_remaining,
-             b.purchase_price, b.mrp, b.manufacturer_license_no, b.received_at,
+             b.purchase_price, b.unit_cost, b.selling_price, b.mrp, b.manufacturer_license_no, b.received_at,
              m.id as drug_master_id, m.name as drug_name, m.generic_name,
              m.manufacturer, m.form, m.strength, m.schedule, m.hsn_code,
              CAST((julianday(b.expiry) - julianday('now')) AS INTEGER) as days_to_expiry
@@ -2680,6 +2595,7 @@ export function registerIpc() {
     return db.prepare(`
       SELECT pi.id, pi.invoice_number, pi.invoice_date, pi.received_date,
              pi.subtotal, pi.cgst, pi.sgst, pi.igst, pi.discount, pi.total,
+             pi.other_charges, pi.round_off, pi.amount_paid,
              pi.payment_mode, pi.payment_status, pi.notes,
              w.name as wholesaler_name, w.drug_license_no as wholesaler_license_no,
              w.gstin as wholesaler_gstin,
@@ -2694,7 +2610,7 @@ export function registerIpc() {
   // ===== Dispensing register =====
   ipcMain.handle('dispensing:register', (_e, filter: { from: string; to: string; schedule?: string }) => {
     const db = getDb();
-    const conds: string[] = ['date(dr.dispensed_at) >= ?', 'date(dr.dispensed_at) <= ?'];
+    const conds: string[] = ["date(dr.dispensed_at, 'localtime') >= ?", "date(dr.dispensed_at, 'localtime') <= ?"];
     const params: any[] = [filter.from, filter.to];
     if (filter.schedule) {
       conds.push('dr.schedule = ?');
@@ -2733,7 +2649,7 @@ export function registerIpc() {
       const DAYS: Record<string, number> = { week: 7, month: 31, quarter: 92 };
       const days = filter.window ? DAYS[filter.window] : undefined;
       if (days) {
-        clauses.push(`(date(a.admitted_at) >= date('now', '-${days} days') OR (a.discharged_at IS NOT NULL AND date(a.discharged_at) >= date('now', '-${days} days')))`);
+        clauses.push(`(date(a.admitted_at, 'localtime') >= date('now', 'localtime', '-${days} days') OR (a.discharged_at IS NOT NULL AND date(a.discharged_at, 'localtime') >= date('now', 'localtime', '-${days} days')))`);
       }
     }
 
@@ -2912,29 +2828,32 @@ export function registerIpc() {
   ipcMain.handle('reports:run', (_e, params: { kind: string; from?: string; to?: string }) => {
     const db = getDb();
     const { kind, from, to } = params;
-    const range = (col: string) => {
+    // `utc` = the column holds a UTC timestamp (convert to the clinic's day); false = it already holds the local calendar
+    // date (appointment_date) and must be compared as it is — converting it would shift it a day in zones west of UTC.
+    const range = (col: string, utc = true) => {
       const conds: string[] = [];
       const p: any[] = [];
-      if (from) { conds.push(`date(${col}) >= ?`); p.push(from); }
-      if (to) { conds.push(`date(${col}) <= ?`); p.push(to); }
+      const day = utc ? `date(${col}, 'localtime')` : `date(${col})`;
+      if (from) { conds.push(`${day} >= ?`); p.push(from); }
+      if (to) { conds.push(`${day} <= ?`); p.push(to); }
       return { where: conds.length ? 'WHERE ' + conds.join(' AND ') : '', params: p };
     };
     if (kind === 'daily_collection') {
       const r = range('b.created_at');
       return db
         .prepare(
-          `SELECT date(b.created_at) as day,
+          `SELECT date(b.created_at, 'localtime') as day,
              COUNT(*) as bills,
              COALESCE(SUM(b.total), 0) as revenue,
              COALESCE(SUM(CASE WHEN b.payment_mode='Cash' THEN b.total ELSE 0 END), 0) as cash,
              COALESCE(SUM(CASE WHEN b.payment_mode='Card' THEN b.total ELSE 0 END), 0) as card,
              COALESCE(SUM(CASE WHEN b.payment_mode='UPI' THEN b.total ELSE 0 END), 0) as upi
-           FROM bills b ${r.where} GROUP BY day ORDER BY day DESC`
+           FROM bills b ${r.where ? r.where + " AND " : "WHERE "}COALESCE(b.status,'') <> 'cancelled' GROUP BY day ORDER BY day DESC`
         )
         .all(...r.params);
     }
     if (kind === 'doctor_performance') {
-      const r = range('a.appointment_date');
+      const r = range('a.appointment_date', false);
       return db
         .prepare(
           `SELECT d.name as doctor, d.specialty,
@@ -2943,14 +2862,14 @@ export function registerIpc() {
              COALESCE(SUM(b.total), 0) as revenue
            FROM appointments a
            JOIN doctors d ON d.id=a.doctor_id
-           LEFT JOIN bills b ON b.appointment_id=a.id
+           LEFT JOIN bills b ON b.appointment_id=a.id AND COALESCE(b.status,'') <> 'cancelled'
            ${r.where}
            GROUP BY d.id ORDER BY revenue DESC`
         )
         .all(...r.params);
     }
     if (kind === 'top_diagnoses') {
-      const r = range('a.appointment_date');
+      const r = range('a.appointment_date', false);
       return db
         .prepare(
           `SELECT c.impression as diagnosis, COUNT(*) as count
@@ -2980,7 +2899,7 @@ export function registerIpc() {
     if (kind === 'new_patients') {
       const r = range('created_at');
       return db
-        .prepare(`SELECT date(created_at) as day, COUNT(*) as new_patients FROM patients ${r.where} GROUP BY day ORDER BY day DESC`)
+        .prepare(`SELECT date(created_at, 'localtime') as day, COUNT(*) as new_patients FROM patients ${r.where} GROUP BY day ORDER BY day DESC`)
         .all(...r.params);
     }
     return [];
@@ -4036,7 +3955,7 @@ export function registerIpc() {
   // ============================================================
   ipcMain.handle('analytics:overview', () => {
     const db = getDb();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localISO();
     const monthStart = today.slice(0, 8) + '01';
     const sc = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { c: number }).c;
     const ss = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { t: number }).t || 0;
@@ -4049,17 +3968,17 @@ export function registerIpc() {
       asOf: new Date().toISOString(),
       todayVisits: sc(`SELECT COUNT(*) as c FROM appointments WHERE appointment_date=?`, today),
       todayDone: sc(`SELECT COUNT(*) as c FROM appointments WHERE appointment_date=? AND status='Done'`, today),
-      todayRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM bills WHERE date(created_at)=?`, today),
-      monthRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM bills WHERE date(created_at) >= ?`, monthStart),
-      pharmacyMonthRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM pharmacy_sales WHERE date(created_at) >= ?`, monthStart),
+      todayRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime')=?`, today),
+      monthRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') >= ?`, monthStart),
+      pharmacyMonthRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM pharmacy_sales WHERE date(created_at, 'localtime') >= ?`, monthStart),
       totalPatients: sc(`SELECT COUNT(*) as c FROM patients`),
-      patientsThisMonth: sc(`SELECT COUNT(*) as c FROM patients WHERE date(created_at) >= ?`, monthStart),
+      patientsThisMonth: sc(`SELECT COUNT(*) as c FROM patients WHERE date(created_at, 'localtime') >= ?`, monthStart),
       activeDoctors: sc(`SELECT COUNT(*) as c FROM doctors WHERE is_active=1`),
       pendingRx: sc(`
         SELECT COUNT(DISTINCT a.id) as c FROM appointments a
         WHERE a.id IN (SELECT DISTINCT appointment_id FROM prescription_items)
           AND a.id NOT IN (SELECT COALESCE(appointment_id, 0) FROM pharmacy_sales)
-          AND a.appointment_date >= date('now', '-7 days')
+          AND a.appointment_date >= date('now', 'localtime', '-7 days')
       `),
       lowStockDrugs: sc(`
         SELECT COUNT(*) as c FROM drug_master m
@@ -4069,11 +3988,11 @@ export function registerIpc() {
       `),
       expiringSoonBatches: sc(`
         SELECT COUNT(*) as c FROM drug_stock_batches
-        WHERE is_active=1 AND qty_remaining > 0 AND date(expiry) BETWEEN date('now') AND date('now', '+90 days')
+        WHERE is_active=1 AND qty_remaining > 0 AND date(expiry) BETWEEN date('now', 'localtime') AND date('now', 'localtime', '+90 days')
       `),
       expiredBatches: sc(`
         SELECT COUNT(*) as c FROM drug_stock_batches
-        WHERE is_active=1 AND qty_remaining > 0 AND date(expiry) < date('now')
+        WHERE is_active=1 AND qty_remaining > 0 AND date(expiry) < date('now', 'localtime')
       `),
       // Free follow-up + registration-fee tracking — surfaced in Analytics so the
       // user can see what waivers cost them and what registration revenue came in.
@@ -4081,26 +4000,26 @@ export function registerIpc() {
       // returns 0 instead of throwing and breaking the whole Overview tab.
       freeFollowupsThisMonth: scSafe(`
         SELECT COUNT(*) as c FROM bills
-        WHERE COALESCE(is_free_followup,0)=1 AND date(created_at) >= ?
+        WHERE COALESCE(is_free_followup,0)=1 AND date(created_at, 'localtime') >= ?
       `, monthStart),
       relaxedFollowupsThisMonth: scSafe(`
         SELECT COUNT(*) as c FROM bills
-        WHERE COALESCE(is_relaxed_followup,0)=1 AND date(created_at) >= ?
+        WHERE COALESCE(is_relaxed_followup,0)=1 AND date(created_at, 'localtime') >= ?
       `, monthStart),
       registrationFeesThisMonth: ssSafe(`
         SELECT COALESCE(SUM(rate),0) as t
         FROM bills b, json_each(b.items_json) j
-        WHERE date(b.created_at) >= ?
+        WHERE date(b.created_at, 'localtime') >= ?
           AND lower(json_extract(j.value, '$.description')) LIKE '%registration%'
       `, monthStart),
       registrationFeeCountThisMonth: scSafe(`
         SELECT COUNT(*) as c FROM patients WHERE registration_fee_paid=1 AND date(registration_fee_paid_at) >= ?
       `, monthStart),
       servicesCountThisMonth: scSafe(`
-        SELECT COUNT(*) as c FROM bills WHERE bill_kind='misc' AND date(created_at) >= ?
+        SELECT COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND bill_kind='misc' AND date(created_at, 'localtime') >= ?
       `, monthStart),
       servicesRevenueThisMonth: ssSafe(`
-        SELECT COALESCE(SUM(total),0) as t FROM bills WHERE bill_kind='misc' AND date(created_at) >= ?
+        SELECT COALESCE(SUM(total),0) as t FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND bill_kind='misc' AND date(created_at, 'localtime') >= ?
       `, monthStart),
     };
   });
@@ -4182,8 +4101,8 @@ export function registerIpc() {
         FROM patients GROUP BY label ORDER BY c DESC LIMIT 20
       `).all(),
       newPatientsByMonth: db.prepare(`
-        SELECT strftime('%Y-%m', created_at) as month, COUNT(*) as c
-        FROM patients WHERE created_at >= date('now', '-12 months')
+        SELECT strftime('%Y-%m', created_at, 'localtime') as month, COUNT(*) as c
+        FROM patients WHERE created_at >= date('now', 'localtime', '-12 months')
         GROUP BY month ORDER BY month
       `).all(),
     };
@@ -4258,7 +4177,7 @@ export function registerIpc() {
         GROUP BY patient_id
       ) fv ON fv.patient_id = a.patient_id
       WHERE a.status != 'Cancelled'
-        AND fv.first_date >= date('now', '-12 months')
+        AND fv.first_date >= date('now', 'localtime', '-12 months')
       GROUP BY cohort_month, visit_month
       ORDER BY cohort_month, visit_month
     `).all() as R[];
@@ -4301,7 +4220,7 @@ export function registerIpc() {
       FROM appointments
       WHERE status != 'Cancelled'
         AND appointment_time IS NOT NULL AND appointment_time <> ''
-        AND date(appointment_date) >= date('now', '-90 days')
+        AND date(appointment_date) >= date('now', 'localtime', '-90 days')
       GROUP BY weekday, hour
       ORDER BY weekday, hour
     `).all();
@@ -4312,18 +4231,18 @@ export function registerIpc() {
     const db = getDb();
     return db.prepare(`
       SELECT
-        strftime('%Y-%m', s.created_at) as month,
+        strftime('%Y-%m', s.created_at, 'localtime') as month,
         COUNT(*) as sales,
         COALESCE(AVG(s.total), 0) as avg_revenue,
         COALESCE(SUM(s.total), 0) as total_revenue,
         (SELECT COALESCE(AVG(units), 0) FROM (
           SELECT SUM(qty) as units FROM pharmacy_sale_items psi
           JOIN pharmacy_sales s2 ON s2.id = psi.sale_id
-          WHERE strftime('%Y-%m', s2.created_at) = strftime('%Y-%m', s.created_at)
+          WHERE strftime('%Y-%m', s2.created_at, 'localtime') = strftime('%Y-%m', s.created_at, 'localtime')
           GROUP BY psi.sale_id
         )) as avg_units
       FROM pharmacy_sales s
-      WHERE s.created_at >= date('now', '-12 months')
+      WHERE s.created_at >= date('now', 'localtime', '-12 months')
       GROUP BY month
       ORDER BY month
     `).all();
@@ -4334,22 +4253,23 @@ export function registerIpc() {
     const sc = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { c: number }).c;
     const ss = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { t: number }).t || 0;
     return {
-      totalDispensed: sc(`SELECT COUNT(*) as c FROM dispensing_register WHERE date(dispensed_at) BETWEEN ? AND ?`, filter.from, filter.to),
-      scheduleHCount: sc(`SELECT COUNT(*) as c FROM dispensing_register WHERE date(dispensed_at) BETWEEN ? AND ? AND schedule IN ('H','H1')`, filter.from, filter.to),
-      totalRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM pharmacy_sales WHERE payment_mode <> 'IPD-bill' AND date(created_at) BETWEEN ? AND ?`, filter.from, filter.to),
-      totalSales: sc(`SELECT COUNT(*) as c FROM pharmacy_sales WHERE date(created_at) BETWEEN ? AND ?`, filter.from, filter.to),
+      totalDispensed: sc(`SELECT COUNT(*) as c FROM dispensing_register WHERE date(dispensed_at, 'localtime') BETWEEN ? AND ?`, filter.from, filter.to),
+      scheduleHCount: sc(`SELECT COUNT(*) as c FROM dispensing_register WHERE date(dispensed_at, 'localtime') BETWEEN ? AND ? AND schedule IN ('H','H1')`, filter.from, filter.to),
+      totalRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM pharmacy_sales WHERE COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?`, filter.from, filter.to),
+      totalSales: sc(`SELECT COUNT(*) as c FROM pharmacy_sales WHERE COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?`, filter.from, filter.to),
       // Live inventory valuation (not date-filtered — it's a snapshot of stock now).
       valuation: db.prepare(`
         SELECT COUNT(DISTINCT m.id) as skus,
                COALESCE(SUM(b.qty_remaining), 0) as units,
-               COALESCE(SUM(b.qty_remaining * b.purchase_price), 0) as at_cost,
-               COALESCE(SUM(b.qty_remaining * b.mrp), 0) as at_mrp
+               COALESCE(SUM(b.qty_remaining * COALESCE(b.unit_cost, b.purchase_price)), 0) as at_cost,
+               COALESCE(SUM(b.qty_remaining * b.mrp), 0) as at_mrp,
+               COALESCE(SUM(b.qty_remaining * COALESCE(b.selling_price, b.mrp)), 0) as at_selling
         FROM drug_master m LEFT JOIN drug_stock_batches b ON b.drug_master_id=m.id AND b.is_active=1
         WHERE m.is_active=1
       `).get(),
       expiredStock: db.prepare(`
-        SELECT COUNT(*) as batches, COALESCE(SUM(qty_remaining * purchase_price), 0) as value
-        FROM drug_stock_batches WHERE is_active=1 AND qty_remaining > 0 AND date(expiry) < date('now')
+        SELECT COUNT(*) as batches, COALESCE(SUM(qty_remaining * COALESCE(unit_cost, purchase_price)), 0) as value
+        FROM drug_stock_batches WHERE is_active=1 AND qty_remaining > 0 AND date(expiry) < date('now', 'localtime')
       `).get(),
       lowStockCount: sc(`SELECT COUNT(*) as c FROM drug_master m WHERE m.is_active=1
         AND (SELECT COALESCE(SUM(qty_remaining),0) FROM drug_stock_batches b WHERE b.drug_master_id=m.id AND b.is_active=1) <= m.low_stock_threshold`),
@@ -4361,7 +4281,7 @@ export function registerIpc() {
         FROM pharmacy_sale_items ps
         JOIN pharmacy_sales s ON s.id = ps.sale_id
         LEFT JOIN drug_master m ON m.id = ps.drug_master_id
-        WHERE date(s.created_at) BETWEEN ? AND ?
+        WHERE COALESCE(s.payment_mode, '') <> 'IPD-bill' AND date(s.created_at, 'localtime') BETWEEN ? AND ?
         GROUP BY name
         ORDER BY revenue DESC LIMIT 20
       `).all(filter.from, filter.to),
@@ -4373,13 +4293,13 @@ export function registerIpc() {
         FROM pharmacy_sales
         -- Ward-dispensed medicines are billed on the IPD bill; counting the
         -- pharmacy sale too would report the same rupee twice.
-        WHERE payment_mode <> 'IPD-bill' AND date(created_at) BETWEEN ? AND ?
+        WHERE COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?
         GROUP BY kind
       `).all(filter.from, filter.to),
       scheduleMix: db.prepare(`
         SELECT schedule, COUNT(*) as count, SUM(qty) as units
         FROM dispensing_register
-        WHERE date(dispensed_at) BETWEEN ? AND ?
+        WHERE date(dispensed_at, 'localtime') BETWEEN ? AND ?
         GROUP BY schedule
         ORDER BY count DESC
       `).all(filter.from, filter.to),
@@ -4396,11 +4316,11 @@ export function registerIpc() {
       `).all(),
       expiringSoon: db.prepare(`
         SELECT m.name as drug_name, b.batch_no, b.expiry, b.qty_remaining,
-               CAST((julianday(b.expiry) - julianday('now')) AS INTEGER) as days
+               CAST((julianday(b.expiry) - julianday(date('now', 'localtime'))) AS INTEGER) as days
         FROM drug_stock_batches b
         JOIN drug_master m ON m.id=b.drug_master_id
         WHERE b.is_active=1 AND b.qty_remaining > 0
-          AND date(b.expiry) BETWEEN date('now') AND date('now', '+90 days')
+          AND date(b.expiry) BETWEEN date('now', 'localtime') AND date('now', 'localtime', '+90 days')
         ORDER BY date(b.expiry) ASC LIMIT 30
       `).all(),
     };
@@ -4411,10 +4331,10 @@ export function registerIpc() {
     const db = getDb();
     const billAgg = (cond: string) => db.prepare(
       `SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue, COALESCE(SUM(amount_paid), 0) as collected
-       FROM bills WHERE (status IS NULL OR status <> 'cancelled') AND date(created_at) BETWEEN ? AND ? AND ${cond}`
+       FROM bills WHERE (status IS NULL OR status <> 'cancelled') AND date(created_at, 'localtime') BETWEEN ? AND ? AND ${cond}`
     ).get(from, to) as { count: number; revenue: number; collected: number };
     const phar = db.prepare(
-      `SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue FROM pharmacy_sales WHERE payment_mode <> 'IPD-bill' AND date(created_at) BETWEEN ? AND ?`
+      `SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue FROM pharmacy_sales WHERE payment_mode <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?`
     ).get(from, to) as { count: number; revenue: number };
 
     const mk = (key: string, label: string, a: { count: number; revenue: number; collected: number }) => ({
@@ -4504,70 +4424,70 @@ export function registerIpc() {
     const all = (sql: string, params: any[] = []) => db.prepare(sql).all(...params) as any[];
 
     // --- Quick-period cards
-    const yesterday = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE date(created_at)=date(?, '-1 day')", [today]);
-    const todayTotal = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE date(created_at)=?", [today]);
-    const weekTotal = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE date(created_at) >= date(?, '-6 days')", [today]);
-    const prevWeek = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE date(created_at) >= date(?, '-13 days') AND date(created_at) < date(?, '-6 days')", [today, today]);
-    const monthTotal = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', ?)", [today]);
-    const prevMonth = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', date(?, 'start of month', '-1 day'))", [today]);
-    const allTime = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills");
+    const yesterday = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime')=date(?, '-1 day')", [today]);
+    const todayTotal = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime')=?", [today]);
+    const weekTotal = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') >= date(?, '-6 days')", [today]);
+    const prevWeek = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') >= date(?, '-13 days') AND date(created_at, 'localtime') < date(?, '-6 days')", [today, today]);
+    const monthTotal = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', ?)", [today]);
+    const prevMonth = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', date(?, 'start of month', '-1 day'))", [today]);
+    const allTime = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled'");
 
     // Avg + largest in whole-time
-    const avg = row("SELECT COALESCE(AVG(total),0) as avg, COALESCE(MAX(total),0) as max FROM bills");
+    const avg = row("SELECT COALESCE(AVG(total),0) as avg, COALESCE(MAX(total),0) as max FROM bills WHERE COALESCE(status,'') <> 'cancelled'");
 
     // Custom range (default = last 30 days)
-    const rangeFrom = filter.from || (() => { const d = new Date(); d.setDate(d.getDate() - 29); return d.toISOString().slice(0, 10); })();
+    const rangeFrom = filter.from || addDaysISO(today, -29);
     const rangeTo = filter.to || today;
-    const rangeBills = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE date(created_at) BETWEEN ? AND ?", [rangeFrom, rangeTo]);
-    const rangePharma = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM pharmacy_sales WHERE payment_mode <> 'IPD-bill' AND date(created_at) BETWEEN ? AND ?", [rangeFrom, rangeTo]);
+    const rangeBills = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') BETWEEN ? AND ?", [rangeFrom, rangeTo]);
+    const rangePharma = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM pharmacy_sales WHERE payment_mode <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?", [rangeFrom, rangeTo]);
 
     const byDay = all(
-      `SELECT date(created_at) as day, COALESCE(SUM(total),0) as total, COUNT(*) as count
-       FROM bills WHERE date(created_at) BETWEEN ? AND ?
-       GROUP BY date(created_at) ORDER BY day DESC`,
+      `SELECT date(created_at, 'localtime') as day, COALESCE(SUM(total),0) as total, COUNT(*) as count
+       FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') BETWEEN ? AND ?
+       GROUP BY date(created_at, 'localtime') ORDER BY day DESC`,
       [rangeFrom, rangeTo]
     );
     const byWeek = all(
-      `SELECT strftime('%Y-W%W', created_at) as week, COALESCE(SUM(total),0) as total, COUNT(*) as count
-       FROM bills WHERE date(created_at) >= date(?, '-56 days')
+      `SELECT strftime('%Y-W%W', created_at, 'localtime') as week, COALESCE(SUM(total),0) as total, COUNT(*) as count
+       FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') >= date(?, '-56 days')
        GROUP BY week ORDER BY week DESC`,
       [today]
     );
     const byMonth = all(
-      `SELECT strftime('%Y-%m', created_at) as month, COALESCE(SUM(total),0) as total, COUNT(*) as count
-       FROM bills GROUP BY month ORDER BY month DESC LIMIT 12`
+      `SELECT strftime('%Y-%m', created_at, 'localtime') as month, COALESCE(SUM(total),0) as total, COUNT(*) as count
+       FROM bills WHERE COALESCE(status,'') <> 'cancelled' GROUP BY month ORDER BY month DESC LIMIT 12`
     );
     const byMode = all(
       `SELECT payment_mode, COALESCE(SUM(total),0) as total, COUNT(*) as count
-       FROM bills GROUP BY payment_mode ORDER BY total DESC`
+       FROM bills WHERE COALESCE(status,'') <> 'cancelled' GROUP BY payment_mode ORDER BY total DESC`
     );
     const byDoctor = all(
       `SELECT d.name as doctor, d.specialty, COALESCE(SUM(b.total),0) as total, COUNT(b.id) as count
        FROM bills b
        LEFT JOIN appointments a ON a.id=b.appointment_id
        LEFT JOIN doctors d ON d.id=a.doctor_id
-       WHERE d.id IS NOT NULL
+       WHERE d.id IS NOT NULL AND COALESCE(b.status,'') <> 'cancelled'
        GROUP BY d.id ORDER BY total DESC`
     );
     const todayByMode = all(
       `SELECT payment_mode, COALESCE(SUM(total),0) as total, COUNT(*) as count
-       FROM bills WHERE date(created_at)=?
+       FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime')=?
        GROUP BY payment_mode`,
       [today]
     );
 
     // Weekday pattern (0=Sun ... 6=Sat) — last 90 days
     const byWeekday = all(
-      `SELECT strftime('%w', created_at) as wd, COALESCE(SUM(total),0) as total, COUNT(*) as count
-       FROM bills WHERE date(created_at) >= date(?, '-89 days')
+      `SELECT strftime('%w', created_at, 'localtime') as wd, COALESCE(SUM(total),0) as total, COUNT(*) as count
+       FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') >= date(?, '-89 days')
        GROUP BY wd ORDER BY wd`,
       [today]
     );
 
     // Hour-of-day distribution — last 30 days
     const byHour = all(
-      `SELECT strftime('%H', created_at) as hr, COALESCE(SUM(total),0) as total, COUNT(*) as count
-       FROM bills WHERE date(created_at) >= date(?, '-29 days')
+      `SELECT strftime('%H', created_at, 'localtime') as hr, COALESCE(SUM(total),0) as total, COUNT(*) as count
+       FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') >= date(?, '-29 days')
        GROUP BY hr ORDER BY hr`,
       [today]
     );
@@ -4577,6 +4497,7 @@ export function registerIpc() {
       `SELECT p.id, (p.first_name || ' ' || p.last_name) as name, p.uhid, p.place,
               COALESCE(SUM(b.total),0) as total, COUNT(b.id) as bills
        FROM bills b JOIN patients p ON p.id=b.patient_id
+       WHERE COALESCE(b.status,'') <> 'cancelled'
        GROUP BY p.id ORDER BY total DESC LIMIT 10`
     );
 
@@ -4585,14 +4506,14 @@ export function registerIpc() {
       `SELECT COALESCE(NULLIF(TRIM(p.place), ''), 'Unknown') as place,
               COALESCE(SUM(b.total),0) as total, COUNT(b.id) as bills
        FROM bills b JOIN patients p ON p.id=b.patient_id
-       WHERE date(b.created_at) >= date(?, '-89 days')
+       WHERE COALESCE(b.status,'') <> 'cancelled' AND date(b.created_at, 'localtime') >= date(?, '-89 days')
        GROUP BY LOWER(TRIM(COALESCE(p.place,''))) ORDER BY total DESC LIMIT 15`,
       [today]
     );
 
     // Pharmacy vs OPD comparison — last 30 days
-    const opd30 = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE date(created_at) >= date(?, '-29 days')", [today]);
-    const pharma30 = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM pharmacy_sales WHERE payment_mode <> 'IPD-bill' AND date(created_at) >= date(?, '-29 days')", [today]);
+    const opd30 = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') >= date(?, '-29 days')", [today]);
+    const pharma30 = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM pharmacy_sales WHERE payment_mode <> 'IPD-bill' AND date(created_at, 'localtime') >= date(?, '-29 days')", [today]);
 
     return {
       today: { total: todayTotal.t, count: todayTotal.c, byMode: todayByMode },

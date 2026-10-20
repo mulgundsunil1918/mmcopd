@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2, Search, X } from 'lucide-react';
 import { Modal } from '../Modal';
 import { useToast } from '../../hooks/useToast';
 import { useAuth } from '../../hooks/useAuth';
-import { cn, formatINR } from '../../lib/utils';
+import { cn, formatINR, newRef, refFor } from '../../lib/utils';
 import { RadiologyTestPicker, pickedSummary } from './RadiologyTestPicker';
 import type { Patient, RadiologyOrderDetail } from '../../types';
 
@@ -25,6 +25,7 @@ export function NewRadiologyRequest({
 }) {
   const toast = useToast();
   const { user } = useAuth();
+  const payRef = useRef(newRef());   // one id per payment attempt: the same attempt sent twice is recorded once
   const [q, setQ] = useState('');
   const [patient, setPatient] = useState<Patient | null>(presetPatient ?? null);
   const [doctorId, setDoctorId] = useState<number | ''>('');
@@ -62,9 +63,9 @@ export function NewRadiologyRequest({
       if (!r.ok) { toast(r.error, 'error'); return; }
       const order = r.order;
       if (collectNow && order.bill_id && Number(order.bill_total) > 0) {
-        const pay = await window.electronAPI.billing.pay(Number(order.bill_id), Number(order.bill_total), payMode, user?.username);
+        const pay = await window.electronAPI.billing.pay(Number(order.bill_id), Number(order.bill_total), payMode, user?.username, refFor(payRef.current, { bill: order.bill_id, amount: order.bill_total, payMode }));
         if (!pay.ok) toast(`Order ${order.order_number} created, but the payment was not recorded: ${pay.error || 'unknown error'}. Collect it from the order screen.`, 'error');
-        else toast(`${order.order_number} created — ${formatINR(Number(order.bill_total))} received (${payMode}).`, 'success');
+        else { payRef.current = newRef(); toast(`${order.order_number} created — ${formatINR(Number(order.bill_total))} received (${payMode}).`, 'success'); }
       } else {
         toast(
           order.bill_id

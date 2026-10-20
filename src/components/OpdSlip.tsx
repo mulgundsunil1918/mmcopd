@@ -8,6 +8,7 @@ import { rxLangLine, type PatientLang } from '../lib/rxLang';
 import type { AppointmentWithJoins, Consultation, Doctor, FollowupSummary, LabOrder, PrescriptionItem, Settings, SlipLayout, SlipTemplate, SlipTemplateSection, Vitals } from '../types';
 import { DEFAULT_LAYOUT } from '../db/slip-templates';
 import { LOGO_MM, resolveLetterhead } from './print/PrintHeader';
+import { localISO } from '../lib/localDate';
 
 const RESERVED_KEYS = new Set(['history', 'examination', 'impression', 'advice']);
 
@@ -109,7 +110,7 @@ export function OpdSlip({
         mode: 'today_paid',
         doctor_name: doctor?.name ? `Dr. ${doctor.name}` : 'Dr. (example)',
         free_remaining: settings.followup_free_visits || 2,
-        valid_till: till.toISOString().slice(0, 10),
+        valid_till: localISO(till),
       });
       return;
     }

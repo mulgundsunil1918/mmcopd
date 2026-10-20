@@ -4,6 +4,7 @@ import { BarChart3, Download, Database, FolderOpen } from 'lucide-react';
 import { EmptyState } from '../components/EmptyState';
 import { useToast } from '../hooks/useToast';
 import { cn, fmtDate, fmtDateTime, formatINR, todayISO } from '../lib/utils';
+import { localISO } from '../lib/localDate';
 
 type ReportKind = 'daily_collection' | 'doctor_performance' | 'top_diagnoses' | 'top_drugs' | 'new_patients';
 
@@ -17,7 +18,7 @@ const REPORTS: { kind: ReportKind; title: string; desc: string }[] = [
 
 export function Reports() {
   const [kind, setKind] = useState<ReportKind>('daily_collection');
-  const [from, setFrom] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 29); return d.toISOString().slice(0, 10); });
+  const [from, setFrom] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 29); return localISO(d); });
   const [to, setTo] = useState(todayISO());
 
   const { data: rows = [], isLoading } = useQuery({

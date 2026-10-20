@@ -155,7 +155,7 @@ export function listOrders(db: Database.Database, f: ListFilter = {}) {
   if (!f.patient_id) {
     const DAYS: Record<string, number> = { today: 1, week: 7, month: 31, quarter: 92 };
     const days = f.window ? DAYS[f.window] : undefined; // 'all' / undefined → no limit
-    if (days) conds.push(`date(o.ordered_at) >= date('now', '-${days - 1} days')`);
+    if (days) conds.push(`date(o.ordered_at, 'localtime') >= date('now', 'localtime', '-${days - 1} days')`);
   }
   const ORDER: Record<string, string> = {
     recent: 'o.ordered_at DESC, o.id DESC',
@@ -306,6 +306,23 @@ export function createOrder(db: Database.Database, p: CreateOrderInput, deps: Ra
   if (!patient) throw new Error('Pick the patient for this radiology request — that patient was not found.');
   const items = resolveItems(db, p.items);
   if (!items.length) throw new Error('Pick at least one scan or test to order.');
+
+  // The same request sent twice (a double-click, a retry after a lost reply) is ONE order and ONE bill: an identical
+  // scan list for the same patient and visit, raised in the last two minutes and not yet started, is the same request.
+  {
+    const wanted = items.map((i) => i.test_name.trim().toLowerCase()).sort().join('|');
+    const recent = db.prepare(
+      `SELECT id FROM radiology_orders
+        WHERE patient_id = ? AND appointment_id IS ? AND status = 'ordered'
+          AND ordered_at >= datetime('now', '-120 seconds')
+        ORDER BY id DESC`,
+    ).all(p.patient_id, p.appointment_id ?? null) as { id: number }[];
+    for (const r of recent) {
+      const have = (db.prepare('SELECT test_name FROM radiology_order_items WHERE order_id=?').all(r.id) as { test_name: string }[])
+        .map((i) => i.test_name.trim().toLowerCase()).sort().join('|');
+      if (have === wanted) return mustGetOrder(db, r.id);
+    }
+  }
 
   let orderId = 0;
   db.transaction(() => {

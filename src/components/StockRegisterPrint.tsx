@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Printer, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { fmtDate, formatINR } from '../lib/utils';
+import { localISO } from '../lib/localDate';
 
 /**
  * Stock register — every batch grouped by drug, sorted by drug name then expiry.
@@ -82,7 +83,7 @@ export function StockRegisterPrint({
             <div className="text-center mb-2">
               <div className="text-base font-bold uppercase tracking-wider" style={{ color: '#1e3a8a' }}>Stock Register</div>
               <div className="text-[11px]" style={{ color: '#475569' }}>
-                As on {fmtDate(new Date().toISOString().slice(0, 10))}
+                As on {fmtDate(localISO())}
                 {!includeExpired && ' · expired batches hidden'}
               </div>
             </div>

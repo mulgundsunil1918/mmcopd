@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+import type { IntegrityFinding, PriceHistoryRow, ProfitReport, SupplierReport, Valuation } from './lib/pharmacyReports';
+
 export type LicenseStatusIPC = {
   state: 'valid' | 'grace' | 'locked' | 'invalid' | 'wrong_machine' | 'clock_tampered' | 'none' | 'dev';
   ok: boolean; readOnly: boolean; needsActivation: boolean;
@@ -37,6 +39,9 @@ import type {
   PrescriptionItem,
   PurchaseInvoice,
   PurchaseInvoiceInput,
+  PurchaseDetail,
+  PurchasePaymentInput,
+  PurchaseResult,
   ReferringDoctor,
   RadiologyTest,
   RadiologyOrderRow,
@@ -383,6 +388,8 @@ const api = {
     getAppointmentRx: (appointmentId: number) =>
       ipcRenderer.invoke('pharmacy:getAppointmentRx', appointmentId) as Promise<PrescriptionItem[]>,
     sell: (payload: {
+      /** Generated once per attempt; sending the same attempt twice returns the first sale. */
+      client_ref?: string;
       patient_id?: number | null;
       appointment_id?: number | null;
       items: { drug_id?: number | null; drug_master_id?: number | null; drug_name: string; qty: number; rate: number; gst_amount?: number }[];
@@ -404,12 +411,15 @@ const api = {
       ipcRenderer.invoke('wholesalers:delete', id) as Promise<{ ok: boolean }>,
   },
   purchases: {
-    list: (filter?: { from?: string; to?: string; wholesaler_id?: number }) =>
+    list: (filter?: { from?: string; to?: string; wholesaler_id?: number; status?: 'paid' | 'unpaid' | 'partial' | 'outstanding' }) =>
       ipcRenderer.invoke('purchase:list', filter || {}) as Promise<(PurchaseInvoice & { wholesaler_name: string; wholesaler_license_no: string })[]>,
     get: (id: number) =>
-      ipcRenderer.invoke('purchase:get', id) as Promise<(PurchaseInvoice & { wholesaler_name: string; items: any[] }) | null>,
+      ipcRenderer.invoke('purchase:get', id) as Promise<PurchaseDetail | null>,
     create: (payload: PurchaseInvoiceInput) =>
-      ipcRenderer.invoke('purchase:create', payload) as Promise<PurchaseInvoice>,
+      ipcRenderer.invoke('purchase:create', payload) as Promise<PurchaseResult>,
+    /** Record money paid to the supplier against a bill. */
+    addPayment: (invoiceId: number, payment: PurchasePaymentInput) =>
+      ipcRenderer.invoke('purchase:addPayment', invoiceId, payment) as Promise<PurchaseResult>,
   },
   dispensing: {
     register: (filter: { from: string; to: string; schedule?: string }) =>
@@ -540,8 +550,9 @@ const api = {
       ipcRenderer.invoke('bill:removeItem', itemId) as Promise<any>,
     setDiscount: (billId: number, discount: number, type: 'flat' | 'percent', role: string, reason?: string, by?: string) =>
       ipcRenderer.invoke('bill:setDiscount', billId, discount, type, role, reason, by) as Promise<any>,
-    pay: (billId: number, amount: number, mode: string, by?: string) =>
-      ipcRenderer.invoke('bill:pay', billId, amount, mode, by) as Promise<{ ok: boolean; error?: string }>,
+    /** `ref`: one id per payment attempt — the same attempt sent twice is recorded once. */
+    pay: (billId: number, amount: number, mode: string, by?: string, ref?: string) =>
+      ipcRenderer.invoke('bill:pay', billId, amount, mode, by, ref) as Promise<{ ok: boolean; error?: string; duplicate?: boolean }>,
     /** Advance receipts on an admission, each with its refundable balance. */
     advancesList: (admissionId: number) =>
       ipcRenderer.invoke('advances:list', admissionId) as Promise<{ ok: boolean; error?: string; rows: any[] }>,
@@ -648,7 +659,7 @@ const api = {
       ipcRenderer.invoke('analytics:pharmacyOverview', filter) as Promise<{
         totalDispensed: number; scheduleHCount: number;
         totalRevenue: number; totalSales: number;
-        valuation: { skus: number; units: number; at_cost: number; at_mrp: number };
+        valuation: { skus: number; units: number; at_cost: number; at_mrp: number; at_selling: number };
         expiredStock: { batches: number; value: number };
         lowStockCount: number;
         topDrugs: { name: string; units: number; revenue: number; sales: number }[];
@@ -676,6 +687,17 @@ const api = {
       ipcRenderer.invoke('analytics:pharmacyBasket') as Promise<
         { month: string; sales: number; avg_revenue: number; total_revenue: number; avg_units: number }[]
       >,
+    /** Profit by medicine over a date range (the clinic's local days): revenue, cost, margin, markup, rankings. */
+    pharmacyProfit: (filter: { from: string; to: string }) =>
+      ipcRenderer.invoke('analytics:pharmacyProfit', filter) as Promise<{ ok: true; report: ProfitReport } | { ok: false; error: string }>,
+    /** Stock on hand valued at cost, MRP and selling price, with expected profit and expiry exposure. */
+    pharmacyValuation: () => ipcRenderer.invoke('analytics:pharmacyValuation') as Promise<Valuation>,
+    supplierReport: (filter: { from: string; to: string }) =>
+      ipcRenderer.invoke('analytics:supplierReport', filter) as Promise<{ ok: true; report: SupplierReport } | { ok: false; error: string }>,
+    drugPriceHistory: (drugId: number) =>
+      ipcRenderer.invoke('analytics:drugPriceHistory', drugId) as Promise<PriceHistoryRow[]>,
+    /** Read-only sanity checks over the pharmacy ledger. */
+    pharmacyChecks: () => ipcRenderer.invoke('analytics:pharmacyChecks') as Promise<IntegrityFinding[]>,
   },
   license: {
     status: () => ipcRenderer.invoke('license:status') as Promise<LicenseStatusIPC>,

@@ -15,6 +15,7 @@ import { useToast } from '../hooks/useToast';
 import { useLicensedModules } from '../hooks/useLicensedModules';
 import { buildWhatsAppUrl, renderTemplate, DEFAULT_WHATSAPP_TEMPLATE, buildContext } from '../lib/whatsapp';
 import type { WaAutomationTrigger } from '../types/whatsapp';
+import { localISO } from '../lib/localDate';
 
 type ActiveModule = 'module1' | 'module2';
 
@@ -609,7 +610,7 @@ function Module1Section() {
   const qc = useQueryClient();
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = localISO();
   const { data: appts = [], isLoading: apptLoading } = useQuery({
     queryKey: ['appointments', today],
     queryFn: () => window.electronAPI.appointments.list({ date: today }),
@@ -1043,7 +1044,7 @@ function AiSensyHub() {
   const connectedOn = ((settings as any)?.aisensy_connected_on || '').trim();
   const setConnected = async (on: boolean) => {
     try {
-      await window.electronAPI.settings.save({ aisensy_connected_on: on ? new Date().toISOString().slice(0, 10) : '' } as any);
+      await window.electronAPI.settings.save({ aisensy_connected_on: on ? localISO() : '' } as any);
       qc.invalidateQueries({ queryKey: ['settings'] });
       toast(on ? 'Marked as live — automation is running in AiSensy' : 'Setup steps shown again', 'success');
     } catch (e: any) { toast(e?.message || 'Could not save', 'error'); }
@@ -1083,7 +1084,7 @@ function AiSensyHub() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `curedesk-contacts-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `curedesk-contacts-${localISO()}.csv`;
       a.click();
       URL.revokeObjectURL(url);
       toast(`Exported ${contacts.length} contacts — import this CSV in AiSensy`, 'success');

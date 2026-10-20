@@ -9,6 +9,7 @@ import {
   type GrowthChart, type Sex,
 } from '../lib/peds/growth';
 import { GrowthChartPanel } from '../components/peds/GrowthChartPanel';
+import { localISO } from '../lib/localDate';
 
 /**
  * Pediatrics add-on. Growth centiles (WHO), the immunisation diary, and the
@@ -102,7 +103,7 @@ function GrowthSection({ patient }: { patient: any }) {
   const qc = useQueryClient();
   const { user } = useAuth();
   const sex: Sex = patient.gender === 'F' ? 'F' : 'M';
-  const [measuredOn, setMeasuredOn] = useState(new Date().toISOString().slice(0, 10));
+  const [measuredOn, setMeasuredOn] = useState(localISO());
   const [weight, setWeight] = useState('');
   const [height, setHeight] = useState('');
   const [hc, setHc] = useState('');
@@ -259,14 +260,14 @@ function VaccineSection({ patient }: { patient: any }) {
   };
 
   const markGiven = async (rec: any, givenDate?: string) => {
-    const r = await window.electronAPI.peds.vaccineUpdate(rec.id, { status: 'given', given_date: givenDate || new Date().toISOString().slice(0, 10), recorded_by: user?.username });
+    const r = await window.electronAPI.peds.vaccineUpdate(rec.id, { status: 'given', given_date: givenDate || localISO(), recorded_by: user?.username });
     if (r.ok) qc.invalidateQueries({ queryKey: ['peds-vax', patient.id] });
     else toast(r.error || 'Could not update', 'error');
   };
 
   // Un-mark a dose given (mistaken tap) — revert to due/overdue by its due date and clear the date.
   const undoGiven = async (rec: any) => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localISO();
     const revert = rec.due_date && rec.due_date < today ? 'overdue' : 'due';
     const r = await window.electronAPI.peds.vaccineUpdate(rec.id, { status: revert, given_date: null });
     if (r.ok) { toast('Marked not given', 'info'); qc.invalidateQueries({ queryKey: ['peds-vax', patient.id] }); }

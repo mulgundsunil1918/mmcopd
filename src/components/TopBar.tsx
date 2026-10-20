@@ -5,6 +5,7 @@ import { HeartPulse, Phone, MapPin, Clock, CloudUpload, AlertTriangle, Receipt, 
 import { format } from 'date-fns';
 import { QuickBillModal } from './billing/QuickBillModal';
 import { clockInfo } from '../lib/clock';
+import { localISO } from '../lib/localDate';
 
 export function TopBar() {
   const [billOpen, setBillOpen] = useState(false);
@@ -46,13 +47,13 @@ export function TopBar() {
     refetchInterval: 120_000,
   });
 
-  const backedUpToday = backupStatus?.lastBackupAt?.slice(0, 10) === new Date().toISOString().slice(0, 10);
+  const backedUpToday = (backupStatus?.lastBackupAt ? localISO(new Date(backupStatus.lastBackupAt)) : '') === localISO();
 
   const backupLabel = (() => {
     if (!backupStatus?.lastBackupAt) return 'No backup yet';
     const last = new Date(backupStatus.lastBackupAt);
     const today = new Date();
-    const sameDay = last.toISOString().slice(0, 10) === today.toISOString().slice(0, 10);
+    const sameDay = localISO(last) === localISO(today);
     if (sameDay) return `Backed up ${format(last, 'hh:mm a')}`;
     const days = Math.floor((today.getTime() - last.getTime()) / 86400000);
     if (days <= 0) return `Backed up ${format(last, 'hh:mm a')}`;

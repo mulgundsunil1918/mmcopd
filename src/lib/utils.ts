@@ -182,3 +182,23 @@ export function waitMinutes(appointmentTime: string, appointmentDate: string): n
 export function formatINR(n: number): string {
   return '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+
+/**
+ * A fresh id for ONE save attempt. The screen sends it with a purchase, payment or sale; if the same
+ * attempt reaches the main process twice (double click, lost reply, retry) the second one returns the
+ * first record instead of posting stock and money again.
+ */
+export function newRef(): string {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  } catch { /* fall through */ }
+  return `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** `base` tied to the exact content being saved: the same retry keeps its id, an edited one gets a new id. */
+export function refFor(base: string, content: unknown): string {
+  const s = JSON.stringify(content) ?? '';
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return `${base}:${(h >>> 0).toString(36)}`;
+}

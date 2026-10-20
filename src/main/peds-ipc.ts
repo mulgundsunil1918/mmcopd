@@ -10,6 +10,7 @@
  */
 
 import { ipcMain } from 'electron';
+import { localISO, addDaysISO } from '../lib/localDate';
 import { getDb } from '../db/db';
 import { getAllSettings } from '../db/settings';
 import { logAudit } from './auth';
@@ -47,7 +48,8 @@ function flattenSchedule(which: 'iap' | 'nis'): ScheduleEntry[] {
 
 /** Best-effort due-date from an age label like "6 weeks" / "9-12 months" / "At Birth". */
 function dueDateFromLabel(dobISO: string, label: string): string | null {
-  const dob = new Date(dobISO);
+  // Pure calendar arithmetic (UTC fields on a date-only value) so no time zone can move the due date by a day.
+  const dob = new Date(String(dobISO).slice(0, 10) + 'T00:00:00Z');
   if (Number.isNaN(dob.getTime())) return null;
   const l = (label || '').toLowerCase();
   if (l.includes('birth')) return dob.toISOString().slice(0, 10);
@@ -60,9 +62,9 @@ function dueDateFromLabel(dobISO: string, label: string): string | null {
   if (!nums.length) return null;
   const earliest = Math.min(...nums);
   const d = new Date(dob);
-  if (/week/.test(l)) d.setDate(d.getDate() + earliest * 7);
-  else if (/month/.test(l)) d.setMonth(d.getMonth() + earliest);
-  else if (/year/.test(l)) d.setFullYear(d.getFullYear() + earliest);
+  if (/week/.test(l)) d.setUTCDate(d.getUTCDate() + earliest * 7);
+  else if (/month/.test(l)) d.setUTCMonth(d.getUTCMonth() + earliest);
+  else if (/year/.test(l)) d.setUTCFullYear(d.getUTCFullYear() + earliest);
   else return null;
   return d.toISOString().slice(0, 10);
 }
@@ -92,7 +94,7 @@ export function registerPedsIpc() {
             wfa_z, lhfa_z, hcfa_z, bfa_z, wfa_c, lhfa_c, hcfa_c, bfa_c, notes, recorded_by)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).run(
-        id, input.measured_on ?? new Date().toISOString().slice(0, 10), input.age_days ?? null,
+        id, input.measured_on ?? localISO(), input.age_days ?? null,
         num(input.weight_kg), num(input.height_cm), num(input.head_circ_cm), num(input.bmi),
         num(input.wfa_z), num(input.lhfa_z), num(input.hcfa_z), num(input.bfa_z),
         num(input.wfa_c), num(input.lhfa_c), num(input.hcfa_c), num(input.bfa_c),
@@ -147,7 +149,7 @@ export function registerPedsIpc() {
         for (const e of entries) {
           if (existing.has(`${e.vaccine}|${e.schedule_age}`)) continue;
           const due = patient.dob ? dueDateFromLabel(patient.dob, e.schedule_age) : null;
-          const overdue = due && due < new Date().toISOString().slice(0, 10);
+          const overdue = due && due < localISO();
           ins.run(id, e.vaccine, e.schedule_age, due, overdue ? 'overdue' : 'due', e.dose ?? null, e.route ?? null, e.site ?? null);
           added++;
         }
@@ -172,7 +174,7 @@ export function registerPedsIpc() {
       if (!patient.dob) return fail('This patient has no date of birth on record, so due dates cannot be computed.');
 
       const rows = d.prepare('SELECT id, schedule_age, status FROM peds_vaccine_records WHERE patient_id=?').all(id) as any[];
-      const today = new Date().toISOString().slice(0, 10);
+      const today = localISO();
       const upd = d.prepare('UPDATE peds_vaccine_records SET due_date=?, status=? WHERE id=?');
       let updated = 0;
       const tx = d.transaction(() => {
@@ -206,7 +208,7 @@ export function registerPedsIpc() {
       }
       if (fields.length === 0) return fail('Nothing to update.');
       if (patch?.status === 'given' && !patch?.given_date) {
-        fields.push('given_date=?'); params.push(new Date().toISOString().slice(0, 10));
+        fields.push('given_date=?'); params.push(localISO());
       }
       params.push(id);
       d.prepare(`UPDATE peds_vaccine_records SET ${fields.join(', ')} WHERE id=?`).run(...params);

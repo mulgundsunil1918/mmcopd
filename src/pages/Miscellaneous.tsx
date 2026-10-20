@@ -7,6 +7,7 @@ import { useToast } from '../hooks/useToast';
 import { cn, formatINR, fmtDateTime } from '../lib/utils';
 import { BillPrint } from '../components/billing/BillPrint';
 import type { Doctor, Patient, PaymentMode } from '../types';
+import { localISO } from '../lib/localDate';
 
 const PAYMENT_MODES: PaymentMode[] = ['Cash', 'Card', 'UPI'];
 
@@ -56,7 +57,7 @@ export function Miscellaneous() {
     enabled: !patient,
   });
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localISO();
   const monthStart = today.slice(0, 8) + '01';
   const { data: list = [] } = useQuery({
     queryKey: ['misc-list'],

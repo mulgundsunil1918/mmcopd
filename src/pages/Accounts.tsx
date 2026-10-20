@@ -6,11 +6,12 @@ import { cn, fmtDate, formatINR, todayISO } from '../lib/utils';
 import { EmptyState } from '../components/EmptyState';
 import { colorForDoctor } from '../lib/doctor-colors';
 import type { Doctor } from '../types';
+import { localISO } from '../lib/localDate';
 
 const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export function Accounts() {
-  const [from, setFrom] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 29); return d.toISOString().slice(0, 10); });
+  const [from, setFrom] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 29); return localISO(d); });
   const [to, setTo] = useState(todayISO());
 
   const { data, isLoading } = useQuery({
@@ -334,7 +335,7 @@ export function Accounts() {
             </thead>
             <tbody>
               {data.topPatients.map((p: any, idx: number) => (
-                <tr key={p.id} className="border-b border-gray-100 dark:border-slate-800">
+                <tr key={`${p.id ?? ''}-${p.uhid ?? p.name}`} className="border-b border-gray-100 dark:border-slate-800">
                   <td className="py-1.5 text-xs font-bold text-gray-500 dark:text-slate-400">#{idx + 1}</td>
                   <td className="py-1.5 text-gray-900 dark:text-slate-100">{p.name}</td>
                   <td className="py-1.5 font-mono text-xs text-gray-500 dark:text-slate-400">{p.uhid}</td>

@@ -8,18 +8,28 @@ import {
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
 import { useToast } from '../hooks/useToast';
-import { cn, fmtDate, fmtDateTime, formatINR, todayISO } from '../lib/utils';
+import { cn, fmtDate, fmtDateTime, formatINR, newRef, refFor, todayISO } from '../lib/utils';
 import type {
-  Drug, DrugMaster, DrugSchedule, DrugStockBatch, PurchaseInvoice, PurchaseInvoiceInput, Wholesaler,
+  Drug, DrugMaster, DrugSchedule, DrugStockBatch, PurchaseInvoice, Wholesaler,
 } from '../types';
+import { NewPurchaseModal } from '../components/pharmacy/PurchaseBillModal';
+import { PurchaseDetailModal } from '../components/pharmacy/PurchaseDetailModal';
 import { DispensingRegisterPrint } from '../components/DispensingRegisterPrint';
 import { StockRegisterPrint } from '../components/StockRegisterPrint';
 import { PurchaseRegisterPrint } from '../components/PurchaseRegisterPrint';
 import { PharmacySaleReceipt } from '../components/pharmacy/PharmacySaleReceipt';
 import { BarcodeScanModal } from '../components/BarcodeScanModal';
 import { Scan, Printer } from 'lucide-react';
+import { localISO } from '../lib/localDate';
 
 type Tab = 'dispense' | 'drugs' | 'batches' | 'purchases' | 'sales';
+
+/**
+ * The rate a sale line starts at: what the batch FEFO will hand out NEXT is priced at (its selling
+ * price, else its own MRP) — not the drug's default MRP, which goes stale as soon as a new batch
+ * arrives with a different printed price. The rate stays editable.
+ */
+const defaultRate = (d: any): number => Number(d.next_selling_price ?? d.next_mrp ?? d.mrp ?? d.default_mrp ?? 0);
 
 export function Pharmacy() {
   const [tab, setTab] = useState<Tab>('dispense');
@@ -57,7 +67,7 @@ export function Pharmacy() {
         </div>
       </div>
 
-      {(alerts?.lowStock?.length || alerts?.expiringSoon?.length) && (
+      {alerts && (alerts.lowStock.length > 0 || alerts.expiringSoon.length > 0) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {alerts.lowStock.length > 0 && (
             <div className="rounded-lg border-2 border-amber-400 bg-amber-50 dark:bg-amber-900/30 p-3">
@@ -214,6 +224,8 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
   const [paymentMode, setPaymentMode] = useState('Cash');
   const [scanOpen, setScanOpen] = useState(false);
   const [receiptId, setReceiptId] = useState<number | null>(null);   // printed bill after dispensing
+  // One id per sale attempt: the same attempt sent twice (double click, lost reply) is one sale.
+  const [saleRef, setSaleRef] = useState(newRef);
 
   // Scan flow inside dispense: add the matched drug as a new row.
   const handleScan = async (code: string) => {
@@ -230,7 +242,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
         drug_master_id: exact.id,
         drug_name: exact.name,
         qty: 1,
-        rate: exact.mrp ?? exact.default_mrp ?? 0,
+        rate: defaultRate(exact),
         nextBatch: exact.batch || undefined,
         nextExpiry: exact.expiry || undefined,
         stock: exact.stock_qty ?? 0,
@@ -254,7 +266,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
             drug_master_id: match.id,
             drug_name: match.name,
             qty: 1,
-            rate: match.mrp ?? match.default_mrp ?? 0,
+            rate: defaultRate(match),
             nextBatch: match.batch || undefined,
             nextExpiry: match.expiry || undefined,
             stock: match.stock_qty ?? 0,
@@ -268,8 +280,8 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
   const total = Math.max(0, subtotal - discount);
 
   const sell = useMutation({
-    mutationFn: () =>
-      window.electronAPI.pharmacy.sell({
+    mutationFn: () => {
+      const payload = {
         appointment_id: appointment.id,
         patient_id: appointment.patient_id,
         items: rows.filter((r) => r.drug_name && r.qty > 0).map((r) => ({
@@ -280,8 +292,11 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
         })),
         discount,
         payment_mode: paymentMode,
-      }),
+      };
+      return window.electronAPI.pharmacy.sell({ ...payload, client_ref: refFor(saleRef, payload) });
+    },
     onSuccess: (sale: any) => {
+      setSaleRef(newRef());
       qc.invalidateQueries({ queryKey: ['pharmacy-pending'] });
       qc.invalidateQueries({ queryKey: ['pharmacy-sales'] });
       qc.invalidateQueries({ queryKey: ['pharmacy-drugs'] });
@@ -333,7 +348,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
                       ? {
                           drug_master_id: match.id,
                           drug_name: match.name,
-                          rate: match.mrp ?? match.default_mrp ?? 0,
+                          rate: defaultRate(match),
                           nextBatch: match.batch || undefined,
                           nextExpiry: match.expiry || undefined,
                           stock: match.stock_qty ?? 0,
@@ -447,6 +462,7 @@ function CounterSaleForm({ onDone }: { onDone: () => void }) {
   const [paymentMode, setPaymentMode] = useState('Cash');
   const [scanOpen, setScanOpen] = useState(false);
   const [receiptId, setReceiptId] = useState<number | null>(null);   // printed receipt after the sale
+  const [saleRef, setSaleRef] = useState(newRef);                      // one id per sale attempt (see DispenseForm)
 
   // Optional patient picker
   const [patientQuery, setPatientQuery] = useState('');
@@ -477,7 +493,7 @@ function CounterSaleForm({ onDone }: { onDone: () => void }) {
         drug_master_id: exact.id,
         drug_name: exact.name,
         qty: 1,
-        rate: exact.mrp ?? exact.default_mrp ?? 0,
+        rate: defaultRate(exact),
         nextBatch: exact.batch || undefined,
         nextExpiry: exact.expiry || undefined,
         stock: exact.stock_qty ?? 0,
@@ -488,8 +504,8 @@ function CounterSaleForm({ onDone }: { onDone: () => void }) {
   };
 
   const sell = useMutation({
-    mutationFn: () =>
-      window.electronAPI.pharmacy.sell({
+    mutationFn: () => {
+      const payload = {
         appointment_id: null,
         patient_id: patient?.id ?? null,
         items: rows.filter((r) => r.drug_name && r.qty > 0).map((r) => ({
@@ -500,8 +516,11 @@ function CounterSaleForm({ onDone }: { onDone: () => void }) {
         })),
         discount,
         payment_mode: paymentMode,
-      }),
+      };
+      return window.electronAPI.pharmacy.sell({ ...payload, client_ref: refFor(saleRef, payload) });
+    },
     onSuccess: (sale: any) => {
+      setSaleRef(newRef());
       qc.invalidateQueries({ queryKey: ['pharmacy-sales'] });
       qc.invalidateQueries({ queryKey: ['pharmacy-drugs'] });
       qc.invalidateQueries({ queryKey: ['pharmacy-drugs-active'] });
@@ -610,7 +629,7 @@ function CounterSaleForm({ onDone }: { onDone: () => void }) {
                       ? {
                           drug_master_id: match.id,
                           drug_name: match.name,
-                          rate: match.mrp ?? match.default_mrp ?? 0,
+                          rate: defaultRate(match),
                           nextBatch: match.batch || undefined,
                           nextExpiry: match.expiry || undefined,
                           stock: match.stock_qty ?? 0,
@@ -1043,9 +1062,13 @@ function StockBatchesTab() {
           const low = stock <= d.low_stock_threshold;
           return (
             <li key={d.id}>
-              <button
-                className="w-full flex items-center gap-3 py-2.5 px-2 hover:bg-gray-50 dark:hover:bg-slate-800/40 text-left"
+              {/* A div, not a <button>: it holds the "+ Batch" button, and a button inside a button is invalid HTML. */}
+              <div
+                role="button"
+                tabIndex={0}
+                className="w-full flex items-center gap-3 py-2.5 px-2 hover:bg-gray-50 dark:hover:bg-slate-800/40 text-left cursor-pointer"
                 onClick={() => setOpenId(isOpen ? null : d.id)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenId(isOpen ? null : d.id); } }}
               >
                 {isOpen ? <ChevronDown className="w-4 h-4 text-gray-500" /> : <ChevronRight className="w-4 h-4 text-gray-500" />}
                 <div className="flex-1 min-w-0">
@@ -1068,7 +1091,7 @@ function StockBatchesTab() {
                 >
                   <Plus className="w-3.5 h-3.5" /> Batch
                 </button>
-              </button>
+              </div>
               {isOpen && <BatchList drugMasterId={d.id} drugName={d.name} drugDefaultMrp={d.default_mrp} onEdit={(b) => setEditing({ ...b, drug_master_id: d.id, drug_name: d.name })} />}
             </li>
           );
@@ -1081,22 +1104,23 @@ function StockBatchesTab() {
             <div className="grid grid-cols-2 gap-3">
               <Field label="Batch No *"><input className="input font-mono" value={editing.batch_no || ''} onChange={(e) => setEditing({ ...editing, batch_no: e.target.value })} /></Field>
               <div />
-              <Field label="Mfg date *"><input type="month" className="input" value={editing.manufacture_date || ''} onChange={(e) => setEditing({ ...editing, manufacture_date: e.target.value })} /></Field>
+              <Field label="Mfg date"><input type="month" className="input" value={editing.manufacture_date || ''} onChange={(e) => setEditing({ ...editing, manufacture_date: e.target.value })} /></Field>
               <Field label="Expiry *"><input type="date" className="input" value={editing.expiry || ''} onChange={(e) => setEditing({ ...editing, expiry: e.target.value })} /></Field>
               <Field label="Qty Received *"><input type="number" className="input" value={editing.qty_received ?? 0} onChange={(e) => setEditing({ ...editing, qty_received: Number(e.target.value) })} /></Field>
               <Field label="Qty Remaining"><input type="number" className="input" value={editing.qty_remaining ?? editing.qty_received ?? 0} onChange={(e) => setEditing({ ...editing, qty_remaining: Number(e.target.value) })} /></Field>
               <Field label="Purchase Price (₹)"><input type="number" className="input" value={editing.purchase_price ?? ''} onChange={(e) => setEditing({ ...editing, purchase_price: e.target.value === '' ? null : Number(e.target.value) })} /></Field>
               <Field label="MRP (₹)"><input type="number" className="input" value={editing.mrp ?? 0} onChange={(e) => setEditing({ ...editing, mrp: Number(e.target.value) })} /></Field>
+              <Field label="Selling price (₹) — blank = MRP"><input type="number" className="input" value={editing.selling_price ?? ''} onChange={(e) => setEditing({ ...editing, selling_price: e.target.value === '' ? null : Number(e.target.value) })} /></Field>
               <div className="col-span-2">
                 <Field label="Manufacturer Lic. No."><input className="input" placeholder="optional — printed on strip" value={editing.manufacturer_license_no || ''} onChange={(e) => setEditing({ ...editing, manufacturer_license_no: e.target.value })} /></Field>
               </div>
             </div>
             <div className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded p-2">
-              💡 For wholesaler-bought stock, prefer creating a <b>Purchase Invoice</b> in the Purchases tab — that auto-creates batches AND records the bill for compliance. Manual batch entry is for samples / corrections only.
+              💡 For wholesaler-bought stock, prefer creating a <b>Purchase Invoice</b> in the Purchases tab — that auto-creates batches AND records the bill for compliance. Manual batch entry is for samples / corrections only. Changing the purchase price here changes what the <i>remaining</i> units cost; sales already made keep the cost they were made at, and the change is written to the audit log.
             </div>
             <div className="flex justify-end gap-2 pt-3">
               <button className="btn-secondary" onClick={() => setEditing(null)}>Cancel</button>
-              <button className="btn-primary" onClick={() => save.mutate(editing as DrugStockBatch)} disabled={save.isPending || !editing.batch_no || !editing.expiry || !editing.manufacture_date}>
+              <button className="btn-primary" onClick={() => save.mutate(editing as DrugStockBatch)} disabled={save.isPending || !editing.batch_no || !editing.expiry || (editing.selling_price != null && editing.selling_price > (editing.mrp ?? 0))}>
                 {save.isPending ? 'Saving…' : 'Save Batch'}
               </button>
             </div>
@@ -1123,7 +1147,9 @@ function BatchList({ drugMasterId, drugName: _drugName, drugDefaultMrp: _drugDef
             <th className="py-1.5">Expiry</th>
             <th className="py-1.5 text-right">Received</th>
             <th className="py-1.5 text-right">Remaining</th>
+            <th className="py-1.5 text-right" title="True cost of one unit: free units, discount, freight and unclaimable GST included">Cost / unit</th>
             <th className="py-1.5 text-right">MRP</th>
+            <th className="py-1.5 text-right" title="Blank = sold at MRP">Sell ₹</th>
             <th className="py-1.5">Mfg. Lic.</th>
             <th></th>
           </tr>
@@ -1142,7 +1168,9 @@ function BatchList({ drugMasterId, drugName: _drugName, drugDefaultMrp: _drugDef
                 </td>
                 <td className="py-1.5 text-right">{b.qty_received}</td>
                 <td className="py-1.5 text-right font-semibold">{b.qty_remaining}</td>
+                <td className="py-1.5 text-right">{(b.unit_cost ?? b.purchase_price) != null ? formatINR((b.unit_cost ?? b.purchase_price) as number) : <span className="text-gray-400" title="No cost recorded — left out of profit figures">—</span>}</td>
                 <td className="py-1.5 text-right">{formatINR(b.mrp)}</td>
+                <td className="py-1.5 text-right">{b.selling_price != null ? formatINR(b.selling_price) : <span className="text-gray-400">= MRP</span>}</td>
                 <td className="py-1.5 text-[10px] font-mono text-gray-500">{b.manufacturer_license_no || '—'}</td>
                 <td className="py-1.5 text-right">
                   <button className="text-xs text-blue-600 hover:underline" onClick={() => onEdit(b)}>Edit</button>
@@ -1164,13 +1192,18 @@ function PurchasesTab() {
   const [to, setTo] = useState(todayISO());
   const [creating, setCreating] = useState(false);
   const [whModalOpen, setWhModalOpen] = useState(false);
+  const [openId, setOpenId] = useState<number | null>(null);
+  const [owedOnly, setOwedOnly] = useState(false);
 
   const { data: invoices = [] } = useQuery({
-    queryKey: ['purchases', from, to],
-    queryFn: () => window.electronAPI.purchases.list({ from, to }),
+    queryKey: ['purchases', from, to, owedOnly],
+    queryFn: () => window.electronAPI.purchases.list({ from, to, status: owedOnly ? 'outstanding' : undefined }),
   });
 
   const totalSpend = invoices.reduce((s, x) => s + Number(x.total || 0), 0);
+  // Outstanding is only known for bills whose payments are on record.
+  const owed = invoices.reduce((s, x) => s + (x.outstanding != null ? Math.max(0, Number(x.outstanding)) : 0), 0);
+  const unknownPaid = invoices.filter((x) => x.outstanding == null).length;
 
   return (
     <section className="card p-4">
@@ -1179,11 +1212,19 @@ function PurchasesTab() {
           <input type="date" className="input w-auto" value={from} onChange={(e) => setFrom(e.target.value)} />
           <span className="text-xs text-gray-500">to</span>
           <input type="date" className="input w-auto" value={to} onChange={(e) => setTo(e.target.value)} />
+          <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-300 ml-2">
+            <input type="checkbox" checked={owedOnly} onChange={(e) => setOwedOnly(e.target.checked)} /> Only bills not fully paid
+          </label>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="text-sm">
             <span className="text-gray-500 dark:text-slate-400">Spend:</span>{' '}
             <span className="font-bold text-blue-700 dark:text-blue-300">{formatINR(totalSpend)}</span>
+          </div>
+          <div className="text-sm" title="Billed by suppliers in this range and not yet paid">
+            <span className="text-gray-500 dark:text-slate-400">To pay:</span>{' '}
+            <span className={cn('font-bold', owed > 0 ? 'text-red-700 dark:text-red-400' : 'text-green-700 dark:text-green-400')}>{formatINR(owed)}</span>
+            {unknownPaid > 0 && <span className="text-[10px] text-amber-700 dark:text-amber-300 ml-1">+ {unknownPaid} bill{unknownPaid === 1 ? '' : 's'} with unknown payment</span>}
           </div>
           <button className="btn-secondary text-xs" onClick={() => setWhModalOpen(true)}>
             <Truck className="w-3.5 h-3.5" /> Wholesalers
@@ -1195,7 +1236,7 @@ function PurchasesTab() {
       </div>
 
       {invoices.length === 0 ? (
-        <EmptyState icon={Truck} title="No purchase invoices in range" description="Click 'New Purchase Bill' to record a wholesaler invoice. Line items auto-create stock batches." />
+        <EmptyState icon={Truck} title={owedOnly ? 'Nothing owed in this range' : 'No purchase invoices in range'} description="Click 'New Purchase Bill' to record a wholesaler invoice. Line items auto-create stock batches." />
       ) : (
         <table className="w-full text-sm">
           <thead>
@@ -1204,12 +1245,13 @@ function PurchasesTab() {
               <th className="py-2">Wholesaler (License)</th>
               <th className="py-2">Inv. Date</th>
               <th className="py-2 text-right">Total</th>
+              <th className="py-2 text-right">To pay</th>
               <th className="py-2">Payment</th>
             </tr>
           </thead>
           <tbody>
             {invoices.map((inv) => (
-              <tr key={inv.id} className="border-b border-gray-100 dark:border-slate-800">
+              <tr key={inv.id} className="border-b border-gray-100 dark:border-slate-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800/40" onClick={() => setOpenId(inv.id)}>
                 <td className="py-2 font-mono text-xs">{inv.invoice_number}</td>
                 <td className="py-2">
                   {inv.wholesaler_name}
@@ -1217,6 +1259,11 @@ function PurchasesTab() {
                 </td>
                 <td className="py-2 text-xs text-gray-500 dark:text-slate-400">{fmtDate(inv.invoice_date)}</td>
                 <td className="py-2 text-right font-semibold">{formatINR(inv.total)}</td>
+                <td className="py-2 text-right text-xs">
+                  {inv.outstanding == null
+                    ? <span className="text-amber-700 dark:text-amber-300" title="Marked part-paid before payments were tracked — open the bill to enter what was paid">unknown</span>
+                    : inv.outstanding > 0.004 ? <span className="font-semibold text-red-700 dark:text-red-400">{formatINR(inv.outstanding)}</span> : <span className="text-gray-400">—</span>}
+                </td>
                 <td className="py-2">
                   <span className={cn('badge',
                     inv.payment_status === 'paid' ? 'bg-green-100 text-green-700' :
@@ -1232,241 +1279,9 @@ function PurchasesTab() {
       )}
 
       {creating && <NewPurchaseModal onClose={() => setCreating(false)} />}
+      {openId !== null && <PurchaseDetailModal id={openId} onClose={() => setOpenId(null)} />}
       {whModalOpen && <WholesalersModal onClose={() => setWhModalOpen(false)} />}
     </section>
-  );
-}
-
-function NewPurchaseModal({ onClose }: { onClose: () => void }) {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const { data: wholesalers = [] } = useQuery({
-    queryKey: ['wholesalers'],
-    queryFn: () => window.electronAPI.wholesalers.list({ activeOnly: true }),
-  });
-  const { data: drugs = [] } = useQuery({
-    queryKey: ['pharmacy-drugs-active'],
-    queryFn: () => window.electronAPI.pharmacy.listDrugs({ activeOnly: true }),
-  });
-
-  const [header, setHeader] = useState<Partial<PurchaseInvoiceInput>>({
-    invoice_number: '',
-    invoice_date: todayISO(),
-    received_date: todayISO(),
-    payment_status: 'unpaid',
-    payment_mode: 'Cash',
-  });
-  type Line = {
-    drug_master_id: number | null;
-    drug_name?: string;
-    batch_no: string;
-    expiry: string;
-    manufacture_date: string;
-    qty_received: number;
-    pack_qty?: number | null;
-    free_qty: number;
-    purchase_price: number;
-    mrp: number;
-    gst_rate: number;
-    manufacturer_license_no?: string | null;
-    line_total: number;
-  };
-  const [lines, setLines] = useState<Line[]>([{
-    drug_master_id: null, batch_no: '', expiry: '', manufacture_date: '', qty_received: 0, pack_qty: null,
-    free_qty: 0, purchase_price: 0, mrp: 0, gst_rate: 12, line_total: 0,
-  }]);
-
-  const setLine = (i: number, patch: Partial<Line>) =>
-    setLines((arr) => {
-      const n = [...arr];
-      const merged = { ...n[i], ...patch };
-      merged.line_total = Number(merged.qty_received) * Number(merged.purchase_price);
-      n[i] = merged;
-      return n;
-    });
-
-  const subtotal = lines.reduce((s, l) => s + l.line_total, 0);
-  const gstAmount = lines.reduce((s, l) => s + l.line_total * (l.gst_rate / 100), 0);
-  const cgst = gstAmount / 2;
-  const sgst = gstAmount / 2;
-  const total = subtotal + gstAmount - Number(header.discount ?? 0);
-
-  const create = useMutation({
-    mutationFn: () => {
-      const payload: PurchaseInvoiceInput = {
-        invoice_number: header.invoice_number || '',
-        wholesaler_id: Number(header.wholesaler_id),
-        invoice_date: header.invoice_date || todayISO(),
-        received_date: header.received_date,
-        subtotal, cgst, sgst, igst: 0,
-        discount: Number(header.discount ?? 0),
-        total,
-        payment_mode: header.payment_mode,
-        payment_status: header.payment_status as any,
-        notes: header.notes,
-        items: lines.filter((l) => l.drug_master_id != null && l.batch_no && l.expiry && l.manufacture_date && l.qty_received > 0).map((l) => ({
-          drug_master_id: l.drug_master_id!,
-          batch_no: l.batch_no,
-          expiry: l.expiry,
-          manufacture_date: l.manufacture_date,
-          qty_received: l.qty_received,
-          pack_qty: l.pack_qty ?? null,
-          free_qty: l.free_qty,
-          purchase_price: l.purchase_price,
-          mrp: l.mrp,
-          gst_rate: l.gst_rate,
-          manufacturer_license_no: l.manufacturer_license_no ?? null,
-          line_total: l.line_total,
-        })),
-      };
-      return window.electronAPI.purchases.create(payload);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['purchases'] });
-      qc.invalidateQueries({ queryKey: ['pharmacy-drugs'] });
-      qc.invalidateQueries({ queryKey: ['pharmacy-drugs-active'] });
-      qc.invalidateQueries({ queryKey: ['pharmacy-alerts'] });
-      qc.invalidateQueries({ queryKey: ['pharmacy-batches'] });
-      toast(`Purchase invoice saved · ${lines.length} batches added to stock`);
-      onClose();
-    },
-    onError: (e: any) => toast(e?.message || 'Save failed', 'error'),
-  });
-
-  const canSubmit = header.invoice_number && header.wholesaler_id && header.invoice_date &&
-    lines.some((l) => l.drug_master_id != null && l.batch_no && l.expiry && l.qty_received > 0);
-
-  return (
-    <Modal open onClose={onClose} title="New Purchase Bill" size="xl">
-      <div className="space-y-4">
-        {/* Header */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Field label="Invoice Number *">
-            <input className="input" placeholder="e.g. CIPLA-2026-001234" value={header.invoice_number} onChange={(e) => setHeader({ ...header, invoice_number: e.target.value })} />
-          </Field>
-          <Field label="Wholesaler *">
-            <select className="input" value={header.wholesaler_id ?? ''} onChange={(e) => setHeader({ ...header, wholesaler_id: Number(e.target.value) })}>
-              <option value="">— Select —</option>
-              {wholesalers.map((w) => <option key={w.id} value={w.id}>{w.name} ({w.drug_license_no})</option>)}
-            </select>
-          </Field>
-          <Field label="Invoice Date *"><input type="date" className="input" value={header.invoice_date || ''} onChange={(e) => setHeader({ ...header, invoice_date: e.target.value })} /></Field>
-          <Field label="Received Date"><input type="date" className="input" value={header.received_date || ''} onChange={(e) => setHeader({ ...header, received_date: e.target.value })} /></Field>
-        </div>
-
-        {/* Line items */}
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <div className="label mb-0">Line Items (each becomes a stock batch)</div>
-            <button className="btn-ghost text-xs" onClick={() => setLines([...lines, { drug_master_id: null, batch_no: '', expiry: '', manufacture_date: '', qty_received: 0, pack_qty: null, free_qty: 0, purchase_price: 0, mrp: 0, gst_rate: 12, line_total: 0 }])}>
-              <Plus className="w-3.5 h-3.5" /> Add line
-            </button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
-                  <th className="py-2 min-w-[180px]">Drug</th>
-                  <th className="py-2 min-w-[100px]">Batch</th>
-                  <th className="py-2 min-w-[110px]">Mfg *</th>
-                  <th className="py-2 min-w-[120px]">Expiry *</th>
-                  <th className="py-2 w-16 text-right">Qty</th>
-                  <th className="py-2 w-16 text-right">Free</th>
-                  <th className="py-2 w-24 text-right">Buy ₹</th>
-                  <th className="py-2 w-24 text-right">MRP ₹</th>
-                  <th className="py-2 w-16 text-right">GST%</th>
-                  <th className="py-2 min-w-[120px]">Mfg. Lic.</th>
-                  <th className="py-2 w-24 text-right">Line ₹</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {lines.map((l, idx) => (
-                  <tr key={idx} className="border-b border-gray-100 dark:border-slate-800">
-                    <td className="py-1 pr-1">
-                      <select className="input" value={l.drug_master_id ?? ''} onChange={(e) => {
-                        const dm = drugs.find((d) => d.id === Number(e.target.value));
-                        setLine(idx, {
-                          drug_master_id: dm ? dm.id : null,
-                          drug_name: dm?.name,
-                          mrp: l.mrp || (dm?.default_mrp ?? 0),
-                          gst_rate: l.gst_rate || (dm?.gst_rate ?? 12),
-                        });
-                      }}>
-                        <option value="">— Pick drug —</option>
-                        {drugs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                      </select>
-                    </td>
-                    <td className="py-1 px-1"><input className="input font-mono" value={l.batch_no} onChange={(e) => setLine(idx, { batch_no: e.target.value })} /></td>
-                    <td className="py-1 px-1"><input type="month" className="input" value={l.manufacture_date} onChange={(e) => setLine(idx, { manufacture_date: e.target.value })} /></td>
-                    <td className="py-1 px-1"><input type="date" className="input" value={l.expiry} onChange={(e) => setLine(idx, { expiry: e.target.value })} /></td>
-                    <td className="py-1 px-1"><input type="number" className="input text-right" value={l.qty_received} onChange={(e) => setLine(idx, { qty_received: Number(e.target.value) })} /></td>
-                    <td className="py-1 px-1"><input type="number" className="input text-right" value={l.free_qty} onChange={(e) => setLine(idx, { free_qty: Number(e.target.value) })} /></td>
-                    <td className="py-1 px-1"><input type="number" className="input text-right" value={l.purchase_price} onChange={(e) => setLine(idx, { purchase_price: Number(e.target.value) })} /></td>
-                    <td className="py-1 px-1"><input type="number" className="input text-right" value={l.mrp} onChange={(e) => setLine(idx, { mrp: Number(e.target.value) })} /></td>
-                    <td className="py-1 px-1">
-                      <select className="input" value={l.gst_rate} onChange={(e) => setLine(idx, { gst_rate: Number(e.target.value) })}>
-                        {[0, 5, 12, 18, 28].map((r) => <option key={r} value={r}>{r}</option>)}
-                      </select>
-                    </td>
-                    <td className="py-1 px-1"><input className="input font-mono text-[10px]" value={l.manufacturer_license_no || ''} onChange={(e) => setLine(idx, { manufacturer_license_no: e.target.value })} /></td>
-                    <td className="py-1 px-1 text-right font-semibold">{formatINR(l.line_total)}</td>
-                    <td>
-                      <button className="text-red-500 p-1" onClick={() => setLines(lines.filter((_, i) => i !== idx))}>
-                        <X className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Totals + payment */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div className="card p-3 bg-gray-50 dark:bg-slate-900 col-span-2">
-            <div className="flex justify-between text-xs"><span>Subtotal</span><span>{formatINR(subtotal)}</span></div>
-            <div className="flex justify-between text-xs"><span>CGST</span><span>{formatINR(cgst)}</span></div>
-            <div className="flex justify-between text-xs"><span>SGST</span><span>{formatINR(sgst)}</span></div>
-            <div className="flex justify-between text-xs items-center">
-              <span>Discount</span>
-              <input type="number" className="input w-24 text-right py-1" value={header.discount ?? 0} onChange={(e) => setHeader({ ...header, discount: Number(e.target.value) })} />
-            </div>
-            <div className="flex justify-between text-sm font-bold pt-2 border-t border-gray-300 dark:border-slate-700 mt-1">
-              <span>Total</span>
-              <span className="text-blue-700 dark:text-blue-300">{formatINR(total)}</span>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Field label="Payment Status">
-              <select className="input" value={header.payment_status} onChange={(e) => setHeader({ ...header, payment_status: e.target.value as any })}>
-                <option value="unpaid">Unpaid</option>
-                <option value="partial">Partial</option>
-                <option value="paid">Paid</option>
-              </select>
-            </Field>
-            <Field label="Payment Mode">
-              <select className="input" value={header.payment_mode || ''} onChange={(e) => setHeader({ ...header, payment_mode: e.target.value })}>
-                <option value="">—</option>
-                <option>Cash</option><option>Cheque</option><option>Bank</option><option>UPI</option><option>Credit</option>
-              </select>
-            </Field>
-          </div>
-        </div>
-
-        <Field label="Notes">
-          <textarea className="input" rows={2} value={header.notes || ''} onChange={(e) => setHeader({ ...header, notes: e.target.value })} />
-        </Field>
-
-        <div className="flex justify-end gap-2 pt-2">
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" disabled={!canSubmit || create.isPending} onClick={() => create.mutate()}>
-            {create.isPending ? 'Saving…' : 'Save Invoice & Add to Stock'}
-          </button>
-        </div>
-      </div>
-    </Modal>
   );
 }
 
@@ -1757,6 +1572,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function daysAgo(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
+  return localISO(d);
 }
 

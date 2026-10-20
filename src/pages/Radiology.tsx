@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ScanLine, Plus, Pencil, Trash2, Clipboard, Layers, FileText, Printer, Receipt, X, Search,
@@ -13,7 +13,7 @@ import { NewRadiologyRequest } from '../components/radiology/NewRadiologyRequest
 import { RadiologyTestPicker } from '../components/radiology/RadiologyTestPicker';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
-import { cn, fmtDateTime, formatINR, ageStringFull } from '../lib/utils';
+import { cn, fmtDateTime, formatINR, ageStringFull, newRef, refFor } from '../lib/utils';
 import { MODALITY_LABEL, RADIOLOGY_MODALITIES } from '../data/radiology-catalog';
 import type { RadiologyOrderDetail, RadiologyOrderRow, RadiologyTest, RadiologyModality } from '../types';
 
@@ -414,6 +414,7 @@ function BillStrip({ order, onChanged, onPrintBill }: { order: RadiologyOrderDet
   const [mode, setMode] = useState<'Cash' | 'UPI' | 'Card'>('Cash');
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
+  const payRef = useRef(newRef());   // one id per payment attempt; renewed after each payment that goes through
 
   if (!order.bill_id) {
     return (
@@ -432,9 +433,9 @@ function BillStrip({ order, onChanged, onPrintBill }: { order: RadiologyOrderDet
     if (!(amt > 0)) return toast('Enter the amount received.', 'error');
     setBusy(true);
     try {
-      const r = await window.electronAPI.billing.pay(Number(order.bill_id), amt, mode, user?.username);
+      const r = await window.electronAPI.billing.pay(Number(order.bill_id), amt, mode, user?.username, refFor(payRef.current, { bill: order.bill_id, amt, mode }));
       if (!r.ok) toast(r.error || 'Could not record the payment.', 'error');
-      else { toast(`${formatINR(amt)} received (${mode}).`, 'success'); setOpen(false); setAmount(''); onChanged(); }
+      else { toast(`${formatINR(amt)} received (${mode}).`, 'success'); payRef.current = newRef(); setOpen(false); setAmount(''); onChanged(); }
     } catch (e: any) { toast(e?.message || 'Could not record the payment.', 'error'); }
     finally { setBusy(false); }
   };

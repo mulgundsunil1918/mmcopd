@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process';
 import { registerIpc, runFullBackup, isBackupServiceReady, runConfiguredBackup, requireRole } from './main/ipc';
 import { registerIpdBillingIpc, runDailyAccrual } from './main/ipd-billing-ipc';
 import { registerRadiologyIpc } from './main/radiology-ipc';
+import { registerPharmacyFinanceIpc } from './main/pharmacy-finance-ipc';
 import { registerPedsIpc } from './main/peds-ipc';
 import { installIpcRegistry, setReadOnlyMode } from './main/ipc-registry';
 import { getLicenseStatus, activateLicense, activateOnline, machineFingerprint } from './main/licensing/license';
@@ -81,10 +82,10 @@ async function checkGitHubReleaseNow(): Promise<typeof updateInfo & { state: Upd
     const json = await res.json() as any;
     const tag = (json.tag_name || '').toString();
     const latest = tag.replace(/^v/i, '');
-    // Find the Setup .exe asset (NSIS installer); fall back to release page if none.
-    const asset = (json.assets || []).find((a: any) =>
-      typeof a?.name === 'string' && /setup.*\.exe$/i.test(a.name)
-    );
+    // Find the full installer for THIS computer: the NSIS Setup .exe on Windows, the .dmg on macOS.
+    // Falls back to the release page if the release has no matching file.
+    const wanted = process.platform === 'darwin' ? /\.dmg$/i : /setup.*\.exe$/i;
+    const asset = (json.assets || []).find((a: any) => typeof a?.name === 'string' && wanted.test(a.name));
     const downloadUrl = asset?.browser_download_url || json.html_url;
     if (latest && isNewer(latest, currentVersion)) {
       updateState = 'available';
@@ -922,6 +923,7 @@ app.whenReady().then(async () => {
   // IPD + billing live in their own module rather than growing ipc.ts further.
   registerIpdBillingIpc();
   registerRadiologyIpc();
+  registerPharmacyFinanceIpc();
   registerPedsIpc();
 
   // ===== Licensing =====

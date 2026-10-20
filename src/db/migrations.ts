@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { modalityOf } from '../data/radiology-catalog';
+import { allocatePaise, toPaise, fromPaise } from '../lib/pharmacyMath';
 import { createSchema, SCHEMA_VERSION } from './schema';
 import { DEFAULT_SLIP_TEMPLATES } from './slip-templates';
 
@@ -928,6 +929,59 @@ export function runMigrations(db: Database.Database) {
   } catch { /* ignore */ }
   // (no clinic-specific prefills — admin enters via Settings → Clinic on first run)
 
+  // ===== Pharmacy finance (schema v5) — true unit cost, selling price, supplier payments, retry safety =====
+  // Everything here is ADDITIVE: no column is changed or dropped, so older data stays exactly as it was.
+  //   unit_cost   what a unit really cost to acquire (free units, discounts, freight and — when it cannot
+  //               be reclaimed — GST included). purchase_price stays the supplier's invoice RATE.
+  //   dispensing_register.unit_cost  that cost FROZEN on the sale, so editing a batch later can never
+  //               rewrite the profit of sales already made.
+  //   client_ref  an id the screen generates once per attempt; a retried request with the same id returns
+  //               the original record instead of posting stock and money a second time.
+  addColumnIfMissing(db, 'purchase_invoices', 'other_charges', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'purchase_invoices', 'round_off', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'purchase_invoices', 'amount_paid', 'REAL DEFAULT 0');       // NULL = a legacy "partial" whose paid amount was never recorded
+  addColumnIfMissing(db, 'purchase_invoices', 'client_ref', 'TEXT');
+  addColumnIfMissing(db, 'purchase_invoices', 'gst_in_cost', 'INTEGER NOT NULL DEFAULT 0'); // 1 = GST was part of stock cost (not reclaimable)
+  addColumnIfMissing(db, 'purchase_invoice_items', 'disc_pct', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'purchase_invoice_items', 'discount_amount', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'purchase_invoice_items', 'taxable_value', 'REAL');
+  addColumnIfMissing(db, 'purchase_invoice_items', 'gst_amount', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'purchase_invoice_items', 'selling_price', 'REAL');
+  addColumnIfMissing(db, 'purchase_invoice_items', 'unit_cost', 'REAL');
+  addColumnIfMissing(db, 'drug_stock_batches', 'selling_price', 'REAL');
+  addColumnIfMissing(db, 'drug_stock_batches', 'unit_cost', 'REAL');
+  addColumnIfMissing(db, 'dispensing_register', 'unit_cost', 'REAL');
+  addColumnIfMissing(db, 'pharmacy_sale_items', 'discount_alloc', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'pharmacy_sales', 'client_ref', 'TEXT');
+  addColumnIfMissing(db, 'bill_payments', 'client_ref', 'TEXT');       // lets a repeated "pay" be recognised and recorded once
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_bill_payment_ref ON bill_payments(client_ref) WHERE client_ref IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_purchase_client_ref ON purchase_invoices(client_ref) WHERE client_ref IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_sales_client_ref ON pharmacy_sales(client_ref) WHERE client_ref IS NOT NULL;
+
+    -- Money actually paid to a supplier, one row per payment. A supplier invoice being RECORDED is not the
+    -- same as it being PAID: stock received, invoice recorded and payment made are three separate facts.
+    CREATE TABLE IF NOT EXISTS purchase_payments (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      invoice_id   INTEGER NOT NULL REFERENCES purchase_invoices(id) ON DELETE CASCADE,
+      amount       REAL NOT NULL,
+      payment_mode TEXT,
+      paid_on      TEXT NOT NULL,
+      reference    TEXT,
+      notes        TEXT,
+      created_by   TEXT,
+      client_ref   TEXT,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_purchase_payments_invoice ON purchase_payments(invoice_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_purchase_payment_ref ON purchase_payments(client_ref) WHERE client_ref IS NOT NULL;
+
+    CREATE INDEX IF NOT EXISTS idx_register_batch ON dispensing_register(batch_id);
+    CREATE INDEX IF NOT EXISTS idx_register_sale_item ON dispensing_register(sale_item_id);
+    CREATE INDEX IF NOT EXISTS idx_psi_sale ON pharmacy_sale_items(sale_id);
+    CREATE INDEX IF NOT EXISTS idx_psi_drug ON pharmacy_sale_items(drug_master_id);
+  `);
+
   // Indexes that depend on the migrated columns — create AFTER column migrations.
   db.exec('CREATE INDEX IF NOT EXISTS idx_patients_place ON patients(place, district);');
   const current = db
@@ -954,11 +1008,84 @@ export function runMigrations(db: Database.Database) {
     migrateV3toV4(db);
   }
 
+  if (currentVersion < 5) {
+    migrateV4toV5(db);
+  }
+
   if (currentVersion < SCHEMA_VERSION) {
     db.prepare(
       "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)"
     ).run(String(SCHEMA_VERSION));
   }
+}
+
+/**
+ * v4 → v5: pharmacy finance backfill (runs once; the app snapshots the database first).
+ *
+ * Gives every EXISTING batch, purchase line, past sale and supplier invoice the new figures the profit
+ * reports need — using only what was recorded. Nothing is invented: where the old data cannot say
+ * (a "partial" supplier invoice's paid amount, a batch with no purchase price) the new column is left
+ * NULL / unknown rather than guessed, and the reports show that plainly.
+ *   - batch unit cost : the supplier's rate adjusted for free units. (Discounts, freight and GST were
+ *                       not recorded per line before, so they cannot be applied retroactively.)
+ *   - past sales      : the cost frozen on each sale is the batch's cost as it stands now — the best
+ *                       record available for sales made before costs were frozen.
+ *   - sale discounts  : shared over the sale's lines by value, to the exact paisa.
+ *   - supplier bills  : "paid" invoices get one payment row; "partial" ones are marked unknown.
+ */
+function migrateV4toV5(db: Database.Database) {
+  const tx = db.transaction(() => {
+    // 1. Effective unit cost of existing batches.
+    db.exec(`
+      UPDATE drug_stock_batches
+         SET unit_cost = COALESCE(
+               (SELECT CASE WHEN pii.purchase_price = drug_stock_batches.purchase_price
+                            THEN ROUND(pii.purchase_price * pii.qty_received * 1.0 / NULLIF(pii.qty_received + pii.free_qty, 0), 4)
+                            ELSE drug_stock_batches.purchase_price END
+                  FROM purchase_invoice_items pii WHERE pii.id = drug_stock_batches.purchase_item_id),
+               drug_stock_batches.purchase_price)
+       WHERE unit_cost IS NULL AND purchase_price IS NOT NULL
+    `);
+    // 2. Cost frozen on past sales.
+    db.exec(`
+      UPDATE dispensing_register
+         SET unit_cost = (SELECT COALESCE(b.unit_cost, b.purchase_price) FROM drug_stock_batches b WHERE b.id = dispensing_register.batch_id)
+       WHERE unit_cost IS NULL
+    `);
+    // 3. Historic purchase lines: taxable value, GST amount, effective unit cost.
+    db.exec(`
+      UPDATE purchase_invoice_items
+         SET taxable_value = line_total,
+             gst_amount    = ROUND(line_total * gst_rate / 100.0, 2),
+             unit_cost     = ROUND(purchase_price * qty_received * 1.0 / NULLIF(qty_received + free_qty, 0), 4)
+       WHERE taxable_value IS NULL
+    `);
+    // 4. Past sale discounts shared over the lines (exact, largest-remainder).
+    const sales = db.prepare('SELECT id, discount FROM pharmacy_sales WHERE discount > 0').all() as { id: number; discount: number }[];
+    const items = db.prepare('SELECT id, amount FROM pharmacy_sale_items WHERE sale_id=? ORDER BY id');
+    const setAlloc = db.prepare('UPDATE pharmacy_sale_items SET discount_alloc=? WHERE id=?');
+    for (const s of sales) {
+      const rows = items.all(s.id) as { id: number; amount: number }[];
+      if (!rows.length) continue;
+      const shares = allocatePaise(toPaise(s.discount), rows.map((r) => toPaise(r.amount)));
+      rows.forEach((r, i) => setAlloc.run(fromPaise(shares[i]), r.id));
+    }
+    // 5. Supplier payments.
+    const paid = db.prepare(`
+      SELECT id, total, payment_mode, invoice_date FROM purchase_invoices
+       WHERE payment_status='paid' AND NOT EXISTS (SELECT 1 FROM purchase_payments pp WHERE pp.invoice_id = purchase_invoices.id)
+    `).all() as { id: number; total: number; payment_mode: string | null; invoice_date: string }[];
+    const insPay = db.prepare(`INSERT INTO purchase_payments (invoice_id, amount, payment_mode, paid_on, notes) VALUES (?, ?, ?, ?, 'Marked paid before payments were tracked')`);
+    for (const inv of paid) {
+      insPay.run(inv.id, inv.total, inv.payment_mode, inv.invoice_date);
+      db.prepare('UPDATE purchase_invoices SET amount_paid=? WHERE id=?').run(inv.total, inv.id);
+    }
+    db.exec(`
+      UPDATE purchase_invoices SET amount_paid = NULL
+       WHERE payment_status='partial' AND NOT EXISTS (SELECT 1 FROM purchase_payments pp WHERE pp.invoice_id = purchase_invoices.id)
+    `);
+  });
+  tx();
 }
 
 function migrateV1toV2(db: Database.Database) {

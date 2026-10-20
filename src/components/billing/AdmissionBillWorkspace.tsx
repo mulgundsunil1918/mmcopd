@@ -18,14 +18,14 @@
  * and the reason is stated on screen — a paid invoice that silently changes is an
  * accounting problem, not a convenience.
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   X, Plus, Trash2, Printer, IndianRupee, Loader2, Percent, Wallet, Lock, AlertTriangle,
 } from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
 import { useAuth } from '../../hooks/useAuth';
-import { cn, formatINR, fmtDateTime } from '../../lib/utils';
+import { cn, formatINR, fmtDateTime, newRef, refFor } from '../../lib/utils';
 import { BillPrint } from './BillPrint';
 
 type Line = { id: number; description: string; qty: number; rate: number; amount: number; source?: string; head_name?: string };
@@ -151,14 +151,15 @@ export function AdmissionBillWorkspace({ admissionId, onClose }: { admissionId: 
   // ---- payment ----
   const [payAmt, setPayAmt] = useState('');
   const [payMode, setPayMode] = useState('Cash');
+  const payRef = useRef(newRef());   // one id per payment attempt; renewed after each payment that goes through
 
   const takePayment = async () => {
     const amt = Number(payAmt) || 0;
     if (amt <= 0) return toast('Enter how much is being paid', 'error');
     setBusy('pay');
     try {
-      const res = await window.electronAPI.billing.pay(bill.id, amt, payMode, user?.username);
-      if (after(res, `Received ${formatINR(amt)} by ${payMode}`)) setPayAmt('');
+      const res = await window.electronAPI.billing.pay(bill.id, amt, payMode, user?.username, refFor(payRef.current, { bill: bill.id, amt, payMode }));
+      if (after(res, `Received ${formatINR(amt)} by ${payMode}`)) { setPayAmt(''); payRef.current = newRef(); }
     } catch (e: any) { toast(e?.message || 'Could not record the payment', 'error'); }
     finally { setBusy(null); }
   };

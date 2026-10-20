@@ -3,6 +3,7 @@ import { Syringe, Check, Loader2, Plus } from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
 import { useAuth } from '../../hooks/useAuth';
 import { cn, fmtDate } from '../../lib/utils';
+import { localISO } from '../../lib/localDate';
 
 /**
  * Compact immunisation panel embedded in the consultation, so a pediatrician can
@@ -41,7 +42,7 @@ export function PedsVaccineInline({ patientId }: { patientId: number }) {
     );
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localISO();
   const pending = records.filter((r: any) => r.status !== 'given' && r.status !== 'skipped');
   const recentlyGiven = records.filter((r: any) => r.status === 'given').slice(0, 3);
 

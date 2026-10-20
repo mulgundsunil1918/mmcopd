@@ -181,7 +181,7 @@ export function accrueStayCharges(db: Database.Database, admissionId: number, by
         ? (adm.admission_doctor_id ? [{ doctor_id: adm.admission_doctor_id }] : [])
         : (db.prepare(
             `SELECT DISTINCT doctor_id FROM ip_progress_notes
-              WHERE admission_id=? AND doctor_id IS NOT NULL AND date(noted_at)=?`
+              WHERE admission_id=? AND doctor_id IS NOT NULL AND date(noted_at, 'localtime')=?`
           ).all(admissionId, day) as { doctor_id: number }[]);
       for (const v of visitors) {
         if (!v.doctor_id) continue;
@@ -627,6 +627,13 @@ export function registerIpdBillingIpc() {
       if (!bed) return fail(`Bed #${bedId} was not found.`);
       if (bed.status === 'blocked' || bed.status === 'cleaning') {
         return fail(`Bed ${bed.ward_name} / ${bed.bed_number} is marked "${bed.status}" and cannot take a patient yet.`);
+      }
+      {
+        const holder = d.prepare(
+          `SELECT a.admission_number, (p.first_name || ' ' || p.last_name) AS name
+             FROM ip_admissions a JOIN patients p ON p.id=a.patient_id WHERE a.bed_id=? AND a.status='admitted'`
+        ).get(bedId) as any;
+        if (holder) return fail(`Bed ${bed.ward_name} / ${bed.bed_number} is already occupied by ${holder.name} (${holder.admission_number}). Pick a free bed.`);
       }
 
       const openAdm = d.prepare(`SELECT admission_number FROM ip_admissions WHERE patient_id=? AND status='admitted'`).get(patientId) as any;
@@ -1148,6 +1155,31 @@ export function registerIpdBillingIpc() {
       const billType = ['opd_consult', 'pharmacy', 'lab', 'radiology', 'custom', 'misc'].includes(input?.bill_type) ? input.bill_type : 'custom';
       const s = getAllSettings(d);
 
+      // The same bill sent twice (a double-click, a retry after a lost reply) is ONE bill. Identical lines for the
+      // same person and bill type, raised in the last two minutes, are the same request; a genuine second bill
+      // later — or with different lines — is unaffected.
+      {
+        const norm = (it: any) => {
+          const qty = Number(it.qty ?? 1);
+          const rate = Number(it.rate ?? (Number(it.amount ?? 0) / (qty || 1)));
+          const amount = money(it.amount !== undefined ? Number(it.amount) : qty * rate);
+          return JSON.stringify([String(it.description).trim(), qty, money(rate), amount]);
+        };
+        const want = items.map(norm).join('|');
+        const recent = d.prepare(
+          `SELECT id, bill_number, notes FROM bills
+            WHERE COALESCE(patient_id, -1) = ? AND bill_type = ? AND COALESCE(discount, 0) = ?
+              AND COALESCE(status,'') <> 'cancelled' AND created_at >= datetime('now', '-120 seconds')
+            ORDER BY id DESC`
+        ).all(patientId ?? -1, billType, Number(input?.discount ?? 0)) as { id: number; bill_number: string; notes: string | null }[];
+        for (const r of recent) {
+          if (!patientId && r.notes !== `Name: ${nameOverride}`) continue;
+          const have = (d.prepare('SELECT description, qty, rate, amount FROM bill_items WHERE bill_id=? ORDER BY id').all(r.id) as any[])
+            .map((x) => JSON.stringify([String(x.description).trim(), Number(x.qty), money(Number(x.rate)), money(Number(x.amount))])).join('|');
+          if (have === want) return { ok: true, id: r.id, bill_number: r.bill_number, patient_name_override: nameOverride || null, duplicate: true };
+        }
+      }
+
       let billId = 0;
       let billNumber = '';
       const tx = d.transaction(() => {
@@ -1385,7 +1417,17 @@ export function registerIpdBillingIpc() {
     }
   });
 
-  ipcMain.handle('bill:pay', (_e, billId: number, amount: number, mode: string, by?: string) => {
+  /**
+   * Take a payment against a bill.
+   *
+   * Two protections the screen cannot give on its own:
+   *   - a payment may not exceed what is still owed (after advances), so a double-click on "Pay full amount",
+   *     or paying an already-settled bill, is refused instead of recording the money twice and showing the bill
+   *     as "collected" for more than it is worth;
+   *   - an optional `ref` (one per payment attempt) makes a repeat of the SAME attempt — a lost reply, a retry —
+   *     come back as the first payment, recorded once.
+   */
+  ipcMain.handle('bill:pay', (_e, billId: number, amount: number, mode: string, by?: string, ref?: string) => {
     const d = db();
     try {
       const bid = requireId(billId, 'Bill');
@@ -1393,13 +1435,27 @@ export function registerIpdBillingIpc() {
       if (!Number.isFinite(amt) || amt <= 0) {
         return fail(`Payment amount must be greater than zero, received ${JSON.stringify(amount)}.`);
       }
+      const clientRef = typeof ref === 'string' && ref.trim() ? ref.trim() : null;
+      if (clientRef && d.prepare('SELECT id FROM bill_payments WHERE client_ref=?').get(clientRef)) {
+        return { ok: true, duplicate: true };
+      }
       const bill = d.prepare('SELECT id, total, status FROM bills WHERE id=?').get(bid) as any;
       if (!bill) return fail(`Bill #${bid} was not found.`);
       if (bill.status === 'cancelled') return fail('This bill has been cancelled and cannot take a payment.');
+      {
+        const owedPaid = (d.prepare('SELECT COALESCE(SUM(amount),0) AS p FROM bill_payments WHERE bill_id=?').get(bid) as any).p;
+        const owedAdv = (d.prepare('SELECT COALESCE(SUM(amount - refunded_amount),0) AS a FROM advances WHERE admission_id=(SELECT admission_id FROM bills WHERE id=?)').get(bid) as any).a || 0;
+        const stillOwed = Math.max(0, money(Number(bill.total) - owedPaid - owedAdv));
+        if (amt > stillOwed + 0.01) {
+          return fail(stillOwed <= 0.01
+            ? 'This bill is already fully paid — nothing more to collect.'
+            : `That is more than the ₹${stillOwed.toFixed(2)} still due on this bill. Enter ₹${stillOwed.toFixed(2)} or less.`);
+        }
+      }
 
       const tx = d.transaction(() => {
-        d.prepare('INSERT INTO bill_payments (bill_id, amount, payment_mode, received_by) VALUES (?,?,?,?)')
-          .run(bid, amt, mode || 'Cash', by ?? null);
+        d.prepare('INSERT INTO bill_payments (bill_id, amount, payment_mode, received_by, client_ref) VALUES (?,?,?,?,?)')
+          .run(bid, amt, mode || 'Cash', by ?? null, clientRef);
         const paid = (d.prepare('SELECT COALESCE(SUM(amount),0) AS p FROM bill_payments WHERE bill_id=?').get(bid) as any).p;
         const adv = (d.prepare('SELECT COALESCE(SUM(amount - refunded_amount),0) AS a FROM advances WHERE admission_id=(SELECT admission_id FROM bills WHERE id=?)').get(bid) as any).a || 0;
         const settled = paid + adv >= bill.total - 0.01;
@@ -1575,7 +1631,8 @@ export function registerIpdBillingIpc() {
         // Stock depletion + billing only for a 'given' dose of a stocked drug.
         if (status === 'given' && order.drug_master_id && qty > 0) {
           const batches = d.prepare(
-            `SELECT b.id, b.batch_no, b.expiry, b.qty_remaining, b.mrp, m.schedule, m.gst_rate
+            `SELECT b.id, b.batch_no, b.expiry, b.qty_remaining, b.mrp, m.schedule, m.gst_rate,
+                    COALESCE(b.unit_cost, b.purchase_price) AS cost
              FROM drug_stock_batches b JOIN drug_master m ON m.id=b.drug_master_id
              WHERE b.drug_master_id=? AND b.is_active=1 AND b.qty_remaining>0
              ORDER BY date(b.expiry) ASC, b.received_at ASC`
@@ -1609,9 +1666,9 @@ export function registerIpdBillingIpc() {
             const take = Math.min(need, b.qty_remaining);
             d.prepare('UPDATE drug_stock_batches SET qty_remaining=qty_remaining-? WHERE id=?').run(take, b.id);
             d.prepare(
-              `INSERT INTO dispensing_register (sale_item_id, sale_id, patient_id, doctor_id, drug_master_id, batch_id, batch_no, expiry, schedule, qty, rate, rx_reference, dispensed_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-            ).run(saleItemId, saleId, patientId, order.ordered_by_doctor_id ?? null, order.drug_master_id, b.id, b.batch_no, b.expiry, b.schedule || 'OTC', take, b.mrp, `IPD-MAR#${oid}`, input?.administered_by ?? null);
+              `INSERT INTO dispensing_register (sale_item_id, sale_id, patient_id, doctor_id, drug_master_id, batch_id, batch_no, expiry, schedule, qty, rate, unit_cost, rx_reference, dispensed_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).run(saleItemId, saleId, patientId, order.ordered_by_doctor_id ?? null, order.drug_master_id, b.id, b.batch_no, b.expiry, b.schedule || 'OTC', take, b.mrp, b.cost ?? null, `IPD-MAR#${oid}`, input?.administered_by ?? null);
             batchId = b.id;
             need -= take;
           }
@@ -1881,25 +1938,25 @@ export function registerIpdBillingIpc() {
       ).get() as { total_beds: number; occupied_beds: number };
 
       const admissions = d.prepare(
-        `SELECT COUNT(*) AS c FROM ip_admissions WHERE date(admitted_at) BETWEEN ? AND ?`
+        `SELECT COUNT(*) AS c FROM ip_admissions WHERE date(admitted_at, 'localtime') BETWEEN ? AND ?`
       ).get(...range) as { c: number };
 
       const discharges = d.prepare(
-        `SELECT COUNT(*) AS c FROM ip_admissions WHERE discharged_at IS NOT NULL AND date(discharged_at) BETWEEN ? AND ?`
+        `SELECT COUNT(*) AS c FROM ip_admissions WHERE discharged_at IS NOT NULL AND date(discharged_at, 'localtime') BETWEEN ? AND ?`
       ).get(...range) as { c: number };
 
       // Average length of stay for admissions discharged in range, in days.
       const alos = d.prepare(
         `SELECT AVG(julianday(discharged_at) - julianday(admitted_at)) AS d
-         FROM ip_admissions WHERE discharged_at IS NOT NULL AND date(discharged_at) BETWEEN ? AND ?`
+         FROM ip_admissions WHERE discharged_at IS NOT NULL AND date(discharged_at, 'localtime') BETWEEN ? AND ?`
       ).get(...range) as { d: number | null };
 
       // Outcome mix — the LAMA/DAMA/death breakdown for quality indicators.
       const outcomes = d.prepare(
         `SELECT COALESCE(outcome, 'in_progress') AS outcome, COUNT(*) AS count
          FROM ip_admissions
-         WHERE (discharged_at IS NOT NULL AND date(discharged_at) BETWEEN ? AND ?)
-            OR (discharged_at IS NULL AND date(admitted_at) BETWEEN ? AND ?)
+         WHERE (discharged_at IS NOT NULL AND date(discharged_at, 'localtime') BETWEEN ? AND ?)
+            OR (discharged_at IS NULL AND date(admitted_at, 'localtime') BETWEEN ? AND ?)
          GROUP BY outcome`
       ).all(from, to, from, to) as { outcome: string; count: number }[];
 
@@ -1911,7 +1968,7 @@ export function registerIpdBillingIpc() {
         `SELECT COALESCE(dr.name, 'Unassigned') AS doctor, COUNT(*) AS admissions,
                 AVG(CASE WHEN a.discharged_at IS NOT NULL THEN julianday(a.discharged_at) - julianday(a.admitted_at) END) AS alos
          FROM ip_admissions a LEFT JOIN doctors dr ON dr.id = a.admission_doctor_id
-         WHERE date(a.admitted_at) BETWEEN ? AND ?
+         WHERE date(a.admitted_at, 'localtime') BETWEEN ? AND ?
          GROUP BY a.admission_doctor_id ORDER BY admissions DESC`
       ).all(...range) as any[];
 
@@ -1933,7 +1990,7 @@ export function registerIpdBillingIpc() {
          LEFT JOIN (SELECT admission_id, SUM(total) AS total, SUM(IFNULL(amount_paid, 0)) AS paid
                     FROM bills WHERE status IS NULL OR status <> 'cancelled' GROUP BY admission_id) bill ON bill.admission_id = a.id
          LEFT JOIN (SELECT admission_id, SUM(amount - refunded_amount) AS advance FROM advances GROUP BY admission_id) adv ON adv.admission_id = a.id
-         WHERE date(a.admitted_at) BETWEEN ? AND ?
+         WHERE date(a.admitted_at, 'localtime') BETWEEN ? AND ?
          GROUP BY ward ORDER BY revenue DESC`
       ).all(...range) as any[];
       const byWard = byWardRaw.map((r) => ({
@@ -1951,7 +2008,7 @@ export function registerIpdBillingIpc() {
 
       const revenue = d.prepare(
         `SELECT COALESCE(SUM(total), 0) AS total FROM bills
-         WHERE bill_type='ipd' AND status != 'cancelled' AND date(created_at) BETWEEN ? AND ?`
+         WHERE bill_type='ipd' AND status != 'cancelled' AND date(created_at, 'localtime') BETWEEN ? AND ?`
       ).get(...range) as { total: number };
 
       return {
@@ -1981,7 +2038,7 @@ export function registerIpdBillingIpc() {
 
       const collections = d.prepare(
         `SELECT payment_mode, COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total
-         FROM bill_payments WHERE date(received_at) BETWEEN ? AND ? GROUP BY payment_mode`
+         FROM bill_payments WHERE date(received_at, 'localtime') BETWEEN ? AND ? GROUP BY payment_mode`
       ).all(...range) as any[];
 
       const outstanding = d.prepare(
@@ -2004,7 +2061,7 @@ export function registerIpdBillingIpc() {
       const gst = d.prepare(
         `SELECT COALESCE(SUM(cgst_total), 0) AS cgst, COALESCE(SUM(sgst_total), 0) AS sgst,
                 COALESCE(SUM(taxable_total), 0) AS taxable, COALESCE(SUM(exempt_total), 0) AS exempt
-         FROM bills WHERE is_tax_invoice=1 AND status != 'cancelled' AND date(created_at) BETWEEN ? AND ?`
+         FROM bills WHERE is_tax_invoice=1 AND status != 'cancelled' AND date(created_at, 'localtime') BETWEEN ? AND ?`
       ).get(...range) as any;
 
       // Section-wise revenue from the charge-head category on each line.
@@ -2013,7 +2070,7 @@ export function registerIpdBillingIpc() {
          FROM bill_items bi
          JOIN bills b ON b.id = bi.bill_id
          LEFT JOIN charge_heads ch ON ch.id = bi.charge_head_id
-         WHERE b.status != 'cancelled' AND date(b.created_at) BETWEEN ? AND ?
+         WHERE b.status != 'cancelled' AND date(b.created_at, 'localtime') BETWEEN ? AND ?
          GROUP BY ch.category ORDER BY total DESC`
       ).all(...range) as any[];
 
@@ -2076,7 +2133,9 @@ export function registerIpdBillingIpc() {
     try {
       const aid = requireId(admissionId, 'Admission');
       const rows = d.prepare(
-        `SELECT id, amount, adjusted_amount, refunded_amount, mode, received_by, created_at,
+        // (The columns are payment_mode / received_at; the screen reads them as mode / created_at. The query asked for
+        // columns that do not exist, so the whole list — and with it the only way to refund an advance — always failed.)
+        `SELECT id, amount, adjusted_amount, refunded_amount, payment_mode AS mode, received_by, received_at AS created_at,
                 (amount - adjusted_amount - refunded_amount) AS refundable
            FROM advances WHERE admission_id=? ORDER BY id`
       ).all(aid);

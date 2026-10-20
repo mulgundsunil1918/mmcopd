@@ -390,6 +390,10 @@ export interface DrugMaster {
   stock_qty?: number;
   /** Earliest expiry across active batches (not stored in row). */
   next_expiry?: string | null;
+  /** MRP / selling price / true unit cost of the batch FEFO will hand out next (not stored in row). */
+  next_mrp?: number | null;
+  next_selling_price?: number | null;
+  next_unit_cost?: number | null;
 }
 
 export interface DrugStockBatch {
@@ -401,7 +405,12 @@ export interface DrugStockBatch {
   manufacture_date?: string | null;
   qty_received: number;
   qty_remaining: number;
+  /** The supplier's invoice RATE for a paid unit (display only — costing uses unit_cost). */
   purchase_price: number | null;
+  /** True acquisition cost per unit: free units, discounts, freight and unclaimable GST included. */
+  unit_cost?: number | null;
+  /** What you intend to charge; null = sell at MRP. */
+  selling_price?: number | null;
   mrp: number;
   manufacturer_license_no: string | null;
   received_at: string;
@@ -445,8 +454,30 @@ export interface PurchaseInvoice {
   ocr_job_id: number | null;
   notes: string | null;
   created_at: string;
+  /** Freight / packing etc. (included in total). */
+  other_charges?: number;
+  round_off?: number;
+  /** Total of the payments recorded; null = a bill marked "partly paid" before payments were tracked. */
+  amount_paid?: number | null;
+  /** 1 = GST on this bill could not be claimed back, so it is part of stock cost. */
+  gst_in_cost?: number;
+  /** total − amount_paid; null when the amount paid is unknown. */
+  outstanding?: number | null;
+  line_count?: number;
   /** Joined for display only. */
   wholesaler_name?: string;
+}
+
+export interface PurchasePayment {
+  id: number;
+  invoice_id: number;
+  amount: number;
+  payment_mode: string | null;
+  paid_on: string;
+  reference: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
 }
 
 export interface PurchaseInvoiceItem {
@@ -463,27 +494,87 @@ export interface PurchaseInvoiceItem {
   mrp: number;
   gst_rate: number;
   manufacturer_license_no: string | null;
+  /** Taxable value of the line (after discounts, before GST). */
   line_total: number;
+  disc_pct?: number;
+  /** Line discount + this line's share of the invoice discount. */
+  discount_amount?: number;
+  taxable_value?: number | null;
+  gst_amount?: number;
+  selling_price?: number | null;
+  /** True acquisition cost per unit. */
+  unit_cost?: number | null;
   /** Joined for display only. */
   drug_name?: string;
 }
 
+/** A purchase bill with its lines and payments, as the detail view and the save result carry it. */
+export type PurchaseDetail = PurchaseInvoice & {
+  wholesaler_name: string;
+  wholesaler_license_no: string;
+  wholesaler_gstin?: string | null;
+  items: PurchaseInvoiceItem[];
+  payments: PurchasePayment[];
+};
+
+/**
+ * What the screen sends to save a purchase bill. It sends quantities, rates and discounts — never
+ * totals: the main process works out every figure from the lines, so a stale number cannot be stored.
+ */
 export interface PurchaseInvoiceInput {
+  /** Generated once per attempt; saving the same attempt twice returns the first bill. */
+  client_ref?: string;
   invoice_number: string;
   wholesaler_id: number;
   invoice_date: string;
   received_date?: string;
-  subtotal?: number;
-  cgst?: number;
-  sgst?: number;
-  igst?: number;
+  /** Flat invoice discount in rupees. */
   discount?: number;
-  total?: number;
+  /** Freight / packing / handling in rupees. */
+  other_charges?: number;
+  interstate?: boolean;
+  /** GST on this bill cannot be claimed back → it is part of stock cost. */
+  gst_in_cost?: boolean;
+  /** Rupees, or 'auto' to round to the nearest rupee. */
+  round_off?: number | 'auto';
   payment_mode?: string | null;
-  payment_status?: PurchasePaymentStatus;
+  /** Paid when the bill is entered; the rest stays outstanding. */
+  amount_paid?: number;
   notes?: string | null;
-  items: Array<Omit<PurchaseInvoiceItem, 'id' | 'invoice_id' | 'drug_name'>>;
+  items: Array<{
+    drug_master_id: number;
+    batch_no: string;
+    expiry: string;
+    manufacture_date?: string | null;
+    /** Paid units. */
+    qty_received: number;
+    free_qty?: number;
+    pack_qty?: number | null;
+    /** Supplier's rate per paid unit, before discount and GST. */
+    purchase_price: number;
+    disc_pct?: number;
+    mrp: number;
+    /** Blank = sell at MRP. Never above MRP. */
+    selling_price?: number | null;
+    gst_rate?: number;
+    manufacturer_license_no?: string | null;
+  }>;
 }
+
+export interface PurchasePaymentInput {
+  amount: number;
+  mode?: string | null;
+  paid_on?: string;
+  reference?: string | null;
+  notes?: string | null;
+  client_ref?: string;
+  /** Only for a bill marked "partly paid" before payments were tracked: how much had been paid already. */
+  opening_paid?: number;
+}
+
+export type PurchaseResult =
+  | { ok: true; duplicate: boolean; invoice: PurchaseDetail }
+  | { ok: false; error: string };
 
 export interface DispensingRow {
   id: number;
@@ -498,6 +589,8 @@ export interface DispensingRow {
   schedule: DrugSchedule;
   qty: number;
   rate: number;
+  /** The batch's unit cost at the moment of sale, frozen (null = cost was never recorded). */
+  unit_cost?: number | null;
   rx_reference: string | null;
   dispensed_at: string;
   dispensed_by: string | null;

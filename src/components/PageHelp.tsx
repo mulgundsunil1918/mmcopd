@@ -42,6 +42,8 @@ const HELP: Record<PageKey, { title: string; body: React.ReactNode }> = {
       <>
         <p>Dispensing and stock. <b>Dispense</b> handles both a doctor&rsquo;s prescription and a walk-in counter sale; batches are picked oldest-expiry-first for you.</p>
         <p><b>Drug Master</b> is your catalogue, <b>Stock &amp; Batches</b> is what you physically hold, and <b>Purchases</b> records what you bought. Every sale prints a bill and can be reprinted later from <b>Sales</b>.</p>
+        <p>On a <b>purchase bill</b> enter the supplier&rsquo;s rate, any free units, discount and freight &mdash; the screen shows what each unit <i>really</i> cost you and the margin it leaves. Click a bill to record what you paid the supplier; the amount still owed is always bill total minus payments.</p>
+        <p>Profit, margin and stock value are in <b>Analytics &rarr; Pharmacy</b>.</p>
       </>
     ),
   },
@@ -105,6 +107,8 @@ const HELP: Record<PageKey, { title: string; body: React.ReactNode }> = {
       <>
         <p>The patterns behind the day-to-day — patient numbers, revenue by department, busiest hours, which doctors see the most.</p>
         <p>Figures come from real recorded activity, so they are only as good as what staff enter. A quiet-looking module usually means it isn&rsquo;t being used, not that it isn&rsquo;t earning.</p>
+        <p><b>Pharmacy</b> shows <i>profit already made</i> (revenue minus what those units cost, after discounts), <i>stock on the shelf</i> at cost, MRP and your selling price, and what you owe each supplier. <b>Margin</b> is profit &divide; revenue; <b>markup</b> is profit &divide; cost &mdash; ₹50 cost sold at ₹100 is a 50% margin and a 100% markup.</p>
+        <p>Days and months are counted on the clock of this computer, so a bill made at 1 a.m. belongs to that day.</p>
       </>
     ),
   },

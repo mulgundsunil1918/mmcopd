@@ -142,8 +142,11 @@ export function seedIfEmpty(db: Database.Database) {
     for (const d of PHARMACY_CATALOG) {
       const r = insM.run(d.name, d.generic_name, d.form, d.strength, d.pack_size ?? null, d.schedule, d.gst_rate, d.default_mrp, 10);
       const qty = 50 + ((n * 7) % 150);            // varied opening stock 50–200
-      const pp = Math.round(d.default_mrp * 0.72); // ~28% margin
-      insB.run(r.lastInsertRowid, `B${1000 + n}`, expiryStr, qty, qty, pp, d.default_mrp);
+      // Opening stock has NO purchase price: the clinic never paid anything for these placeholder units, and an
+      // invented cost (this used to be 72% of MRP) would make every profit and margin figure look real when it is
+      // a guess. With no cost on record, sales from this stock are reported as "cost not recorded" instead, until
+      // real purchase bills (or a typed price on the batch) replace it.
+      insB.run(r.lastInsertRowid, `B${1000 + n}`, expiryStr, qty, qty, null, d.default_mrp);
       n++;
     }
   }

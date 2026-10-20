@@ -16,6 +16,7 @@ import {
   DEMO_PHARMACY_SALES, DEMO_DISPENSING, DEMO_CONSULTATIONS, DEMO_RX_ITEMS,
 } from './demo-data';
 import { LAB_CATALOG } from '../data/lab-catalog';
+import { demoPriceHistory, demoProfitReport, demoSupplierReport, demoValuation, makeDemoPurchaseStore } from './demo-pharmacy-finance';
 import { RADIOLOGY_CATALOG, modalityOf } from '../data/radiology-catalog';
 
 /**
@@ -48,6 +49,8 @@ let batches = [...DEMO_BATCHES];
 let wholesalers = [...DEMO_WHOLESALERS];
 let purchases = [...DEMO_PURCHASES];
 let pharmSales = [...DEMO_PHARMACY_SALES];
+// Purchase bills with lines + supplier payments (the finance screens read these).
+const purchaseStore = makeDemoPurchaseStore(DEMO_PURCHASES, () => wholesalers, () => drugMaster, () => batches, (b) => { batches = b; });
 let dispensing = [...DEMO_DISPENSING];
 let consultations = [...DEMO_CONSULTATIONS];
 let rxItems = [...DEMO_RX_ITEMS];
@@ -572,14 +575,15 @@ export function createMockElectronAPI(): any {
       delete: (id: number) => { wholesalers = wholesalers.filter((x) => x.id !== id); return r({ ok: true }); },
     },
     purchases: {
-      list: () => r(purchases.map((p) => ({ ...p, wholesaler_name: wholesalers.find((w) => w.id === p.wholesaler_id)?.name, wholesaler_license_no: wholesalers.find((w) => w.id === p.wholesaler_id)?.drug_license_no }))),
-      get: (id: number) => r(purchases.find((p) => p.id === id) || null),
-      create: () => r({} as any),
+      list: (filter: any) => r(purchaseStore.list(filter || {}) as any),
+      get: (id: number) => r(purchaseStore.get(id) as any),
+      create: (payload: any) => r(purchaseStore.create(payload) as any),
+      addPayment: (id: number, p: any) => r(purchaseStore.addPayment(id, p) as any),
       attachScan: () => r({ ok: true }),
     },
     dispensing: { register: () => r(dispensing) },
     stock: { register: () => r(batches.map((b) => ({ ...b, days_to_expiry: Math.round((new Date(b.expiry).getTime() - Date.now()) / 86400000) }))) },
-    purchasesReport: { register: () => r(purchases.map((p) => ({ ...p, wholesaler_name: wholesalers.find((w) => w.id === p.wholesaler_id)?.name, wholesaler_license_no: wholesalers.find((w) => w.id === p.wholesaler_id)?.drug_license_no, wholesaler_gstin: null, line_count: 5 }))) },
+    purchasesReport: { register: () => r(purchaseStore.all().map((p) => ({ ...p, wholesaler_gstin: null, line_count: p.items.length })) as any) },
     notifications: { list: () => r([]) },
     ip: { list: () => r([]), admit: () => r({} as any), discharge: () => r({} as any) },
     app: {
@@ -726,7 +730,7 @@ export function createMockElectronAPI(): any {
       }),
       pharmacyOverview: () => r({
         totalDispensed: 200, scheduleHCount: 80, totalRevenue: 32000, totalSales: 50,
-        valuation: { skus: 115, units: 47680, at_cost: 2077863, at_mrp: 3306022 },
+        valuation: { skus: 115, units: 47680, at_cost: 2077863, at_mrp: 3306022, at_selling: 3306022 },
         expiredStock: { batches: 3, value: 8400 },
         lowStockCount: 30,
         topDrugs: drugMaster.slice(0, 8).map((d) => ({ name: d.name, units: 50, revenue: 1500, sales: 12 })),
@@ -768,6 +772,11 @@ export function createMockElectronAPI(): any {
         }
         return r(out);
       },
+      pharmacyProfit: (f: any) => r({ ok: true, report: demoProfitReport(drugMaster, batches, f.from, f.to) } as any),
+      pharmacyValuation: () => r(demoValuation(batches, drugMaster)),
+      supplierReport: (f: any) => r({ ok: true, report: demoSupplierReport(purchaseStore.all(), f.from, f.to) } as any),
+      drugPriceHistory: (id: number) => r(demoPriceHistory(purchaseStore.all(), id)),
+      pharmacyChecks: () => r([] as any),
       pharmacyBasket: () => r(Array.from({ length: 10 }, (_, i) => ({
         month: `2025-${String(i + 3).padStart(2, '0')}`,
         sales: 30 + Math.floor(Math.random() * 30),

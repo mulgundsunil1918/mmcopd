@@ -17,6 +17,7 @@ const esbuild = join(root, 'node_modules', '.bin', 'esbuild');
 const ZONES = {
   timefix: ['Asia/Kolkata', 'America/Los_Angeles'],
   regtime: ['Asia/Kolkata', 'UTC', 'America/Los_Angeles', 'Asia/Kathmandu', 'Europe/London'],
+  'pharmacy-finance': ['Asia/Kolkata', 'UTC', 'America/Los_Angeles', 'Pacific/Auckland', 'Asia/Kathmandu'],
 };
 
 let failed = 0;
