@@ -45,7 +45,7 @@ export const MODULE_TUTORIALS: Record<AppMode, Tutorial> = {
     forWho: 'A chemist counter, or a clinic where the pharmacy runs without a doctor screen in the software.',
     setup: [
       'Everything in Reception setup, plus:',
-      'Build your drug master under Pharmacy → add medicines with HSN code and GST rate.',
+      'Build your Drug List under Pharmacy → Drug List: add medicines with HSN code and GST rate.',
       'Record opening stock as a purchase so batches and expiry are tracked (FEFO).',
     ],
     workflow: [

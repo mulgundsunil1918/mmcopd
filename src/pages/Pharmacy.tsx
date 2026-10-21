@@ -4,21 +4,21 @@ import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Pill, Plus, Search, AlertTriangle, Package, Clipboard, ShoppingCart, Trash2, Pencil,
-  Layers, Truck, FileText, ChevronDown, ChevronRight, X,
+  Layers, Truck, FileText, X, Store,
 } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
 import { cn, fmtDate, fmtDateTime, formatINR, newRef, refFor, todayISO } from '../lib/utils';
-import type {
-  Drug, DrugMaster, DrugSchedule, DrugStockBatch, PurchaseInvoice, Wholesaler,
-} from '../types';
+import type { Drug, DrugMaster, DrugSchedule, Wholesaler } from '../types';
 import { NewPurchaseModal } from '../components/pharmacy/PurchaseBillModal';
 import { PurchaseDetailModal } from '../components/pharmacy/PurchaseDetailModal';
-import { DispensingRegisterPrint } from '../components/DispensingRegisterPrint';
-import { StockRegisterPrint } from '../components/StockRegisterPrint';
-import { PurchaseRegisterPrint } from '../components/PurchaseRegisterPrint';
+import { ClinicStockTab, clinicCounts, useClinicStock, type ClinicFilter } from '../components/pharmacy/ClinicStockTab';
+import { WholesalersTab } from '../components/pharmacy/WholesalersTab';
+import { ReportsTab } from '../components/pharmacy/ReportsTab';
+import { DrugEditModal, DRUG_QUERY_KEYS } from '../components/pharmacy/DrugEditModal';
+import { ScheduleBadge, daysAgo } from '../components/pharmacy/shared';
 import { PharmacySaleReceipt } from '../components/pharmacy/PharmacySaleReceipt';
 import { CollectPaymentModal } from '../components/billing/CollectPaymentModal';
 import {
@@ -26,9 +26,8 @@ import {
 } from '../components/pharmacy/SalePaymentChoice';
 import { BarcodeScanModal } from '../components/BarcodeScanModal';
 import { Scan, Printer } from 'lucide-react';
-import { localISO } from '../lib/localDate';
 
-type Tab = 'dispense' | 'drugs' | 'batches' | 'purchases' | 'sales';
+type Tab = 'dispense' | 'druglist' | 'clinic' | 'purchases' | 'sales' | 'wholesalers' | 'reports';
 
 /**
  * The rate a sale line starts at: what the batch FEFO will hand out NEXT is priced at (its selling
@@ -39,79 +38,68 @@ const defaultRate = (d: any): number => Number(d.next_selling_price ?? d.next_mr
 
 export function Pharmacy() {
   const [tab, setTab] = useState<Tab>('dispense');
-  const [reportsOpen, setReportsOpen] = useState(false);
+  // A filter chosen on "Drugs in my clinic" (or from the alert line on Dispense), and a supplier chosen with "View bills".
+  const [stockFilter, setStockFilter] = useState<ClinicFilter>('all');
+  const [supplier, setSupplier] = useState<{ id: number; name: string } | null>(null);
 
-  const { data: alerts } = useQuery({
-    queryKey: ['pharmacy-alerts'],
-    queryFn: () => window.electronAPI.pharmacy.alerts(),
-    refetchInterval: 60_000,
-  });
+  const { data: stock = [] } = useClinicStock();
+  const counts = useMemo(() => clinicCounts(stock), [stock]);
+
+  // Clicking a tab itself always starts it fresh; only the alert line and "View bills" arrive pre-filtered.
+  const go = (t: Tab) => { setStockFilter('all'); setSupplier(null); setTab(t); };
+  const openStock = (f: ClinicFilter) => { setStockFilter(f); setSupplier(null); setTab('clinic'); };
+  const viewSupplierBills = (w: { id: number; name: string }) => { setSupplier(w); setTab('purchases'); };
 
   return (
     <div className="p-6 space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5">Pharmacy<PageHelp page="pharmacy" /></h1>
-          <p className="text-xs text-gray-500 dark:text-slate-400">
-            Batch-tracked stock · FEFO dispensing · Schedule H register · Purchase invoices
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex gap-2 bg-gray-100 dark:bg-slate-700 p-1 rounded-lg flex-wrap">
-            <TabBtn active={tab === 'dispense'} onClick={() => setTab('dispense')} icon={<Clipboard className="w-3.5 h-3.5" />}>Dispense</TabBtn>
-            <TabBtn active={tab === 'drugs'} onClick={() => setTab('drugs')} icon={<Package className="w-3.5 h-3.5" />}>Drug Master</TabBtn>
-            <TabBtn active={tab === 'batches'} onClick={() => setTab('batches')} icon={<Layers className="w-3.5 h-3.5" />}>Stock & Batches</TabBtn>
-            <TabBtn active={tab === 'purchases'} onClick={() => setTab('purchases')} icon={<Truck className="w-3.5 h-3.5" />}>Purchases</TabBtn>
-            <TabBtn active={tab === 'sales'} onClick={() => setTab('sales')} icon={<ShoppingCart className="w-3.5 h-3.5" />}>Sales</TabBtn>
-          </div>
-          <button
-            className="btn-secondary text-xs"
-            onClick={() => setReportsOpen(true)}
-          >
-            <FileText className="w-3.5 h-3.5" /> Reports
-          </button>
-        </div>
+      <div>
+        <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5">Pharmacy<PageHelp page="pharmacy" /></h1>
+        <p className="text-xs text-gray-500 dark:text-slate-400">
+          Batch-tracked stock · FEFO dispensing · Schedule H register · Purchase invoices
+        </p>
       </div>
 
-      {alerts && (alerts.lowStock.length > 0 || alerts.expiringSoon.length > 0) && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {alerts.lowStock.length > 0 && (
-            <div className="rounded-lg border-2 border-amber-400 bg-amber-50 dark:bg-amber-900/30 p-3">
-              <div className="flex items-center gap-2 text-sm font-semibold text-amber-900 dark:text-amber-200">
-                <AlertTriangle className="w-4 h-4" /> Low Stock ({alerts.lowStock.length})
-              </div>
-              <ul className="text-[11px] text-amber-800 dark:text-amber-200 mt-2 space-y-0.5 max-h-24 overflow-auto">
-                {alerts.lowStock.slice(0, 10).map((d) => (
-                  <li key={d.id}>{d.name} — {d.stock_qty ?? 0} left (threshold {d.low_stock_threshold})</li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {alerts.expiringSoon.length > 0 && (
-            <div className="rounded-lg border-2 border-red-400 bg-red-50 dark:bg-red-900/30 p-3">
-              <div className="flex items-center gap-2 text-sm font-semibold text-red-900 dark:text-red-200">
-                <AlertTriangle className="w-4 h-4" /> Expiring within 90 days ({alerts.expiringSoon.length})
-              </div>
-              <ul className="text-[11px] text-red-800 dark:text-red-200 mt-2 space-y-0.5 max-h-24 overflow-auto">
-                {alerts.expiringSoon.slice(0, 10).map((b) => (
-                  <li key={b.id}>
-                    {b.drug_name || `Drug #${b.drug_master_id}`} · Batch {b.batch_no} — expires {(() => { try { return fmtDate(b.expiry); } catch { return b.expiry; } })()}
-                    {b.qty_remaining ? ` · ${b.qty_remaining} left` : ''}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
+      <div className="flex gap-1 bg-gray-100 dark:bg-slate-700 p-1 rounded-lg flex-wrap w-fit max-w-full" role="tablist" aria-label="Pharmacy">
+        <TabBtn active={tab === 'dispense'} onClick={() => go('dispense')} icon={<Clipboard className="w-3.5 h-3.5" />}>Dispense</TabBtn>
+        <TabBtn active={tab === 'druglist'} onClick={() => go('druglist')} icon={<Package className="w-3.5 h-3.5" />}>Drug List</TabBtn>
+        <TabBtn active={tab === 'clinic'} onClick={() => go('clinic')} icon={<Layers className="w-3.5 h-3.5" />}>Drugs in my clinic</TabBtn>
+        <TabBtn active={tab === 'purchases'} onClick={() => go('purchases')} icon={<Truck className="w-3.5 h-3.5" />}>Purchases</TabBtn>
+        <TabBtn active={tab === 'sales'} onClick={() => go('sales')} icon={<ShoppingCart className="w-3.5 h-3.5" />}>Sales</TabBtn>
+        <TabBtn active={tab === 'wholesalers'} onClick={() => go('wholesalers')} icon={<Store className="w-3.5 h-3.5" />}>Wholesalers</TabBtn>
+        <TabBtn active={tab === 'reports'} onClick={() => go('reports')} icon={<FileText className="w-3.5 h-3.5" />}>Reports</TabBtn>
+      </div>
+
+      {tab === 'dispense' && <StockStrip counts={counts} onOpen={openStock} />}
 
       {tab === 'dispense' && <DispenseQueue />}
-      {tab === 'drugs' && <DrugMasterTab />}
-      {tab === 'batches' && <StockBatchesTab />}
-      {tab === 'purchases' && <PurchasesTab />}
+      {tab === 'druglist' && <DrugListTab />}
+      {tab === 'clinic' && <ClinicStockTab filter={stockFilter} onFilter={setStockFilter} />}
+      {tab === 'purchases' && <PurchasesTab supplier={supplier} onClearSupplier={() => setSupplier(null)} />}
       {tab === 'sales' && <SalesTab />}
+      {tab === 'wholesalers' && <WholesalersTab onViewBills={viewSupplierBills} />}
+      {tab === 'reports' && <ReportsTab />}
+    </div>
+  );
+}
 
-      {reportsOpen && <ReportsModal onClose={() => setReportsOpen(false)} />}
+/** One slim line on Dispense: what needs attention on the shelf. Each part opens "Drugs in my clinic" already filtered to it. */
+function StockStrip({ counts, onOpen }: { counts: Record<ClinicFilter, number>; onOpen: (f: ClinicFilter) => void }) {
+  const items = ([
+    { f: 'expired', n: counts.expired, text: 'expired', red: true },
+    { f: 'out', n: counts.out, text: 'out of stock', red: true },
+    { f: 'expiring', n: counts.expiring, text: 'expiring within 90 days', red: false },
+    { f: 'low', n: counts.low, text: 'low on stock', red: false },
+  ] as { f: ClinicFilter; n: number; text: string; red: boolean }[]).filter((i) => i.n > 0);
+  if (items.length === 0) return null;
+  return (
+    <div className="flex items-center gap-x-4 gap-y-1 flex-wrap rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-900/30 px-3 py-1.5 text-xs text-amber-900 dark:text-amber-100">
+      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+      {items.map((i) => (
+        <button key={i.f} type="button" className={cn('hover:underline', i.red && 'font-semibold text-red-700 dark:text-red-300')} onClick={() => onOpen(i.f)}>
+          <b className="tabular-nums">{i.n}</b> {i.text}
+        </button>
+      ))}
+      <span className="opacity-70">— click one to see which drugs</span>
     </div>
   );
 }
@@ -244,7 +232,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
     const matches = await window.electronAPI.pharmacy.listDrugs({ q: code, activeOnly: true });
     const exact = matches.find((d) => (d.barcode || '').trim() === code.trim());
     if (!exact) {
-      toast(`No drug with barcode ${code} — add it in Drug Master first`, 'error');
+      toast(`No drug with barcode ${code} — add it in the Drug List first`, 'error');
       return;
     }
     setRows((prev) => [
@@ -314,6 +302,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
       qc.invalidateQueries({ queryKey: ['pharmacy-drugs'] });
       qc.invalidateQueries({ queryKey: ['pharmacy-drugs-active'] });
       qc.invalidateQueries({ queryKey: ['pharmacy-alerts'] });
+      qc.invalidateQueries({ queryKey: ['pharmacy-clinic-stock'] });
       qc.invalidateQueries({ queryKey: ['pharmacy-batches'] });
       // A sale on credit or on an in-patient bill changes what the patient owes — keep Billing, Accounts and Analytics in step.
       for (const k of ['billing-portal', 'bills', 'bill-admissions', 'finance', 'receivables']) qc.invalidateQueries({ queryKey: [k] });
@@ -436,7 +425,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
         open={scanOpen}
         onClose={() => setScanOpen(false)}
         onScan={handleScan}
-        hint="Scan a drug barcode to add it to this dispense. Drug must already be in Drug Master with a barcode set."
+        hint="Scan a drug barcode to add it to this dispense. Drug must already be in the Drug List with a barcode set."
       />
 
       {/* Printed bill — offered right after dispensing. */}
@@ -538,6 +527,7 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
       qc.invalidateQueries({ queryKey: ['pharmacy-drugs'] });
       qc.invalidateQueries({ queryKey: ['pharmacy-drugs-active'] });
       qc.invalidateQueries({ queryKey: ['pharmacy-alerts'] });
+      qc.invalidateQueries({ queryKey: ['pharmacy-clinic-stock'] });
       qc.invalidateQueries({ queryKey: ['pharmacy-batches'] });
       for (const k of ['billing-portal', 'bills', 'bill-admissions', 'finance', 'receivables', 'portal-walkins']) qc.invalidateQueries({ queryKey: [k] });
       toast(`Counter sale recorded — ${payDoneText(pay, payOpts, total)}`);
@@ -732,7 +722,7 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
         open={scanOpen}
         onClose={() => setScanOpen(false)}
         onScan={handleScan}
-        hint="Scan a drug barcode to add it to this counter sale. Drug must already be in Drug Master with a barcode."
+        hint="Scan a drug barcode to add it to this counter sale. Drug must already be in the Drug List with a barcode."
       />
 
       {/* Printed receipt — shown right after the sale is recorded. */}
@@ -744,17 +734,11 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
 }
 
 /* ===================================================================
-   DRUG MASTER (catalog only — stock lives in batches tab)
+   DRUG LIST — just the drugs: name, form, strength, schedule, GST, MRP. No stock here: what the clinic
+   actually holds is under "Drugs in my clinic", and stock comes in through Purchases.
    =================================================================== */
-const SCHEDULES: { value: DrugSchedule; label: string }[] = [
-  { value: 'OTC', label: 'OTC (over the counter)' },
-  { value: 'H', label: 'H (Rx required)' },
-  { value: 'H1', label: 'H1 (Rx + register entry)' },
-  { value: 'G', label: 'G (caution: hospital use)' },
-  { value: 'X', label: 'X (narcotic — locked storage)' },
-];
 
-function DrugMasterTab() {
+function DrugListTab() {
   const qc = useQueryClient();
   const toast = useToast();
   const [q, setQ] = useState('');
@@ -767,21 +751,10 @@ function DrugMasterTab() {
     queryKey: ['pharmacy-drugs', q, false],
     queryFn: () => window.electronAPI.pharmacy.listDrugs({ q, activeOnly: false }),
   });
-  const save = useMutation({
-    mutationFn: (d: Partial<DrugMaster>) => window.electronAPI.pharmacy.upsertDrug(d),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['pharmacy-drugs'] });
-      qc.invalidateQueries({ queryKey: ['pharmacy-drugs-active'] });
-      qc.invalidateQueries({ queryKey: ['pharmacy-alerts'] });
-      toast('Saved'); setEditing(null);
-    },
-  });
   const bulkDelete = useMutation({
     mutationFn: (ids: number[]) => window.electronAPI.pharmacy.bulkDeleteDrugs(ids),
     onSuccess: (r) => {
-      qc.invalidateQueries({ queryKey: ['pharmacy-drugs'] });
-      qc.invalidateQueries({ queryKey: ['pharmacy-drugs-active'] });
-      qc.invalidateQueries({ queryKey: ['pharmacy-alerts'] });
+      for (const k of DRUG_QUERY_KEYS) qc.invalidateQueries({ queryKey: [k] });
       const parts: string[] = [];
       if (r.hardDeleted) parts.push(`${r.hardDeleted} permanently deleted`);
       if (r.softDeleted) parts.push(`${r.softDeleted} marked Inactive (had history)`);
@@ -843,7 +816,7 @@ function DrugMasterTab() {
         </button>
       </div>
       <div className="text-[11px] text-gray-500 dark:text-slate-400 mb-2">
-        💡 Add drug definitions here. Stock + batches come from <b>Purchases</b> (the legal source) or manual entry in <b>Stock & Batches</b>.
+        💡 This is the list of drugs your clinic knows — it shows no stock. What you actually hold is under <b>Drugs in my clinic</b>, and stock comes in through <b>Purchases</b> (the legal source).
         Tick the checkboxes to bulk-delete drugs (drugs with history get marked Inactive instead).
       </div>
 
@@ -886,15 +859,12 @@ function DrugMasterTab() {
             <th className="py-2">Form / Strength</th>
             <th className="py-2">Schedule</th>
             <th className="py-2 text-right">MRP</th>
-            <th className="py-2 text-right">Stock</th>
-            <th className="py-2">Status</th>
+            <th className="py-2 pl-6">Status</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           {drugs.map((d) => {
-            const stock = (d as any).stock_qty ?? 0;
-            const low = stock <= d.low_stock_threshold;
             const checked = selectedIds.has(d.id);
             return (
               <tr
@@ -919,10 +889,9 @@ function DrugMasterTab() {
                 <td className="py-2 text-gray-600 dark:text-slate-300">{d.form || '—'} {d.strength ? `· ${d.strength}` : ''}</td>
                 <td className="py-2"><ScheduleBadge schedule={d.schedule} /></td>
                 <td className="py-2 text-right">{formatINR(d.default_mrp)}</td>
-                <td className={cn('py-2 text-right font-semibold', low ? 'text-amber-700 dark:text-amber-300' : '')}>{stock}</td>
-                <td className="py-2">
+                <td className="py-2 pl-6">
                   {d.is_active
-                    ? (low ? <span className="badge bg-amber-100 text-amber-800">Low</span> : <span className="badge bg-green-100 text-green-700">Active</span>)
+                    ? <span className="badge bg-green-100 text-green-700">Active</span>
                     : <span className="badge bg-gray-200 text-gray-600">Inactive</span>}
                 </td>
                 <td className="py-2 text-right">
@@ -987,47 +956,7 @@ function DrugMasterTab() {
         </div>
       </Modal>
 
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? 'Edit Drug' : 'Add Drug to Master'} size="lg">
-        {editing && (
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Name *"><input className="input" value={editing.name || ''} onChange={(e) => setEditing({ ...editing, name: e.target.value })} /></Field>
-              <Field label="Generic Name"><input className="input" value={editing.generic_name || ''} onChange={(e) => setEditing({ ...editing, generic_name: e.target.value })} /></Field>
-              <Field label="Manufacturer"><input className="input" placeholder="e.g. GSK / Cipla" value={editing.manufacturer || ''} onChange={(e) => setEditing({ ...editing, manufacturer: e.target.value })} /></Field>
-              <Field label="Schedule">
-                <select className="input" value={editing.schedule || 'OTC'} onChange={(e) => setEditing({ ...editing, schedule: e.target.value as DrugSchedule })}>
-                  {SCHEDULES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-                </select>
-              </Field>
-              <Field label="Form"><input className="input" placeholder="Tab / Syrup / Inj" value={editing.form || ''} onChange={(e) => setEditing({ ...editing, form: e.target.value })} /></Field>
-              <Field label="Strength"><input className="input" placeholder="500mg / 10mg" value={editing.strength || ''} onChange={(e) => setEditing({ ...editing, strength: e.target.value })} /></Field>
-              <Field label="Pack Size"><input type="number" className="input" placeholder="10 (tabs/strip)" value={editing.pack_size ?? ''} onChange={(e) => setEditing({ ...editing, pack_size: e.target.value === '' ? null : Number(e.target.value) })} /></Field>
-              <Field label="Default MRP (₹)"><input type="number" className="input" value={editing.default_mrp ?? 0} onChange={(e) => setEditing({ ...editing, default_mrp: Number(e.target.value) })} /></Field>
-              <Field label="HSN Code"><input className="input" placeholder="30049099" value={editing.hsn_code || ''} onChange={(e) => setEditing({ ...editing, hsn_code: e.target.value })} /></Field>
-              <Field label="GST Rate (%)">
-                <select className="input" value={editing.gst_rate ?? 12} onChange={(e) => setEditing({ ...editing, gst_rate: Number(e.target.value) })}>
-                  {[0, 5, 12, 18, 28].map((r) => <option key={r} value={r}>{r}%</option>)}
-                </select>
-              </Field>
-              <Field label="Barcode (EAN/UPC)"><input className="input" placeholder="optional" value={editing.barcode || ''} onChange={(e) => setEditing({ ...editing, barcode: e.target.value })} /></Field>
-              <Field label="Low-stock Threshold"><input type="number" className="input" value={editing.low_stock_threshold ?? 10} onChange={(e) => setEditing({ ...editing, low_stock_threshold: Number(e.target.value) })} /></Field>
-            </div>
-            <Field label="Notes">
-              <textarea className="input" rows={2} value={editing.notes || ''} onChange={(e) => setEditing({ ...editing, notes: e.target.value })} />
-            </Field>
-            <label className="flex items-center gap-2 text-sm pt-1">
-              <input type="checkbox" checked={editing.is_active === 1} onChange={(e) => setEditing({ ...editing, is_active: e.target.checked ? 1 : 0 })} />
-              <span>Active (shows up in dispense + alerts)</span>
-            </label>
-            <div className="flex justify-end gap-2 pt-3">
-              <button className="btn-secondary" onClick={() => setEditing(null)}>Cancel</button>
-              <button className="btn-primary" onClick={() => save.mutate(editing)} disabled={save.isPending || !editing.name}>
-                {save.isPending ? 'Saving…' : 'Save Drug'}
-              </button>
-            </div>
-          </div>
-        )}
-      </Modal>
+      {editing && <DrugEditModal drug={editing} onClose={() => setEditing(null)} />}
 
       <BarcodeScanModal
         open={scanOpen}
@@ -1040,273 +969,21 @@ function DrugMasterTab() {
 }
 
 /* ===================================================================
-   STOCK & BATCHES — per-drug accordion of batches sorted by expiry
-   =================================================================== */
-function StockBatchesTab() {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const [q, setQ] = useState('');
-  const [openId, setOpenId] = useState<number | null>(null);
-  const [editing, setEditing] = useState<(Partial<DrugStockBatch> & { drug_master_id: number; drug_name?: string }) | null>(null);
-  const [costOpen, setCostOpen] = useState(false);
-
-  const { data: drugs = [] } = useQuery({
-    queryKey: ['pharmacy-drugs', q, true],
-    queryFn: () => window.electronAPI.pharmacy.listDrugs({ q, activeOnly: true }),
-  });
-
-  const save = useMutation({
-    mutationFn: (b: Partial<DrugStockBatch>) => window.electronAPI.pharmacy.upsertBatch(b),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['pharmacy-drugs'] });
-      qc.invalidateQueries({ queryKey: ['pharmacy-drugs-active'] });
-      qc.invalidateQueries({ queryKey: ['pharmacy-alerts'] });
-      qc.invalidateQueries({ queryKey: ['pharmacy-batches'] });
-      toast('Batch saved');
-      setEditing(null);
-    },
-  });
-
-  return (
-    <section className="card p-4">
-      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input className="input pl-9" placeholder="Search drug" value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="text-[11px] text-gray-500 dark:text-slate-400">
-            Click a drug to expand its batches. Stock dispenses FEFO — earliest expiry first.
-          </div>
-          <button className="btn-secondary text-xs whitespace-nowrap" onClick={() => setCostOpen(true)}
-            title="Stock you typed in by hand carries a cost nobody can vouch for — clear it so profit is not based on a guess">
-            Cost not recorded…
-          </button>
-        </div>
-      </div>
-      {costOpen && <CostNotRecordedModal onClose={() => setCostOpen(false)} />}
-
-      <ul className="divide-y divide-gray-100 dark:divide-slate-800">
-        {drugs.map((d) => {
-          const isOpen = openId === d.id;
-          const stock = (d as any).stock_qty ?? 0;
-          const low = stock <= d.low_stock_threshold;
-          return (
-            <li key={d.id}>
-              {/* A div, not a <button>: it holds the "+ Batch" button, and a button inside a button is invalid HTML. */}
-              <div
-                role="button"
-                tabIndex={0}
-                className="w-full flex items-center gap-3 py-2.5 px-2 hover:bg-gray-50 dark:hover:bg-slate-800/40 text-left cursor-pointer"
-                onClick={() => setOpenId(isOpen ? null : d.id)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenId(isOpen ? null : d.id); } }}
-              >
-                {isOpen ? <ChevronDown className="w-4 h-4 text-gray-500" /> : <ChevronRight className="w-4 h-4 text-gray-500" />}
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-gray-900 dark:text-slate-100">{d.name}</div>
-                  <div className="text-[11px] text-gray-500 dark:text-slate-400">
-                    {d.form || ''} {d.strength ? `· ${d.strength}` : ''} {d.manufacturer ? `· ${d.manufacturer}` : ''}
-                  </div>
-                </div>
-                <ScheduleBadge schedule={d.schedule} />
-                <div className={cn('text-sm font-bold w-16 text-right', low ? 'text-amber-700 dark:text-amber-300' : '')}>
-                  {stock}
-                </div>
-                <button
-                  type="button"
-                  className="btn-ghost text-xs"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEditing({ drug_master_id: d.id, drug_name: d.name, batch_no: '', expiry: '', manufacture_date: '', qty_received: 0, qty_remaining: 0, mrp: d.default_mrp, is_active: 1 });
-                  }}
-                >
-                  <Plus className="w-3.5 h-3.5" /> Batch
-                </button>
-              </div>
-              {isOpen && <BatchList drugMasterId={d.id} drugName={d.name} drugDefaultMrp={d.default_mrp} onEdit={(b) => setEditing({ ...b, drug_master_id: d.id, drug_name: d.name })} />}
-            </li>
-          );
-        })}
-      </ul>
-
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? `Edit Batch · ${editing.drug_name}` : `New Batch · ${editing?.drug_name}`} size="md">
-        {editing && (
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Batch No *"><input className="input font-mono" value={editing.batch_no || ''} onChange={(e) => setEditing({ ...editing, batch_no: e.target.value })} /></Field>
-              <div />
-              <Field label="Mfg date"><input type="month" className="input" value={editing.manufacture_date || ''} onChange={(e) => setEditing({ ...editing, manufacture_date: e.target.value })} /></Field>
-              <Field label="Expiry *"><input type="date" className="input" value={editing.expiry || ''} onChange={(e) => setEditing({ ...editing, expiry: e.target.value })} /></Field>
-              <Field label="Qty Received *"><input type="number" className="input" value={editing.qty_received ?? 0} onChange={(e) => setEditing({ ...editing, qty_received: Number(e.target.value) })} /></Field>
-              <Field label="Qty Remaining"><input type="number" className="input" value={editing.qty_remaining ?? editing.qty_received ?? 0} onChange={(e) => setEditing({ ...editing, qty_remaining: Number(e.target.value) })} /></Field>
-              <Field label="Purchase Price (₹)"><input type="number" className="input" value={editing.purchase_price ?? ''} onChange={(e) => setEditing({ ...editing, purchase_price: e.target.value === '' ? null : Number(e.target.value) })} /></Field>
-              <Field label="MRP (₹)"><input type="number" className="input" value={editing.mrp ?? 0} onChange={(e) => setEditing({ ...editing, mrp: Number(e.target.value) })} /></Field>
-              <Field label="Selling price (₹) — blank = MRP"><input type="number" className="input" value={editing.selling_price ?? ''} onChange={(e) => setEditing({ ...editing, selling_price: e.target.value === '' ? null : Number(e.target.value) })} /></Field>
-              <div className="col-span-2">
-                <Field label="Manufacturer Lic. No."><input className="input" placeholder="optional — printed on strip" value={editing.manufacturer_license_no || ''} onChange={(e) => setEditing({ ...editing, manufacturer_license_no: e.target.value })} /></Field>
-              </div>
-            </div>
-            <div className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded p-2">
-              💡 For wholesaler-bought stock, prefer creating a <b>Purchase Invoice</b> in the Purchases tab — that auto-creates batches AND records the bill for compliance. Manual batch entry is for samples / corrections only. Changing the purchase price here changes what the <i>remaining</i> units cost; sales already made keep the cost they were made at, and the change is written to the audit log.
-            </div>
-            <div className="flex justify-end gap-2 pt-3">
-              <button className="btn-secondary" onClick={() => setEditing(null)}>Cancel</button>
-              <button className="btn-primary" onClick={() => save.mutate(editing as DrugStockBatch)} disabled={save.isPending || !editing.batch_no || !editing.expiry || (editing.selling_price != null && editing.selling_price > (editing.mrp ?? 0))}>
-                {save.isPending ? 'Saving…' : 'Save Batch'}
-              </button>
-            </div>
-          </div>
-        )}
-      </Modal>
-    </section>
-  );
-}
-
-/**
- * "Cost not recorded": stock somebody typed in (or the starter stock a new install ships with) has a cost that is
- * only a guess. This clears that cost on those batches — and, if asked, on the sales already made from them — so profit
- * and stock value leave them out instead of treating the guess as fact. Batches received through a purchase bill are
- * never touched. Nothing is deleted, and the old figures are written to the audit log.
- */
-function CostNotRecordedModal({ onClose }: { onClose: () => void }) {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const [includePast, setIncludePast] = useState(false);
-  const [sure, setSure] = useState(false);
-  const { data: sum, isLoading } = useQuery({
-    queryKey: ['pharmacy-cost-summary'],
-    queryFn: () => window.electronAPI.pharmacy.costSummary(),
-  });
-  const run = useMutation({
-    mutationFn: () => window.electronAPI.pharmacy.clearManualCost({ include_past_sales: includePast }),
-    onSuccess: (r) => {
-      if (!r.ok) { toast(r.error, 'error'); return; }
-      for (const k of ['pharmacy-drugs', 'pharmacy-drugs-active', 'pharmacy-batches', 'pharmacy-cost-summary', 'pharmacy-profit', 'pharmacy-valuation', 'pharmacy-checks']) {
-        qc.invalidateQueries({ queryKey: [k] });
-      }
-      toast(`Cost cleared on ${r.batches} batch${r.batches === 1 ? '' : 'es'}${includePast ? ` and ${r.register_rows} past sale line${r.register_rows === 1 ? '' : 's'}` : ''}`);
-      onClose();
-    },
-    onError: (e: any) => toast(e?.message || 'Could not clear the costs', 'error'),
-  });
-  const n = sum?.batches ?? 0;
-  return (
-    <Modal open onClose={onClose} title="Cost not recorded" size="md">
-      <div className="space-y-3 text-[13px] text-gray-700 dark:text-slate-300">
-        <p>
-          Stock that was typed in by hand — or the starter stock a new install comes with — has a cost nobody can vouch for.
-          Mark it <b>cost not recorded</b> and profit and stock value will stop treating that guess as fact. Real costs come
-          from supplier bills entered under <b>Purchases</b>.
-        </p>
-        {isLoading ? <div className="text-xs text-gray-500">Checking stock…</div> : n === 0 ? (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 p-3 text-emerald-800 dark:text-emerald-200">
-            Nothing to clear — every batch with a cost came from a purchase bill.
-          </div>
-        ) : (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 p-3 space-y-1">
-            <div><b>{n}</b> batch{n === 1 ? '' : 'es'} carry a hand-typed cost.</div>
-            <div className="text-[12px]">
-              {sum!.units_in_stock} unit{sum!.units_in_stock === 1 ? '' : 's'} in stock, valued at {formatINR(sum!.value_in_stock)} at that cost.
-              {sum!.past_sale_units > 0 && <> {sum!.past_sale_units} unit{sum!.past_sale_units === 1 ? ' has' : 's have'} already been sold from them.</>}
-            </div>
-          </div>
-        )}
-        {n > 0 && (
-          <>
-            <label className="flex items-start gap-2 text-[12px]">
-              <input type="checkbox" className="mt-0.5" checked={includePast} onChange={(e) => setIncludePast(e.target.checked)} />
-              <span>
-                Also clear the cost recorded on <b>past sales</b> from these batches
-                {sum && sum.past_sale_slices > 0 ? ` (${sum.past_sale_slices} line${sum.past_sale_slices === 1 ? '' : 's'})` : ''}.
-                Past profit will then leave them out. Leave this off to keep the profit already reported.
-              </span>
-            </label>
-            <label className="flex items-start gap-2 text-[12px]">
-              <input type="checkbox" className="mt-0.5" checked={sure} onChange={(e) => setSure(e.target.checked)} />
-              <span>I understand this clears costs on {n} batch{n === 1 ? '' : 'es'}. It can be re-entered later; the old figures are kept in the audit log.</span>
-            </label>
-          </>
-        )}
-        <div className="flex justify-end gap-2 pt-2">
-          <button className="btn-secondary" onClick={onClose}>Close</button>
-          {n > 0 && (
-            <button className="btn-primary" disabled={!sure || run.isPending} onClick={() => run.mutate()}>
-              {run.isPending ? 'Clearing…' : 'Mark cost not recorded'}
-            </button>
-          )}
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-function BatchList({ drugMasterId, drugName: _drugName, drugDefaultMrp: _drugDefaultMrp, onEdit }: { drugMasterId: number; drugName: string; drugDefaultMrp: number; onEdit: (b: DrugStockBatch) => void }) {
-  const { data: batches = [], isLoading } = useQuery({
-    queryKey: ['pharmacy-batches', drugMasterId],
-    queryFn: () => window.electronAPI.pharmacy.listBatches(drugMasterId),
-  });
-  if (isLoading) return <div className="text-xs text-gray-500 px-8 py-2">Loading batches…</div>;
-  if (batches.length === 0) return <div className="text-xs text-gray-500 px-8 py-2 italic">No batches recorded yet — receive a purchase invoice or add one manually.</div>;
-  return (
-    <div className="px-8 pb-3 pt-1">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-100 dark:border-slate-800 text-left">
-            <th className="py-1.5">Batch</th>
-            <th className="py-1.5">Expiry</th>
-            <th className="py-1.5 text-right">Received</th>
-            <th className="py-1.5 text-right">Remaining</th>
-            <th className="py-1.5 text-right" title="True cost of one unit: free units, discount, freight and unclaimable GST included">Cost / unit</th>
-            <th className="py-1.5 text-right">MRP</th>
-            <th className="py-1.5 text-right" title="Blank = sold at MRP">Sell ₹</th>
-            <th className="py-1.5">Mfg. Lic.</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {batches.map((b) => {
-            const expDate = new Date(b.expiry);
-            const days = Math.round((expDate.getTime() - Date.now()) / 86400000);
-            const expired = days < 0;
-            const expiringSoon = days >= 0 && days <= 90;
-            return (
-              <tr key={b.id} className="border-b border-gray-100 dark:border-slate-800">
-                <td className="py-1.5 font-mono">{b.batch_no}</td>
-                <td className={cn('py-1.5', expired ? 'text-red-600 font-bold' : expiringSoon ? 'text-amber-700' : '')}>
-                  {(() => { try { return fmtDate(b.expiry); } catch { return b.expiry; } })()} {expired ? '(EXPIRED)' : expiringSoon ? `(in ${days}d)` : ''}
-                </td>
-                <td className="py-1.5 text-right">{b.qty_received}</td>
-                <td className="py-1.5 text-right font-semibold">{b.qty_remaining}</td>
-                <td className="py-1.5 text-right">{(b.unit_cost ?? b.purchase_price) != null ? formatINR((b.unit_cost ?? b.purchase_price) as number) : <span className="text-gray-400" title="No cost recorded — left out of profit figures">—</span>}</td>
-                <td className="py-1.5 text-right">{formatINR(b.mrp)}</td>
-                <td className="py-1.5 text-right">{b.selling_price != null ? formatINR(b.selling_price) : <span className="text-gray-400">= MRP</span>}</td>
-                <td className="py-1.5 text-[10px] font-mono text-gray-500">{b.manufacturer_license_no || '—'}</td>
-                <td className="py-1.5 text-right">
-                  <button className="text-xs text-blue-600 hover:underline" onClick={() => onEdit(b)}>Edit</button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/* ===================================================================
    PURCHASES — wholesaler invoices + line items → auto-create batches
    =================================================================== */
-function PurchasesTab() {
-  const [from, setFrom] = useState(daysAgo(30));
-  const [to, setTo] = useState(todayISO());
+function PurchasesTab({ supplier, onClearSupplier }: { supplier: { id: number; name: string } | null; onClearSupplier: () => void }) {
+  // Arriving with "View bills" from the Wholesalers tab shows that supplier's bills for ALL dates.
+  const [from, setFrom] = useState(supplier ? '' : daysAgo(30));
+  const [to, setTo] = useState(supplier ? '' : todayISO());
   const [creating, setCreating] = useState(false);
-  const [whModalOpen, setWhModalOpen] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
   const [owedOnly, setOwedOnly] = useState(false);
 
   const { data: invoices = [] } = useQuery({
-    queryKey: ['purchases', from, to, owedOnly],
-    queryFn: () => window.electronAPI.purchases.list({ from, to, status: owedOnly ? 'outstanding' : undefined }),
+    queryKey: ['purchases', from, to, owedOnly, supplier?.id ?? null],
+    queryFn: () => window.electronAPI.purchases.list({
+      from: from || undefined, to: to || undefined, wholesaler_id: supplier?.id, status: owedOnly ? 'outstanding' : undefined,
+    }),
   });
 
   const totalSpend = invoices.reduce((s, x) => s + Number(x.total || 0), 0);
@@ -1335,14 +1012,21 @@ function PurchasesTab() {
             <span className={cn('font-bold', owed > 0 ? 'text-red-700 dark:text-red-400' : 'text-green-700 dark:text-green-400')}>{formatINR(owed)}</span>
             {unknownPaid > 0 && <span className="text-[10px] text-amber-700 dark:text-amber-300 ml-1">+ {unknownPaid} bill{unknownPaid === 1 ? '' : 's'} with unknown payment</span>}
           </div>
-          <button className="btn-secondary text-xs" onClick={() => setWhModalOpen(true)}>
-            <Truck className="w-3.5 h-3.5" /> Wholesalers
-          </button>
           <button className="btn-primary" onClick={() => setCreating(true)}>
             <Plus className="w-4 h-4" /> New Purchase Bill
           </button>
         </div>
       </div>
+
+      {supplier && (
+        <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 px-3 py-1 text-xs text-blue-900 dark:text-blue-100">
+          Bills from <b>{supplier.name}</b>{!from && !to ? ' · all dates' : ''}
+          <button type="button" className="hover:text-red-600" aria-label="Show every supplier again" title="Show every supplier again"
+            onClick={() => { onClearSupplier(); setFrom(daysAgo(30)); setTo(todayISO()); }}>
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {invoices.length === 0 ? (
         <EmptyState icon={Truck} title={owedOnly ? 'Nothing owed in this range' : 'No purchase invoices in range'} description="Click 'New Purchase Bill' to record a wholesaler invoice. Line items auto-create stock batches." />
@@ -1389,99 +1073,10 @@ function PurchasesTab() {
 
       {creating && <NewPurchaseModal onClose={() => setCreating(false)} />}
       {openId !== null && <PurchaseDetailModal id={openId} onClose={() => setOpenId(null)} />}
-      {whModalOpen && <WholesalersModal onClose={() => setWhModalOpen(false)} />}
     </section>
   );
 }
 
-function WholesalersModal({ onClose }: { onClose: () => void }) {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const { data: wholesalers = [] } = useQuery({
-    queryKey: ['wholesalers-all'],
-    queryFn: () => window.electronAPI.wholesalers.list({ activeOnly: false }),
-  });
-  const [editing, setEditing] = useState<Partial<Wholesaler> | null>(null);
-
-  const save = useMutation({
-    mutationFn: (w: Partial<Wholesaler>) => window.electronAPI.wholesalers.upsert(w),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['wholesalers'] });
-      qc.invalidateQueries({ queryKey: ['wholesalers-all'] });
-      toast('Wholesaler saved');
-      setEditing(null);
-    },
-  });
-  const del = useMutation({
-    mutationFn: (id: number) => window.electronAPI.wholesalers.delete(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['wholesalers'] });
-      qc.invalidateQueries({ queryKey: ['wholesalers-all'] });
-      toast('Marked inactive');
-    },
-  });
-
-  return (
-    <Modal open onClose={onClose} title="Wholesalers / Suppliers" size="lg">
-      <div className="space-y-3">
-        <div className="flex justify-end">
-          <button className="btn-primary text-xs" onClick={() => setEditing({ name: '', drug_license_no: '', is_active: 1 })}>
-            <Plus className="w-3.5 h-3.5" /> Add Wholesaler
-          </button>
-        </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
-              <th className="py-2">Name</th>
-              <th className="py-2">Drug License No</th>
-              <th className="py-2">GSTIN</th>
-              <th className="py-2">Phone</th>
-              <th className="py-2">Status</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {wholesalers.map((w) => (
-              <tr key={w.id} className="border-b border-gray-100 dark:border-slate-800">
-                <td className="py-2">{w.name}</td>
-                <td className="py-2 font-mono text-xs">{w.drug_license_no}</td>
-                <td className="py-2 text-xs">{w.gstin || '—'}</td>
-                <td className="py-2 text-xs">{w.phone || '—'}</td>
-                <td className="py-2">{w.is_active ? <span className="badge bg-green-100 text-green-700">Active</span> : <span className="badge bg-gray-200 text-gray-600">Inactive</span>}</td>
-                <td className="py-2 text-right whitespace-nowrap">
-                  <button className="btn-ghost text-xs" onClick={() => setEditing(w)}><Pencil className="w-3.5 h-3.5" /> Edit</button>
-                  {w.is_active === 1 && <button className="text-xs text-red-600 hover:underline ml-2" onClick={() => del.mutate(w.id)}>Deactivate</button>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {editing && (
-          <Modal open onClose={() => setEditing(null)} title={editing.id ? 'Edit Wholesaler' : 'Add Wholesaler'} size="md">
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Name *"><input className="input" value={editing.name || ''} onChange={(e) => setEditing({ ...editing, name: e.target.value })} /></Field>
-                <Field label="Drug License No * (REQUIRED)"><input className="input font-mono" placeholder="e.g. KA-GDG-20B/2024-001" value={editing.drug_license_no || ''} onChange={(e) => setEditing({ ...editing, drug_license_no: e.target.value })} /></Field>
-                <Field label="GSTIN"><input className="input font-mono" value={editing.gstin || ''} onChange={(e) => setEditing({ ...editing, gstin: e.target.value })} /></Field>
-                <Field label="Contact Person"><input className="input" value={editing.contact_person || ''} onChange={(e) => setEditing({ ...editing, contact_person: e.target.value })} /></Field>
-                <Field label="Phone"><input className="input" value={editing.phone || ''} onChange={(e) => setEditing({ ...editing, phone: e.target.value })} /></Field>
-                <Field label="Email"><input className="input" value={editing.email || ''} onChange={(e) => setEditing({ ...editing, email: e.target.value })} /></Field>
-                <div className="col-span-2"><Field label="Address"><textarea className="input" rows={2} value={editing.address || ''} onChange={(e) => setEditing({ ...editing, address: e.target.value })} /></Field></div>
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <button className="btn-secondary" onClick={() => setEditing(null)}>Cancel</button>
-                <button className="btn-primary" onClick={() => save.mutate(editing)} disabled={save.isPending || !editing.name || !editing.drug_license_no}>
-                  {save.isPending ? 'Saving…' : 'Save'}
-                </button>
-              </div>
-            </div>
-          </Modal>
-        )}
-      </div>
-    </Modal>
-  );
-}
 
 /* ===================================================================
    SALES HISTORY (unchanged structurally)
@@ -1597,137 +1192,3 @@ function SalesTab() {
     </section>
   );
 }
-
-/* ===================================================================
-   REPORTS MENU — Schedule H register + stock register + purchase register
-   =================================================================== */
-function ReportsModal({ onClose }: { onClose: () => void }) {
-  const [view, setView] = useState<'menu' | 'dispensing' | 'stock' | 'purchase'>('menu');
-  const [from, setFrom] = useState(daysAgo(30));
-  const [to, setTo] = useState(todayISO());
-  const [schedule, setSchedule] = useState<DrugSchedule | 'ALL'>('H');
-  const [includeExpired, setIncludeExpired] = useState(true);
-
-  if (view === 'dispensing') {
-    return (
-      <DispensingRegisterPrint
-        from={from}
-        to={to}
-        schedule={schedule === 'ALL' ? undefined : schedule}
-        onClose={() => setView('menu')}
-      />
-    );
-  }
-  if (view === 'stock') {
-    return <StockRegisterPrint includeExpired={includeExpired} onClose={() => setView('menu')} />;
-  }
-  if (view === 'purchase') {
-    return <PurchaseRegisterPrint from={from} to={to} onClose={() => setView('menu')} />;
-  }
-
-  return (
-    <Modal open onClose={onClose} title="Pharmacy Reports" size="lg">
-      <div className="space-y-4">
-        <div className="text-xs text-gray-600 dark:text-slate-300">
-          Each register opens an A4 print preview — use your browser's <b>Print</b> dialog to print on paper or
-          <b> "Save as PDF"</b>. Same data is also included in the Excel backup export.
-        </div>
-
-        {/* === Schedule H Dispensing Register === */}
-        <div className="card p-3 space-y-2">
-          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">📋 Schedule H/H1 Dispensing Register</div>
-          <p className="text-[11px] text-gray-500 dark:text-slate-400">
-            Per-batch register — every dispense slice with date, patient, drug, batch, expiry, qty, doctor.
-            Required by Karnataka inspectors for Schedule H drugs.
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            <Field label="From"><input type="date" className="input" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
-            <Field label="To"><input type="date" className="input" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
-            <Field label="Schedule">
-              <select className="input" value={schedule} onChange={(e) => setSchedule(e.target.value as any)}>
-                <option value="H">H only</option>
-                <option value="H1">H1 only</option>
-                <option value="ALL">All schedules</option>
-              </select>
-            </Field>
-          </div>
-          <div className="flex justify-end">
-            <button className="btn-primary text-xs" onClick={() => setView('dispensing')}>
-              <FileText className="w-3.5 h-3.5" /> Open Dispensing Register
-            </button>
-          </div>
-        </div>
-
-        {/* === Stock Register === */}
-        <div className="card p-3 space-y-2">
-          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">📦 Stock Register</div>
-          <p className="text-[11px] text-gray-500 dark:text-slate-400">
-            Every batch currently in stock, sorted by drug then expiry. Highlights expired (red) and
-            expiring within 90 days (amber). Includes manufacturer license number per batch.
-          </p>
-          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-slate-200">
-            <input type="checkbox" checked={includeExpired} onChange={(e) => setIncludeExpired(e.target.checked)} />
-            <span>Include expired batches still in stock (recommended for inspector visit)</span>
-          </label>
-          <div className="flex justify-end">
-            <button className="btn-primary text-xs" onClick={() => setView('stock')}>
-              <FileText className="w-3.5 h-3.5" /> Open Stock Register
-            </button>
-          </div>
-        </div>
-
-        {/* === Purchase Register === */}
-        <div className="card p-3 space-y-2">
-          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">🚚 Purchase Register</div>
-          <p className="text-[11px] text-gray-500 dark:text-slate-400">
-            All purchase invoices in a date range with wholesaler drug license numbers, GST breakdown,
-            and payment status. The inspector's traceability source for any batch.
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            <Field label="From"><input type="date" className="input" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
-            <Field label="To"><input type="date" className="input" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
-          </div>
-          <div className="flex justify-end">
-            <button className="btn-primary text-xs" onClick={() => setView('purchase')}>
-              <FileText className="w-3.5 h-3.5" /> Open Purchase Register
-            </button>
-          </div>
-        </div>
-
-        <div className="text-[11px] text-gray-500 dark:text-slate-400 italic px-1">
-          💡 For a full data dump (all sheets, every table), use <b>Settings → Backup → Backup Now</b> — the
-          generated <code>.xlsx</code> includes Drug Master, Batches, Wholesalers, Invoices, Sales, and Dispensing Register sheets.
-        </div>
-
-        <div className="flex justify-end">
-          <button className="btn-secondary text-xs" onClick={onClose}>Close</button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-/* ===================================================================
-   SHARED HELPERS
-   =================================================================== */
-function ScheduleBadge({ schedule }: { schedule: DrugSchedule }) {
-  const tones: Record<DrugSchedule, string> = {
-    H: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200',
-    H1: 'bg-red-200 text-red-800 dark:bg-red-900/60 dark:text-red-100',
-    G: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
-    X: 'bg-purple-200 text-purple-900 dark:bg-purple-900/60 dark:text-purple-100',
-    OTC: 'bg-gray-100 text-gray-700 dark:bg-slate-800 dark:text-slate-300',
-  };
-  return <span className={cn('badge', tones[schedule])}>{schedule}</span>;
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label className="label">{label}</label>{children}</div>;
-}
-
-function daysAgo(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return localISO(d);
-}
-

@@ -29,6 +29,12 @@ function daysAgo(n: number) {
   d.setDate(d.getDate() - n);
   return d.toISOString().slice(0, 10);
 }
+/** A date n days from the REAL today. The rest of the demo is pinned to a fixed day; shelf expiry has to move with the clock. */
+function fromToday(n: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 function isoAt(date: string, time: string) {
   return `${date}T${time}:00`;
 }
@@ -296,24 +302,35 @@ export const DEMO_DRUG_MASTER: DrugMaster[] = DRUG_SEED.map((d, i) => ({
   updated_at: daysAgo(30),
 }));
 
+// A deliberate spread — some expiring, one already expired, a couple low, two out — so every filter on
+// "Drugs in my clinic" has something in it. (Days to the first batch's expiry, and units left in each batch.)
+const SHELF: Record<number, { exp0: number; q0?: number; q1?: number }> = {
+  1: { exp0: 40 }, 2: { exp0: -25, q0: 12 }, 3: { exp0: 160, q0: 4, q1: 0 }, 4: { exp0: 120, q0: 0, q1: 0 },
+  5: { exp0: 75 }, 6: { exp0: 60, q0: 6, q1: 0 }, 8: { exp0: 200, q0: 0, q1: 0 }, 9: { exp0: -10, q0: 8 },
+};
+
 export const DEMO_BATCHES: DrugStockBatch[] = DEMO_DRUG_MASTER.flatMap((m, i) => {
   // Two batches per drug with different expiries.
-  return [0, 1].map((bi) => ({
-    id: i * 10 + bi + 1,
-    drug_master_id: m.id,
-    purchase_item_id: null,
-    batch_no: `BX${pad(i, 2)}${bi}`,
-    expiry: daysAgo(-90 - bi * 180), // first batch in ~3 months, second in ~9 months
-    qty_received: 100,
-    qty_remaining: 100 - Math.floor(rand() * 50),
-    purchase_price: m.default_mrp * 0.7,
-    mrp: m.default_mrp,
-    manufacturer_license_no: 'KA-MFG-12345',
-    received_at: daysAgo(60),
-    is_active: 1,
-    drug_name: m.name,
-    schedule: m.schedule,
-  }));
+  return [0, 1].map((bi) => {
+    const left = 100 - Math.floor(rand() * 50);           // one rand() per batch, as before — the rest of the demo data is unchanged
+    const shelf = SHELF[i];
+    return {
+      id: i * 10 + bi + 1,
+      drug_master_id: m.id,
+      purchase_item_id: i % 4 === 0 ? null : i * 2 + bi + 1,   // every fourth drug was typed in by hand (cost not recorded)
+      batch_no: `BX${pad(i, 2)}${bi}`,
+      expiry: fromToday(bi === 0 ? (shelf?.exp0 ?? 150 + (i % 4) * 30) : 300 + (i % 5) * 20),
+      qty_received: 100,
+      qty_remaining: (bi === 0 ? shelf?.q0 : shelf?.q1) ?? left,
+      purchase_price: m.default_mrp * 0.7,
+      mrp: m.default_mrp,
+      manufacturer_license_no: 'KA-MFG-12345',
+      received_at: daysAgo(60),
+      is_active: 1,
+      drug_name: m.name,
+      schedule: m.schedule,
+    };
+  });
 });
 
 // ---------- Wholesalers ----------

@@ -398,6 +398,42 @@ export interface DrugMaster {
   next_unit_cost?: number | null;
 }
 
+/** One row of "Drugs in my clinic": a drug the clinic holds, with what its shelf looks like (see clinicStock in main/pharmacy-finance.ts). */
+export interface ClinicStockRow extends DrugMaster {
+  stock_qty: number;
+  /** Active batches. */
+  batch_count: number;
+  /** Earliest expiry among batches that still have units; null when nothing is on the shelf. */
+  next_expiry: string | null;
+  expired_units: number;
+  expiring_units: number;
+  /** Units on the shelf typed in by hand or without a recorded cost. */
+  unverified_units: number;
+  /** Weighted unit cost of the units whose cost is known; null when none is. */
+  avg_cost: number | null;
+  /** Lowest / highest selling price among batches with stock; null when nothing is on the shelf. */
+  price_min: number | null;
+  price_max: number | null;
+  out_of_stock: boolean;
+  low_stock: boolean;
+  expired: boolean;
+  expiring_soon: boolean;
+  cost_unverified: boolean;
+}
+
+/** One row of the Wholesalers tab: what the clinic has bought from a supplier and what it owes them today. */
+export interface SupplierSummaryRow {
+  wholesaler_id: number;
+  bills: number;
+  total_bought: number;
+  owed: number;
+  /** Bills marked part-paid before payments were tracked — the amount paid was never recorded. */
+  unknown_bills: number;
+  /** Bills not fully paid (including the unknown ones). */
+  open_bills: number;
+  last_bill_date: string | null;
+}
+
 export interface DrugStockBatch {
   id: number;
   drug_master_id: number;

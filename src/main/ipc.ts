@@ -3124,7 +3124,7 @@ export function registerIpc() {
         JOIN pharmacy_sales s ON s.id = si.sale_id
         ORDER BY s.created_at DESC` },
       { sheet: 'Pharmacy Inventory (legacy)', sql: `SELECT * FROM drug_inventory ORDER BY name` },
-      { sheet: 'Drug Master', sql: `
+      { sheet: 'Drug List', sql: `
         SELECT id, name, generic_name, manufacturer, form, strength, pack_size,
                schedule, hsn_code, gst_rate, default_mrp, low_stock_threshold,
                barcode, is_active, notes, created_at

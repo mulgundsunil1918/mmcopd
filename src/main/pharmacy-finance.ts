@@ -399,6 +399,100 @@ export function getPurchase(db: Database.Database, id: number) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// "Drugs in my clinic" and the supplier list — read-only views for the Pharmacy tabs
+// ---------------------------------------------------------------------------------------------
+
+/** Days ahead that count as "expiring soon" — the same 90 the old alert boxes used. */
+export const EXPIRING_SOON_DAYS = 90;
+
+/**
+ * The drugs the clinic actually holds — one row per drug that has a stock batch or was ever bought on a purchase bill —
+ * with what the shelf looks like: units in stock, the earliest expiry among what is still on it, the cost of a unit and
+ * the selling price(s), and plain flags the screen can filter on. A drug that only exists in the Drug List (never
+ * bought, no batch) is not here; a drug marked inactive stays here only while it still has stock, so stock is never hidden.
+ *
+ * Stock rules are the ones the rest of the pharmacy uses (pharmacy:listDrugs / pharmacy:alerts): only ACTIVE batches
+ * count, stock is the sum of qty_remaining, "expiring" is within EXPIRING_SOON_DAYS of today in the PC's own time zone.
+ * Out-of-stock and low-stock are separate (low = 1 … the drug's low-stock level) and apply to active drugs only.
+ * "Cost not recorded" = some of the stock on the shelf was typed in by hand or has no cost, so profit on it is a guess.
+ */
+export function clinicStock(db: Database.Database) {
+  const rows = db.prepare(`
+    SELECT m.*, m.default_mrp AS mrp,
+           COALESCE(s.stock_qty, 0)        AS stock_qty,
+           COALESCE(s.batch_count, 0)      AS batch_count,
+           s.next_expiry                   AS next_expiry,
+           COALESCE(s.expired_units, 0)    AS expired_units,
+           COALESCE(s.expiring_units, 0)   AS expiring_units,
+           COALESCE(s.unverified_units, 0) AS unverified_units,
+           s.avg_cost                      AS avg_cost,
+           s.price_min                     AS price_min,
+           s.price_max                     AS price_max
+      FROM drug_master m
+      LEFT JOIN (
+        SELECT b.drug_master_id AS drug_id,
+               SUM(CASE WHEN b.is_active = 1 THEN b.qty_remaining ELSE 0 END) AS stock_qty,
+               SUM(CASE WHEN b.is_active = 1 THEN 1 ELSE 0 END) AS batch_count,
+               MIN(CASE WHEN b.is_active = 1 AND b.qty_remaining > 0 THEN date(b.expiry) END) AS next_expiry,
+               SUM(CASE WHEN b.is_active = 1 AND b.qty_remaining > 0 AND date(b.expiry) < date('now', 'localtime')
+                        THEN b.qty_remaining ELSE 0 END) AS expired_units,
+               SUM(CASE WHEN b.is_active = 1 AND b.qty_remaining > 0 AND date(b.expiry) >= date('now', 'localtime')
+                         AND date(b.expiry) <= date('now', 'localtime', '+${EXPIRING_SOON_DAYS} days')
+                        THEN b.qty_remaining ELSE 0 END) AS expiring_units,
+               SUM(CASE WHEN b.is_active = 1 AND b.qty_remaining > 0
+                         AND (b.purchase_item_id IS NULL OR COALESCE(b.unit_cost, b.purchase_price) IS NULL)
+                        THEN b.qty_remaining ELSE 0 END) AS unverified_units,
+               SUM(CASE WHEN b.is_active = 1 AND b.qty_remaining > 0 AND COALESCE(b.unit_cost, b.purchase_price) IS NOT NULL
+                        THEN b.qty_remaining * COALESCE(b.unit_cost, b.purchase_price) END)
+                 / NULLIF(SUM(CASE WHEN b.is_active = 1 AND b.qty_remaining > 0 AND COALESCE(b.unit_cost, b.purchase_price) IS NOT NULL
+                                   THEN b.qty_remaining END), 0) AS avg_cost,
+               MIN(CASE WHEN b.is_active = 1 AND b.qty_remaining > 0 THEN COALESCE(b.selling_price, b.mrp) END) AS price_min,
+               MAX(CASE WHEN b.is_active = 1 AND b.qty_remaining > 0 THEN COALESCE(b.selling_price, b.mrp) END) AS price_max
+          FROM drug_stock_batches b
+         GROUP BY b.drug_master_id
+      ) s ON s.drug_id = m.id
+     WHERE (s.drug_id IS NOT NULL OR EXISTS (SELECT 1 FROM purchase_invoice_items x WHERE x.drug_master_id = m.id))
+       AND (m.is_active = 1 OR COALESCE(s.stock_qty, 0) > 0)
+     ORDER BY m.name COLLATE NOCASE
+  `).all() as any[];
+  return rows.map((r) => {
+    const active = Number(r.is_active) === 1;
+    const stock = Number(r.stock_qty) || 0;
+    return {
+      ...r,
+      stock_qty: stock,
+      avg_cost: r.avg_cost == null ? null : Math.round(Number(r.avg_cost) * 10000) / 10000,
+      out_of_stock: active && stock <= 0,
+      low_stock: active && stock > 0 && stock <= (Number(r.low_stock_threshold) || 0),
+      expired: Number(r.expired_units) > 0,
+      expiring_soon: Number(r.expiring_units) > 0,
+      cost_unverified: Number(r.unverified_units) > 0,
+    };
+  });
+}
+
+/**
+ * One row per wholesaler for the Wholesalers tab: how many bills, how much bought, and what is owed TODAY. "Owed" is the same
+ * rule the Analytics supplier report uses (supplierReport().owed_now): the unpaid part of every bill whose payments are on record;
+ * a bill marked part-paid before payments were tracked has no recorded amount, so it is counted apart (unknown_bills), never guessed.
+ */
+export function supplierSummary(db: Database.Database) {
+  const rows = db.prepare(`
+    SELECT w.id AS wholesaler_id,
+           COUNT(pi.id) AS bills,
+           COALESCE(SUM(pi.total), 0) AS total_bought,
+           COALESCE(SUM(CASE WHEN pi.amount_paid IS NOT NULL AND pi.total - pi.amount_paid > 0.004 THEN pi.total - pi.amount_paid ELSE 0 END), 0) AS owed,
+           COALESCE(SUM(CASE WHEN pi.id IS NOT NULL AND pi.amount_paid IS NULL THEN 1 ELSE 0 END), 0) AS unknown_bills,
+           COALESCE(SUM(CASE WHEN pi.id IS NOT NULL AND (pi.amount_paid IS NULL OR pi.total - pi.amount_paid > 0.004) THEN 1 ELSE 0 END), 0) AS open_bills,
+           MAX(date(pi.invoice_date)) AS last_bill_date
+      FROM wholesalers w
+      LEFT JOIN purchase_invoices pi ON pi.wholesaler_id = w.id
+     GROUP BY w.id
+  `).all() as any[];
+  return rows.map((r) => ({ ...r, total_bought: r2(r.total_bought), owed: r2(r.owed) }));
+}
+
+// ---------------------------------------------------------------------------------------------
 // Selling (FEFO) — cost is frozen on every slice that leaves the shelf
 // ---------------------------------------------------------------------------------------------
 
@@ -1133,6 +1227,6 @@ export function integrityChecks(db: Database.Database): IntegrityFinding[] {
   add('manual_cost_stock', 'info', n(`
     SELECT COUNT(*) AS c FROM drug_stock_batches
      WHERE is_active = 1 AND qty_remaining > 0 AND purchase_item_id IS NULL AND COALESCE(unit_cost, purchase_price) IS NOT NULL`),
-    'Batches in stock typed in by hand (not received through a purchase bill) — their cost is whatever was entered, so profit on them is only as good as that figure. Receive stock through Purchases for true cost, or use Pharmacy → Stock & Batches → "Cost not recorded" to stop counting the guess.');
+    'Batches in stock typed in by hand (not received through a purchase bill) — their cost is whatever was entered, so profit on them is only as good as that figure. Receive stock through Purchases for true cost, or use Pharmacy → Drugs in my clinic → "Cost not recorded" to stop counting the guess.');
   return out;
 }

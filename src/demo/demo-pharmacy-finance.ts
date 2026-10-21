@@ -55,6 +55,7 @@ export function makeDemoPurchaseStore(
     all: () => store,
     list: (filter: any = {}) => store
       .filter((d) => (!filter.from || d.invoice_date >= filter.from) && (!filter.to || d.invoice_date <= filter.to))
+      .filter((d) => !filter.wholesaler_id || d.wholesaler_id === filter.wholesaler_id)
       .filter((d) => (!filter.status ? true : filter.status === 'outstanding' ? d.payment_status !== 'paid' : d.payment_status === filter.status))
       .map(summary).sort((a, b) => (a.invoice_date < b.invoice_date ? 1 : -1)),
     get: (id: number) => store.find((d) => d.id === id) ?? null,

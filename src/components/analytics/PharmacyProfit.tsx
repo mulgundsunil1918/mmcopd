@@ -127,7 +127,7 @@ export function PharmacyProfitSection({ from, to }: { from: string; to: string }
           <div>
             <b>{t.uncosted_units.toLocaleString('en-IN')} unit(s) worth {formatINR(t.uncosted_revenue)}</b> were sold from stock with no purchase price on record, so they are
             <b> left out of profit and margin</b> (counting them as free would overstate profit). Add the purchase price to those batches in
-            Pharmacy → Stock &amp; Batches to include them in future.
+            Pharmacy → Drugs in my clinic to include them in future.
           </div>
         </div>
       )}

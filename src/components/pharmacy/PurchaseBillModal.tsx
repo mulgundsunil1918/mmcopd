@@ -102,7 +102,7 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
   const [paidNow, setPaidNow] = useState(0);
   const [payMode, setPayMode] = useState('Cash');
   const [serverError, setServerError] = useState('');
-  const [newDrugFor, setNewDrugFor] = useState<number | null>(null);   // the line that is waiting for a drug being added to the Drug Master
+  const [newDrugFor, setNewDrugFor] = useState<number | null>(null);   // the line that is waiting for a drug being added to the Drug List
   const claimable = claimOverride ?? gstCharged;
 
   const setLine = (i: number, patch: Partial<Line>) =>
@@ -180,7 +180,7 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
     },
     onSuccess: (res) => {
       if (!res.ok) { setServerError(res.error); toast(res.error, 'error'); return; }
-      for (const k of ['purchases', 'pharmacy-drugs', 'pharmacy-drugs-active', 'pharmacy-alerts', 'pharmacy-batches', 'supplier-report', 'pharmacy-valuation', 'drug-price-history']) {
+      for (const k of ['purchases', 'pharmacy-drugs', 'pharmacy-drugs-active', 'pharmacy-alerts', 'pharmacy-clinic-stock', 'wholesalers-summary', 'pharmacy-batches', 'supplier-report', 'pharmacy-valuation', 'drug-price-history']) {
         qc.invalidateQueries({ queryKey: [k] });
       }
       toast(res.duplicate
@@ -252,7 +252,7 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
                     <tr key={idx} className="border-b border-gray-100 dark:border-slate-800 align-top">
                       <td className="py-1 pr-1">
                         <select className="input" value={l.drug_master_id ?? ''} onChange={(e) => {
-                          if (e.target.value === '__new__') { setNewDrugFor(idx); return; }     // not in the list: add it to the Drug Master first
+                          if (e.target.value === '__new__') { setNewDrugFor(idx); return; }     // not in the list: add it to the Drug List first
                           const dm = drugs.find((d) => d.id === Number(e.target.value));
                           setLine(idx, {
                             drug_master_id: dm ? dm.id : null,
@@ -261,7 +261,7 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
                             gst_rate: dm ? dm.gst_rate : l.gst_rate,
                           });
                         }}>
-                          <option value="__new__">＋ Add this drug to the Drug Master…</option>
+                          <option value="__new__">＋ Add this drug to the Drug List…</option>
                           <option value="">— Pick drug —</option>
                           {drugs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                         </select>

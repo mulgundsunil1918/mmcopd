@@ -110,10 +110,10 @@ const TOPICS: Topic[] = [
   },
   {
     id: 'pharmacy', icon: Pill, title: 'Pharmacy — dispensing & stock', tag: 'Modules',
-    keywords: 'pharmacy dispense counter sale drug stock batch expiry fefo schedule h receipt medicine inventory walk-in guest cost not recorded credit pay later udhaar in-patient bill hand-typed',
+    keywords: 'pharmacy dispense counter sale drug stock batch expiry fefo schedule h receipt medicine inventory walk-in guest cost not recorded credit pay later udhaar in-patient bill hand-typed drug list drugs in my clinic wholesalers suppliers reports register',
     body: (
       <>
-        <p className="mb-2">CureDesk ships with <b>~220 common medicines</b> already loaded. Edit prices, add your own, or remove what you don't stock at <Path>Pharmacy → Drug Master</Path>.</p>
+        <p className="mb-2">CureDesk ships with <b>~220 common medicines</b> already loaded. Edit prices, add your own, or remove what you don't stock at <Path>Pharmacy → Drug List</Path>.</p>
         <ol className="space-y-2">
           <Step n={1}><b>Against a prescription:</b> Pharmacy → Dispense → pick the waiting patient. Their medicines are already listed.</Step>
           <Step n={2}><b>Counter sale:</b> Pharmacy → Dispense → <b>Counter Sale</b>. Type the medicine; the price fills in automatically. <b>Pick the patient</b> and the sale goes on that patient&rsquo;s bill in Billing; leave it blank (optionally type a guest name) for a walk-in, which is listed under <Path>Billing → Pharmacy walk-ins</Path>.</Step>
@@ -121,10 +121,11 @@ const TOPICS: Topic[] = [
           <Step n={4}><b>Record Sale &amp; Charge</b> → the printable receipt opens with batch numbers and expiry on every line.</Step>
         </ol>
         <div className="mt-2 space-y-2">
+          <Tip><b>The Pharmacy tabs.</b> <b>Drug List</b> is just the drugs, with no stock. <b>Drugs in my clinic</b> is what you actually hold — units, next expiry, cost and price — with filters for low, out of stock, expiring and expired. Then <b>Purchases</b>, <b>Sales</b>, <b>Wholesalers</b> (your suppliers and what you owe each) and <b>Reports</b> (Schedule H, stock and purchase registers).</Tip>
           <Tip>Stock is deducted automatically using <b>FEFO</b> — first-expiring batch goes out first, so nothing expires on your shelf unnoticed.</Tip>
           <Warn>Schedule H / H1 medicines are flagged on screen and on the receipt. Add stock via <b>Purchases</b> so batch and expiry are recorded for the register.</Warn>
           <Tip><b>On credit.</b> If <Path>Settings → Billing &amp; IPD → Pharmacy</Path> allows it, a <i>registered</i> patient can take medicines and pay part now (or nothing) and the rest later: choose <b>On credit</b> under &ldquo;How is it paid?&rdquo;. What is still owed shows on the patient&rsquo;s billing page, in Accounts and under <Path>Analytics → Receivables</Path>; take the money with <b>Collect</b> (Pharmacy → Sales, or the patient&rsquo;s billing page). A walk-in guest cannot take credit. For an admitted patient, <b>Charge to IPD bill</b> puts the medicines on that stay&rsquo;s running bill at the same MRP, to be collected at discharge.</Tip>
-          <Tip>Stock you typed in by hand carries a cost nobody can vouch for. <Path>Stock &amp; Batches → Cost not recorded</Path> clears it, so profit is never worked out from a guess. Stock bought on a supplier bill is never touched.</Tip>
+          <Tip>Stock you typed in by hand carries a cost nobody can vouch for. <Path>Drugs in my clinic → Cost not recorded</Path> clears it, so profit is never worked out from a guess. Stock bought on a supplier bill is never touched.</Tip>
         </div>
       </>
     ),

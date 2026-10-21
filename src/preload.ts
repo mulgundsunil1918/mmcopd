@@ -30,6 +30,8 @@ import type {
   Drug,
   DrugMaster,
   DrugStockBatch,
+  ClinicStockRow,
+  SupplierSummaryRow,
   DispensingRow,
   IpAdmission,
   LabOrder,
@@ -390,6 +392,8 @@ const api = {
       }>,
     alerts: () =>
       ipcRenderer.invoke('pharmacy:alerts') as Promise<{ lowStock: (DrugMaster & Drug)[]; expiringSoon: DrugStockBatch[] }>,
+    /** "Drugs in my clinic": the drugs the clinic holds (a batch or a purchase), with stock, next expiry, cost, price and filter flags. */
+    clinicStock: () => ipcRenderer.invoke('pharmacy:clinicStock') as Promise<ClinicStockRow[]>,
     pendingRx: () => ipcRenderer.invoke('pharmacy:pendingRx') as Promise<(AppointmentWithJoins & { rx_count: number })[]>,
     getAppointmentRx: (appointmentId: number) =>
       ipcRenderer.invoke('pharmacy:getAppointmentRx', appointmentId) as Promise<PrescriptionItem[]>,
@@ -441,6 +445,8 @@ const api = {
       ipcRenderer.invoke('wholesalers:upsert', w) as Promise<Wholesaler>,
     delete: (id: number) =>
       ipcRenderer.invoke('wholesalers:delete', id) as Promise<{ ok: boolean }>,
+    /** Bills, amount bought and amount owed per supplier (same "owed" rule as the Analytics supplier report). */
+    summary: () => ipcRenderer.invoke('wholesalers:summary') as Promise<SupplierSummaryRow[]>,
   },
   purchases: {
     list: (filter?: { from?: string; to?: string; wholesaler_id?: number; status?: 'paid' | 'unpaid' | 'partial' | 'outstanding' }) =>

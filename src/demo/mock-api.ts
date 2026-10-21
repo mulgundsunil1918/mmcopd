@@ -547,6 +547,40 @@ export function createMockElectronAPI(): any {
         return r(b);
       },
       bulkDeleteDrugs: () => r({ ok: true, hardDeleted: 0, softDeleted: 0, results: [] }),
+      // "Drugs in my clinic": same rules as main/pharmacy-finance.ts clinicStock (active batches only, 90-day window, low = 1…threshold).
+      clinicStock: () => {
+        const day = (iso: string) => Math.round((new Date(`${String(iso).slice(0, 10)}T00:00:00`).getTime() - new Date(new Date().toDateString()).getTime()) / 86_400_000);
+        const rows = drugMaster
+          .filter((d) => batches.some((b) => b.drug_master_id === d.id))
+          .map((d) => {
+            const act = batches.filter((b) => b.drug_master_id === d.id && b.is_active === 1);
+            const live = act.filter((b) => b.qty_remaining > 0);
+            const stock = act.reduce((s, b) => s + b.qty_remaining, 0);
+            const cost = (b: any) => b.unit_cost ?? b.purchase_price ?? null;
+            const costed = live.filter((b) => cost(b) != null);
+            const units = costed.reduce((s, b) => s + b.qty_remaining, 0);
+            const price = (b: any) => b.selling_price ?? b.mrp;
+            const active = d.is_active === 1;
+            return {
+              ...d, mrp: d.default_mrp, stock_qty: stock, batch_count: act.length,
+              next_expiry: live.length ? live.map((b) => b.expiry).sort()[0] : null,
+              expired_units: live.filter((b) => day(b.expiry) < 0).reduce((s, b) => s + b.qty_remaining, 0),
+              expiring_units: live.filter((b) => day(b.expiry) >= 0 && day(b.expiry) <= 90).reduce((s, b) => s + b.qty_remaining, 0),
+              unverified_units: live.filter((b) => b.purchase_item_id == null || cost(b) == null).reduce((s, b) => s + b.qty_remaining, 0),
+              avg_cost: units ? costed.reduce((s, b) => s + b.qty_remaining * cost(b), 0) / units : null,
+              price_min: live.length ? Math.min(...live.map(price)) : null,
+              price_max: live.length ? Math.max(...live.map(price)) : null,
+              out_of_stock: active && stock <= 0,
+              low_stock: active && stock > 0 && stock <= d.low_stock_threshold,
+            } as any;
+          })
+          .filter((x) => x.is_active === 1 || x.stock_qty > 0)
+          .map((x) => ({
+            ...x,
+            expired: x.expired_units > 0, expiring_soon: x.expiring_units > 0, cost_unverified: x.unverified_units > 0,
+          }));
+        return r(rows);
+      },
       alerts: () => r({ lowStock: [], expiringSoon: batches.filter((b) => {
         const days = Math.round((new Date(b.expiry).getTime() - Date.now()) / 86400000);
         return days >= 0 && days <= 90;
@@ -624,6 +658,18 @@ export function createMockElectronAPI(): any {
       list: () => r(wholesalers),
       upsert: (w: any) => { if (w.id) wholesalers = wholesalers.map((x) => x.id === w.id ? { ...x, ...w } : x); else { const id = nextId(wholesalers); w = { id, ...w }; wholesalers = [...wholesalers, w]; } return r(w); },
       delete: (id: number) => { wholesalers = wholesalers.filter((x) => x.id !== id); return r({ ok: true }); },
+      // What was bought from each supplier and what is owed today (same rule as main/pharmacy-finance.ts supplierSummary).
+      summary: () => r(wholesalers.map((w) => {
+        const bills = purchaseStore.all().filter((p) => p.wholesaler_id === w.id);
+        const owing = bills.filter((p) => (p.outstanding ?? 0) > 0.004);
+        const dates = bills.map((p) => String(p.invoice_date).slice(0, 10)).sort();
+        return {
+          wholesaler_id: w.id, bills: bills.length,
+          total_bought: Math.round(bills.reduce((s, p) => s + p.total, 0) * 100) / 100,
+          owed: Math.round(owing.reduce((s, p) => s + (p.outstanding ?? 0), 0) * 100) / 100,
+          unknown_bills: 0, open_bills: owing.length, last_bill_date: dates.length ? dates[dates.length - 1] : null,
+        };
+      })),
     },
     purchases: {
       list: (filter: any) => r(purchaseStore.list(filter || {}) as any),

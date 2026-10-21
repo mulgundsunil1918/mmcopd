@@ -40,6 +40,9 @@ export function registerPharmacyFinanceIpc() {
   // ----- purchase bills -----
   ipcMain.handle('purchase:list', (_e, filter: fin.PurchaseListFilter = {}) => fin.listPurchases(getDb(), filter || {}));
   ipcMain.handle('purchase:get', (_e, id: number) => fin.getPurchase(getDb(), Number(id)));
+  // ----- read-only views for the Pharmacy tabs -----
+  ipcMain.handle('pharmacy:clinicStock', () => fin.clinicStock(getDb()));
+  ipcMain.handle('wholesalers:summary', () => fin.supplierSummary(getDb()));
 
   ipcMain.handle('purchase:create', (_e, payload: fin.PurchaseIn) => {
     requireModule('pharmacy', 'Pharmacy');

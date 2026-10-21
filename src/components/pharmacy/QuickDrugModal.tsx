@@ -1,6 +1,6 @@
 /**
- * Add a drug to the Drug Master without leaving the screen that needs it (the purchase bill). Only what is needed to stock and sell
- * it — name, form, strength, schedule, GST, MRP — everything else can be filled in later in Pharmacy → Drug Master.
+ * Add a drug to the Drug List without leaving the screen that needs it (the purchase bill). Only what is needed to stock and sell
+ * it — name, form, strength, schedule, GST, MRP — everything else can be filled in later in Pharmacy → Drug List.
  */
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -34,16 +34,16 @@ export function QuickDrugModal({ initialName = '', onClose, onCreated }: {
         schedule: f.schedule, hsn_code: f.hsn.trim() || null, gst_rate: Number(f.gst) || 0, default_mrp: Number(f.mrp) || 0,
       } as any);
       await Promise.all(['pharmacy-drugs-active', 'pharmacy-drugs'].map((k) => qc.invalidateQueries({ queryKey: [k] })));
-      toast(`${name} added to the Drug Master`, 'success');
+      toast(`${name} added to the Drug List`, 'success');
       onCreated(d);
     } catch (e: any) {
       const m = String(e?.message || e);
-      setErr(/UNIQUE/i.test(m) ? `"${name}" is already in the Drug Master — pick it from the list.` : m);
+      setErr(/UNIQUE/i.test(m) ? `"${name}" is already in the Drug List — pick it from the list.` : m);
     } finally { setBusy(false); }
   };
 
   return (
-    <Modal open onClose={onClose} title="Add this drug to the Drug Master" size="lg">
+    <Modal open onClose={onClose} title="Add this drug to the Drug List" size="lg">
       <div className="space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="md:col-span-2">
@@ -72,7 +72,7 @@ export function QuickDrugModal({ initialName = '', onClose, onCreated }: {
         {err && <div className="text-[12px] text-red-600" role="alert">{err}</div>}
         <div className="flex justify-end gap-2 pt-1">
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" disabled={busy || !name} onClick={save}>{busy ? 'Saving…' : 'Add to Drug Master'}</button>
+          <button className="btn-primary" disabled={busy || !name} onClick={save}>{busy ? 'Saving…' : 'Add to Drug List'}</button>
         </div>
       </div>
     </Modal>

@@ -434,7 +434,7 @@ const MODES: { value: AppMode; title: string; blurb: string; includes: string[];
   {
     value: 'reception_pharmacy',
     title: 'Reception + Pharmacy',
-    blurb: 'Adds the pharmacy module — drug master, batch-tracked stock, dispensing, Schedule H register. Useful for chemist-counter only setups.',
+    blurb: 'Adds the pharmacy module — drug list, batch-tracked stock, dispensing, Schedule H register. Useful for chemist-counter only setups.',
     includes: ['Everything in Reception', 'Pharmacy: inventory + dispense + Schedule H register'],
     requires: ['pharmacy'],
   },
@@ -629,7 +629,7 @@ const TABLE_LABELS: Record<string, string> = {
   consultations: 'Consultations / EMR', prescription_items: 'Prescription items',
   lab_orders: 'Lab orders', lab_order_items: 'Lab results', lab_tests: 'Lab test catalog',
   pharmacy_sales: 'Pharmacy sales', pharmacy_sale_items: 'Pharmacy sale items',
-  drug_inventory: 'Drugs (legacy)', drug_master: 'Drug master', drug_stock_batches: 'Drug stock batches',
+  drug_inventory: 'Drugs (legacy)', drug_master: 'Drug list', drug_stock_batches: 'Drug stock batches',
   wholesalers: 'Wholesalers', purchase_invoices: 'Purchase invoices', purchase_invoice_items: 'Purchase invoice items',
   dispensing_register: 'Dispensing register', ip_admissions: 'IP admissions', wards: 'Wards', beds: 'Beds',
   bed_transfers: 'Bed transfers', ip_vitals: 'IP vitals', ip_medication_orders: 'IP medication orders',
@@ -2138,7 +2138,7 @@ function HardResetPanel() {
         <ul className="list-disc pl-5 mt-1 space-y-0.5">
           <li>Patient records · doctors · bills · prescriptions</li>
           <li>EMR (allergies, conditions, immunizations, family history, documents)</li>
-          <li>Pharmacy: drug master, batches, sales, dispensing register, purchases, wholesalers</li>
+          <li>Pharmacy: drug list, batches, sales, dispensing register, purchases, wholesalers</li>
           <li>Appointments, lab orders, consultations, IPD admissions</li>
           <li>Settings, audit log, notifications</li>
           <li><b>All backups in the configured backup folder are NOT touched</b> — you can restore from one if needed</li>
@@ -4773,7 +4773,7 @@ function SampleDataPanel() {
     <div className="mt-6 pt-5 border-t border-gray-200 dark:border-slate-700">
       <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Standard drug catalogue</h3>
       <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-3">
-        Adds the built-in list of commonly dispensed medicines to your Drug Master. Only drugs you don’t already
+        Adds the built-in list of commonly dispensed medicines to your Drug List. Only drugs you don’t already
         have are added — nothing you’ve edited is overwritten, and prices and stock stay yours to set.
       </p>
       <div className="flex gap-2 flex-wrap">
