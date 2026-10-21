@@ -4,7 +4,7 @@ import type {
   CostNotRecordedSummary, CounterSalesFilter, CounterSalesResult, IntegrityFinding, PriceHistoryRow, ProfitReport,
   SupplierReport, Valuation,
 } from './lib/pharmacyReports';
-import type { OrderBillResult, PatientPortal, Receivables } from './lib/billingPortal';
+import type { DiscountsGiven, OrderBillResult, PatientPortal, Receivables, UnbilledWork } from './lib/billingPortal';
 
 export type LicenseStatusIPC = {
   state: 'valid' | 'grace' | 'locked' | 'invalid' | 'wrong_machine' | 'clock_tampered' | 'none' | 'dev';
@@ -727,6 +727,10 @@ const api = {
     pharmacyChecks: () => ipcRenderer.invoke('analytics:pharmacyChecks') as Promise<IntegrityFinding[]>,
     /** Money still to collect, by kind of bill, by patient, and by how long it has been owed. */
     receivables: (opts?: { limit?: number }) => ipcRenderer.invoke('analytics:receivables', opts || {}) as Promise<Receivables>,
+    /** Discounts given in a period on bills and pharmacy sales, with the largest and who gave them. */
+    discounts: (from: string, to: string, limit?: number) => ipcRenderer.invoke('analytics:discounts', from, to, limit) as Promise<DiscountsGiven>,
+    /** Lab orders, scans and visits with no bill (last N days) — work that could still be charged. */
+    unbilled: (opts?: { days?: number; limit?: number }) => ipcRenderer.invoke('analytics:unbilled', opts || {}) as Promise<UnbilledWork>,
   },
   license: {
     status: () => ipcRenderer.invoke('license:status') as Promise<LicenseStatusIPC>,

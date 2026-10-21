@@ -727,6 +727,22 @@ export function createMockElectronAPI(): any {
         servicesCountThisMonth: 18, servicesRevenueThisMonth: 4250,
       }),
       receivables: () => r(demoReceivables({ patients, bills, pharmSales, appointments, doctors })),
+      discounts: () => r({
+        bills: { count: 14, value: 3120 }, pharmacy: { count: 9, value: 845 }, total_value: 3965, pct_of_gross: 4.1,
+        largest: patients.slice(0, 5).map((p: any, i: number) => ({
+          kind: i % 2 ? 'pharmacy' : 'bill', number: i % 2 ? `PHX-0010${i}` : `INV-2026-27/00${i + 4}`, date: '2026-10-1' + (i + 1) + ' 11:20:00',
+          patient: `${p.first_name} ${p.last_name}`, uhid: p.uhid, amount: 600 - i * 90, reason: i % 2 ? null : ['Senior citizen', 'Staff family', 'Long-standing patient'][i % 3], by: i % 2 ? 'Counter' : 'Reception',
+        })),
+      }),
+      unbilled: () => r({
+        days: 60,
+        lab: { orders: 3, value: 2150 }, radiology: { orders: 1, value: 1500 }, visits: { count: 4, value: 2000 }, total_value: 5650,
+        items: patients.slice(0, 6).map((p: any, i: number) => ({
+          kind: (['lab', 'radiology', 'visit'] as const)[i % 3], patient_id: p.id, name: `${p.first_name} ${p.last_name}`, uhid: p.uhid,
+          title: i % 3 === 0 ? 'Lab LAB-DEMO-00' + (i + 1) + ' · CBC · LFT' : i % 3 === 1 ? 'Radiology RAD-DEMO-00' + (i + 1) + ' · USG abdomen' : 'Visit with ' + (doctors[0]?.name ?? 'Doctor') + ' · token #' + (i + 2),
+          date: i % 3 === 2 ? '2026-10-1' + (i % 9) : '2026-10-1' + (i % 9) + ' 10:30:00', date_is_local: i % 3 === 2, amount: 1500 - i * 150,
+        })),
+      }),
       followups: () => r({
         from: '2026-04-01', to: '2026-04-27',
         free_count: 14, relaxed_count: 3, total_waivers: 17,

@@ -265,7 +265,10 @@ export function PatientPortal({ patientId, onBack, onBillVisit }: {
           <div className="flex gap-2 flex-wrap">
             <button className="btn-primary text-xs" onClick={() => setQuick('opd_consult')}><Plus className="w-3.5 h-3.5" /> New bill</button>
             {has('pharmacy') && (
-              <button className="btn-secondary text-xs" onClick={() => navigate('/pharmacy')}><Pill className="w-3.5 h-3.5" /> Sell medicines</button>
+              <button className="btn-secondary text-xs" title="Opens the Pharmacy counter with this patient already chosen, so the sale goes on their bill"
+                onClick={() => navigate('/pharmacy', { state: { counterPatient: { id: patient.id, uhid: patient.uhid, first_name: patient.name.split(' ')[0] ?? '', last_name: patient.name.split(' ').slice(1).join(' '), phone: patient.phone ?? '' } } })}>
+                <Pill className="w-3.5 h-3.5" /> Sell medicines
+              </button>
             )}
           </div>
         </div>

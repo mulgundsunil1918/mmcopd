@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -8,6 +9,7 @@ import {
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
 import { useToast } from '../hooks/useToast';
+import { useAuth } from '../hooks/useAuth';
 import { cn, fmtDate, fmtDateTime, formatINR, newRef, refFor, todayISO } from '../lib/utils';
 import type {
   Drug, DrugMaster, DrugSchedule, DrugStockBatch, PurchaseInvoice, Wholesaler,
@@ -129,7 +131,10 @@ function TabBtn({ active, onClick, icon, children }: { active: boolean; onClick:
    =================================================================== */
 function DispenseQueue() {
   const [activeAppt, setActiveAppt] = useState<any | null>(null);
-  const [counterOpen, setCounterOpen] = useState(false);
+  // "Sell medicines" in a patient's billing portal lands here with that patient already chosen for the counter sale.
+  const presetPatient = ((useLocation().state as any)?.counterPatient ?? null) as
+    { id: number; uhid: string; first_name: string; last_name: string; phone: string } | null;
+  const [counterOpen, setCounterOpen] = useState(!!presetPatient);
   const { data: pending = [], isLoading } = useQuery({
     queryKey: ['pharmacy-pending'],
     queryFn: () => window.electronAPI.pharmacy.pendingRx(),
@@ -185,7 +190,7 @@ function DispenseQueue() {
       </div>
       <div className="lg:col-span-2">
         {counterOpen ? (
-          <CounterSaleForm onDone={() => setCounterOpen(false)} />
+          <CounterSaleForm initialPatient={presetPatient} onDone={() => setCounterOpen(false)} />
         ) : activeAppt ? (
           <DispenseForm
             /* Keyed by appointment — see the note in Billing.tsx. Discount and
@@ -209,6 +214,7 @@ function DispenseQueue() {
 function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
+  const { user } = useAuth();                                   // who made the sale is recorded on it
   const { data: rx = [] } = useQuery({
     queryKey: ['pharmacy-appt-rx', appointment.id],
     queryFn: () => window.electronAPI.pharmacy.getAppointmentRx(appointment.id),
@@ -293,7 +299,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
         discount,
         payment_mode: paymentMode,
       };
-      return window.electronAPI.pharmacy.sell({ ...payload, client_ref: refFor(saleRef, payload) });
+      return window.electronAPI.pharmacy.sell({ ...payload, sold_by: user?.username, client_ref: refFor(saleRef, payload) });
     },
     onSuccess: (sale: any) => {
       setSaleRef(newRef());
@@ -448,9 +454,13 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
    For chemist-counter operations or quick OTC sales. Optional patient
    lookup (so repeat customers can be tracked) but not required.
    =================================================================== */
-function CounterSaleForm({ onDone }: { onDone: () => void }) {
+function CounterSaleForm({ onDone, initialPatient = null }: {
+  onDone: () => void;
+  initialPatient?: { id: number; uhid: string; first_name: string; last_name: string; phone: string } | null;
+}) {
   const qc = useQueryClient();
   const toast = useToast();
+  const { user } = useAuth();                                   // who made the sale is recorded on it
   const { data: drugs = [] } = useQuery({
     queryKey: ['pharmacy-drugs-active'],
     queryFn: () => window.electronAPI.pharmacy.listDrugs({ activeOnly: true }),
@@ -467,7 +477,7 @@ function CounterSaleForm({ onDone }: { onDone: () => void }) {
 
   // Optional patient picker
   const [patientQuery, setPatientQuery] = useState('');
-  const [patient, setPatient] = useState<{ id: number; uhid: string; first_name: string; last_name: string; phone: string } | null>(null);
+  const [patient, setPatient] = useState<{ id: number; uhid: string; first_name: string; last_name: string; phone: string } | null>(initialPatient);
   const { data: patientResults = [] } = useQuery({
     queryKey: ['pharmacy-counter-patient-search', patientQuery],
     queryFn: () => window.electronAPI.patients.search(patientQuery),
@@ -519,7 +529,7 @@ function CounterSaleForm({ onDone }: { onDone: () => void }) {
         discount,
         payment_mode: paymentMode,
       };
-      return window.electronAPI.pharmacy.sell({ ...payload, client_ref: refFor(saleRef, payload) });
+      return window.electronAPI.pharmacy.sell({ ...payload, sold_by: user?.username, client_ref: refFor(saleRef, payload) });
     },
     onSuccess: (sale: any) => {
       setSaleRef(newRef());

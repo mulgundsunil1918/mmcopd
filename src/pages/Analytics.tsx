@@ -11,7 +11,7 @@ import { IpdAnalyticsTab } from '../components/analytics/IpdAnalyticsTab';
 import { DonutChart, VBarChart, TrendChart } from '../components/analytics/Charts';
 import { Kpi, SectionTitle } from '../components/analytics/Kpi';
 import { PharmacyChecksSection, PharmacyProfitSection, PharmacyValuationSection, SupplierSection } from '../components/analytics/PharmacyProfit';
-import { ReceivablesSection } from '../components/analytics/Receivables';
+import { DiscountsSection, ReceivablesSection, UnbilledWorkSection } from '../components/analytics/Receivables';
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { cn, fmt12h, fmtDate, fmtDateTime, formatINR, todayISO } from '../lib/utils';
 import { colorForDoctor } from '../lib/doctor-colors';
@@ -241,6 +241,8 @@ function FinanceTab({ from, to }: { from: string; to: string }) {
       </section>
 
       <ReceivablesSection />
+      <UnbilledWorkSection />
+      <DiscountsSection from={from} to={to} />
 
       {/* Weekday × Hour heatmap */}
       <section>

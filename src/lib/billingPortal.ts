@@ -137,3 +137,49 @@ export interface DailyCollectionRow {
   /** Money actually received that day, by every route — what the till should hold. */
   received: number;
 }
+
+export interface UnbilledItem {
+  kind: 'lab' | 'radiology' | 'visit';
+  patient_id: number;
+  name: string;
+  uhid: string | null;
+  title: string;
+  /** UTC timestamp (orders) or local date (visits) — see `date_is_local`. */
+  date: string;
+  date_is_local: boolean;
+  amount: number;
+}
+
+/** Work that was done (or booked) but has no bill — money that could be charged and is not yet. */
+export interface UnbilledWork {
+  days: number;
+  lab: { orders: number; value: number };
+  radiology: { orders: number; value: number };
+  visits: { count: number; value: number };
+  total_value: number;
+  /** The biggest and oldest first, so the desk can start from the top. */
+  items: UnbilledItem[];
+}
+
+export interface DiscountRow {
+  kind: 'bill' | 'pharmacy';
+  number: string;
+  /** UTC timestamp as stored. */
+  date: string;
+  patient: string;
+  uhid: string | null;
+  amount: number;
+  reason: string | null;
+  by: string | null;
+}
+
+/** Discounts given in a period, on bills and on pharmacy sales — so every concession can be accounted for. */
+export interface DiscountsGiven {
+  bills: { count: number; value: number };
+  pharmacy: { count: number; value: number };
+  total_value: number;
+  /** Discount as a share of what was charged before any discount (bills + counter pharmacy); null with nothing billed. */
+  pct_of_gross: number | null;
+  largest: DiscountRow[];
+}
+

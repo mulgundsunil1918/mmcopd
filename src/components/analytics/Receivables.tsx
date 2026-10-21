@@ -5,9 +5,9 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Wallet } from 'lucide-react';
+import { BadgePercent, ClipboardList, Wallet } from 'lucide-react';
 import { Kpi, SectionTitle } from './Kpi';
-import { cn, formatINR } from '../../lib/utils';
+import { cn, fmtDate, fmtDateTime, formatINR } from '../../lib/utils';
 
 const KIND_COLOUR: Record<string, string> = {
   ipd: '#3b82f6', lab: '#d946ef', radiology: '#0ea5e9', consultation: '#8b5cf6', service: '#f59e0b', pharmacy: '#10b981',
@@ -110,3 +110,115 @@ export function ReceivablesSection() {
     </section>
   );
 }
+
+const KIND_LABEL: Record<string, string> = { lab: 'Lab', radiology: 'Radiology', visit: 'Visit' };
+
+/**
+ * Work done (or booked) that has no bill: lab orders and scans with priced tests, and recent visits with no consultation
+ * bill — what the clinic could still charge for. Open a row to bill it from that patient's portal.
+ */
+export function UnbilledWorkSection() {
+  const navigate = useNavigate();
+  const { data: u, isLoading } = useQuery({
+    queryKey: ['unbilled-work'],
+    queryFn: () => window.electronAPI.analytics.unbilled({ days: 60, limit: 12 }),
+    refetchInterval: 60_000,
+  });
+  if (isLoading || !u) return null;
+  return (
+    <section>
+      <SectionTitle icon={<ClipboardList className="w-4 h-4 text-amber-600" />} title="Work with no bill"
+        subtitle={`last ${u.days} days — could still be charged`} />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Kpi label="Could be billed" value={formatINR(u.total_value)} tone={u.total_value > 0 ? 'amber' : 'gray'} />
+        <Kpi label="Lab orders" value={u.lab.orders} sub={formatINR(u.lab.value)} tone="violet" />
+        <Kpi label="Scans" value={u.radiology.orders} sub={formatINR(u.radiology.value)} tone="blue" />
+        <Kpi label="Visits" value={u.visits.count} sub={`${formatINR(u.visits.value)} at the doctor's fee`} tone="indigo" />
+      </div>
+      {u.items.length > 0 && (
+        <div className="card p-4 mt-3 overflow-x-auto">
+          <table className="w-full text-[12px] min-w-[520px]">
+            <thead>
+              <tr className="text-left text-[10px] uppercase text-gray-500 border-b dark:border-slate-700">
+                <th className="py-1.5">Patient</th>
+                <th className="py-1.5">What</th>
+                <th className="py-1.5">When</th>
+                <th className="py-1.5 text-right">Worth</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {u.items.map((it, i) => (
+                <tr key={`${it.kind}-${i}`} className="border-b border-gray-50 dark:border-slate-800/50">
+                  <td className="py-1.5">
+                    <div className="font-medium text-gray-900 dark:text-slate-100">{it.name}</div>
+                    <div className="text-[10px] text-gray-400">{it.uhid}</div>
+                  </td>
+                  <td className="py-1.5 text-gray-700 dark:text-slate-300">
+                    <span className={cn('badge text-[9px] mr-1.5', it.kind === 'lab' ? 'bg-fuchsia-100 text-fuchsia-700' : it.kind === 'radiology' ? 'bg-sky-100 text-sky-700' : 'bg-blue-100 text-blue-700')}>{KIND_LABEL[it.kind]}</span>
+                    {it.title}
+                  </td>
+                  <td className="py-1.5 text-gray-500 whitespace-nowrap">{it.date_is_local ? fmtDate(it.date) : fmtDateTime(it.date)}</td>
+                  <td className="py-1.5 text-right tabular-nums font-semibold">{formatINR(it.amount)}</td>
+                  <td className="py-1.5 text-right">
+                    <button className="btn-secondary text-[11px] py-0.5 px-2" onClick={() => navigate(`/billing?patient=${it.patient_id}`)}>Open</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Discounts given in the chosen period — on bills and pharmacy sales — with the largest, the reason and who gave them. */
+export function DiscountsSection({ from, to }: { from: string; to: string }) {
+  const { data: d, isLoading } = useQuery({
+    queryKey: ['discounts-given', from, to],
+    queryFn: () => window.electronAPI.analytics.discounts(from, to, 8),
+  });
+  if (isLoading || !d) return null;
+  return (
+    <section>
+      <SectionTitle icon={<BadgePercent className="w-4 h-4 text-violet-600" />} title="Discounts given"
+        subtitle={`${fmtDate(from)} — ${fmtDate(to)}`} />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Kpi label="Total discounts" value={formatINR(d.total_value)} sub={d.pct_of_gross === null ? undefined : `${d.pct_of_gross}% of what was charged`} tone={d.total_value > 0 ? 'violet' : 'gray'} />
+        <Kpi label="On bills" value={formatINR(d.bills.value)} sub={`${d.bills.count} bill${d.bills.count === 1 ? '' : 's'}`} tone="blue" />
+        <Kpi label="On pharmacy sales" value={formatINR(d.pharmacy.value)} sub={`${d.pharmacy.count} sale${d.pharmacy.count === 1 ? '' : 's'}`} tone="emerald" />
+      </div>
+      {d.largest.length > 0 && (
+        <div className="card p-4 mt-3 overflow-x-auto">
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-2">Largest discounts</div>
+          <table className="w-full text-[12px] min-w-[520px]">
+            <thead>
+              <tr className="text-left text-[10px] uppercase text-gray-500 border-b dark:border-slate-700">
+                <th className="py-1.5">Bill / sale</th>
+                <th className="py-1.5">Patient</th>
+                <th className="py-1.5">When</th>
+                <th className="py-1.5">Reason</th>
+                <th className="py-1.5">Given by</th>
+                <th className="py-1.5 text-right">Off</th>
+              </tr>
+            </thead>
+            <tbody>
+              {d.largest.map((r) => (
+                <tr key={`${r.kind}-${r.number}`} className="border-b border-gray-50 dark:border-slate-800/50">
+                  <td className="py-1.5 font-mono text-[11px]">{r.number}{r.kind === 'pharmacy' && <span className="badge ml-1.5 text-[9px] bg-lime-100 text-lime-700">Pharmacy</span>}</td>
+                  <td className="py-1.5">{r.patient}{r.uhid ? <span className="text-[10px] text-gray-400"> · {r.uhid}</span> : null}</td>
+                  <td className="py-1.5 text-gray-500 whitespace-nowrap">{fmtDateTime(r.date)}</td>
+                  <td className="py-1.5 text-gray-600 dark:text-slate-400">{r.reason || <span className="text-gray-300">not recorded</span>}</td>
+                  <td className="py-1.5 text-gray-600 dark:text-slate-400">{r.by || <span className="text-gray-300">—</span>}</td>
+                  <td className="py-1.5 text-right tabular-nums font-semibold text-violet-700 dark:text-violet-300">{formatINR(r.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+

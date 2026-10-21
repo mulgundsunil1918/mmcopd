@@ -80,6 +80,8 @@ const utc = (daysAgo: number, h: number) => { const d = new Date(); d.setDate(d.
   await time('counter sales, last 30 days', 'pharmacy:counterSales', { from: iso(30), to: today, scope: 'all' });
   await time('counter sales, walk-ins, search', 'pharmacy:counterSales', { scope: 'guest', q: 'Ramesh' });
   await time('cost-not-recorded summary', 'pharmacy:costSummary');
+  await time('work with no bill, last 60 days', 'analytics:unbilled', { days: 60 });
+  await time('discounts given, 1 year', 'analytics:discounts', iso(365), today);
   for (const [l, ms] of rows) console.log(`  ${ms < 300 ? '✓' : ms < 1000 ? '~' : '✗'} ${String(ms).padStart(5)} ms  ${l}`);
   const broken = rows.filter(([, ms]) => ms >= 3000);
   const slow = rows.filter(([, ms]) => ms >= 1000 && ms < 3000);

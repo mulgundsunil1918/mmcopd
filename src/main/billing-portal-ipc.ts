@@ -30,6 +30,8 @@ export function registerBillingPortalIpc() {
   });
 
   ipcMain.handle('analytics:receivables', (_e, opts: { limit?: number } = {}) => portal.receivables(getDb(), opts || {}));
+  ipcMain.handle('analytics:discounts', (_e, from: string, to: string, limit?: number) => portal.discountsGiven(getDb(), from, to, limit));
+  ipcMain.handle('analytics:unbilled', (_e, opts: { days?: number; limit?: number } = {}) => portal.unbilledWork(getDb(), opts || {}));
 
   ipcMain.handle(
     'billing:createOrderBill',

@@ -115,11 +115,11 @@ const denied = (r: any) => r.ok === false && /(not allowed|sign in|administrator
 
   section('licence expired → read-only');
   setReadOnlyMode(true);
-  for (const [ch, args] of [['patients:create', [{ first_name: 'Ro', phone: '1', dob: '1990-01-01', gender: 'M' }]], ['purchase:create', [{}]], ['purchase:addPayment', [1, { amount: 1 }]], ['pharmacy:sell', [{ items: [] }]], ['bill:pay', [bill.id, 1, 'Cash']], ['bills:create', [{}]], ['lab:createOrder', [{}]], ['bill:createStandalone', [{}]]] as [string, any[]][]) {
+  for (const [ch, args] of [['patients:create', [{ first_name: 'Ro', phone: '1', dob: '1990-01-01', gender: 'M' }]], ['purchase:create', [{}]], ['purchase:addPayment', [1, { amount: 1 }]], ['pharmacy:sell', [{ items: [] }]], ['bill:pay', [bill.id, 1, 'Cash']], ['bills:create', [{}]], ['lab:createOrder', [{}]], ['bill:createStandalone', [{}]], ['billing:createOrderBill', ['lab', 1]], ['pharmacy:clearManualCost', [{}]]] as [string, any[]][]) {
     const r = await attempt(ch, ...args);
     ok(!r.ok && /read-only/i.test((r as any).error), `${ch} is blocked when the licence has expired`);
   }
-  for (const [ch, args] of [['patients:search', ['Sec']], ['analytics:pharmacyProfit', [{ from: today, to: today }]], ['purchase:list', [{}]], ['finance:summary', [{}]]] as [string, any[]][]) {
+  for (const [ch, args] of [['patients:search', ['Sec']], ['analytics:pharmacyProfit', [{ from: today, to: today }]], ['purchase:list', [{}]], ['finance:summary', [{}]], ['analytics:receivables', [{}]], ['billing:patientPortal', [1]], ['pharmacy:counterSales', [{}]], ['pharmacy:costSummary', []]] as [string, any[]][]) {
     const r = await attempt(ch, ...args);
     ok(r.ok, `${ch} (viewing) still works when the licence has expired`);
   }

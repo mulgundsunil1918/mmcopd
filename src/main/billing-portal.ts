@@ -22,7 +22,7 @@ import { fromPaise, r2, toPaise } from '../lib/pharmacyMath';
 import { raiseLabBill } from './lab-billing';
 import type {
   Collections, DailyCollectionRow, OrderBillResult, OutstandingBill, PatientPortal, PortalKind, PortalLine, PortalStatus, PortalTodo,
-  Receivables,
+  DiscountRow, DiscountsGiven, Receivables, UnbilledItem, UnbilledWork,
 } from '../lib/billingPortal';
 import * as rad from './radiology';
 
@@ -67,7 +67,13 @@ export const ADV_SPARE_SQL = `
  * One bill's money position, in paise.
  *   advance  — in-patient deposits counted towards this bill
  *   due      — still to collect (never negative)
- *   consumed — deposit used by a still-running bill that discharge has not yet recorded (so it is not also "credit")
+ *   consumed — deposit the stay has used that discharge approval has not recorded (so it is not also "credit")
+ *
+ * In-patient: the deposit pays the bill. Discharge approval records how much it used (bills.advance_adjusted); whatever
+ * the bill still needs beyond that is met from deposits not yet used or refunded. For a bill approved by this version
+ * that second part is always 0 (approval uses up what it can), so it only matters while the stay is running — and for
+ * a stay discharged by an older version that never recorded the deposit it used, which would otherwise read as owing
+ * the whole deposit.
  */
 export function billPosition(r: BillMoneyRow) {
   const totalP = toPaise(r.total);
@@ -76,12 +82,10 @@ export function billPosition(r: BillMoneyRow) {
   let advanceP = 0;
   let consumedP = 0;
   if (inPatient) {
-    if (r.finalized_at) {
-      advanceP = Math.max(0, toPaise(r.advance_adjusted));      // discharge approval already recorded this
-    } else {
-      advanceP = Math.min(Math.max(0, toPaise(r.adv_spare)), Math.max(0, totalP - paidP));
-      consumedP = advanceP;
-    }
+    const adjustedP = r.finalized_at ? Math.max(0, toPaise(r.advance_adjusted)) : 0;
+    const stillNeedsP = Math.max(0, totalP - paidP - adjustedP);
+    consumedP = Math.min(Math.max(0, toPaise(r.adv_spare)), stillNeedsP);
+    advanceP = adjustedP + consumedP;
   }
   return { totalP, paidP, advanceP, consumedP, dueP: Math.max(0, totalP - paidP - advanceP) };
 }
@@ -476,6 +480,7 @@ export function utcSlack(from: string, to: string): { lo: string; hi: string } {
  * rows are counted on the day received, and only the part of `amount_paid` that has no row is counted on the bill's day.
  */
 export function collections(db: Database.Database, from: string, to: string): Collections {
+  from = String(from ?? ''); to = String(to ?? '');          // a missing date matches nothing; it must not be a raw database error
   const slack = utcSlack(from, to);
   const rows = db.prepare(
     `SELECT COALESCE(NULLIF(TRIM(payment_mode), ''), 'Unspecified') AS mode, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amt
@@ -583,3 +588,142 @@ export function dailyCollection(db: Database.Database, from?: string, to?: strin
       pharmacy_sales: a.phN, pharmacy: fromPaise(a.phP), received: fromPaise(a.recP),
     }));
 }
+
+// ---------------------------------------------------------------------------------------------
+// Work with no bill — the clinic-wide version of the portal's "can be billed" list
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Lab orders and scans with priced tests but no live bill, and recent visits with no consultation bill — what the
+ * clinic could still charge for. Same tests the patient portal applies (a Quick-Bill consultation on the same day
+ * counts as billing the visit; an order whose tests have no price has nothing to charge), over the last `days` days.
+ */
+export function unbilledWork(db: Database.Database, opts: { days?: number; limit?: number } = {}): UnbilledWork {
+  const days = Math.min(Math.max(Math.floor(Number(opts.days) || 60), 1), 3650);
+  const limit = Math.min(Math.max(Math.floor(Number(opts.limit) || 25), 1), 200);
+  const since = `-${days} days`;
+  const items: UnbilledItem[] = [];
+
+  const lab = db.prepare(`
+    SELECT o.id, o.patient_id, o.order_number, o.ordered_at, (p.first_name || ' ' || p.last_name) AS name, p.uhid,
+           (SELECT group_concat(i.test_name, ' · ') FROM lab_order_items i WHERE i.lab_order_id = o.id) AS tests,
+           COALESCE((SELECT SUM(t.price) FROM lab_order_items i JOIN lab_tests t ON t.id = i.lab_test_id WHERE i.lab_order_id = o.id), 0) AS price
+      FROM lab_orders o JOIN patients p ON p.id = o.patient_id
+     WHERE o.status <> 'cancelled' AND date(o.ordered_at, 'localtime') >= date('now', 'localtime', ?)
+       AND NOT EXISTS (SELECT 1 FROM bills b WHERE b.lab_order_id = o.id AND COALESCE(b.status, '') <> 'cancelled' AND b.cancelled_at IS NULL)
+  `).all(since) as any[];
+  let labP = 0, labN = 0;
+  for (const o of lab) {
+    if (!(Number(o.price) > 0)) continue;
+    labN++; labP += toPaise(o.price);
+    items.push({ kind: 'lab', patient_id: o.patient_id, name: o.name, uhid: o.uhid, title: `Lab ${o.order_number} · ${shorten(o.tests, 80)}`, date: o.ordered_at, date_is_local: false, amount: r2(o.price) });
+  }
+
+  const rad = db.prepare(`
+    SELECT o.id, o.patient_id, o.order_number, o.ordered_at, (p.first_name || ' ' || p.last_name) AS name, p.uhid,
+           (SELECT group_concat(i.test_name, ' · ') FROM radiology_order_items i WHERE i.order_id = o.id) AS tests,
+           COALESCE((SELECT SUM(i.price) FROM radiology_order_items i WHERE i.order_id = o.id), 0) AS price
+      FROM radiology_orders o JOIN patients p ON p.id = o.patient_id
+     WHERE o.status <> 'cancelled' AND date(o.ordered_at, 'localtime') >= date('now', 'localtime', ?)
+       AND NOT EXISTS (SELECT 1 FROM bills b WHERE b.radiology_order_id = o.id AND COALESCE(b.status, '') <> 'cancelled' AND b.cancelled_at IS NULL)
+  `).all(since) as any[];
+  let radP = 0, radN = 0;
+  for (const o of rad) {
+    if (!(Number(o.price) > 0)) continue;
+    radN++; radP += toPaise(o.price);
+    items.push({ kind: 'radiology', patient_id: o.patient_id, name: o.name, uhid: o.uhid, title: `Radiology ${o.order_number} · ${shorten(o.tests, 80)}`, date: o.ordered_at, date_is_local: false, amount: r2(o.price) });
+  }
+
+  const visits = db.prepare(`
+    SELECT a.id, a.patient_id, a.appointment_date, a.token_number, (p.first_name || ' ' || p.last_name) AS name, p.uhid,
+           d.name AS doctor_name, d.default_fee
+      FROM appointments a JOIN patients p ON p.id = a.patient_id JOIN doctors d ON d.id = a.doctor_id
+     WHERE a.status <> 'Cancelled' AND a.appointment_date >= date('now', 'localtime', ?) AND a.appointment_date <= date('now', 'localtime')
+       AND NOT EXISTS (SELECT 1 FROM bills b WHERE b.appointment_id = a.id AND b.bill_type = 'opd_consult'
+                         AND COALESCE(b.status, '') <> 'cancelled' AND b.cancelled_at IS NULL)
+       AND NOT EXISTS (SELECT 1 FROM bills b2 WHERE b2.patient_id = a.patient_id AND b2.appointment_id IS NULL AND b2.bill_type = 'opd_consult'
+                         AND COALESCE(b2.status, '') <> 'cancelled' AND b2.cancelled_at IS NULL
+                         AND date(b2.created_at, 'localtime') = a.appointment_date)
+  `).all(since) as any[];
+  let visP = 0;
+  for (const v of visits) {
+    visP += toPaise(v.default_fee);
+    items.push({ kind: 'visit', patient_id: v.patient_id, name: v.name, uhid: v.uhid, title: `Visit with ${v.doctor_name} · token #${v.token_number}`, date: v.appointment_date, date_is_local: true, amount: r2(v.default_fee) });
+  }
+
+  // Biggest first; for equal amounts the older one.
+  items.sort((a, b) => (b.amount - a.amount) || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return {
+    days,
+    lab: { orders: labN, value: fromPaise(labP) },
+    radiology: { orders: radN, value: fromPaise(radP) },
+    visits: { count: visits.length, value: fromPaise(visP) },
+    total_value: fromPaise(labP + radP + visP),
+    items: items.slice(0, limit),
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Discounts — who was given how much off
+// ---------------------------------------------------------------------------------------------
+
+/** Value of a bill's discount: a percentage is taken of the subtotal; a flat amount is capped at the subtotal. */
+function discountValueP(subtotal: number, discount: number, type: string | null): number {
+  const subP = toPaise(subtotal);
+  const dP = type === 'percent' ? Math.round((subP * (Number(discount) || 0)) / 100) : toPaise(discount);
+  return Math.max(0, Math.min(dP, subP));
+}
+
+/**
+ * Discounts given between two local calendar days (cancelled bills left out; ward-dispensed medicines are discounted on
+ * the in-patient bill, not as a sale). The largest are listed with the reason and who gave them, where recorded.
+ */
+export function discountsGiven(db: Database.Database, from: string, to: string, limit = 10): DiscountsGiven {
+  from = String(from ?? ''); to = String(to ?? '');          // a missing date matches nothing; it must not be a raw database error
+  const slack = utcSlack(from, to);
+  const bills = db.prepare(`
+    SELECT b.bill_number, b.created_at, b.subtotal, b.discount, b.discount_type, b.discount_reason, b.discount_by,
+           COALESCE(NULLIF(TRIM(p.first_name || ' ' || p.last_name), ''), CASE WHEN b.notes LIKE 'Name: %' THEN substr(b.notes, 7) END, 'Walk-in') AS patient, p.uhid
+      FROM bills b LEFT JOIN patients p ON p.id = b.patient_id
+     WHERE COALESCE(b.status, '') <> 'cancelled' AND b.cancelled_at IS NULL AND b.discount > 0
+       AND b.created_at >= ? AND b.created_at < ? AND date(b.created_at, 'localtime') BETWEEN ? AND ?
+  `).all(slack.lo, slack.hi, from, to) as any[];
+  const sales = db.prepare(`
+    SELECT s.sale_number, s.created_at, s.subtotal, s.discount, s.sold_by,
+           COALESCE(NULLIF(TRIM(p.first_name || ' ' || p.last_name), ''), s.customer_name, 'Walk-in') AS patient, p.uhid
+      FROM pharmacy_sales s LEFT JOIN patients p ON p.id = s.patient_id
+     WHERE s.discount > 0 AND COALESCE(s.payment_mode, '') <> 'IPD-bill'
+       AND s.created_at >= ? AND s.created_at < ? AND date(s.created_at, 'localtime') BETWEEN ? AND ?
+  `).all(slack.lo, slack.hi, from, to) as any[];
+
+  const rows: DiscountRow[] = [];
+  let billP = 0, saleP = 0;
+  for (const b of bills) {
+    const v = discountValueP(b.subtotal, b.discount, b.discount_type);
+    if (v <= 0) continue;
+    billP += v;
+    rows.push({ kind: 'bill', number: b.bill_number, date: b.created_at, patient: b.patient, uhid: b.uhid ?? null, amount: fromPaise(v), reason: b.discount_reason ?? null, by: b.discount_by ?? null });
+  }
+  for (const x of sales) {
+    const v = Math.max(0, Math.min(toPaise(x.discount), toPaise(x.subtotal)));
+    if (v <= 0) continue;
+    saleP += v;
+    rows.push({ kind: 'pharmacy', number: x.sale_number, date: x.created_at, patient: x.patient, uhid: x.uhid ?? null, amount: fromPaise(v), reason: null, by: x.sold_by ?? null });
+  }
+  const gross = db.prepare(`
+    SELECT (SELECT COALESCE(SUM(subtotal), 0) FROM bills WHERE COALESCE(status, '') <> 'cancelled' AND cancelled_at IS NULL
+              AND created_at >= ? AND created_at < ? AND date(created_at, 'localtime') BETWEEN ? AND ?) AS b,
+           (SELECT COALESCE(SUM(subtotal), 0) FROM pharmacy_sales WHERE COALESCE(payment_mode, '') <> 'IPD-bill'
+              AND created_at >= ? AND created_at < ? AND date(created_at, 'localtime') BETWEEN ? AND ?) AS s
+  `).get(slack.lo, slack.hi, from, to, slack.lo, slack.hi, from, to) as { b: number; s: number };
+  const grossP = toPaise(gross.b) + toPaise(gross.s);
+  rows.sort((a, b) => (b.amount - a.amount) || (a.date < b.date ? 1 : -1));
+  return {
+    bills: { count: bills.length, value: fromPaise(billP) },
+    pharmacy: { count: sales.length, value: fromPaise(saleP) },
+    total_value: fromPaise(billP + saleP),
+    pct_of_gross: grossP > 0 ? Math.round(((billP + saleP) / grossP) * 1000) / 10 : null,
+    largest: rows.slice(0, Math.min(Math.max(Math.floor(limit) || 10, 1), 100)),
+  };
+}
+

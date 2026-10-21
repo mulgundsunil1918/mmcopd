@@ -26,9 +26,11 @@ function oracleDue(b: any): number {
   const total = Number(b.total), paid = Number(b.amount_paid);
   const inPatient = b.admission_id != null || b.bill_type === 'ipd';
   if (!inPatient) return Math.max(0, r2(total - paid));
-  if (b.finalized_at) return Math.max(0, r2(total - paid - Number(b.advance_adjusted)));
+  // in-patient: what discharge recorded as used, then whatever deposit is left (unused, unrefunded) covers the rest
+  const adj = b.finalized_at ? Number(b.advance_adjusted) : 0;
   const spare = Number(one('SELECT COALESCE(SUM(amount - adjusted_amount - refunded_amount),0) s FROM advances WHERE admission_id=?', b.admission_id).s);
-  return Math.max(0, r2(total - paid - Math.min(Math.max(spare, 0), Math.max(0, total - paid))));
+  const need = Math.max(0, r2(total - paid - adj));
+  return Math.max(0, r2(need - Math.min(Math.max(spare, 0), need)));
 }
 const oracleOutstanding = () => r2(q("SELECT * FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND cancelled_at IS NULL").reduce((s, b) => s + oracleDue(b), 0));
 
@@ -154,6 +156,11 @@ const oracleOutstanding = () => r2(q("SELECT * FROM bills WHERE COALESCE(status,
   ok(visit && visit.appointment_id === appt2.id && visit.amount === 300, "the second visit is offered as billable, at the doctor's fee (₹300)");
   ok(!pa.todo.some((t: any) => t.appointment_id === appt1.id && t.kind === 'consultation_unbilled'), '…and the first visit (already billed) is not');
   eq(pa.summary.to_bill_count, 1, 'one thing can be billed');
+  const ub0 = await call('analytics:unbilled', { days: 60 });
+  eq(ub0.visits.count, 1, 'clinic-wide, one visit has no bill');
+  near(ub0.visits.value, 300, '…worth the doctor\'s fee (₹300)');
+  ok(ub0.items.some((i: any) => i.kind === 'visit' && i.patient_id === asha.id), '…and it is listed under Asha');
+  near(ub0.total_value, ub0.lab.value + ub0.radiology.value + ub0.visits.value, 'the total is lab + scans + visits');
 
   section('2b · collecting, and what changes');
   const over = await call('bill:pay', radBill.id, 701, 'Cash');
@@ -172,6 +179,7 @@ const oracleOutstanding = () => r2(q("SELECT * FROM bills WHERE COALESCE(status,
   ok(rb.total === 300, 'the second visit is billed');
   pa = await call('billing:patientPortal', asha.id);
   eq(pa.todo.filter((t: any) => t.kind === 'consultation_unbilled').length, 0, 'it leaves the can-be-billed list');
+  eq((await call('analytics:unbilled', { days: 60 })).visits.count, 0, '…and the clinic-wide list');
 
   section('2c · a prescription not yet dispensed');
   await call('rx:saveAll', appt2.id, [{ drug_name: 'Portal Tab 10mg', drug_master_id: drug.id, dosage: '1', frequency: 'BD', duration: '5 days' }]);
@@ -195,6 +203,9 @@ const oracleOutstanding = () => r2(q("SELECT * FROM bills WHERE COALESCE(status,
   pa = await call('billing:patientPortal', asha.id);
   const lt = pa.todo.find((t: any) => t.kind === 'lab_unbilled' && t.order_id === lab2.id);
   ok(lt && lt.amount === 300, 'the portal offers it, priced from the tests (₹300)');
+  const ubL = await call('analytics:unbilled', { days: 60 });
+  eq(ubL.lab.orders, 1, 'clinic-wide: one lab order has no bill');
+  near(ubL.lab.value, 300, '…worth ₹300');
   const b1 = await call('billing:createOrderBill', 'lab', lab2.id);
   ok(b1.ok && b1.total === 300, `billing it raises a ₹300 bill (${b1.ok ? b1.bill_number : b1.error})`);
   eq(one('SELECT lab_order_id FROM bills WHERE id=?', b1.bill_id).lab_order_id, lab2.id, '…linked to the order');
@@ -203,6 +214,7 @@ const oracleOutstanding = () => r2(q("SELECT * FROM bills WHERE COALESCE(status,
   ok(b1again.ok === false && /already billed/.test(b1again.error), 'billing the same order twice is refused');
   pa = await call('billing:patientPortal', asha.id);
   ok(!pa.todo.some((t: any) => t.kind === 'lab_unbilled' && t.order_id === lab2.id), 'it leaves the can-be-billed list');
+  eq((await call('analytics:unbilled', { days: 60 })).lab.orders, 0, '…and the clinic-wide one');
   near(pa.summary.outstanding, 300, 'the new bill is now owed (₹300)');
 
   // A lab bill raised by hand in Quick Bill is not linked to an order: billing the order too would charge it twice.
@@ -225,6 +237,7 @@ const oracleOutstanding = () => r2(q("SELECT * FROM bills WHERE COALESCE(status,
   eq(one('SELECT COUNT(*) c FROM bills WHERE radiology_order_id=?', rad2.order.id).c, 0, 'with radiology auto-billing off, a scan order has no bill');
   pa = await call('billing:patientPortal', asha.id);
   ok(pa.todo.some((t: any) => t.kind === 'radiology_unbilled' && t.order_id === rad2.order.id && t.amount === 700), 'the portal offers it (₹700)');
+  eq((await call('analytics:unbilled', { days: 60 })).radiology.orders, 1, 'clinic-wide: one scan has no bill');
   const rb2 = await call('billing:createOrderBill', 'radiology', rad2.order.id);
   ok(rb2.ok && rb2.total === 700, 'billing it raises the ₹700 radiology bill');
   const rad3 = await call('radiology:createOrder', { patient_id: asha.id, doctor_id: doc.id, items: [{ test_id: xr.id }] });
@@ -233,6 +246,11 @@ const oracleOutstanding = () => r2(q("SELECT * FROM bills WHERE COALESCE(status,
   ok(!pa.todo.some((t: any) => t.order_id === rad3.order.id), 'a cancelled order is never offered for billing');
   ok((await call('billing:createOrderBill', 'radiology', rad3.order.id)).ok === false, '…and cannot be billed');
   ok((await call('billing:createOrderBill', 'dental' as any, 1)).ok === false, 'an unknown kind of order is refused');
+  const ubR = await call('analytics:unbilled', { days: 60 });
+  eq(ubR.radiology.orders, 0, 'a billed scan and a cancelled one are not "unbilled"');
+  ok(ubR.items.every((i: any, k: number, a: any[]) => k === 0 || a[k - 1].amount >= i.amount), 'the list starts with the biggest');
+  eq((await call('analytics:unbilled', { days: 60, limit: 1 })).items.length <= 1, true, 'the list respects its limit');
+  ok((await attempt('analytics:unbilled', { days: -5 })).ok && (await attempt('analytics:unbilled', { days: 'x' as any })).ok, 'odd day counts are clamped, not an error');
   await call('settings:save', { lab_auto_bill: true, radiology_auto_bill: true });
   // settle those for the later identities
   ok((await call('bill:pay', b1.bill_id, 300, 'Cash')).ok && (await call('bill:pay', rb2.bill_id, 700, 'Cash')).ok, 'both are then collected');

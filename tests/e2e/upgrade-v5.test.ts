@@ -25,7 +25,7 @@ const ids: Record<string, number> = {};
 
   const doc = Number(d.prepare("INSERT INTO doctors (name, specialty, default_fee) VALUES ('Dr. Prev','GP',300)").run().lastInsertRowid);
   const pat = (i: number, first: string) => Number(d.prepare("INSERT INTO patients (uhid, first_name, last_name, dob, gender, phone) VALUES (?, ?, 'Eighty', '1980-01-01', 'M', ?)").run(`PT-V5-${i}`, first, `9100000${i}`).lastInsertRowid);
-  ids.opd = pat(1, 'Opdy'); ids.lab = pat(2, 'Laby'); ids.ipd = pat(3, 'Ipdy'); ids.rx = pat(4, 'Rxy');
+  ids.opd = pat(1, 'Opdy'); ids.lab = pat(2, 'Laby'); ids.ipd = pat(3, 'Ipdy'); ids.rx = pat(4, 'Rxy'); ids.oldipd = pat(5, 'Oldipd');
 
   // OPD: paid at the counter (amount_paid = total, no payment row) — the common case
   const ap = Number(d.prepare("INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, token_number, status) VALUES (?, ?, date('now','localtime','-1 day'), '10:00', 1, 'Done')").run(ids.opd, doc).lastInsertRowid);
@@ -45,6 +45,14 @@ const ids: Record<string, number> = {};
   const ib = Number(d.prepare("INSERT INTO bills (bill_number, patient_id, items_json, subtotal, discount, total, payment_mode, status, bill_type, admission_id) VALUES ('V5-IPD-1', ?, '[]', 5000, 0, 5000, 'Pending', 'open', 'ipd', ?)").run(ids.ipd, adm).lastInsertRowid);
   d.prepare('UPDATE ip_admissions SET bill_id=? WHERE id=?').run(ib, adm);
   d.prepare("INSERT INTO advances (patient_id, admission_id, receipt_no, amount, payment_mode) VALUES (?, ?, 'ADV-V5-1', 3000, 'Cash')").run(ids.ipd, adm);
+
+  // An OLD discharged stay (before the advance use was recorded at discharge): bill ₹10,000, ₹2,000 paid in cash, ₹8,000 deposit
+  // that covered the rest but was never marked as used. It must read as settled — not as ₹8,000 still owed.
+  const oadm = Number(d.prepare("INSERT INTO ip_admissions (admission_number, patient_id, status, discharged_at) VALUES ('IP-V5-OLD', ?, 'discharged', datetime('now','-30 day'))").run(ids.oldipd).lastInsertRowid);
+  const ob = Number(d.prepare("INSERT INTO bills (bill_number, patient_id, items_json, subtotal, discount, total, payment_mode, status, bill_type, admission_id, amount_paid, paid_at, finalized_at, advance_adjusted, created_at) VALUES ('V5-IPD-OLD', ?, '[]', 10000, 0, 10000, 'Cash', 'paid', 'ipd', ?, 2000, datetime('now','-30 day'), datetime('now','-30 day'), 0, datetime('now','-31 day'))").run(ids.oldipd, oadm).lastInsertRowid);
+  d.prepare('UPDATE ip_admissions SET bill_id=? WHERE id=?').run(ob, oadm);
+  d.prepare("INSERT INTO bill_payments (bill_id, amount, payment_mode, received_at) VALUES (?, 2000, 'Cash', datetime('now','-30 day'))").run(ob);
+  d.prepare("INSERT INTO advances (patient_id, admission_id, receipt_no, amount, payment_mode, received_at) VALUES (?, ?, 'ADV-V5-OLD', 8000, 'Cash', datetime('now','-31 day'))").run(ids.oldipd, oadm);
 
   // Pharmacy: supplier bill → batch → a sale under a patient's name (₹900 after ₹100 off) and a walk-in sale (₹300)
   const sup = Number(d.prepare("INSERT INTO wholesalers (name, drug_license_no) VALUES ('Prev Supplier','DL-V5')").run().lastInsertRowid);
@@ -113,6 +121,11 @@ const before = (() => {
   near(ipd.summary.outstanding, 2000, '…so ₹2,000 is still due');
   near(ipd.summary.credit_held, 0, '…and none of the advance is spare (it is all being used)');
   ok(ipd.history[0].running, '…flagged as still running');
+  const oi = await call('billing:patientPortal', ids.oldipd);
+  near(oi.history[0].total, 10000, 'an old discharged stay: bill ₹10,000');
+  near(oi.history[0].advance, 8000, '…the ₹8,000 deposit still counts as having paid it (even though old versions never marked it used)');
+  near(oi.history[0].due, 0, '…so it is NOT owed');
+  near(oi.summary.credit_held, 0, '…and no spare deposit is shown');
   const rx = await call('billing:patientPortal', ids.rx);
   eq(rx.history.length, 1, 'the patient who bought medicines at the counter sees that sale in Billing');
   ok(rx.history[0].counter_sale && rx.history[0].kind === 'pharmacy' && rx.history[0].total === 900 && rx.history[0].status === 'paid', '…₹900, paid, marked as a counter sale');
