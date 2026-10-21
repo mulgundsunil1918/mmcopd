@@ -83,14 +83,14 @@ const before = (() => {
   const snapRoot = path.join(userData, 'backups', 'pre-migration');
   const snaps = fs.existsSync(snapRoot) ? fs.readdirSync(snapRoot) : [];
   eq(snaps.length, 1, 'one safety snapshot was taken before the upgrade');
-  ok(/^v6-to-v7-/.test(snaps[0] || ''), `…named for the upgrade it protects (${snaps[0]})`);
+  ok(/^v6-to-v8-/.test(snaps[0] || ''), `…named for the upgrade it protects (${snaps[0]})`);
   {
     const s = new Database(path.join(snapRoot, snaps[0] || 'x', 'caredesk.sqlite'), { readonly: true });
     eq((s.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '6', 'the snapshot is still the 0.9.0 (v6) database, untouched');
     ok(!(s.prepare('PRAGMA table_info(pharmacy_sales)').all() as any[]).some((x) => x.name === 'on_credit'), '…without the new credit columns (a true copy of the old file)');
     s.close();
   }
-  eq(one("SELECT value v FROM schema_meta WHERE key='version'").v, '7', 'the live database is now v7');
+  eq(one("SELECT value v FROM schema_meta WHERE key='version'").v, '8', 'the live database is now v8');
   const cols = (q('PRAGMA table_info(pharmacy_sales)') as any[]).map((x) => x.name);
   ok(cols.includes('amount_paid') && cols.includes('on_credit'), '…with the credit columns on pharmacy sales');
   ok(!!one("SELECT 1 FROM sqlite_master WHERE name='pharmacy_sale_payments'"), '…and the table for payments taken later');
@@ -146,7 +146,7 @@ const before = (() => {
   closeDb();
   const again = getDb();
   eq(fs.readdirSync(snapRoot).length, 1, 'no second snapshot on the next start');
-  eq((again.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '7', 'still v7');
+  eq((again.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '8', 'still v8');
   eq((again.prepare('SELECT COUNT(*) c FROM pharmacy_sale_payments').get() as any).c, 1, 'the one credit payment is still there, once');
   finish();
 })().catch((e) => { console.error('E2E CRASHED', e); process.exit(1); });

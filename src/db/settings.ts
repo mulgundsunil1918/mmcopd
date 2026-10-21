@@ -117,6 +117,8 @@ export function getAllSettings(db: Database.Database): Settings {
     ipd_transfer_charge_rule: (map.ipd_transfer_charge_rule as any) || 'higher',
     ipd_accrual_time: map.ipd_accrual_time || '00:05',
     ipd_advance_enabled: map.ipd_advance_enabled !== 'false',
+    // GST on in-patient bills (the medicines on them). On by default: a GST-registered clinic charges tax in the ward too.
+    ipd_gst_enabled: map.ipd_gst_enabled !== 'false',
 
     // ===== Discounts =====
     // Empty = no one may discount until the clinic sets caps deliberately.

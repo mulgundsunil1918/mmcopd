@@ -161,19 +161,25 @@ export function BillPrint({ admissionId, billId, onClose }: {
                 No charges have been added to this bill yet.
               </td></tr>
             )}
-            {items.map((it: any, i: number) => (
+            {items.map((it: any, i: number) => {
+              // "Taxed" is what was actually charged (the tax columns), not just what the line is flagged — a ward bill with
+              // GST switched off still carries medicines flagged taxable.
+              const taxed = Number(it.cgst) > 0 || Number(it.sgst) > 0;
+              const taxableValue = it.tax_inclusive ? Number(it.amount) - Number(it.cgst || 0) - Number(it.sgst || 0) : Number(it.amount);
+              return (
               <tr key={it.id}>
                 <td style={cell}>{i + 1}</td>
-                <td style={{ ...cell, textAlign: 'left' }}>{it.description}{!it.is_taxable && s.gst_enabled ? ' (Exempt)' : ''}</td>
+                <td style={{ ...cell, textAlign: 'left' }}>{it.description}{!taxed && s.gst_enabled ? ' (Exempt)' : ''}</td>
                 {isTax && <td style={cell}>{it.hsn_sac || '—'}</td>}
                 <td style={cell}>{it.qty}</td>
                 <td style={cell}>{inr(it.rate)}</td>
-                {isTax && <td style={cell}>{it.is_taxable ? inr(it.amount) : '—'}</td>}
+                {isTax && <td style={cell}>{taxed ? inr(taxableValue) : '—'}</td>}
                 {isTax && <td style={cell}>{it.cgst ? inr(it.cgst) : '—'}</td>}
                 {isTax && <td style={cell}>{it.sgst ? inr(it.sgst) : '—'}</td>}
                 <td style={{ ...cell, textAlign: 'right' }}>{inr(it.amount)}</td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
 
@@ -201,6 +207,7 @@ export function BillPrint({ admissionId, billId, onClose }: {
         <div className="flex justify-between items-end mt-12 text-[11px]">
           <div className="text-slate-500">
             {s.gst_enabled && !isTax && <div>Clinical services are exempt from GST.</div>}
+            {items.some((it: any) => it.tax_inclusive && (Number(it.cgst) > 0 || Number(it.sgst) > 0)) && <div>Medicine prices are MRP, inclusive of GST (shown in the tax columns).</div>}
             <div>This is a computer-generated document.</div>
           </div>
           <div className="text-center">

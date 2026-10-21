@@ -242,6 +242,8 @@ const api = {
       discount: number;
       discount_type: 'flat' | 'percent';
       payment_mode: PaymentMode;
+      /** Why a discount was given — recorded with who gave it. */
+      discount_reason?: string | null;
       is_free_followup?: number;
       is_relaxed_followup?: number;
       followup_parent_appt_id?: number | null;

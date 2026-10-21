@@ -65,7 +65,7 @@ const before = (() => {
   const snapRoot = path.join(userData, 'backups', 'pre-migration');
   const snaps = fs.existsSync(snapRoot) ? fs.readdirSync(snapRoot) : [];
   eq(snaps.length, 1, 'one safety snapshot was taken before the upgrade');
-  ok(/^v4-to-v7-/.test(snaps[0] || ''), `…named for the upgrade it protects (${snaps[0]})`);
+  ok(/^v4-to-v8-/.test(snaps[0] || ''), `…named for the upgrade it protects (${snaps[0]})`);
   const snapDb = path.join(snapRoot, snaps[0] || 'x', 'caredesk.sqlite');
   ok(fs.existsSync(snapDb), '…containing a copy of the old database file');
   ok(fs.existsSync(path.join(snapRoot, snaps[0] || 'x', 'README.txt')), '…with a README saying how to roll back');
@@ -75,7 +75,7 @@ const before = (() => {
     eq((s.prepare('SELECT COUNT(*) c FROM patients').get() as any).c, before.patients, 'the snapshot holds all the old patients');
     s.close();
   }
-  eq((db.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '7', 'the live database is now v7');
+  eq((db.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '8', 'the live database is now v8');
   ok((db.prepare('PRAGMA table_info(pharmacy_sales)').all() as any[]).some((x) => x.name === 'customer_name'), '…with the guest-name column added to pharmacy sales');
   const psCols = (db.prepare('PRAGMA table_info(pharmacy_sales)').all() as any[]).map((x) => x.name);
   ok(psCols.includes('amount_paid') && psCols.includes('on_credit'), '…and the credit columns (amount paid, on credit)');
@@ -113,6 +113,6 @@ const before = (() => {
   const again = getDb();
   eq(fs.readdirSync(snapRoot).length, 1, 'no second snapshot on the next start');
   eq((again.prepare('SELECT COUNT(*) c FROM purchase_payments').get() as any).c, 2, 'no duplicate payment rows from the backfill (the one entered above + its opening amount)');
-  eq((again.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '7', 'still v7');
+  eq((again.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '8', 'still v8');
   finish();
 })().catch((e) => { console.error('E2E CRASHED', e); process.exit(1); });

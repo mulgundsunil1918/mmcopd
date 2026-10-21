@@ -9,6 +9,8 @@
 import type Database from 'better-sqlite3';
 import { nextBillNumber } from '../db/ids';
 import { clinicalLineTax } from './gst';
+import { recalcBill } from './bill-totals';
+import { getAllSettings } from '../db/settings';
 
 /**
  * Write a lab bill's real line rows (and the legacy items_json) from the order's priced tests — the same
@@ -28,6 +30,8 @@ export function writeLabBillLines(
      VALUES (?, ?, 1, ?, ?, ?, ?, ?, 'lab', ?)`,
   );
   for (const l of lines) ins.run(billId, l.description, l.rate, l.rate, tax.is_taxable ? 1 : 0, tax.gst_rate, tax.hsn_sac, l.id);
+  // Total the bill with the shared engine (discount, tax, round-off) so what is shown and collected never changes on a later look.
+  recalcBill(db, billId, { force: true });
   return JSON.stringify(lines.map((l) => ({ description: l.description, qty: 1, rate: l.rate, amount: l.rate })));
 }
 
@@ -52,7 +56,7 @@ export function raiseLabBill(db: Database.Database, orderId: number): { id: numb
     throw new Error(`None of the tests on ${o.order_number} has a price. Set prices in Laboratory → Tests, or use Quick Bill to charge by hand.`);
   }
   const total = priced.reduce((s, r) => s + r.rate, 0);
-  const billNumber = nextBillNumber(db);
+  const billNumber = nextBillNumber(db, (getAllSettings(db).invoice_prefix || 'INV').trim() || 'INV');
   return db.transaction(() => {
     const info = db.prepare(
       `INSERT INTO bills
@@ -62,6 +66,6 @@ export function raiseLabBill(db: Database.Database, orderId: number): { id: numb
     ).run(billNumber, o.appointment_id, o.patient_id, o.doctor_id ?? null, total, total, `Lab order ${o.order_number}`, orderId);
     const billId = Number(info.lastInsertRowid);
     db.prepare('UPDATE bills SET items_json=? WHERE id=?').run(writeLabBillLines(db, billId, priced), billId);
-    return { id: billId, bill_number: billNumber, total };
+    return { id: billId, bill_number: billNumber, total: Number((db.prepare('SELECT total FROM bills WHERE id=?').get(billId) as any).total) };
   })();
 }

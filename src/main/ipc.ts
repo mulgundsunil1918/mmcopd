@@ -7,6 +7,8 @@ import Database from 'better-sqlite3';
 import { getDb, closeDb } from '../db/db';
 import { nextUHID, nextBillNumber, nextIpNumber, nextVisitNumber, formatVisitId, nextLabOrderNumber } from '../db/ids';
 import { clinicalLineTax } from './gst';
+import { recalcBill } from './bill-totals';
+import { money } from './billing-engine';
 import { writeLabBillLines } from './lab-billing';
 import { ADV_SPARE_SQL, billPosition, collections, dailyCollection, outstandingBills, outstandingTotal, utcSlack } from './billing-portal';
 import { SALE_DUE_SQL } from './pharmacy-finance';
@@ -413,6 +415,16 @@ export function registerIpc() {
     ).run(...params, ...params);
   };
 
+  /** What a patient's records hold in money, for the audit line written when they are erased (so a deletion is never silent about it). */
+  const moneyOf = (db: any, id: number): string => {
+    try {
+      const b = db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(total),0) AS t, COALESCE(SUM(amount_paid),0) AS p FROM bills WHERE patient_id=? AND COALESCE(status,'') <> 'cancelled'").get(id) as any;
+      const a = db.prepare('SELECT COALESCE(SUM(amount - refunded_amount),0) AS h FROM advances WHERE patient_id=?').get(id) as any;
+      const c = db.prepare("SELECT COALESCE(SUM(MAX(total - COALESCE(amount_paid, total), 0)),0) AS d FROM pharmacy_sales WHERE patient_id=? AND COALESCE(payment_mode,'') <> 'IPD-bill'").get(id) as any;
+      return `${b.n} bill(s) ₹${money(b.t)} (₹${money(b.p)} received), deposit held ₹${money(a.h)}, pharmacy credit owing ₹${money(c.d)}`;
+    } catch { return ''; }
+  };
+
   const purgePatient = (db: any, id: number) => {
     restoreDispensedStock(db, 'dr.patient_id = ? OR dr.sale_id IN (SELECT id FROM pharmacy_sales WHERE patient_id = ?)', id, id);
     // Dispensing register has RESTRICT FKs on pharmacy_sale_items / pharmacy_sales — must go first.
@@ -508,9 +520,10 @@ export function registerIpc() {
     const db = getDb();
     const p = db.prepare('SELECT uhid, first_name, last_name FROM patients WHERE id=?').get(patientId) as any;
     if (!p) return { ok: false, error: 'Patient not found' };
+    const held = moneyOf(db, patientId);
     const tx = db.transaction(() => purgePatient(db, patientId));
     try { tx(); } catch (err: any) { return { ok: false, error: err?.message || 'Delete failed' }; }
-    logAudit(db, actor(), 'patient_deleted', 'patients', patientId, `${p.uhid} ${p.first_name} ${p.last_name}`);
+    logAudit(db, actor(), 'patient_deleted', 'patients', patientId, `${p.uhid} ${p.first_name} ${p.last_name} · erased with ${held}`);
     return { ok: true, patient: p };
   });
 
@@ -559,8 +572,9 @@ export function registerIpc() {
       for (const id of ids) {
         const p = sel.get(id) as any;
         if (!p) continue;
+        const held = moneyOf(db, id);
         purgePatient(db, id);
-        audits.push({ id, label: `${p.uhid} ${p.first_name} ${p.last_name}` });
+        audits.push({ id, label: `${p.uhid} ${p.first_name} ${p.last_name} · erased with ${held}` });
         count++;
       }
       // Log audit entries inside the same tx
@@ -1090,13 +1104,25 @@ export function registerIpc() {
     ) => {
       const db = getDb();
       if (!Array.isArray(payload.items) || payload.items.length === 0) throw new Error('Add at least one line to the bill before saving.');
-      const subtotal = payload.items.reduce((s, it) => s + Number(it.amount || 0), 0);
-      const discountValue =
-        payload.discount_type === 'percent'
-          ? (subtotal * payload.discount) / 100
-          : payload.discount;
-      const total = Math.max(0, subtotal - discountValue);
-      const itemsJson = JSON.stringify(payload.items);
+      if (!payload.patient_id || !db.prepare('SELECT id FROM patients WHERE id=?').get(payload.patient_id)) {
+        throw new Error('That patient was not found — pick the patient for this bill.');
+      }
+      // Whole, sensible lines only: a negative or non-numeric amount would silently change what the patient owes.
+      const lineItems = payload.items.map((it: any, i: number) => {
+        const qty = Number(it.qty ?? 1);
+        const amt = it.amount !== undefined && it.amount !== null ? Number(it.amount) : qty * Number(it.rate ?? 0);
+        if (!Number.isFinite(qty) || qty <= 0) throw new Error(`Line ${i + 1}: the quantity must be above zero.`);
+        if (!Number.isFinite(amt) || amt < 0 || amt > 100_000_000) throw new Error(`Line ${i + 1}: the amount cannot be negative or enormous.`);
+        const rate = Number.isFinite(Number(it.rate)) ? Number(it.rate) : amt / qty;
+        return { description: String(it.description ?? '').trim() || 'Item', qty, rate: money(rate), amount: money(amt) };
+      });
+      const subtotal = money(lineItems.reduce((s2, it) => s2 + it.amount, 0));
+      const discountIn = Number(payload.discount ?? 0);
+      if (!Number.isFinite(discountIn) || discountIn < 0) throw new Error('The discount cannot be negative.');
+      if (payload.discount_type === 'percent' ? discountIn > 100 : discountIn > subtotal + 0.001) {
+        throw new Error('The discount is more than the bill.');
+      }
+      const itemsJson = JSON.stringify(lineItems);
 
       // The same charge sent twice (a double-click, or a retry after a reply was lost) must be ONE bill.
       // Two bills would count the consultation twice in every report and ask the patient to pay twice. Anything
@@ -1107,7 +1133,7 @@ export function registerIpc() {
           WHERE patient_id = ? AND appointment_id IS ? AND items_json = ? AND discount = ? AND payment_mode = ?
             AND COALESCE(status,'') <> 'cancelled' AND created_at >= datetime('now', '-120 seconds')
           ORDER BY id DESC LIMIT 1`
-      ).get(payload.patient_id, payload.appointment_id ?? null, itemsJson, payload.discount, payload.payment_mode) as { id: number } | undefined;
+      ).get(payload.patient_id, payload.appointment_id ?? null, itemsJson, discountIn, payload.payment_mode) as { id: number } | undefined;
 
       let billId = dupe ? dupe.id : 0;
       if (!dupe) {
@@ -1116,8 +1142,8 @@ export function registerIpc() {
         db.transaction(() => {
           const info = db
             .prepare(
-              `INSERT INTO bills (bill_number, appointment_id, patient_id, items_json, subtotal, discount, discount_type, total, payment_mode, paid_at, amount_paid, status, is_free_followup, is_relaxed_followup, followup_parent_appt_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?, ?)`
+              `INSERT INTO bills (bill_number, appointment_id, patient_id, items_json, subtotal, discount, discount_type, total, payment_mode, paid_at, amount_paid, status, is_free_followup, is_relaxed_followup, followup_parent_appt_id, discount_by, discount_reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0, 'paid', ?, ?, ?, ?, ?)`
             )
             .run(
               billNumber,
@@ -1125,38 +1151,32 @@ export function registerIpc() {
               payload.patient_id,
               itemsJson,
               subtotal,
-              payload.discount,
-              payload.discount_type,
-              total,
+              discountIn,
+              payload.discount_type === 'percent' ? 'percent' : 'flat',
               payload.payment_mode,
               new Date().toISOString(),
-              // Counter bills are settled the moment they are raised (paid_at is
-              // stamped right here) — but amount_paid was left at 0, so analytics
-              // reported every OPD bill as money still owed.
-              total,
               payload.is_free_followup ? 1 : 0,
               payload.is_relaxed_followup ? 1 : 0,
-              payload.followup_parent_appt_id ?? null
+              payload.followup_parent_appt_id ?? null,
+              discountIn > 0 ? (actor()?.username ?? null) : null,
+              discountIn > 0 ? (String((payload as any).discount_reason ?? '').trim().slice(0, 120) || null) : null
             );
           billId = Number(info.lastInsertRowid);
 
           // Real line rows as well as items_json — see the note in misc:create.
-          // Without these, previewing this bill re-totals it from an empty table.
           const insLine = db.prepare(
             `INSERT INTO bill_items (bill_id, description, qty, rate, amount, is_taxable, gst_rate, hsn_sac, source)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'opd')`
           );
-          // Consultation and procedures follow the clinical rule (exempt unless a
-          // charge head says otherwise), so a GST-registered clinic's OPD bill now
-          // prints as a proper BILL OF SUPPLY / TAX INVOICE instead of a plain slip.
+          // Consultation and procedures follow the clinical rule (exempt unless a charge head says otherwise).
           const opdTax = clinicalLineTax(db, null);
-          for (const it of payload.items) {
-            const qty = Number(it.qty ?? 1) || 1;
-            const amount = Number(it.amount ?? 0) || 0;
-            insLine.run(billId, String(it.description ?? 'Item'), qty,
-                        Number(it.rate ?? (qty ? amount / qty : amount)) || 0, amount,
-                        opdTax.is_taxable ? 1 : 0, opdTax.gst_rate, opdTax.hsn_sac);
+          for (const it of lineItems) {
+            insLine.run(billId, it.description, it.qty, it.rate, it.amount, opdTax.is_taxable ? 1 : 0, opdTax.gst_rate, opdTax.hsn_sac);
           }
+          // Totalled by the same engine as every other bill (discount, GST, round-off), then settled at the counter:
+          // what is received is exactly the total, so the bill can never read as owing after it is printed.
+          const t = recalcBill(db, billId, { force: true });
+          db.prepare('UPDATE bills SET amount_paid=? WHERE id=?').run(t.total, billId);
 
           if (payload.marks_registration_fee_paid) {
             db.prepare("UPDATE patients SET registration_fee_paid=1, registration_fee_paid_at=date('now', 'localtime') WHERE id=?")
@@ -1258,7 +1278,9 @@ export function registerIpc() {
     const db = getDb();
     if (!payload.patient_id) throw new Error('Patient is required');
     if (!payload.description?.trim()) throw new Error('Service description is required');
-    if (!(payload.amount >= 0)) throw new Error('Amount must be ≥ 0');
+    payload = { ...payload, amount: money(Number(payload.amount)) };
+    if (!Number.isFinite(payload.amount) || payload.amount < 0 || payload.amount > 100_000_000) throw new Error('Amount must be zero or more.');
+    if (!db.prepare('SELECT id FROM patients WHERE id=?').get(payload.patient_id)) throw new Error('That patient was not found — pick the patient for this service.');
     const items = [{ description: payload.description.trim(), qty: 1, rate: payload.amount, amount: payload.amount }];
     // The same service charged twice (double-click / retry) is ONE bill: identical patient, service and amount in the last two minutes.
     {
@@ -1312,10 +1334,13 @@ export function registerIpc() {
     // head the clinic marked taxable (a cosmetic procedure, say) is charged.
     const miscTax = clinicalLineTax(db, (payload as any).charge_head_id ?? null);
     db.prepare(
-      `INSERT INTO bill_items (bill_id, description, qty, rate, amount, is_taxable, gst_rate, hsn_sac, source)
-       VALUES (?, ?, 1, ?, ?, ?, ?, ?, 'misc')`
-    ).run(miscBillId, payload.description.trim(), payload.amount, payload.amount,
+      `INSERT INTO bill_items (bill_id, charge_head_id, description, qty, rate, amount, is_taxable, gst_rate, hsn_sac, source)
+       VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, 'misc')`
+    ).run(miscBillId, (payload as any).charge_head_id ?? null, payload.description.trim(), payload.amount, payload.amount,
           miscTax.is_taxable ? 1 : 0, miscTax.gst_rate, miscTax.hsn_sac);
+    // Totalled like every other bill (GST for a taxable charge head, round-off), then settled for exactly that total.
+    const miscTotals = recalcBill(db, miscBillId, { force: true });
+    db.prepare('UPDATE bills SET amount_paid=? WHERE id=?').run(miscTotals.total, miscBillId);
     return db
       .prepare(
         `SELECT b.*,
@@ -1932,7 +1957,7 @@ export function registerIpc() {
         const autoBill = getAllSettings(db).lab_auto_bill !== false;
         if (autoBill && priced.length) {
           const total = priced.reduce((s, r) => s + r.amount, 0);
-          const billNumber = nextBillNumber(db);
+          const billNumber = generateBillNumber();
           const billInfo = db.prepare(
             `INSERT INTO bills
                (bill_number, appointment_id, patient_id, doctor_id, items_json, subtotal, discount, discount_type,
@@ -2081,7 +2106,7 @@ export function registerIpc() {
       if (!priced.length) return { billChanged: false, note: 'No bill — none of these tests has a price set.' };
       const autoBill = getAllSettings(db).lab_auto_bill !== false;
       if (!autoBill) return { billChanged: false, note: 'No bill raised — auto-billing for lab is switched off.' };
-      const billNumber = nextBillNumber(db);
+      const billNumber = generateBillNumber();
       const o = db.prepare('SELECT * FROM lab_orders WHERE id=?').get(orderId) as any;
       const raised = db.prepare(
         `INSERT INTO bills
@@ -2108,12 +2133,11 @@ export function registerIpc() {
       };
     }
 
-    // An unpaid bill may carry a discount; keep it and re-derive the total.
-    const discount = Number(bill.discount) || 0;
-    const newTotal = Math.max(0, total - (bill.discount_type === 'percent' ? (total * discount) / 100 : discount));
+    // An unpaid bill may carry a discount; the lines are rewritten and the bill is totalled again by the shared engine
+    // (which keeps the discount and applies round-off).
     const itemsJson = writeLabBillLines(db, bill.id, priced.map((p) => ({ id: p.id, description: p.description, rate: p.rate })));
-    db.prepare('UPDATE bills SET items_json=?, subtotal=?, total=? WHERE id=?')
-      .run(itemsJson, total, newTotal, bill.id);
+    db.prepare('UPDATE bills SET items_json=? WHERE id=?').run(itemsJson, bill.id);
+    const newTotal = Number((db.prepare('SELECT total FROM bills WHERE id=?').get(bill.id) as any).total);
     return { billChanged: true, total: newTotal, note: `Bill ${bill.bill_number} updated — now ${formatMoney(newTotal)}.` };
   }
 

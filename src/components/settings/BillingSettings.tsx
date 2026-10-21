@@ -44,7 +44,11 @@ export function BillingSettings({
 
         <label className="flex items-start gap-3 cursor-pointer">
           <input type="checkbox" className="mt-1" checked={gstOn}
-            onChange={(e) => set('gst_enabled', e.target.checked)} />
+            onChange={(e) => {
+              set('gst_enabled', e.target.checked);
+              // Ticking "registered" with no type chosen means a regular registration, not "no tax".
+              if (e.target.checked && (draft.gst_registration_type ?? 'unregistered') === 'unregistered') set('gst_registration_type', 'regular' as any);
+            }} />
           <div>
             <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">This clinic is GST-registered</div>
             <Explain>
@@ -93,6 +97,23 @@ export function BillingSettings({
                   value={draft.clinic_legal_name || ''} onChange={(e) => set('clinic_legal_name', e.target.value)} />
               </div>
             </div>
+
+            {regType !== 'composition' && (
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input type="checkbox" className="mt-1" checked={draft.ipd_gst_enabled ?? true}
+                  onChange={(e) => set('ipd_gst_enabled', e.target.checked)} />
+                <div>
+                  <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">
+                    Charge GST on in-patient bills
+                  </div>
+                  <Explain>
+                    On (recommended for a registered clinic): the medicines on an in-patient's bill carry their GST, shown as CGST + SGST inside
+                    the MRP — the patient pays the MRP, never more. Bed, nursing and doctor charges stay exempt unless you mark that charge taxable
+                    below. Off: in-patient bills carry no GST at all. It applies to every bill still open; a bill already closed at discharge keeps what it was.
+                  </Explain>
+                </div>
+              </label>
+            )}
 
             {regType === 'regular' && (
               <label className="flex items-start gap-3 cursor-pointer">

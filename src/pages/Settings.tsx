@@ -5508,7 +5508,7 @@ function BillingIpdTab() {
     'ipd_auto_accrue_bed', 'ipd_auto_accrue_nursing', 'ipd_auto_accrue_doctor_visit',
     'ipd_doctor_visit_mode', 'ipd_transfer_charge_rule', 'ipd_accrual_time', 'ipd_advance_enabled',
     'tpa_enabled', 'ipd_admission_requests_enabled', 'discharge_summary_enabled', 'lab_auto_bill', 'radiology_auto_bill',
-    'pharmacy_credit_enabled', 'pharmacy_ipd_charge_enabled',
+    'pharmacy_credit_enabled', 'pharmacy_ipd_charge_enabled', 'ipd_gst_enabled',
   ]);
   const { has } = useLicensedModules();
 
@@ -5527,6 +5527,25 @@ function BillingIpdTab() {
           </button>
         </div>
       </div>
+
+      {has('pharmacy') && (
+        <div className="card p-5 space-y-4">
+          <div>
+            <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">Credit — let patients pay later<HelpTip title="Medicines on credit"><><p>Lets the pharmacy hand over medicines now and take the money later, for a registered patient.</p><p>What is still owed shows against the patient in Billing, in Accounts and under Analytics → Receivables, and every payment taken later is recorded with who took it and how it was paid.</p></></HelpTip></div>
+            <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
+              Credit appears at the pharmacy counter only while the switch below is ON. Turn it off and the option disappears from every screen (what is already owed can still be collected). Both switches are off until you turn them on.
+            </div>
+          </div>
+          <AccrualToggle label="Allow medicines on credit (the patient pays later)"
+            help="At the pharmacy counter a registered patient can take medicines and pay part now, or nothing, and the rest later. A walk-in guest can never take credit — it must be clear who owes the money."
+            value={draft.pharmacy_credit_enabled ?? false} onChange={(v) => set('pharmacy_credit_enabled', v)} />
+          {has('ipd') && (
+            <AccrualToggle label="Allow charging medicines to an admitted patient's bill"
+              help="At the pharmacy counter, medicines for an in-patient can be put on that stay's running bill instead of being paid for there and then. They are priced at the same MRP as any other sale and are collected with the rest of the bill at discharge."
+              value={draft.pharmacy_ipd_charge_enabled ?? false} onChange={(v) => set('pharmacy_ipd_charge_enabled', v)} />
+          )}
+        </div>
+      )}
 
       {has('ipd') && (<>
       <WardsBedsEditor />
@@ -5593,25 +5612,6 @@ function BillingIpdTab() {
       </>)}
 
       <BillingSettings draft={draft} set={set as any} />
-
-      {has('pharmacy') && (
-        <div className="card p-5 space-y-4">
-          <div>
-            <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">Pharmacy — medicines on credit<HelpTip title="Medicines on credit"><><p>Lets the pharmacy hand over medicines now and take the money later, for a registered patient.</p><p>What is still owed shows against the patient in Billing, in Accounts and under Analytics → Receivables, and every payment taken later is recorded with who took it and how it was paid.</p></></HelpTip></div>
-            <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
-              Both switches are off until you turn them on. Nothing about ordinary, paid-at-the-counter sales changes.
-            </div>
-          </div>
-          <AccrualToggle label="Allow medicines on credit (the patient pays later)"
-            help="At the pharmacy counter a registered patient can take medicines and pay part now, or nothing, and the rest later. A walk-in guest can never take credit — it must be clear who owes the money."
-            value={draft.pharmacy_credit_enabled ?? false} onChange={(v) => set('pharmacy_credit_enabled', v)} />
-          {has('ipd') && (
-            <AccrualToggle label="Allow charging medicines to an admitted patient's bill"
-              help="At the pharmacy counter, medicines for an in-patient can be put on that stay's running bill instead of being paid for there and then. They are priced at the same MRP as any other sale and are collected with the rest of the bill at discharge."
-              value={draft.pharmacy_ipd_charge_enabled ?? false} onChange={(v) => set('pharmacy_ipd_charge_enabled', v)} />
-          )}
-        </div>
-      )}
 
       {has('ipd') && (<>
       {/* TPA */}

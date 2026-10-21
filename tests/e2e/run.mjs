@@ -18,6 +18,8 @@ const ZONES = {
   portal: ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   analytics: ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   credit: ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
+  audit: ['Asia/Kolkata', 'America/Los_Angeles'],
+  'audit-rules': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   'upgrade-v5': ['Asia/Kolkata', 'America/Los_Angeles'],
   'upgrade-v6': ['Asia/Kolkata', 'America/Los_Angeles'],
 };

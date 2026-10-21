@@ -24,6 +24,8 @@ export interface BillLineInput {
   amount?: number;
   gst_rate?: number;
   is_taxable?: boolean;
+  /** The amount already CONTAINS the tax (an MRP): the tax is taken out of it, never added on top. */
+  tax_inclusive?: boolean;
   hsn_sac?: string | null;
   charge_head_id?: number | null;
   source?: string;
@@ -115,7 +117,17 @@ export function computeBill(inputLines: BillLineInput[], opts: BillOptions = {})
 
     let cgst = 0;
     let sgst = 0;
-    if (taxable) {
+    if (taxable && l.tax_inclusive) {
+      // The line is a tax-inclusive price (a medicine's MRP). Take the tax OUT of what the patient pays, so the
+      // line still costs exactly what it says; net + CGST + SGST add back to it to the paisa.
+      const net = money(netAmount / (1 + gst_rate / 100));
+      const tax = money(netAmount - net);
+      cgst = money(tax / 2);
+      sgst = money(tax - cgst);
+      taxableTotal += net;
+      cgstTotal += cgst;
+      sgstTotal += sgst;
+    } else if (taxable) {
       const tax = money((netAmount * gst_rate) / 100);
       // Split the rounded total so cgst + sgst always equals it exactly;
       // halving first and rounding twice can drift by a paisa.

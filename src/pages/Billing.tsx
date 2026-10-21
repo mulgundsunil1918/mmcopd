@@ -382,6 +382,8 @@ function BillForm({ appointment, onGenerated }: { appointment: AppointmentWithJo
   const [discount, setDiscount] = useState(0);
   const [discountType, setDiscountType] = useState<'flat' | 'percent'>('flat');
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('Cash');
+  const [discountReason, setDiscountReason] = useState('');
+  const { data: billSettings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
 
   useEffect(() => {
     if (doctor) {
@@ -391,7 +393,10 @@ function BillForm({ appointment, onGenerated }: { appointment: AppointmentWithJo
 
   const subtotal = useMemo(() => items.reduce((s, it) => s + Number(it.amount || 0), 0), [items]);
   const discountValue = discountType === 'percent' ? (subtotal * discount) / 100 : discount;
-  const total = Math.max(0, subtotal - discountValue);
+  const exactTotal = Math.max(0, subtotal - discountValue);
+  // The saved bill is rounded to the rupee when "Round bill totals" is on (the same rule as every other bill); show that here.
+  const total = billSettings?.bill_round_off === false ? Math.round(exactTotal * 100) / 100 : Math.round(exactTotal);
+  const roundOff = Math.round((total - exactTotal) * 100) / 100;
 
   const setItem = (idx: number, patch: Partial<BillItem>) => {
     setItems((arr) => {
@@ -411,6 +416,7 @@ function BillForm({ appointment, onGenerated }: { appointment: AppointmentWithJo
         discount,
         discount_type: discountType,
         payment_mode: paymentMode,
+        discount_reason: discount > 0 ? discountReason.trim() || null : null,
       }),
     onSuccess: (bill) => {
       qc.invalidateQueries({ queryKey: ['appointments'] });
@@ -524,6 +530,11 @@ function BillForm({ appointment, onGenerated }: { appointment: AppointmentWithJo
             </div>
           </div>
           <Row label="Discount value" value={'- ' + formatINR(discountValue)} />
+          {discount > 0 && (
+            <input className="input py-1 text-xs" placeholder="Reason for the discount (recorded with who gave it)" maxLength={120}
+              value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} />
+          )}
+          {roundOff !== 0 && <Row label="Round off" value={(roundOff > 0 ? '+ ' : '- ') + formatINR(Math.abs(roundOff))} />}
           <div className="border-t border-gray-300 pt-2 flex items-center justify-between">
             <span className="text-sm font-bold">Total</span>
             <span className="text-lg font-bold text-blue-700">{formatINR(total)}</span>

@@ -92,14 +92,14 @@ const before = (() => {
   const snapRoot = path.join(userData, 'backups', 'pre-migration');
   const snaps = fs.existsSync(snapRoot) ? fs.readdirSync(snapRoot) : [];
   eq(snaps.length, 1, 'one safety snapshot was taken before the upgrade');
-  ok(/^v5-to-v7-/.test(snaps[0] || ''), `…named for the upgrade it protects (${snaps[0]})`);
+  ok(/^v5-to-v8-/.test(snaps[0] || ''), `…named for the upgrade it protects (${snaps[0]})`);
   {
     const s = new Database(path.join(snapRoot, snaps[0] || 'x', 'caredesk.sqlite'), { readonly: true });
     eq((s.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '5', 'the snapshot is still the 0.8.0 (v5) database, untouched');
     ok(!(s.prepare('PRAGMA table_info(pharmacy_sales)').all() as any[]).some((x) => x.name === 'customer_name'), '…without the new column (it is a true copy of the old file)');
     s.close();
   }
-  eq((db.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '7', 'the live database is now v7');
+  eq((db.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '8', 'the live database is now v8');
   ok((db.prepare('PRAGMA table_info(pharmacy_sales)').all() as any[]).some((x) => x.name === 'customer_name'), '…with the guest-name column on pharmacy sales');
   ok((db.prepare('PRAGMA table_info(pharmacy_sales)').all() as any[]).some((x) => x.name === 'on_credit'), '…and the credit columns');
   eq((db.prepare('SELECT COUNT(*) c FROM pharmacy_sales WHERE amount_paid IS NOT NULL OR on_credit <> 0').get() as any).c, 0, '…no old sale was turned into a credit sale (they all stay paid in full)');
@@ -173,7 +173,7 @@ const before = (() => {
   closeDb();
   const again = getDb();
   eq(fs.readdirSync(snapRoot).length, 1, 'no second snapshot on the next start');
-  eq((again.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '7', 'still v7');
+  eq((again.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '8', 'still v8');
   note(`opening counts: ${JSON.stringify(before)}`);
   finish();
 })().catch((e) => { console.error('E2E CRASHED', e); process.exit(1); });

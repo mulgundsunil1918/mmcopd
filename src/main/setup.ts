@@ -62,11 +62,17 @@ function networkMode(db: Database.Database): string {
   return String(r?.value ?? 'local');
 }
 
-/** Anything that shows the clinic has been used: people, visits, money, stock. */
+/**
+ * Anything that shows this clinic has ALREADY been set up or used: a name, a backup folder, extra logins, wards, doctors,
+ * patients, visits, money. An update of the software over such a clinic must never put it through the first-run guide.
+ */
 function hasActivity(db: Database.Database): boolean {
+  const setting = (k: string) => String((db.prepare('SELECT value FROM settings WHERE key=?').get(k) as { value: string } | undefined)?.value ?? '').trim();
+  if (setting('clinic_name') || setting('backup_folder')) return true;
   const n = (db.prepare(`
     SELECT (SELECT COUNT(*) FROM patients) + (SELECT COUNT(*) FROM doctors) + (SELECT COUNT(*) FROM appointments)
-         + (SELECT COUNT(*) FROM bills) + (SELECT COUNT(*) FROM pharmacy_sales) + (SELECT COUNT(*) FROM ip_admissions) AS n
+         + (SELECT COUNT(*) FROM bills) + (SELECT COUNT(*) FROM pharmacy_sales) + (SELECT COUNT(*) FROM ip_admissions)
+         + (SELECT COUNT(*) FROM wards) + (SELECT COUNT(*) FROM wholesalers) + (SELECT COUNT(*) FROM users WHERE username <> 'admin') AS n
   `).get() as { n: number }).n;
   return n > 0;
 }

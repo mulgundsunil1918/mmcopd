@@ -818,6 +818,8 @@ export interface Settings {
   /** Local time the nightly accrual runs, HH:MM. */
   ipd_accrual_time: string;
   ipd_advance_enabled: boolean;
+  /** Charge GST on in-patient bills (the medicines on them). Needs GST switched on; on by default. */
+  ipd_gst_enabled: boolean;
 
   // ===== Discounts =====
   /** JSON map of role -> maximum discount percent, e.g. {"receptionist":5}. */

@@ -21,6 +21,8 @@ import { computeBill, money, discountCapForRole, type BillLineInput, transferDay
 import { nextIpNumber, nextBillNumber } from '../db/ids';
 import { requireModule } from './licensing/enforce';
 import { collections, outstandingTotal } from './billing-portal';
+import { addLine, recalcBill, billGstEnabled } from './bill-totals';
+import { gstContext, splitInclusive } from './gst';
 import { sellItems, type SellIn } from './pharmacy-finance';
 
 type Ok<T> = { ok: true } & T;
@@ -104,12 +106,14 @@ function getOrCreateAdmissionBill(db: Database.Database, admissionId: number): n
  */
 export function accrueStayCharges(db: Database.Database, admissionId: number, by?: string): { added: number; days: number } {
   const adm = db.prepare(
-    `SELECT a.id, a.admitted_at, a.discharged_at, a.status, a.bill_id, a.ward_id, a.ward,
+    `SELECT a.id, a.admitted_at, a.discharged_at, a.status, a.bill_id, a.ward_id, a.ward, a.admission_doctor_id,
             w.per_day_rate, w.nursing_per_day, w.name AS ward_name
        FROM ip_admissions a LEFT JOIN wards w ON w.id = a.ward_id
       WHERE a.id=?`
   ).get(admissionId) as any;
   if (!adm) return { added: 0, days: 0 };
+  // A bill frozen at discharge is a settled record: nothing is posted to it, and a day a person removed from it stays removed.
+  if (adm.bill_id && (db.prepare('SELECT finalized_at FROM bills WHERE id=?').get(adm.bill_id) as any)?.finalized_at) return { added: 0, days: 0 };
 
   /**
    * Honour the clinic's own switches.
@@ -283,115 +287,6 @@ function dischargeFinancials(db: Database.Database, admissionId: number) {
   return { billId, total, advanceAvailable: advance, amountPaid, balanceDue: money(total - advance - amountPaid) };
 }
 
-/** Recompute and persist a bill's totals from its current lines. */
-function recalcBill(db: Database.Database, billId: number) {
-  const bill = db
-    .prepare('SELECT id, discount, discount_type, status FROM bills WHERE id=?')
-    .get(billId) as { id: number; discount: number; discount_type: 'flat' | 'percent'; status: string } | undefined;
-  if (!bill) throw new Error(`Cannot recalculate: bill #${billId} was not found.`);
-
-  const rows = db
-    .prepare('SELECT id, description, qty, rate, amount, gst_rate, is_taxable FROM bill_items WHERE bill_id=? ORDER BY id')
-    .all(billId) as any[];
-
-  /**
-   * A bill with no line ROWS is not a bill worth zero.
-   *
-   * Services (`misc:create`) and Quick Bill (`bills:create`) store their lines in
-   * `bills.items_json` and never insert `bill_items`. Recalculating from an empty
-   * `bill_items` produced 0/0 — and the UPDATE below then WROTE that back, so
-   * merely opening or printing such a bill destroyed its amount: the patient got
-   * a ₹0.00 invoice and the row under-reported revenue for ever after.
-   *
-   * When there are no lines to add up, there is nothing to recalculate. Return
-   * what is stored instead of overwriting it with zero. (`items_json` bills are
-   * converted to real rows by migrateBillItemsFromJson at startup; until then
-   * their stored totals are the truth.)
-   */
-  if (rows.length === 0) {
-    const stored = db
-      .prepare('SELECT subtotal, total, taxable_total, exempt_total, cgst_total, sgst_total, round_off, is_tax_invoice FROM bills WHERE id=?')
-      .get(billId) as any;
-    return {
-      lines: [],
-      subtotal: Number(stored?.subtotal) || 0,
-      total: Number(stored?.total) || 0,
-      taxableTotal: Number(stored?.taxable_total) || 0,
-      exemptTotal: Number(stored?.exempt_total) || 0,
-      cgstTotal: Number(stored?.cgst_total) || 0,
-      sgstTotal: Number(stored?.sgst_total) || 0,
-      roundOff: Number(stored?.round_off) || 0,
-      isTaxInvoice: !!stored?.is_tax_invoice,
-      discountValue: Number(bill.discount) || 0,
-      grossTotal: Number(stored?.total) || 0,
-    };
-  }
-
-  const s = getAllSettings(db);
-  const totals = computeBill(
-    rows.map((r) => ({
-      description: r.description,
-      qty: r.qty,
-      rate: r.rate,
-      amount: r.amount,
-      gst_rate: r.gst_rate,
-      is_taxable: !!r.is_taxable,
-    })),
-    {
-      discount: bill.discount,
-      discount_type: bill.discount_type,
-      // A composition dealer pays GST from its own margin and may NOT collect it
-      // from the patient or issue a tax invoice — so tax is forced off for them
-      // regardless of the per-line rates.
-      gstEnabled: s.gst_enabled && s.gst_registration_type !== 'composition',
-      roundOff: s.bill_round_off,
-    }
-  );
-
-  // Persist the per-line tax split so the printed invoice matches to the paisa.
-  const updLine = db.prepare('UPDATE bill_items SET cgst=?, sgst=? WHERE id=?');
-  totals.lines.forEach((l, i) => updLine.run(l.cgst, l.sgst, rows[i].id));
-
-  db.prepare(
-    `UPDATE bills SET subtotal=?, total=?, taxable_total=?, exempt_total=?,
-       cgst_total=?, sgst_total=?, round_off=?, is_tax_invoice=? WHERE id=?`
-  ).run(
-    totals.subtotal, totals.total, totals.taxableTotal, totals.exemptTotal,
-    totals.cgstTotal, totals.sgstTotal, totals.roundOff, totals.isTaxInvoice ? 1 : 0, billId
-  );
-
-  return totals;
-}
-
-function addLine(db: Database.Database, billId: number, line: BillLineInput, by?: string): number {
-  const amount = money(line.amount !== undefined ? line.amount : (line.qty || 1) * (line.rate || 0));
-  try {
-    const info = db
-      .prepare(
-        `INSERT INTO bill_items (bill_id, charge_head_id, description, qty, rate, amount,
-                                 hsn_sac, gst_rate, is_taxable, source, source_ref_id, accrual_date, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        billId, line.charge_head_id ?? null, line.description,
-        line.qty ?? 1, line.rate ?? 0, amount,
-        line.hsn_sac ?? null, line.gst_rate ?? 0, line.is_taxable ? 1 : 0,
-        line.source ?? 'manual', line.source_ref_id ?? null, line.accrual_date ?? null, by ?? null
-      );
-    return Number(info.lastInsertRowid);
-  } catch (err: any) {
-    const msg = String(err?.message || err);
-    if (msg.includes('idx_bill_items_accrual_once')) {
-      // The partial unique index caught a repeat post — expected, not an error.
-      throw new Error(
-        `"${line.description}" has already been charged for ${line.accrual_date}. ` +
-        `Automatic charges post once per day; edit the existing line instead of adding another.`
-      );
-    }
-    throw new Error(`Could not add "${line.description}" to bill #${billId}: ${msg}`);
-  }
-}
-
 /**
  * Medicines for an admitted patient, put on the stay's running bill instead of being paid for at the counter.
  *
@@ -452,19 +347,21 @@ export function chargeMedicinesToAdmission(db: Database.Database, payload: SellI
       sold_by: by ?? payload.sold_by ?? undefined,
     });
     const billId = getOrCreateAdmissionBill(db, aid);
-    const lines = db.prepare('SELECT id, drug_name, qty, rate, amount FROM pharmacy_sale_items WHERE sale_id=? ORDER BY id').all(sale.id) as
-      { id: number; drug_name: string; qty: number; rate: number; amount: number }[];
+    const lines = db.prepare('SELECT id, drug_name, qty, rate, amount, gst_rate, hsn_sac FROM pharmacy_sale_items WHERE sale_id=? ORDER BY id').all(sale.id) as
+      { id: number; drug_name: string; qty: number; rate: number; amount: number; gst_rate: number | null; hsn_sac: string | null }[];
     for (const l of lines) {
+      const rate = Number(l.gst_rate) || 0;
       addLine(db, billId, {
         description: `${l.drug_name} × ${l.qty}`,
         qty: l.qty, rate: l.rate, amount: l.amount,
-        // The MRP already contains the tax; adding it again would make an in-patient pay more than anyone else.
-        gst_rate: 0, is_taxable: false,
+        // The MRP already contains the tax, so the line keeps its price and the tax is shown inside it (never added on top:
+        // an in-patient pays what anyone pays). Whether it is charged at all follows Settings → GST on in-patient bills.
+        gst_rate: rate, is_taxable: rate > 0, tax_inclusive: true, hsn_sac: l.hsn_sac,
         charge_head_id: head?.id,
         source: 'pharmacy_ipd', source_ref_id: sale.id,
       }, by ?? undefined);
     }
-    recalcBill(db, billId);
+    recalcBill(db, billId, { force: true });
     return sale;
   });
   return tx() as any;
@@ -798,7 +695,10 @@ export function registerIpdBillingIpc() {
     try {
       const aid = requireId(admissionId, 'Admission');
       const bid = requireId(toBedId, 'Destination bed');
-      const adm = d.prepare('SELECT id, bed_id, status, admission_number FROM ip_admissions WHERE id=?').get(aid) as any;
+      const adm = d.prepare(
+        `SELECT a.id, a.bed_id, a.status, a.admission_number, a.admitted_at, w.per_day_rate
+           FROM ip_admissions a LEFT JOIN wards w ON w.id = a.ward_id WHERE a.id=?`
+      ).get(aid) as any;
       if (!adm) return fail(`Admission #${aid} was not found.`);
       if (adm.status !== 'admitted') {
         return fail(`${adm.admission_number} is no longer admitted (status "${adm.status}"), so the patient cannot be transferred.`);
@@ -806,7 +706,7 @@ export function registerIpdBillingIpc() {
       if (adm.bed_id === bid) return fail('The patient is already in that bed.');
 
       const bed = d.prepare(
-        'SELECT b.id, b.status, b.bed_number, w.id AS ward_id, w.name AS ward_name FROM beds b JOIN wards w ON w.id=b.ward_id WHERE b.id=?'
+        'SELECT b.id, b.status, b.bed_number, w.id AS ward_id, w.name AS ward_name, w.per_day_rate FROM beds b JOIN wards w ON w.id=b.ward_id WHERE b.id=?'
       ).get(bid) as any;
       if (!bed) return fail(`Destination bed #${bid} was not found.`);
       if (bed.status !== 'free' && bed.status !== 'reserved') {
@@ -849,8 +749,15 @@ export function registerIpdBillingIpc() {
                 WHERE b.admission_id=? AND bi.source='bed' AND bi.accrual_date=?`
             ).get(aid, dayKey) as { id: number } | undefined;
             if (line) {
-              const rate = transferDayRate([oldRate, newRate], (sT.ipd_transfer_charge_rule as any) || 'higher');
+              // Hours in each ward today (for the pro-rata rule): from midnight — or from admission, if that was today — to now,
+              // and the rest of the day in the new ward.
+              const nowH = today.getHours() + today.getMinutes() / 60;
+              const adAt = parseDbTimestamp(adm.admitted_at);
+              const startH = !isNaN(adAt.getTime()) && localDayString(adAt) === dayKey ? adAt.getHours() + adAt.getMinutes() / 60 : 0;
+              const hours = nowH - startH > 0 ? [nowH - startH, 24 - nowH] : undefined;
+              const rate = transferDayRate([oldRate, newRate], (sT.ipd_transfer_charge_rule as any) || 'higher', hours);
               d.prepare('UPDATE bill_items SET rate=?, amount=? WHERE id=?').run(rate, rate, line.id);
+              recalcBill(d, Number((d.prepare('SELECT bill_id FROM bill_items WHERE id=?').get(line.id) as any).bill_id), { force: true });
             }
           }
         } catch { /* pricing nicety — never block the move itself */ }
@@ -1065,6 +972,8 @@ export function registerIpdBillingIpc() {
    * audit-logged so an unpaid discharge is always traceable.
    */
   ipcMain.handle('ip:approveDischarge', (_e, admissionId: number, input: any) => {
+    // Approving a discharge freezes the bill and can let a patient leave owing money (with an override): a desk decision.
+    requireRole(['receptionist', 'ward_incharge', 'manager'], 'approve a discharge');
     const d = db();
     try {
       const aid = requireId(admissionId, 'Admission');
@@ -1214,9 +1123,10 @@ export function registerIpdBillingIpc() {
         if (!it?.description || String(it.description).trim() === '') {
           return fail('Every line needs a description.');
         }
-        const amt = Number(it.amount ?? (Number(it.qty ?? 1) * Number(it.rate ?? 0)));
-        if (!Number.isFinite(amt) || amt < 0) {
-          return fail(`"${it.description}" has an invalid amount.`);
+        const qty = Number(it.qty ?? 1);
+        const amt = Number(it.amount ?? (qty * Number(it.rate ?? 0)));
+        if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(amt) || amt < 0 || amt > 100_000_000) {
+          return fail(`"${it.description}" has an invalid quantity or amount.`);
         }
       }
 
@@ -1234,6 +1144,10 @@ export function registerIpdBillingIpc() {
 
       const billType = ['opd_consult', 'pharmacy', 'lab', 'radiology', 'custom', 'misc'].includes(input?.bill_type) ? input.bill_type : 'custom';
       const s = getAllSettings(d);
+      const discIn = Number(input?.discount ?? 0);
+      if (!Number.isFinite(discIn) || discIn < 0 || (input?.discount_type === 'percent' && discIn > 100)) {
+        return fail('The discount must be zero or more (and not above 100%).');
+      }
 
       // The same bill sent twice (a double-click, a retry after a lost reply) is ONE bill. Identical lines for the
       // same person and bill type, raised in the last two minutes, are the same request; a genuine second bill
@@ -1293,15 +1207,18 @@ export function registerIpdBillingIpc() {
         }
       });
       tx();
-      recalcBill(d, billId);
+      const totals = recalcBill(d, billId, { force: true });
 
-      // If it's paid at the counter, record the payment and settle it.
+      // If it's paid at the counter, record the payment and settle it — together, so a bill is never left "paid" with no payment.
       if (input?.paid_now) {
-        const total = (d.prepare('SELECT total FROM bills WHERE id=?').get(billId) as any).total;
-        d.prepare('INSERT INTO bill_payments (bill_id, amount, payment_mode, received_by) VALUES (?,?,?,?)')
-          .run(billId, total, input?.payment_mode || 'Cash', input?.performed_by ?? null);
-        d.prepare("UPDATE bills SET amount_paid=?, status='paid', paid_at=? WHERE id=?")
-          .run(total, new Date().toISOString(), billId);
+        d.transaction(() => {
+          if (totals.total > 0) {
+            d.prepare('INSERT INTO bill_payments (bill_id, amount, payment_mode, received_by) VALUES (?,?,?,?)')
+              .run(billId, totals.total, input?.payment_mode || 'Cash', input?.performed_by ?? actor()?.username ?? null);
+          }
+          d.prepare("UPDATE bills SET amount_paid=?, status='paid', paid_at=? WHERE id=?")
+            .run(totals.total, new Date().toISOString(), billId);
+        })();
       }
 
       logAudit(d, actor(), 'bill_created', 'bills', billId, `${billNumber} · ${billType}${nameOverride ? ' · ' + nameOverride : ''}`);
@@ -1368,7 +1285,7 @@ export function registerIpdBillingIpc() {
       // Bring per-day bed/nursing charges up to date before showing the bill, so
       // the running total always reflects the stay so far. No-op once posted.
       try { accrueStayCharges(d, aid); } catch { /* never block the preview */ }
-      const totals = recalcBill(d, billId);
+      const totals = recalcBill(d, billId);   // a bill frozen at discharge keeps its stored totals
       const items = d.prepare(
         `SELECT bi.*, ch.name AS charge_head_name, ch.category, ch.colour
          FROM bill_items bi LEFT JOIN charge_heads ch ON ch.id = bi.charge_head_id
@@ -1419,8 +1336,15 @@ export function registerIpdBillingIpc() {
         return fail('This bill is already settled. Raise a new bill, or cancel this one and re-issue it.');
       }
       requireText(line?.description, 'Item description', 200);
-      const id = addLine(d, bid, line, by);
-      const totals = recalcBill(d, bid);
+      // A line is a charge. A reduction is a discount — which has a role cap, a reason and an audit line — so a negative
+      // line is refused here (it would be a way round all three).
+      const qty = Number(line?.qty ?? 1), rate = Number(line?.rate ?? 0), amt = line?.amount !== undefined ? Number(line.amount) : qty * rate;
+      if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(rate) || rate < 0 || !Number.isFinite(amt) || amt < 0) {
+        return fail('Quantity must be above zero and the rate and amount cannot be negative. To reduce a bill, give a discount.');
+      }
+      const id = addLine(d, bid, line, by ?? actor()?.username);
+      const totals = recalcBill(d, bid, { force: true });
+      logAudit(d, actor(), 'bill_line_added', 'bills', bid, `${String(line.description).slice(0, 80)} · ₹${money(amt)}`);
       broadcastEvent('bill:updated', { billId: bid });
       return { ok: true, id, totals };
     } catch (err: any) {
@@ -1432,14 +1356,22 @@ export function registerIpdBillingIpc() {
     const d = db();
     try {
       const iid = requireId(itemId, 'Bill item');
-      const row = d.prepare('SELECT bill_id FROM bill_items WHERE id=?').get(iid) as any;
+      const row = d.prepare('SELECT bill_id, description, amount, source, accrual_date FROM bill_items WHERE id=?').get(iid) as any;
       if (!row) return fail(`Bill line #${iid} was not found — it may already have been removed.`);
-      const bill = d.prepare('SELECT status FROM bills WHERE id=?').get(row.bill_id) as any;
+      const bill = d.prepare('SELECT status, finalized_at FROM bills WHERE id=?').get(row.bill_id) as any;
       if (bill?.status === 'paid' || bill?.status === 'cancelled') {
         return fail(`Cannot change a bill that is "${bill.status}".`);
       }
-      d.prepare('DELETE FROM bill_items WHERE id=?').run(iid);
-      const totals = recalcBill(d, row.bill_id);
+      if (bill?.finalized_at) return fail('This bill was finalised at discharge and cannot be changed.');
+      if (row.accrual_date && ['bed', 'nursing', 'doctor_visit'].includes(row.source)) {
+        // A day's automatic charge is WAIVED, not deleted: the line stays at ₹0 so the daily posting does not add it straight
+        // back, and the bill shows what was waived.
+        d.prepare("UPDATE bill_items SET rate=0, amount=0, description = description || ' — waived' WHERE id=?").run(iid);
+      } else {
+        d.prepare('DELETE FROM bill_items WHERE id=?').run(iid);
+      }
+      const totals = recalcBill(d, row.bill_id, { force: true });
+      logAudit(d, actor(), 'bill_line_removed', 'bills', row.bill_id, `${String(row.description).slice(0, 80)} · ₹${money(Number(row.amount))}`);
       broadcastEvent('bill:updated', { billId: row.bill_id });
       return { ok: true, totals };
     } catch (err: any) {
@@ -1460,11 +1392,13 @@ export function registerIpdBillingIpc() {
       if (s.discount_require_reason && amount > 0 && !reason) {
         return fail('A reason is required for every discount. Settings → Billing → Discounts controls this.');
       }
-      const bill = d.prepare('SELECT id, subtotal, status FROM bills WHERE id=?').get(bid) as any;
+      const bill = d.prepare('SELECT id, subtotal, status, finalized_at FROM bills WHERE id=?').get(bid) as any;
       if (!bill) return fail(`Bill #${bid} was not found.`);
       if (bill.status === 'paid' || bill.status === 'cancelled') {
         return fail(`Cannot discount a bill that is "${bill.status}".`);
       }
+      if (bill.finalized_at) return fail('This bill was finalised at discharge — a discount can no longer be given on it.');
+      const prev = d.prepare('SELECT discount, discount_type, discount_reason, discount_by FROM bills WHERE id=?').get(bid) as any;
 
       /**
        * Derive the role from the SESSION, never from the caller's argument.
@@ -1488,8 +1422,22 @@ export function registerIpdBillingIpc() {
       }
 
       d.prepare('UPDATE bills SET discount=?, discount_type=?, discount_reason=?, discount_by=? WHERE id=?')
-        .run(amount, type, reason ?? null, by ?? null, bid);
-      const totals = recalcBill(d, bid);
+        .run(amount, type, reason ?? null, by ?? actor()?.username ?? null, bid);
+      const totals = recalcBill(d, bid, { force: true });
+      // What has been received (payments, plus an in-patient's deposit) must still be covered by the new total. Otherwise the
+      // patient has paid more than the bill and nothing records that money is owed back.
+      const rec = (d.prepare(
+        `SELECT COALESCE((SELECT SUM(amount) FROM bill_payments WHERE bill_id=b.id), 0) AS pay, b.amount_paid, b.admission_id
+           FROM bills b WHERE b.id=?`
+      ).get(bid) as any);
+      const received = Math.max(Number(rec.pay) || 0, Number(rec.amount_paid) || 0);   // an in-patient's held deposit is not "received on the bill"
+      if (received > totals.total + 0.01) {
+        // put the old discount back and explain
+        d.prepare('UPDATE bills SET discount=?, discount_type=?, discount_reason=?, discount_by=? WHERE id=?')
+          .run(prev.discount, prev.discount_type, prev.discount_reason, prev.discount_by, bid);
+        recalcBill(d, bid, { force: true });
+        return fail(`₹${money(received)} has already been received on this bill; that discount would bring it to ₹${money(totals.total)}, leaving it overpaid. Refund first, or give a smaller discount.`);
+      }
       logAudit(d, actor(), 'bill_discounted', 'bills', bid, `${amount} ${type} by ${role}${reason ? ' · ' + reason : ''}`);
       return { ok: true, totals };
     } catch (err: any) {
@@ -1511,7 +1459,7 @@ export function registerIpdBillingIpc() {
     const d = db();
     try {
       const bid = requireId(billId, 'Bill');
-      const amt = Number(amount);
+      const amt = money(Number(amount));
       if (!Number.isFinite(amt) || amt <= 0) {
         return fail(`Payment amount must be greater than zero, received ${JSON.stringify(amount)}.`);
       }
@@ -1519,11 +1467,14 @@ export function registerIpdBillingIpc() {
       if (clientRef && d.prepare('SELECT id FROM bill_payments WHERE client_ref=?').get(clientRef)) {
         return { ok: true, duplicate: true };
       }
-      const bill = d.prepare('SELECT id, total, status FROM bills WHERE id=?').get(bid) as any;
+      const bill = d.prepare('SELECT id, total, status, amount_paid FROM bills WHERE id=?').get(bid) as any;
       if (!bill) return fail(`Bill #${bid} was not found.`);
       if (bill.status === 'cancelled') return fail('This bill has been cancelled and cannot take a payment.');
+      by = by ?? actor()?.username;
       {
-        const owedPaid = (d.prepare('SELECT COALESCE(SUM(amount),0) AS p FROM bill_payments WHERE bill_id=?').get(bid) as any).p;
+        // What has been received is the larger of the payments entered and amount_paid: a bill paid at the counter when it was
+        // raised has an amount_paid but no payment rows, and must read as paid — not as owing in full.
+        const owedPaid = Math.max((d.prepare('SELECT COALESCE(SUM(amount),0) AS p FROM bill_payments WHERE bill_id=?').get(bid) as any).p, Number(bill.amount_paid) || 0);
         const owedAdv = (d.prepare('SELECT COALESCE(SUM(amount - refunded_amount),0) AS a FROM advances WHERE admission_id=(SELECT admission_id FROM bills WHERE id=?)').get(bid) as any).a || 0;
         const stillOwed = Math.max(0, money(Number(bill.total) - owedPaid - owedAdv));
         if (amt > stillOwed + 0.01) {
@@ -1536,13 +1487,16 @@ export function registerIpdBillingIpc() {
       const tx = d.transaction(() => {
         d.prepare('INSERT INTO bill_payments (bill_id, amount, payment_mode, received_by, client_ref) VALUES (?,?,?,?,?)')
           .run(bid, amt, mode || 'Cash', by ?? null, clientRef);
-        const paid = (d.prepare('SELECT COALESCE(SUM(amount),0) AS p FROM bill_payments WHERE bill_id=?').get(bid) as any).p;
+        const rows = (d.prepare('SELECT COALESCE(SUM(amount),0) AS p FROM bill_payments WHERE bill_id=?').get(bid) as any).p;
+        // Money taken at the counter when the bill was raised (no payment row) stays counted: it is not forgotten by the first later payment.
+        const paid = Math.max(rows, (Number(bill.amount_paid) || 0) + amt);
         const adv = (d.prepare('SELECT COALESCE(SUM(amount - refunded_amount),0) AS a FROM advances WHERE admission_id=(SELECT admission_id FROM bills WHERE id=?)').get(bid) as any).a || 0;
         const settled = paid + adv >= bill.total - 0.01;
         d.prepare('UPDATE bills SET amount_paid=?, status=?, paid_at=COALESCE(paid_at, ?) WHERE id=?')
           .run(money(paid), settled ? 'paid' : 'part_paid', new Date().toISOString(), bid);
       });
       tx();
+      logAudit(d, actor(), 'bill_payment', 'bills', bid, `₹${amt} · ${mode || 'Cash'}`);
       broadcastEvent('bill:updated', { billId: bid });
       return { ok: true };
     } catch (err: any) {
@@ -1711,7 +1665,7 @@ export function registerIpdBillingIpc() {
         // Stock depletion + billing only for a 'given' dose of a stocked drug.
         if (status === 'given' && order.drug_master_id && qty > 0) {
           const batches = d.prepare(
-            `SELECT b.id, b.batch_no, b.expiry, b.qty_remaining, b.mrp, m.schedule, m.gst_rate,
+            `SELECT b.id, b.batch_no, b.expiry, b.qty_remaining, b.mrp, COALESCE(b.selling_price, b.mrp) AS price, m.schedule, m.gst_rate, m.hsn_code,
                     COALESCE(b.unit_cost, b.purchase_price) AS cost
              FROM drug_stock_batches b JOIN drug_master m ON m.id=b.drug_master_id
              WHERE b.drug_master_id=? AND b.is_active=1 AND b.qty_remaining>0
@@ -1721,23 +1675,32 @@ export function registerIpdBillingIpc() {
           if (total < qty) {
             throw new Error(`Only ${total} unit(s) of ${order.drug_name} in stock, but ${qty} requested. Add stock in Pharmacy, or record without stock by leaving quantity 0.`);
           }
-          const rate = batches[0]?.mrp ?? 0;
+          // Priced as the pharmacy counter prices it: the batch's own selling price, else its MRP.
+          const rate = batches[0]?.price ?? 0;
           const patientId = (d.prepare('SELECT patient_id FROM ip_admissions WHERE id=?').get(order.admission_id) as any)?.patient_id ?? null;
 
           // A dispensed medicine IS a sale — create the pharmacy_sale + sale_item
           // so the Schedule-H dispensing register (whose sale_item_id / sale_id
           // are NOT NULL) stays consistent with counter dispensing.
           const saleNo = `IPD-${order.admission_id}-${Date.now()}`;
+          // The drug's own GST rate (a registered clinic only), taken OUT of the price — the same split the counter records.
+          const gstRate = gstContext(d).enabled ? (Number(batches[0]?.gst_rate) || 0) : 0;
+          const lineAmt = money(rate * qty);
+          const split = splitInclusive(lineAmt, gstRate);
           const sale = d.prepare(
-            `INSERT INTO pharmacy_sales (sale_number, patient_id, subtotal, discount, total, payment_mode, sold_by)
-             VALUES (?,?,?,0,?,?,?)`
-          ).run(saleNo, patientId, rate * qty, rate * qty, 'IPD-bill', input?.administered_by ?? null);
+            `INSERT INTO pharmacy_sales (sale_number, patient_id, subtotal, discount, total, payment_mode, sold_by,
+                                         taxable_total, exempt_total, cgst_total, sgst_total, is_tax_invoice)
+             VALUES (?,?,?,0,?,?,?,?,?,?,?,?)`
+          ).run(saleNo, patientId, lineAmt, lineAmt, 'IPD-bill', input?.administered_by ?? null,
+                gstRate > 0 ? split.net : 0, gstRate > 0 ? 0 : lineAmt, split.cgst, split.sgst, gstRate > 0 ? 1 : 0);
           const saleId = Number(sale.lastInsertRowid);
           // drug_master_id — NOT the legacy drug_id column, which FKs the old
           // drug_inventory table and would fail for any catalogue drug.
           const saleItem = d.prepare(
-            `INSERT INTO pharmacy_sale_items (sale_id, drug_master_id, drug_name, qty, rate, amount) VALUES (?,?,?,?,?,?)`
-          ).run(saleId, order.drug_master_id, `${order.drug_name}${order.dose ? ' ' + order.dose : ''}`, qty, rate, rate * qty);
+            `INSERT INTO pharmacy_sale_items (sale_id, drug_master_id, drug_name, qty, rate, amount, gst_rate, cgst, sgst, gst_amount, hsn_sac)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+          ).run(saleId, order.drug_master_id, `${order.drug_name}${order.dose ? ' ' + order.dose : ''}`, qty, rate, lineAmt,
+                gstRate, split.cgst, split.sgst, money(split.cgst + split.sgst), batches[0]?.hsn_code ?? null);
           const saleItemId = Number(saleItem.lastInsertRowid);
 
           let need = qty;
@@ -1748,22 +1711,22 @@ export function registerIpdBillingIpc() {
             d.prepare(
               `INSERT INTO dispensing_register (sale_item_id, sale_id, patient_id, doctor_id, drug_master_id, batch_id, batch_no, expiry, schedule, qty, rate, unit_cost, rx_reference, dispensed_by)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-            ).run(saleItemId, saleId, patientId, order.ordered_by_doctor_id ?? null, order.drug_master_id, b.id, b.batch_no, b.expiry, b.schedule || 'OTC', take, b.mrp, b.cost ?? null, `IPD-MAR#${oid}`, input?.administered_by ?? null);
+            ).run(saleItemId, saleId, patientId, order.ordered_by_doctor_id ?? null, order.drug_master_id, b.id, b.batch_no, b.expiry, b.schedule || 'OTC', take, b.price, b.cost ?? null, `IPD-MAR#${oid}`, input?.administered_by ?? null);
             batchId = b.id;
             need -= take;
           }
 
           // Post to the running IPD bill.
           const billId = getOrCreateAdmissionBill(d, order.admission_id);
-          const s = getAllSettings(d);
+          // The drug's own GST rate, inside its price (a registered clinic only). Whether the ward charges it follows the
+          // in-patient GST switch — decided when the bill is totalled, so turning it off or on applies to every open bill.
           billItemId = addLine(d, billId, {
             description: `${order.drug_name}${order.dose ? ' ' + order.dose : ''} × ${qty}`,
-            qty, rate, amount: rate * qty,
-            gst_rate: s.gst_enabled ? (batches[0]?.gst_rate ?? 0) : 0,
-            is_taxable: s.gst_enabled && (batches[0]?.gst_rate ?? 0) > 0,
+            qty, rate, amount: money(rate * qty),
+            gst_rate: gstRate, is_taxable: gstRate > 0, tax_inclusive: true, hsn_sac: batches[0]?.hsn_code ?? null,
             source: 'ipd_medication', source_ref_id: oid,
           }, input?.administered_by);
-          recalcBill(d, billId);
+          recalcBill(d, billId, { force: true });
         }
 
         d.prepare(
@@ -2132,11 +2095,24 @@ export function registerIpdBillingIpc() {
        */
       const outstanding = { due: outstandingTotal(d) };
 
-      const gst = d.prepare(
+      // GST collected = bills (tax invoices) + pharmacy counter sales. A sale charged to an in-patient bill is on that bill
+      // already, so it is left out here; it was missing altogether, which made "GST payable" short by every medicine sold.
+      const gstBills = d.prepare(
         `SELECT COALESCE(SUM(cgst_total), 0) AS cgst, COALESCE(SUM(sgst_total), 0) AS sgst,
                 COALESCE(SUM(taxable_total), 0) AS taxable, COALESCE(SUM(exempt_total), 0) AS exempt
          FROM bills WHERE is_tax_invoice=1 AND status != 'cancelled' AND date(created_at, 'localtime') BETWEEN ? AND ?`
       ).get(...range) as any;
+      const gstSales = d.prepare(
+        `SELECT COALESCE(SUM(cgst_total), 0) AS cgst, COALESCE(SUM(sgst_total), 0) AS sgst,
+                COALESCE(SUM(taxable_total), 0) AS taxable, COALESCE(SUM(exempt_total), 0) AS exempt
+         FROM pharmacy_sales WHERE COALESCE(payment_mode, '') <> 'IPD-bill' AND is_tax_invoice=1
+           AND date(created_at, 'localtime') BETWEEN ? AND ?`
+      ).get(...range) as any;
+      const gst = {
+        cgst: money(gstBills.cgst + gstSales.cgst), sgst: money(gstBills.sgst + gstSales.sgst),
+        taxable: money(gstBills.taxable + gstSales.taxable), exempt: money(gstBills.exempt + gstSales.exempt),
+        pharmacy_cgst: money(gstSales.cgst), pharmacy_sgst: money(gstSales.sgst),
+      };
 
       // Section-wise revenue from the charge-head category on each line.
       const bySection = d.prepare(
@@ -2231,10 +2207,12 @@ export function registerIpdBillingIpc() {
   });
 
   ipcMain.handle('advances:refund', (_e, advanceId: number, amount: number, reason: string, by?: string) => {
+    // Money going back out to the patient.
+    requireRole(['receptionist', 'ward_incharge', 'manager'], 'refund an advance');
     const d = db();
     try {
       const id = requireId(advanceId, 'Advance');
-      const amt = Number(amount);
+      const amt = money(Number(amount));
       const adv = d.prepare('SELECT id, amount, adjusted_amount, refunded_amount FROM advances WHERE id=?').get(id) as any;
       if (!adv) return fail(`Advance receipt #${id} was not found.`);
       const available = money(adv.amount - adv.adjusted_amount - adv.refunded_amount);

@@ -25,6 +25,7 @@
 import type Database from 'better-sqlite3';
 import { nextRadiologyOrderNumber, nextBillNumber } from '../db/ids';
 import { clinicalLineTax } from './gst';
+import { recalcBill } from './bill-totals';
 import {
   RADIOLOGY_CATALOG, RADIOLOGY_KNOWN_PRICES, modalityOf, RADIOLOGY_MODALITIES,
 } from '../data/radiology-catalog';
@@ -205,6 +206,8 @@ function writeBillLines(db: Database.Database, billId: number, lines: PricedLine
   for (const l of lines) {
     ins.run(billId, head, l.test_name, money(l.price), money(l.price), tax.is_taxable ? 1 : 0, tax.gst_rate, tax.hsn_sac, l.id);
   }
+  // Total the bill with the shared engine (discount, tax, round-off) so what is shown and collected never changes on a later look.
+  recalcBill(db, billId, { force: true });
   return JSON.stringify(lines.map((l) => ({ description: l.test_name, qty: 1, rate: money(l.price), amount: money(l.price) })));
 }
 
@@ -223,7 +226,7 @@ function createBill(db: Database.Database, orderId: number, deps: RadiologyDeps)
   ).run(billNumber, o.appointment_id, o.patient_id, o.doctor_id ?? null, total, total, `Radiology order ${o.order_number}`, orderId);
   const billId = Number(info.lastInsertRowid);
   db.prepare('UPDATE bills SET items_json=? WHERE id=?').run(writeBillLines(db, billId, lines), billId);
-  return { id: billId, bill_number: billNumber, total };
+  return { id: billId, bill_number: billNumber, total: Number((db.prepare('SELECT total FROM bills WHERE id=?').get(billId) as any).total) };
 }
 
 /**
@@ -252,10 +255,9 @@ export function syncBill(db: Database.Database, orderId: number, deps: Radiology
       note: `Bill ${bill.bill_number} is already settled, so it was left untouched. The scan list changed — adjust or re-issue that bill manually.`,
     };
   }
-  const discount = Number(bill.discount) || 0;
-  const newTotal = money(Math.max(0, total - (bill.discount_type === 'percent' ? (total * discount) / 100 : discount)));
   const itemsJson = writeBillLines(db, bill.id, lines);
-  db.prepare('UPDATE bills SET items_json=?, subtotal=?, total=? WHERE id=?').run(itemsJson, total, newTotal, bill.id);
+  db.prepare('UPDATE bills SET items_json=? WHERE id=?').run(itemsJson, bill.id);
+  const newTotal = Number((db.prepare('SELECT total FROM bills WHERE id=?').get(bill.id) as any).total);
   return { billChanged: true, total: newTotal, note: `Bill ${bill.bill_number} updated — now ₹${newTotal.toFixed(2)}.` };
 }
 

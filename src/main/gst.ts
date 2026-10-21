@@ -32,7 +32,10 @@ export interface LineTax {
 /** What the clinic's GST configuration allows right now. */
 export function gstContext(db: Database.Database) {
   const s = getAllSettings(db);
-  const registered = s.gst_enabled === true && s.gst_registration_type !== 'unregistered';
+  // The switch "This clinic is GST-registered" is the statement of registration; a registration TYPE left at its default
+  // ('unregistered') beside a ticked switch means a regular registration, not "no tax". (Every bill and medicine line now asks
+  // this one function — the ward used to charge tax in that state while the pharmacy did not.)
+  const registered = s.gst_enabled === true;
   // A composition dealer pays GST out of its own margin and cannot pass it on,
   // so it must never issue a tax invoice. Treat it as "no tax on the bill".
   const canCharge = registered && s.gst_registration_type !== 'composition';

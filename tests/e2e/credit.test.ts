@@ -215,13 +215,14 @@ const saleDue = (s: any) => s.payment_mode === 'IPD-bill' ? 0 : Math.max(0, r2(N
   ok(reg.length >= 1 && reg.every((r: any) => r.unit_cost === 6), '…the dispensing register froze the cost (₹6)');
 
   // the GST rule: the MRP already contains the tax
-  await call('settings:save', { gst_enabled: true });
+  await call('settings:save', { gst_enabled: true, gst_registration_type: 'regular' });
   const preTax = await billBela();
   const ward2 = await call('pharmacy:sell', { patient_id: bela.id, ipd_admission_id: admBela.id, items: [syrLine(1)], client_ref: 'ipd-2' });  // ₹112, 12% GST inside
   const postTax = await billBela();
   near(postTax.totals.total - preTax.totals.total, 112, 'a 12% GST medicine at MRP ₹112 adds ₹112 to the bill — not ₹125.44');
   const sline = one("SELECT * FROM bill_items WHERE source='pharmacy_ipd' AND source_ref_id=?", ward2.id);
-  near(sline.cgst + sline.sgst, 0, '…no tax is added on top of the line');
+  near(sline.cgst + sline.sgst, 12, '…the ₹12 of GST inside the MRP is shown on the line (CGST + SGST), not added on top');
+  eq(sline.tax_inclusive, 1, '…the line is marked as a tax-inclusive price');
   await call('settings:save', { gst_enabled: false });
 
   // not counted twice anywhere
@@ -291,7 +292,7 @@ const saleDue = (s: any) => s.payment_mode === 'IPD-bill' ? 0 : Math.max(0, r2(N
   eq(ph3.totalSales, 5, '…and neither is its sale count');
   const prof = (await call('analytics:pharmacyProfit', { from: today, to: today })).report;
   near(prof.counter.revenue, 190, '…the profit report\'s counter channel is the same ₹190');
-  near(prof.ward.revenue, 152, '…and the medicines charged to in-patients are its ward channel (real stock, real cost): ₹152');
+  near(prof.ward.revenue, 140, '…and the medicines charged to in-patients are its ward channel (real stock, real cost): ₹40 + ₹100 (the ₹112 syrup less its ₹12 GST — the profit report counts revenue without GST)');
   const mods2 = await call('analytics:modules', ...WIDE);
   near(mods2.modules.find((m: any) => m.key === 'pharmacy').revenue, 190, 'Modules P&L → Pharmacy ₹190');
   near(mods2.modules.find((m: any) => m.key === 'pharmacy_manual').revenue, 650, '…and "Pharmacy — hand-typed bills" has its own row: ₹650');

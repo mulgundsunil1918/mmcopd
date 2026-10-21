@@ -1,0 +1,196 @@
+// Billing rules found wrong in the second audit — each one reproduced here exactly as it was found, and kept as a guard.
+// Through the app's REAL IPC handlers on a temporary database. Synthetic data only.
+import { boot, call, attempt, getDb } from './harness';
+import { ok, eq, near, section, finish } from './lib';
+import { localISO } from '../../src/lib/localDate';
+
+boot();
+const db = () => getDb();
+const q = (sql: string, ...p: any[]) => db().prepare(sql).all(...p) as any[];
+const one = (sql: string, ...p: any[]) => db().prepare(sql).get(...p) as any;
+const today = localISO();
+
+(async () => {
+  await call('settings:save', { bill_round_off: true, gst_enabled: false, ipd_auto_accrue_bed: true, ipd_auto_accrue_nursing: true, ipd_auto_accrue_doctor_visit: true, ipd_advance_enabled: true, invoice_prefix: 'AUD' });
+  const doc = await call('doctors:create', { name: 'Dr. Rules', specialty: 'GP', default_fee: 400 });
+  const doc2 = await call('doctors:create', { name: 'Dr. Second', specialty: 'GP', default_fee: 250 });
+  const mk = async (n: string) => call('patients:create', { first_name: n, last_name: 'Rules', dob: '1980-01-01', gender: 'F', phone: '9810000' + String(Math.floor(Math.random() * 9000 + 1000)) });
+  const [p1, p2, p3, p4] = [await mk('Ann'), await mk('Bob'), await mk('Cy'), await mk('Di')];
+
+  section('1 · every bill is totalled the same way, and reads the same when printed');
+  const opd = await call('bills:create', { appointment_id: null, patient_id: p1.id, items: [{ description: 'Consultation', qty: 1, rate: 250, amount: 250 }], discount: 15, discount_type: 'percent', payment_mode: 'Cash' });
+  eq(opd.total, 213, 'OPD: ₹250 less 15% = ₹212.50 → ₹213 with the round-off setting on (it used to be left at ₹212.50)');
+  eq(opd.amount_paid, 213, '…and the counter bill is settled for exactly that total');
+  eq(one('SELECT round_off r FROM bills WHERE id=?', opd.id).r, 0.5, '…with the round-off recorded');
+  await call('bill:previewById', opd.id);
+  eq(one('SELECT total t FROM bills WHERE id=?', opd.id).t, 213, 'printing it does not change it');
+  const neg = await attempt('bills:create', { appointment_id: null, patient_id: p1.id, items: [{ description: 'X', qty: 1, rate: -50, amount: -50 }], discount: 0, discount_type: 'flat', payment_mode: 'Cash' });
+  ok(!neg.ok, 'an OPD bill with a negative line is refused');
+  const negd = await attempt('bills:create', { appointment_id: null, patient_id: p1.id, items: [{ description: 'X', qty: 1, rate: 100, amount: 100 }], discount: -20, discount_type: 'flat', payment_mode: 'Cash' });
+  ok(!negd.ok && /negative/i.test((negd as any).error), 'a negative discount (which would RAISE the bill) is refused');
+  ok(!(await attempt('bills:create', { appointment_id: null, patient_id: 987654, items: [{ description: 'X', qty: 1, rate: 1, amount: 1 }], discount: 0, discount_type: 'flat', payment_mode: 'Cash' })).ok, 'a bill for a patient that does not exist is refused in words');
+  const svc = await call('misc:create', { patient_id: p1.id, doctor_id: doc.id, description: 'Dressing', amount: 99.5, payment_mode: 'Cash' });
+  eq(svc.total, 100, 'a Services bill of ₹99.50 is rounded like every other bill');
+  eq(svc.amount_paid, 100, '…and settled for that total');
+  const lab = await call('lab:upsertTest', { name: 'Rules CBC', price: 99.5, category: 'haematology', sample_type: 'Blood' });
+  const lo = await call('lab:createOrder', { appointment_id: null, patient_id: p2.id, doctor_id: doc.id, items: [{ lab_test_id: lab.id, test_name: 'Rules CBC' }] });
+  const lb = one('SELECT * FROM bills WHERE lab_order_id=?', lo.id);
+  eq(lb.total, 100, 'a lab bill is totalled with round-off from the start (₹99.50 → ₹100)');
+  ok(/^AUD\//.test(lb.bill_number), `…and numbered with the clinic's own prefix (${lb.bill_number})`);
+  ok((await call('bill:pay', lb.id, 100, 'Cash', 'tester')).ok, 'the lab bill is paid in full');
+  await call('bill:previewById', lb.id);
+  eq(one('SELECT total t, amount_paid p FROM bills WHERE id=?', lb.id).t, 100, 'a paid lab bill still says ₹100 after it is printed (it used to move and show a phantom balance)');
+  near((await call('analytics:receivables')).total_due, 0, 'nothing is owed on any of them');
+
+  section('2 · a bill already paid at the counter cannot be paid again');
+  const again = await call('bill:pay', opd.id, 213, 'Cash', 'tester');
+  ok(again.ok === false && /already fully paid/i.test(again.error), `paying a settled OPD bill is refused (${again.ok ? 'ACCEPTED' : again.error})`);
+  eq(one('SELECT COUNT(*) c FROM bill_payments WHERE bill_id=?', opd.id).c, 0, '…and no phantom payment row is written');
+  const quick = await call('bill:createStandalone', { patient_id: p2.id, bill_type: 'custom', items: [{ description: 'Thing', qty: 1, rate: 500 }], payment_mode: 'Cash', paid_now: false });
+  const half = await call('bill:pay', quick.id, 200.555, 'Cash', 'tester', 'q-1');
+  ok(half.ok, 'a part payment is taken');
+  eq(one('SELECT amount FROM bill_payments WHERE bill_id=?', quick.id).amount, 200.56, '…recorded in whole paise (₹200.555 → ₹200.56)');
+  const over = await call('bill:pay', quick.id, 300, 'Cash', 'tester');
+  ok(over.ok === false && /299\.44/.test(over.error), `paying more than is still owed names the figure (${over.ok ? 'ACCEPTED' : over.error})`);
+  const d2 = await call('bill:setDiscount', quick.id, 400, 'flat', 'admin', 'audit', 'tester');
+  ok(d2.ok === false && /overpaid|already been received/i.test(d2.error), `a discount that would leave the bill overpaid is refused (${d2.ok ? 'ACCEPTED' : d2.error})`);
+  eq(one('SELECT discount d FROM bills WHERE id=?', quick.id).d, 0, '…and the bill is exactly as it was');
+
+  section('3 · in-patient bills');
+  const w1 = await call('wards:save', { name: 'Rules General', ward_type: 'general', per_day_rate: 800, nursing_per_day: 100 });
+  const w2 = await call('wards:save', { name: 'Rules ICU', ward_type: 'icu', per_day_rate: 2500, nursing_per_day: 300 });
+  const b1 = await call('beds:save', { ward_id: w1.id, bed_number: 'R-1' });
+  const b2 = await call('beds:save', { ward_id: w2.id, bed_number: 'R-2' });
+  const b3 = await call('beds:save', { ward_id: w1.id, bed_number: 'R-3' });
+  const b2b = await call('beds:save', { ward_id: w2.id, bed_number: 'R-2B' });
+  const adm = await call('ip:admitV2', { patient_id: p3.id, bed_id: b1.id, admission_doctor_id: doc.id, advance_amount: 0 });
+  ok(adm.ok, 'a patient is admitted');
+  await call('settings:save', { ipd_doctor_visit_mode: 'primary_only' });
+  let pv = await call('bill:previewAdmission', adm.id);
+  ok(pv.items.some((i: any) => /Doctor visit — Dr\. Rules/.test(i.description)), '"only the admitting doctor" now charges the admitting doctor\'s daily visit (the setting did nothing before)');
+  near(pv.totals.total, 800 + 100 + 400, '…bed + nursing + the visit');
+  // waive a day
+  const bedLine = pv.items.find((i: any) => i.source === 'bed');
+  const rm = await call('bill:removeItem', bedLine.id);
+  ok(rm.ok, 'a day\'s bed charge is removed (waived)');
+  pv = await call('bill:previewAdmission', adm.id);
+  const bedAfter = pv.items.filter((i: any) => i.source === 'bed');
+  eq(bedAfter.length, 1, 'it is NOT added straight back by the daily posting');
+  eq(bedAfter[0].amount, 0, '…it stays on the bill as a ₹0 line');
+  ok(/waived/i.test(bedAfter[0].description), '…saying it was waived');
+  near(pv.totals.total, 100 + 400, 'and the bill is ₹500 without it');
+  ok(q("SELECT 1 FROM audit_log WHERE action='bill_line_removed'").length >= 1, 'the removal is in the audit log');
+  const negLine = await call('bill:addItem', pv.bill.id, { description: 'Sneaky credit', qty: 1, rate: -300 }, 'tester');
+  ok(negLine.ok === false && /discount/i.test(negLine.error), 'a negative bill line (a way round the discount rules) is refused');
+  ok((await call('bill:addItem', pv.bill.id, { description: 'Oxygen', qty: 1, rate: 200 }, 'tester')).ok, 'a normal charge is added');
+  ok(q("SELECT 1 FROM audit_log WHERE action='bill_line_added'").length >= 1, '…and is in the audit log');
+  const badGst = await call('bill:addItem', pv.bill.id, { description: 'Bad', qty: 1, rate: 10, gst_rate: 180, is_taxable: true }, 'tester');
+  ok(badGst.ok === false && /GST rate/i.test(badGst.error), 'a GST rate of 180% is refused');
+
+  section('4 · moving a patient to a dearer ward charges the higher rate for that day');
+  await call('settings:save', { ipd_transfer_charge_rule: 'higher' });
+  const tr = await call('ip:transfer', adm.id, b2.id, 'step up', 'tester');
+  ok(tr.ok, 'the patient is moved to the ICU');
+  const todayBed = q("SELECT amount FROM bill_items bi JOIN bills b ON b.id=bi.bill_id WHERE b.admission_id=? AND bi.source='bed' AND bi.accrual_date=?", adm.id, today);
+  near(todayBed[0]?.amount, 2500, 'today\'s bed charge is the higher of the two wards (₹2,500) — the ward-change setting used to be ignored');
+  await call('ip:transfer', adm.id, b3.id, 'step down', 'tester');
+  await call('settings:save', { ipd_transfer_charge_rule: 'both' });
+  await call('ip:transfer', adm.id, b2b.id, 'again', 'tester');
+  const todayBed2 = q("SELECT amount FROM bill_items bi JOIN bills b ON b.id=bi.bill_id WHERE b.admission_id=? AND bi.source='bed' AND bi.accrual_date=?", adm.id, today);
+  near(todayBed2[0]?.amount, 3300, 'with the rule set to "both wards in full" it is ₹800 + ₹2,500');
+
+  section('5 · a closed bill stays closed');
+  const adm2 = await call('ip:admitV2', { patient_id: p4.id, bed_id: (await call('beds:save', { ward_id: w1.id, bed_number: 'R-4' })).id, admission_doctor_id: doc.id, advance_amount: 3000, advance_mode: 'Cash' });
+  await call('settings:save', { ipd_doctor_visit_mode: 'per_consultant' });
+  await call('bill:previewAdmission', adm2.id);
+  const rq = await call('ip:requestDischarge', adm2.id, { outcome: 'discharged' }, 'tester');
+  ok(rq.ok, 'a discharge is requested');
+  const ap = await call('ip:approveDischarge', adm2.id, { by: 'tester', override_reason: 'rules' });
+  ok(ap.ok, 'and approved');
+  const frozen = one('SELECT id, total FROM bills WHERE admission_id=?', adm2.id);
+  const ln = q('SELECT id FROM bill_items WHERE bill_id=? AND source=\'bed\'', frozen.id);
+  const rmf = await call('bill:removeItem', ln[0].id);
+  ok(rmf.ok === false, `a line cannot be removed from a bill closed at discharge (${rmf.ok ? 'ACCEPTED' : rmf.error})`);
+  const dsc = await call('bill:setDiscount', frozen.id, 10, 'percent', 'admin', 'late', 'tester');
+  ok(dsc.ok === false, `…nor a discount given on it (${dsc.ok ? 'ACCEPTED' : dsc.error})`);
+  await call('bill:previewAdmission', adm2.id);
+  eq(one('SELECT total t FROM bills WHERE id=?', frozen.id).t, frozen.total, 'previewing it later changes nothing');
+  await call('settings:save', { bill_round_off: false });
+  await call('bill:previewAdmission', adm2.id);
+  eq(one('SELECT total t FROM bills WHERE id=?', frozen.id).t, frozen.total, '…even after a setting such as round-off is changed');
+  await call('settings:save', { bill_round_off: true });
+
+  section('6 · GST on in-patient bills (tax inside the MRP) and its switch');
+  await call('settings:save', { gst_enabled: true, gst_registration_type: 'regular', clinic_gstin: '29ABCDE1234F1Z5', ipd_gst_enabled: true });
+  const sup = await call('wholesalers:upsert', { name: 'Rules Supplies', drug_license_no: 'DL-R' });
+  const drug = await call('pharmacy:upsertDrug', { name: 'Rules Syrup', default_mrp: 112, gst_rate: 12, schedule: 'OTC', low_stock_threshold: 5 });
+  await call('purchase:create', { client_ref: 'r-pur', invoice_number: 'R-1', wholesaler_id: sup.id, invoice_date: today, items: [{ drug_master_id: drug.id, batch_no: 'R1', expiry: '2031-01-31', qty_received: 100, purchase_price: 60, mrp: 112, selling_price: 100, gst_rate: 12 }] });
+  const p5 = await mk('Ed');
+  const adm3 = await call('ip:admitV2', { patient_id: p5.id, bed_id: (await call('beds:save', { ward_id: w1.id, bed_number: 'R-5' })).id, admission_doctor_id: doc2.id });
+  await call('settings:save', { ipd_auto_accrue_bed: false, ipd_auto_accrue_nursing: false, ipd_auto_accrue_doctor_visit: false });
+  const before3 = (await call('bill:previewAdmission', adm3.id)).totals.total;
+  const ord = await call('ip:medOrderAdd', adm3.id, { drug_master_id: drug.id, drug_name: 'Rules Syrup', dose: '5ml', route: 'PO', frequency: 'BD', ordered_by_doctor_id: doc.id });
+  const give = await call('ip:medAdminGive', ord.id, { status: 'given', qty: 2, administered_by: 'nurse' });
+  ok(give.ok && give.billed, 'a ward medicine is given and billed');
+  pv = await call('bill:previewAdmission', adm3.id);
+  const med = pv.items.find((i: any) => i.source === 'ipd_medication');
+  near(med.rate, 100, 'priced at the batch\'s selling price (₹100), as the counter does — it used to use the MRP (₹112)');
+  near(pv.totals.total - before3, 200, 'the bill grew by exactly 2 × ₹100');
+  near(pv.totals.cgstTotal + pv.totals.sgstTotal, r(200 - 200 / 1.12), 'with the GST inside it shown as CGST + SGST');
+  eq(med.tax_inclusive, 1, '…the line is a tax-inclusive price');
+  eq(pv.totals.isTaxInvoice, true, '…and the bill is a tax invoice');
+  near(pv.totals.taxableTotal + pv.totals.cgstTotal + pv.totals.sgstTotal + pv.totals.exemptTotal + pv.totals.roundOff, pv.totals.total, '…whose parts add up to the total');
+  await call('settings:save', { ipd_gst_enabled: false });
+  pv = await call('bill:previewAdmission', adm3.id);
+  near(pv.totals.cgstTotal + pv.totals.sgstTotal, 0, 'with "GST on in-patient bills" switched OFF the open bill carries no GST');
+  near(pv.totals.total, before3 + 200, '…and costs the same');
+  await call('settings:save', { ipd_gst_enabled: true });
+  pv = await call('bill:previewAdmission', adm3.id);
+  ok(pv.totals.cgstTotal > 0, '…and switching it back on brings the tax back');
+  // counter charge to the in-patient bill
+  await call('settings:save', { pharmacy_ipd_charge_enabled: true });
+  const sale = await call('pharmacy:sell', { patient_id: p5.id, ipd_admission_id: adm3.id, items: [{ drug_master_id: drug.id, drug_name: 'Rules Syrup', qty: 1, rate: 112 }], client_ref: 'r-ipd-1' });
+  const l2 = one("SELECT * FROM bill_items WHERE source='pharmacy_ipd' AND source_ref_id=?", sale.id);
+  eq(l2.is_taxable, 1, 'a medicine charged to the bill from the counter carries its GST too');
+  near(l2.cgst + l2.sgst, 12, '…₹12 of it inside the ₹112');
+  // GST payable includes the pharmacy counter sales
+  const cs = await call('pharmacy:sell', { patient_id: p5.id, items: [{ drug_master_id: drug.id, drug_name: 'Rules Syrup', qty: 1, rate: 112 }], payment_mode: 'Cash', client_ref: 'r-cs-1' });
+  const bi = await call('analytics:billing', today, today);
+  const fromSales = one("SELECT COALESCE(SUM(cgst_total + sgst_total),0) g FROM pharmacy_sales WHERE COALESCE(payment_mode,'') <> 'IPD-bill' AND date(created_at,'localtime')=?", today).g;
+  const fromBills = one("SELECT COALESCE(SUM(cgst_total + sgst_total),0) g FROM bills WHERE is_tax_invoice=1 AND status <> 'cancelled' AND date(created_at,'localtime')=?", today).g;
+  near(bi.gst.total, fromSales + fromBills, 'GST payable in Analytics = tax on bills + tax inside pharmacy counter sales (the pharmacy part was missing)');
+  ok(fromSales >= 12 - 0.01, '…and the ₹12 inside the counter sale is in it');
+  eq(cs.on_credit, 0, '(the counter sale was an ordinary one)');
+  // a clinic that ticked "registered" but never picked a type is treated as regular everywhere
+  await call('settings:save', { gst_registration_type: 'unregistered' });
+  const cs2 = await call('pharmacy:sell', { patient_id: p5.id, items: [{ drug_master_id: drug.id, drug_name: 'Rules Syrup', qty: 1, rate: 112 }], payment_mode: 'Cash', client_ref: 'r-cs-2' });
+  near(cs2.cgst_total + cs2.sgst_total, 12, 'with GST ticked and the registration type left on "unregistered", the pharmacy still extracts the tax — the same as the ward (they used to disagree)');
+  await call('settings:save', { gst_registration_type: 'composition' });
+  const cs3 = await call('pharmacy:sell', { patient_id: p5.id, items: [{ drug_master_id: drug.id, drug_name: 'Rules Syrup', qty: 1, rate: 112 }], payment_mode: 'Cash', client_ref: 'r-cs-3' });
+  near(cs3.cgst_total + cs3.sgst_total, 0, 'a composition dealer charges no GST anywhere');
+  pv = await call('bill:previewAdmission', adm3.id);
+  near(pv.totals.cgstTotal + pv.totals.sgstTotal, 0, '…including the ward');
+
+  section('7 · who may approve a discharge or refund a deposit');
+  await call('settings:save', { require_login: true });
+  await call('auth:login', 'admin', 'admin123');
+  const mkU = async (u: string, role: string) => (await call('auth:createUser', { username: u, password: 'pass1234', role, display_name: u })).id;
+  await mkU('nurse_n', 'nurse'); await mkU('rec_r', 'receptionist');
+  await call('auth:logout'); await call('auth:login', 'nurse_n', 'pass1234');
+  const adv = one('SELECT id FROM advances LIMIT 1');
+  ok((await attempt('advances:refund', adv.id, 10, 'test', 'x')).ok === false, 'a nurse cannot refund a deposit');
+  ok((await attempt('ip:approveDischarge', adm3.id, { by: 'x' })).ok === false, '…or approve a discharge');
+  await call('auth:logout'); await call('auth:login', 'rec_r', 'pass1234');
+  ok((await attempt('advances:refund', adv.id, 10, 'test', 'rec_r')).ok, 'a receptionist can refund a deposit');
+  await call('auth:logout');
+  await call('settings:save', { require_login: false });
+
+  section('8 · deleting a patient says what money went with them');
+  await call('auth:login', 'admin', 'admin123').catch(() => null);
+  const del = await attempt('admin:deletePatient', p1.id);
+  const line = one("SELECT details FROM audit_log WHERE action='patient_deleted' ORDER BY id DESC LIMIT 1");
+  ok(!!line && /erased with .*bill\(s\)/.test(String(line.details)), `the audit line names the bills, deposit and credit that were erased (${line?.details ?? 'no line — ' + JSON.stringify(del)})`);
+
+  finish();
+  function r(n: number) { return Math.round(n * 100) / 100; }
+})().catch((e) => { console.error('E2E CRASHED', e); process.exit(1); });

@@ -597,7 +597,7 @@ console.log('\n== upgrade: a v4-shaped database with real-looking data → v5 ==
 
   // 3. the upgrade
   runMigrations(db);
-  eq((db.prepare("SELECT value FROM schema_meta WHERE key='version'").get() as any).value, '7', 'schema version is now 7 (current)');
+  eq((db.prepare("SELECT value FROM schema_meta WHERE key='version'").get() as any).value, '8', 'schema version is now 8 (current)');
   ok(cols('drug_stock_batches').includes('unit_cost') && cols('purchase_invoices').includes('amount_paid') && cols('dispensing_register').includes('unit_cost'), 'new columns exist');
   eq(batchOf(db, dA, 'LA').unit_cost, 45.4545, 'batch cost backfilled: ₹5,000 for 110 units = ₹45.4545 (free units counted)');
   eq(batchOf(db, dB, 'LB').unit_cost, 50, 'batch without free units: ₹50');

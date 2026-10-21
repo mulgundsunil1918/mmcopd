@@ -78,8 +78,10 @@ const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String
   const pct = await call('bills:create', { appointment_id: a2.id, patient_id: p2.id, items: [{ description: 'Consultation', qty: 1, rate: 300, amount: 300 }, { description: 'Dressing', qty: 2, rate: 100, amount: 200 }], discount: 10, discount_type: 'percent', payment_mode: 'UPI' });
   eq(pct.subtotal, 500, 'subtotal = 300 + 2×100');
   eq(pct.total, 450, '10% discount → ₹450');
-  const flat = await call('bills:create', { appointment_id: null, patient_id: p2.id, items: [{ description: 'X', qty: 1, rate: 100, amount: 100 }], discount: 150, discount_type: 'flat', payment_mode: 'Cash' });
-  eq(flat.total, 0, 'a flat discount larger than the bill gives ₹0, never negative');
+  const flat = await attempt('bills:create', { appointment_id: null, patient_id: p2.id, items: [{ description: 'X', qty: 1, rate: 100, amount: 100 }], discount: 150, discount_type: 'flat', payment_mode: 'Cash' });
+  ok(!flat.ok && /discount is more than the bill/i.test((flat as any).error), 'a flat discount larger than the bill is refused (a typo must not give a free bill) — never a negative total');
+  const full = await call('bills:create', { appointment_id: null, patient_id: p2.id, items: [{ description: 'X', qty: 1, rate: 100, amount: 100 }], discount: 100, discount_type: 'flat', payment_mode: 'Cash' });
+  eq(full.total, 0, 'a discount equal to the whole bill gives ₹0');
   const found = await call('bills:list', { q: 'Sita' });
   ok(found.length >= 1 && found.every((b: any) => /Sita/.test(b.patient_name)), 'Billing search by patient name works');
 

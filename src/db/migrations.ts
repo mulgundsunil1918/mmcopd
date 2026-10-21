@@ -959,6 +959,26 @@ export function runMigrations(db: Database.Database) {
     }
   } catch { /* the repair is best-effort; the rest of the upgrade must not depend on it */ }
 
+  // ===== Schema v8 — GST inside a medicine's MRP on in-patient bills =====
+  // Additive only. A bill line flagged tax_inclusive carries its tax INSIDE the amount (an MRP): the tax is taken out of
+  // what the patient pays, never added on top. Every existing line stays exclusive (0), so no old bill changes.
+  addColumnIfMissing(db, 'bill_items', 'tax_inclusive', 'INTEGER NOT NULL DEFAULT 0');
+  // 0.9.1 posted medicines charged to an in-patient bill as exempt lines. Give those lines the real GST rate of the sale item
+  // they came from (same description "<drug> × <qty>", same sale), marked inclusive — only where GST was charged on the sale.
+  try {
+    db.exec(`
+      UPDATE bill_items SET
+        gst_rate = (SELECT si.gst_rate FROM pharmacy_sale_items si
+                     WHERE si.sale_id = bill_items.source_ref_id AND si.drug_name || ' × ' || si.qty = bill_items.description LIMIT 1),
+        hsn_sac = COALESCE(hsn_sac, (SELECT si.hsn_sac FROM pharmacy_sale_items si
+                     WHERE si.sale_id = bill_items.source_ref_id AND si.drug_name || ' × ' || si.qty = bill_items.description LIMIT 1)),
+        is_taxable = 1, tax_inclusive = 1
+       WHERE source = 'pharmacy_ipd' AND tax_inclusive = 0 AND is_taxable = 0
+         AND COALESCE((SELECT si.gst_rate FROM pharmacy_sale_items si
+                        WHERE si.sale_id = bill_items.source_ref_id AND si.drug_name || ' × ' || si.qty = bill_items.description LIMIT 1), 0) > 0
+    `);
+  } catch { /* nothing to repair on a database that never had those lines */ }
+
   // ===== Schema v7 — medicines on credit (pay later) =====
   // Additive only. amount_paid is what has been RECEIVED for a pharmacy sale so far (the part taken at the counter plus
   // any later payments); NULL means "paid in full when sold" — every sale made before credit existed — so old sales
@@ -1068,6 +1088,13 @@ export function runMigrations(db: Database.Database) {
   }
 
   if (currentVersion < SCHEMA_VERSION) {
+    // An existing database being brought up to date is a clinic that is already set up: it must never meet the first-run
+    // setup guide, whatever it contains (even a clinic with no patients yet). The note is made here, once, before anything else
+    // can look at it. (A brand-new database has no version row — currentVersion 0 — and is left to start the guide.)
+    if (currentVersion > 0) {
+      db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('setup_wizard', ?)")
+        .run(JSON.stringify({ status: 'done', origin: 'existing-clinic', steps: {}, updated_at: new Date().toISOString() }));
+    }
     db.prepare(
       "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)"
     ).run(String(SCHEMA_VERSION));
