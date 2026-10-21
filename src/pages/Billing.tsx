@@ -11,6 +11,7 @@ import { useLicensedModules } from '../hooks/useLicensedModules';
 import { AdmissionBillWorkspace } from '../components/billing/AdmissionBillWorkspace';
 import { PatientPortal, PortalSearch } from '../components/billing/PatientPortal';
 import { PharmacySaleReceipt } from '../components/pharmacy/PharmacySaleReceipt';
+import { CollectPaymentModal } from '../components/billing/CollectPaymentModal';
 import { Modal } from '../components/Modal';
 import { addDaysISO } from '../lib/localDate';
 import type { AppointmentWithJoins, BillItem, BillWithJoins, PaymentMode } from '../types';
@@ -633,7 +634,9 @@ function BillKindBadge({ bill }: { bill: any }) {
   const map: Record<string, [string, string]> = {
     radiology: ['Radiology', 'bg-sky-100 text-sky-700'],
     lab: ['Lab', 'bg-fuchsia-100 text-fuchsia-700'],
-    pharmacy: ['Pharmacy', 'bg-lime-100 text-lime-700'],
+    // A bill typed by hand in Quick Bill never touched stock, cost or profit; stock-based pharmacy sales are not bills at all
+    // (they are listed beside the bills, with the green "Pharmacy" badge). The two are labelled differently on purpose.
+    pharmacy: ['Hand-typed pharmacy', 'bg-amber-100 text-amber-800'],
     ipd: ['IPD', 'bg-red-100 text-red-700'],
   };
   const hit = map[t] ?? (bill?.bill_kind === 'misc' ? (['Service', 'bg-pink-100 text-pink-700'] as [string, string]) : null);
@@ -648,6 +651,8 @@ function BillingHistory() {
   const [to, setTo] = useState('');
   const [reprint, setReprint] = useState<BillWithJoins | null>(null);
   const [receiptId, setReceiptId] = useState<number | null>(null);
+  const [collect, setCollect] = useState<{ saleId: number; label: string; due: number } | null>(null);   // the rest of a credit sale
+  const qc = useQueryClient();
 
   const { data: bills = [], isLoading } = useQuery({
     queryKey: ['bills', q, from, to],
@@ -729,8 +734,19 @@ function BillingHistory() {
                 <td className="py-2 text-gray-600">—</td>
                 <td className="py-2 text-gray-600">{fmtDate(row.sale!.created_at)}</td>
                 <td className="py-2 text-right font-semibold">{formatINR(row.sale!.total)}</td>
-                <td className="py-2"><span className="badge bg-gray-100 text-gray-700">{row.sale!.payment_mode}</span></td>
-                <td className="py-2 text-right">
+                <td className="py-2">
+                  <span className="badge bg-gray-100 text-gray-700">{row.sale!.payment_mode}</span>
+                  {row.sale!.due > 0.004 && (
+                    <div className="mt-0.5"><span className="badge bg-amber-100 text-amber-800">On credit · {formatINR(row.sale!.due)} due</span></div>
+                  )}
+                </td>
+                <td className="py-2 text-right whitespace-nowrap">
+                  {row.sale!.due > 0.004 && (
+                    <button className="btn-primary text-xs py-1 px-2 mr-1"
+                      onClick={() => setCollect({ saleId: row.sale!.id, label: `${row.sale!.patient_name || 'Pharmacy'} ${row.sale!.sale_number}`, due: row.sale!.due })}>
+                      Collect
+                    </button>
+                  )}
                   <button className="btn-ghost text-xs" onClick={() => setReceiptId(row.sale!.id)}>
                     <Printer className="w-3.5 h-3.5" /> Reprint
                   </button>
@@ -741,6 +757,14 @@ function BillingHistory() {
         </table>
       )}
       {receiptId !== null && <PharmacySaleReceipt saleId={receiptId} onClose={() => setReceiptId(null)} />}
+      {collect && (
+        <CollectPaymentModal target={{ saleId: collect.saleId }} label={collect.label} due={collect.due}
+          onClose={() => setCollect(null)}
+          onDone={() => {
+            setCollect(null);
+            for (const k of ['bills-pharmacy', 'pharmacy-sales', 'billing-portal', 'finance', 'receivables', 'portal-walkins']) qc.invalidateQueries({ queryKey: [k] });
+          }} />
+      )}
     </div>
   );
 }

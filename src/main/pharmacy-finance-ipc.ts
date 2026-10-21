@@ -20,6 +20,7 @@ import { logAudit } from './auth';
 import { requireModule } from './licensing/enforce';
 import { broadcastEvent } from './network-server';
 import * as fin from './pharmacy-finance';
+import { chargeMedicinesToAdmission } from './ipd-billing-ipc';
 import type { Role } from './auth';
 
 /** Who may pay a supplier (money leaving the business). Admin is always allowed by requireRole. */
@@ -76,9 +77,49 @@ export function registerPharmacyFinanceIpc() {
   ipcMain.handle('pharmacy:sell', (_e, payload: fin.SellIn) => {
     requireModule('pharmacy', 'Pharmacy');
     // Every sale is accountable: it records who made it (the signed-in user) unless the caller already said.
-    const sale = fin.sellItems(getDb(), { ...payload, sold_by: payload?.sold_by ?? who() ?? undefined });
+    const soldBy = payload?.sold_by ?? who() ?? undefined;
+    // A repeat of the same attempt (same client_ref) returns the first sale; it must not be audited or announced twice.
+    const ref = typeof payload?.client_ref === 'string' && payload.client_ref.trim() ? payload.client_ref.trim() : null;
+    const repeat = !!(ref && getDb().prepare('SELECT 1 FROM pharmacy_sales WHERE client_ref=?').get(ref));
+    let sale: any;
+    if (payload?.ipd_admission_id) {
+      // Medicines charged on an admitted patient's bill: the sale and the bill lines are made together or not at all.
+      sale = chargeMedicinesToAdmission(getDb(), payload, soldBy ?? null);
+      if (!repeat) {
+        audit('pharmacy.ipd_charge', 'pharmacy_sales', sale.id, { admission: payload.ipd_admission_id, total: sale.total });
+        try { broadcastEvent('bill:updated', { billId: null }); } catch { /* ignore */ }
+      }
+    } else {
+      // 'IPD-bill' means "leave this out of the counter totals because a bill carries it". Only the in-patient route above
+      // may set it — anything else would sell stock and book the money nowhere.
+      if (payload?.payment_mode === 'IPD-bill') {
+        throw new Error('To charge a medicine to an in-patient, pick the admitted patient on the sale — "IPD-bill" cannot be chosen as a payment mode.');
+      }
+      sale = fin.sellItems(getDb(), { ...payload, sold_by: soldBy });
+      if (sale?.on_credit && !repeat) audit('pharmacy.credit_sale', 'pharmacy_sales', sale.id, { patient: sale.patient_id, total: sale.total, paid_now: sale.amount_paid });
+    }
     tell();
     return sale;
+  });
+
+  // Which stay (if any) a patient is in — the counter offers "charge to the in-patient bill" only when there is one.
+  ipcMain.handle('pharmacy:patientAdmission', (_e, patientId: number) => fin.activeAdmissionFor(getDb(), Number(patientId)));
+
+  // ----- medicines on credit: taking the money later -----
+  // Same return shape as the other money mutations: { ok, … } or { ok: false, error } with the reason in plain words.
+  ipcMain.handle('pharmacy:payCredit', (_e, saleId: number, payment: fin.CreditPaymentIn) => {
+    requireModule('pharmacy', 'Pharmacy');
+    try {
+      const r = fin.payCredit(getDb(), Number(saleId), payment, who());
+      if (!r.duplicate) {
+        audit('pharmacy.credit_payment', 'pharmacy_sales', r.sale_id, { amount: payment?.amount, mode: payment?.mode ?? null, due_after: r.due });
+        tell();
+        try { broadcastEvent('bill:updated', { billId: null }); } catch { /* ignore */ }
+      }
+      return { ok: true as const, duplicate: r.duplicate, sale_id: r.sale_id, due: r.due };
+    } catch (e: any) {
+      return { ok: false as const, error: e?.message || 'Could not record the payment.' };
+    }
   });
 
   // ----- counter sales (named-patient ones also show in Billing; walk-ins are their own list) -----

@@ -33,12 +33,24 @@ function demoExtras(p: any, s: Stores): { lines: PortalLine[]; todo: PortalTodo[
     });
     todo.push({
       key: 'due:bill:demo-lab', kind: 'bill_due', title: `Laboratory · INV-DEMO-L${p.id}`, detail: 'Part-paid — billed 800.00, received 300.00',
-      date: dbTime(2), date_is_local: false, amount: null, due: 500, appointment_id: null, order_id: null, bill_id: 100000 + Number(p.id), admission_id: null,
+      date: dbTime(2), date_is_local: false, amount: null, due: 500, appointment_id: null, order_id: null, bill_id: 100000 + Number(p.id), sale_id: null, admission_id: null,
     });
   } else if (k === 1) {
     todo.push({
       key: 'lab:demo', kind: 'lab_unbilled', title: 'Lab order LAB-DEMO-001 not billed', detail: 'Thyroid profile (TSH) · HbA1c',
-      date: dbTime(1), date_is_local: false, amount: 950, due: null, appointment_id: null, order_id: 1, bill_id: null, admission_id: null,
+      date: dbTime(1), date_is_local: false, amount: 950, due: null, appointment_id: null, order_id: 1, bill_id: null, sale_id: null, admission_id: null,
+    });
+  } else {
+    // Medicines taken on credit: part paid at the counter, the rest still owing.
+    lines.push({
+      key: 'sale:demo-credit', source: 'pharmacy_sale', kind: 'pharmacy', number: `PH-DEMO-C${p.id}`, date: dbTime(3),
+      title: 'Pharmacy · on credit', detail: 'Medicines taken now, to be paid later', doctor_name: null,
+      total: 640, paid: 200, advance: 0, due: 440, status: 'part_paid', payment_mode: 'Cash',
+      bill_id: null, sale_id: 200000 + Number(p.id), admission_id: null, running: false, counter_sale: true,
+    });
+    todo.push({
+      key: 'due:sale:demo-credit', kind: 'bill_due', title: `Pharmacy · PH-DEMO-C${p.id}`, detail: 'On credit — billed 640.00, received 200.00',
+      date: dbTime(3), date_is_local: false, amount: null, due: 440, appointment_id: null, order_id: null, bill_id: null, sale_id: 200000 + Number(p.id), admission_id: null,
     });
   }
   const appt = s.appointments.find((a: any) => a.patient_id === p.id && !s.bills.some((b: any) => b.appointment_id === a.id));
@@ -47,7 +59,7 @@ function demoExtras(p: any, s: Stores): { lines: PortalLine[]; todo: PortalTodo[
     todo.push({
       key: `visit:${appt.id}`, kind: 'consultation_unbilled', title: `Consultation not billed — ${d?.name ?? 'Doctor'}`,
       detail: `Token #${appt.token_number} · ${appt.appointment_time} · ${appt.status}`, date: appt.appointment_date, date_is_local: true,
-      amount: d?.default_fee ?? 500, due: null, appointment_id: appt.id, order_id: null, bill_id: null, admission_id: null,
+      amount: d?.default_fee ?? 500, due: null, appointment_id: appt.id, order_id: null, bill_id: null, sale_id: null, admission_id: null,
     });
   }
   return { lines, todo };
@@ -124,10 +136,15 @@ export function demoCounterSales(f: any, s: Stores): CounterSalesResult {
       payment_mode: x.payment_mode ?? 'Cash', sold_by: x.sold_by ?? null, patient_id: x.patient_id ?? null,
       patient_name: pt ? `${pt.first_name} ${pt.last_name}` : null, patient_uhid: pt?.uhid ?? null,
       customer_name: x.customer_name ?? (pt ? null : (Number(x.id) % 2 ? 'Meena' : null)), item_count: 2,
+      // Most demo sales are paid in full; a few registered-patient ones were taken on credit.
+      ...(pt && Number(x.id) % 7 === 0
+        ? { amount_paid: r2(x.total * 0.4), due: r2(x.total * 0.6), on_credit: 1 }
+        : { amount_paid: x.total, due: 0, on_credit: 0 }),
     };
   });
   if (scope === 'patient') rows = rows.filter((x) => x.patient_id);
   else if (scope === 'guest') rows = rows.filter((x) => !x.patient_id);
+  else if (scope === 'credit') rows = rows.filter((x) => x.due > 0.004);
   if (f?.q) { const q = String(f.q).toLowerCase(); rows = rows.filter((x) => `${x.patient_name ?? ''} ${x.patient_uhid ?? ''} ${x.customer_name ?? ''} ${x.sale_number}`.toLowerCase().includes(q)); }
   const byMode = new Map<string, { count: number; total: number }>();
   for (const x of rows) { const m = byMode.get(x.payment_mode) ?? { count: 0, total: 0 }; m.count++; m.total += x.total; byMode.set(x.payment_mode, m); }
@@ -136,6 +153,8 @@ export function demoCounterSales(f: any, s: Stores): CounterSalesResult {
     totals: {
       count: rows.length, total: r2(rows.reduce((a, x) => a + x.total, 0)), discount: r2(rows.reduce((a, x) => a + x.discount, 0)),
       by_mode: [...byMode.entries()].map(([mode, v]) => ({ mode, count: v.count, total: r2(v.total) })),
+      credit_count: rows.filter((x) => x.due > 0.004).length,
+      credit_due: r2(rows.reduce((a, x) => a + x.due, 0)),
     },
   };
 }

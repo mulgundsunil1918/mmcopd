@@ -959,6 +959,31 @@ export function runMigrations(db: Database.Database) {
     }
   } catch { /* the repair is best-effort; the rest of the upgrade must not depend on it */ }
 
+  // ===== Schema v7 — medicines on credit (pay later) =====
+  // Additive only. amount_paid is what has been RECEIVED for a pharmacy sale so far (the part taken at the counter plus
+  // any later payments); NULL means "paid in full when sold" — every sale made before credit existed — so old sales
+  // read exactly as they did and nothing needs rewriting. on_credit marks a sale that was made with a balance owing.
+  // pharmacy_sale_payments holds each payment taken later against such a sale (the same idea as bill_payments).
+  addColumnIfMissing(db, 'pharmacy_sales', 'amount_paid', 'REAL');
+  addColumnIfMissing(db, 'pharmacy_sales', 'on_credit', 'INTEGER NOT NULL DEFAULT 0');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pharmacy_sale_payments (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      sale_id      INTEGER NOT NULL REFERENCES pharmacy_sales(id) ON DELETE CASCADE,
+      amount       REAL NOT NULL,
+      payment_mode TEXT,
+      received_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      received_by  TEXT,
+      reference    TEXT,
+      notes        TEXT,
+      client_ref   TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_psp_sale ON pharmacy_sale_payments(sale_id);
+    CREATE INDEX IF NOT EXISTS idx_psp_received ON pharmacy_sale_payments(received_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_psp_ref ON pharmacy_sale_payments(client_ref) WHERE client_ref IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_pharmacy_sales_credit ON pharmacy_sales(on_credit) WHERE on_credit = 1;
+  `);
+
   // ===== Pharmacy finance (schema v5) — true unit cost, selling price, supplier payments, retry safety =====
   // Everything here is ADDITIVE: no column is changed or dropped, so older data stays exactly as it was.
   //   unit_cost   what a unit really cost to acquire (free units, discounts, freight and — when it cannot

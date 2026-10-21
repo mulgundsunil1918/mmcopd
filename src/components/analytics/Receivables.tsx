@@ -10,7 +10,7 @@ import { Kpi, SectionTitle } from './Kpi';
 import { cn, fmtDate, fmtDateTime, formatINR } from '../../lib/utils';
 
 const KIND_COLOUR: Record<string, string> = {
-  ipd: '#3b82f6', lab: '#d946ef', radiology: '#0ea5e9', consultation: '#8b5cf6', service: '#f59e0b', pharmacy: '#10b981',
+  ipd: '#3b82f6', lab: '#d946ef', radiology: '#0ea5e9', consultation: '#8b5cf6', service: '#f59e0b', pharmacy: '#10b981', pharmacy_manual: '#d97706',
 };
 
 export function ReceivablesSection() {
@@ -34,7 +34,7 @@ export function ReceivablesSection() {
         <Kpi label="Outstanding" value={formatINR(r.total_due)} tone={r.total_due > 0 ? 'rose' : 'gray'} />
         <Kpi label="Bills unpaid" value={r.bills_due} tone="amber" />
         <Kpi label="Patients owing" value={r.patients_due} tone="indigo" />
-        <Kpi label="Longest wait" value={oldest ? oldest.label : '—'} sub={oldest ? `${formatINR(oldest.due)} in that band` : 'nothing is owed'} tone="gray" />
+        <Kpi label="Oldest unpaid bills" value={oldest ? oldest.label : '—'} sub={oldest ? `${formatINR(oldest.due)} owed for that long` : 'nothing is owed'} tone="gray" />
       </div>
 
       {r.total_due > 0 && (
@@ -57,7 +57,11 @@ export function ReceivablesSection() {
                 </li>
               ))}
             </ul>
-            <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 mt-5 mb-3">How long it has been owed</div>
+            <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 mt-5">How long it has been owed</div>
+            <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5 mb-3">
+              Unpaid bills sorted by how old they are, counted from the day each was raised. The longer a bill waits, the harder it is to collect —
+              so the lower rows are the ones to chase first.
+            </div>
             <ul className="space-y-2">
               {r.aging.map((a) => (
                 <li key={a.label} className="text-xs">

@@ -213,6 +213,24 @@ export function createMockElectronAPI(): any {
     audit: {
       list: () => r([]),
     },
+    // First-run guide. The showcase clinic is already set up, so the guide only appears when asked for: open the demo with
+    // ?setup in the address, or press "Open the setup guide" in Settings.
+    setup: (() => {
+      let status: 'pending' | 'skipped' | 'done' = (() => { try { return new URLSearchParams(location.search).has('setup') ? 'pending' : 'done'; } catch { return 'done'; } })();
+      const steps: Record<string, 'todo' | 'done' | 'skipped'> = { clinic: 'todo', doctors: 'todo', fees: 'todo', staff: 'todo', pharmacy: 'todo', inpatient: 'todo' };
+      const snap = () => ({
+        show: status === 'pending', status, clinic_named: !!(settings as any).clinic_name, clinic_name: String((settings as any).clinic_name || ''),
+        existing_clinic: false, steps: { ...steps } as any, reminder: status === 'skipped' && Object.values(steps).some((x) => x !== 'done'),
+      });
+      return {
+        status: () => r(snap()),
+        markStep: (step: string, outcome: 'done' | 'skipped') => { if (!(steps[step] === 'done' && outcome === 'skipped')) steps[step] = outcome; return r({ ok: true as const, status: snap() }); },
+        setStatus: (st: 'pending' | 'skipped' | 'done') => {
+          if (st !== 'pending' && !(settings as any).clinic_name) return r({ ok: false as const, error: 'Enter the clinic name first — it prints on every bill, slip and report, and the software cannot be used without it.' });
+          status = st; return r({ ok: true as const, status: snap() });
+        },
+      };
+    })(),
     settings: {
       // Honour a login-requirement toggle across reloads (the mock is otherwise
       // in-memory) so the sign-in gate can be demonstrated in the showcase.
@@ -536,9 +554,29 @@ export function createMockElectronAPI(): any {
       sell: (payload: any) => {
         const total = (payload.items || []).reduce((s: number, it: any) => s + it.qty * it.rate, 0);
         const id = nextId(pharmSales);
-        const created: any = { id, sale_number: `PHX-${String(id).padStart(5, '0')}`, ...payload, subtotal: total, total, created_at: new Date().toISOString() };
+        // Medicines on credit: only what was paid now counts as received; the rest stays owing.
+        const paidNow = payload.credit ? Math.min(total, Math.max(0, Number(payload.paid_now || 0))) : total;
+        const onCredit = payload.credit && paidNow < total ? 1 : 0;
+        const created: any = {
+          id, sale_number: `PHX-${String(id).padStart(5, '0')}`, ...payload, subtotal: total, total,
+          payment_mode: payload.ipd_admission_id ? 'IPD-bill' : onCredit && paidNow === 0 ? 'Credit' : payload.payment_mode,
+          amount_paid: onCredit ? paidNow : total, on_credit: onCredit, created_at: new Date().toISOString(),
+        };
         pharmSales = [...pharmSales, created];
         return r(created);
+      },
+      patientAdmission: (patientId: number) => r(patientId % 5 === 0
+        ? { admission_id: 9000 + patientId, admission_number: `IP-DEMO-${patientId}`, ward: 'General ward', bed_number: `B${patientId % 9 + 1}`, discharge_status: 'none' }
+        : null),
+      payCredit: (saleId: number, p: any) => {
+        const sale: any = pharmSales.find((x: any) => x.id === saleId);
+        const amt = Number(p?.amount) || 0;
+        if (!sale) return r({ ok: false as const, error: 'That pharmacy sale was not found. Refresh the list and try again.' });
+        const due = Math.max(0, (sale.total ?? 0) - (sale.amount_paid ?? sale.total ?? 0));
+        if (amt <= 0) return r({ ok: false as const, error: 'Enter an amount above zero.' });
+        if (amt > due + 0.001) return r({ ok: false as const, error: `That is more than the ${due.toFixed(2)} still owed. Enter ${due.toFixed(2)} or less.` });
+        pharmSales = pharmSales.map((x: any) => x.id === saleId ? { ...x, amount_paid: (x.amount_paid ?? x.total) + amt } : x);
+        return r({ ok: true as const, duplicate: false, sale_id: saleId, due: Math.max(0, due - amt) });
       },
       saleDetail: (id: number) => {
         const sale: any = pharmSales.find((x: any) => x.id === id) ?? pharmSales[0];
@@ -734,6 +772,16 @@ export function createMockElectronAPI(): any {
           patient: `${p.first_name} ${p.last_name}`, uhid: p.uhid, amount: 600 - i * 90, reason: i % 2 ? null : ['Senior citizen', 'Staff family', 'Long-standing patient'][i % 3], by: i % 2 ? 'Counter' : 'Reception',
         })),
       }),
+      manualPharmacy: (from: string, to: string) => r({
+        from, to, bills: 7, billed: 4620, discount: 180, collected: 4120, still_owed: 500, owed_now: 740,
+        by_mode: [{ mode: 'Cash', count: 4, total: 2900 }, { mode: 'UPI', count: 2, total: 1320 }, { mode: 'Pending', count: 1, total: 400 }],
+        by_day: [3, 2, 1].map((d, i) => ({ day: new Date(Date.now() - d * 86_400_000).toISOString().slice(0, 10), bills: i + 2, total: 1800 - i * 520 })),
+        by_customer: [{ kind: 'patient' as const, count: 5, total: 3700 }, { kind: 'walk-in' as const, count: 2, total: 920 }],
+        largest: patients.slice(0, 4).map((p: any, i: number) => ({
+          bill_number: `INV-2026-27/0${i + 40}`, created_at: '2026-10-1' + (i + 1) + ' 12:10:00', name: `${p.first_name} ${p.last_name}`,
+          total: 1240 - i * 260, due: i === 3 ? 400 : 0, payment_mode: i === 3 ? 'Pending' : 'Cash',
+        })),
+      }),
       unbilled: () => r({
         days: 60,
         lab: { orders: 3, value: 2150 }, radiology: { orders: 1, value: 1500 }, visits: { count: 4, value: 2000 }, total_value: 5650,
@@ -771,7 +819,8 @@ export function createMockElectronAPI(): any {
         topDrugs: drugMaster.slice(0, 8).map((d) => ({ name: d.name, units: 50, revenue: 1500, sales: 12 })),
         salesMix: [{ kind: 'Counter Sale (walk-in)', count: 18, revenue: 9000 }, { kind: 'Rx-driven (from doctor)', count: 32, revenue: 23000 }],
         customerMix: [{ kind: 'patient', count: 34, revenue: 22400, avg_sale: 659 }, { kind: 'guest', count: 16, revenue: 9600, avg_sale: 600 }],
-        paymentMix: [{ mode: 'Cash', count: 26, revenue: 15200 }, { mode: 'UPI', count: 18, revenue: 12100 }, { mode: 'Card', count: 6, revenue: 4700 }],
+        paymentMix: [{ mode: 'Cash', count: 26, revenue: 14100 }, { mode: 'UPI', count: 18, revenue: 11300 }, { mode: 'Card', count: 6, revenue: 4400 }, { mode: 'On credit', count: 3, revenue: 2200 }],
+        creditSummary: { sold_count: 3, credit_value: 2200, still_owed_from_these: 1480, owed_now: 3150, sales_owing: 5, patients_owing: 4, oldest_owed_since: '2026-09-02' },
         topPatients: patients.slice(0, 6).map((p, i) => ({ patient_id: p.id, name: `${p.first_name} ${p.last_name}`, uhid: p.uhid, sales: 4 - Math.floor(i / 2), revenue: 3100 - i * 380 })),
         scheduleMix: [{ schedule: 'OTC', count: 110, units: 320 }, { schedule: 'H', count: 80, units: 220 }, { schedule: 'H1', count: 10, units: 25 }],
         lowStock: [{ name: 'Azithromycin 500mg', stock: 8, low_stock_threshold: 10 }, { name: 'Pantoprazole 40mg', stock: 6, low_stock_threshold: 10 }],

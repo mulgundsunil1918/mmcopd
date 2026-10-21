@@ -40,6 +40,12 @@ export function PharmacySaleReceipt({ saleId, onClose }: { saleId: number; onClo
   const discount = Number((sale as any).discount || 0);
   const total = Number((sale as any).total || 0);
   const hasSchedule = items.some((i) => i.schedule === 'H' || i.schedule === 'H1' || i.schedule === 'X');
+  // Medicines on credit / on the in-patient bill: a reprint must say what has been paid and what is still owing.
+  const isIpd = (sale as any).payment_mode === 'IPD-bill';
+  const onCredit = Number((sale as any).on_credit) === 1;
+  const due = Number((sale as any).due || 0);
+  const received = Number((sale as any).amount_received ?? total);
+  const laterPayments: any[] = (sale as any).payments || [];
 
   return (
     <div className="fixed inset-0 z-[200] bg-black/50 overflow-auto p-4 no-print-bg">
@@ -89,7 +95,10 @@ export function PharmacySaleReceipt({ saleId, onClose }: { saleId: number; onClo
             <div className="text-slate-600">
               <b>Date:</b> {(sale as any).created_at ? (parseDbDate((sale as any).created_at) || new Date()).toLocaleString('en-IN') : new Date().toLocaleString('en-IN')}
             </div>
-            <div className="text-slate-600"><b>Payment:</b> {(sale as any).payment_mode || '—'}</div>
+            <div className="text-slate-600">
+              <b>Payment:</b>{' '}
+              {isIpd ? 'Charged to the in-patient bill' : onCredit ? (due > 0.004 ? 'On credit' : 'On credit — paid in full') : ((sale as any).payment_mode || '—')}
+            </div>
             {(sale as any).sold_by && <div className="text-slate-600">By: {(sale as any).sold_by}</div>}
           </div>
         </div>
@@ -177,9 +186,37 @@ export function PharmacySaleReceipt({ saleId, onClose }: { saleId: number; onClo
                 <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 700 }}>Total</td>
                 <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 700, fontSize: 14 }}>₹{inr(total)}</td>
               </tr>
+              {onCredit && !isIpd && (
+                <>
+                  <tr>
+                    <td style={{ padding: '3px 10px', textAlign: 'right', color: '#475569' }}>Received</td>
+                    <td style={{ padding: '3px 10px', textAlign: 'right' }}>₹{inr(received)}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: '3px 10px', textAlign: 'right', fontWeight: 700, color: due > 0.004 ? '#b91c1c' : '#047857' }}>
+                      {due > 0.004 ? 'Balance due' : 'Balance'}
+                    </td>
+                    <td style={{ padding: '3px 10px', textAlign: 'right', fontWeight: 700, color: due > 0.004 ? '#b91c1c' : '#047857' }}>₹{inr(due)}</td>
+                  </tr>
+                </>
+              )}
             </tbody>
           </table>
         </div>
+        {laterPayments.length > 0 && (
+          <div className="mt-2 text-[10px] text-slate-600">
+            <div className="font-semibold uppercase tracking-wide text-slate-500">Payments received after the sale</div>
+            {laterPayments.map((p, i) => (
+              <div key={i}>
+                {(parseDbDate(p.received_at) || new Date()).toLocaleDateString('en-IN')} · {p.payment_mode || 'Cash'} · ₹{inr(p.amount)}
+                {p.received_by ? ` · received by ${p.received_by}` : ''}
+              </div>
+            ))}
+          </div>
+        )}
+        {isIpd && (
+          <div className="mt-2 text-[10px] text-slate-600">This amount is on the patient&apos;s in-patient bill and is collected with it.</div>
+        )}
 
         {/* ===== Footer ===== */}
         <div className="mt-6 pt-3 text-[10px] text-slate-500" style={{ borderTop: '1px solid #e2e8f0' }}>

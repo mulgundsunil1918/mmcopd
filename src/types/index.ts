@@ -620,6 +620,12 @@ export interface PharmacySale {
   sold_by: string | null;
   /** Name typed for a walk-in (guest) sale — only ever set when no patient is attached. */
   customer_name?: string | null;
+  /** Received so far (counter payment + later payments). null = paid in full when sold (every sale made before credit existed). */
+  amount_paid?: number | null;
+  /** 1 when the sale was made with a balance owing (medicines on credit). */
+  on_credit?: number;
+  /** Still owing on a credit sale (0 for an ordinary sale). Present on lists from the main process. */
+  due?: number;
   created_at: string;
 }
 
@@ -845,6 +851,10 @@ export interface Settings {
   lab_auto_bill: boolean;
   /** Auto-raise an unpaid radiology bill when a scan is ordered. Default on. */
   radiology_auto_bill: boolean;
+  /** Let a registered patient take medicines on credit (pay later, all or part). Default off — a deliberate choice. */
+  pharmacy_credit_enabled: boolean;
+  /** Let the pharmacy counter charge medicines to an admitted patient's in-patient bill. Default off. */
+  pharmacy_ipd_charge_enabled: boolean;
 
   // ===== Customisable role-based access =====
   // JSON map of { [routePath]: Role[] } that OVERRIDES the built-in defaults for

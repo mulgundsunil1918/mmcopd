@@ -4,7 +4,7 @@ import type {
   CostNotRecordedSummary, CounterSalesFilter, CounterSalesResult, IntegrityFinding, PriceHistoryRow, ProfitReport,
   SupplierReport, Valuation,
 } from './lib/pharmacyReports';
-import type { DiscountsGiven, OrderBillResult, PatientPortal, Receivables, UnbilledWork } from './lib/billingPortal';
+import type { DiscountsGiven, ManualPharmacy, OrderBillResult, PatientPortal, Receivables, SetupStatus, UnbilledWork } from './lib/billingPortal';
 
 export type LicenseStatusIPC = {
   state: 'valid' | 'grace' | 'locked' | 'invalid' | 'wrong_machine' | 'clock_tampered' | 'none' | 'dev';
@@ -402,7 +402,23 @@ const api = {
       discount?: number;
       payment_mode?: string;
       sold_by?: string;
+      /** Medicines on credit: a registered patient takes them now and pays later. Needs the Settings switch. */
+      credit?: boolean;
+      /** With `credit`: what is paid now (default 0); the rest stays owing. */
+      paid_now?: number;
+      /** Charge the medicines to an admitted patient's in-patient bill instead of taking payment. Needs the Settings switch. */
+      ipd_admission_id?: number | null;
     }) => ipcRenderer.invoke('pharmacy:sell', payload) as Promise<PharmacySale>,
+    /** The stay the patient is in right now (or null) — offers "charge to the in-patient bill" at the counter. */
+    patientAdmission: (patientId: number) =>
+      ipcRenderer.invoke('pharmacy:patientAdmission', patientId) as Promise<
+        { admission_id: number; admission_number: string; ward: string | null; bed_number: string | null; discharge_status: string } | null
+      >,
+    /** Take a payment against a sale that was made on credit. Refuses an amount above what is still owed. */
+    payCredit: (saleId: number, payment: { amount: number; mode?: string | null; reference?: string | null; notes?: string | null; client_ref?: string | null }) =>
+      ipcRenderer.invoke('pharmacy:payCredit', saleId, payment) as Promise<
+        { ok: true; duplicate: boolean; sale_id: number; due: number } | { ok: false; error: string }
+      >,
     /** Counter sales (never ward-dispensed ones): under a registered patient, or walk-in guests. Totals cover the whole filter. */
     counterSales: (filter?: CounterSalesFilter) =>
       ipcRenderer.invoke('pharmacy:counterSales', filter || {}) as Promise<CounterSalesResult>,
@@ -619,6 +635,14 @@ const api = {
     get: () => ipcRenderer.invoke('settings:get') as Promise<Settings>,
     save: (patch: Partial<Settings>) => ipcRenderer.invoke('settings:save', patch) as Promise<Settings>,
   },
+  /** First-run setup guide: where a fresh clinic stands, and remembering what was saved or skipped. */
+  setup: {
+    status: () => ipcRenderer.invoke('setup:status') as Promise<SetupStatus>,
+    markStep: (step: string, outcome: 'done' | 'skipped') =>
+      ipcRenderer.invoke('setup:markStep', step, outcome) as Promise<{ ok: true; status: SetupStatus } | { ok: false; error: string }>,
+    setStatus: (status: 'pending' | 'skipped' | 'done', opts?: { stop_reminders?: boolean }) =>
+      ipcRenderer.invoke('setup:setStatus', status, opts) as Promise<{ ok: true; status: SetupStatus } | { ok: false; error: string }>,
+  },
   stats: {
     today: () =>
       ipcRenderer.invoke('stats:today') as Promise<{
@@ -690,6 +714,11 @@ const api = {
         /** Registered patients vs walk-in guests. */
         customerMix: { kind: 'patient' | 'guest'; count: number; revenue: number; avg_sale: number }[];
         paymentMix: { mode: string; count: number; revenue: number }[];
+        /** Medicines sold on credit: this period's, and what is owed now across every credit sale. */
+        creditSummary: {
+          sold_count: number; credit_value: number; still_owed_from_these: number;
+          owed_now: number; sales_owing: number; patients_owing: number; oldest_owed_since: string | null;
+        };
         topPatients: { patient_id: number; name: string; uhid: string; sales: number; revenue: number }[];
         scheduleMix: { schedule: string; count: number; units: number }[];
         lowStock: { name: string; stock: number; low_stock_threshold: number }[];
@@ -731,6 +760,8 @@ const api = {
     discounts: (from: string, to: string, limit?: number) => ipcRenderer.invoke('analytics:discounts', from, to, limit) as Promise<DiscountsGiven>,
     /** Lab orders, scans and visits with no bill (last N days) — work that could still be charged. */
     unbilled: (opts?: { days?: number; limit?: number }) => ipcRenderer.invoke('analytics:unbilled', opts || {}) as Promise<UnbilledWork>,
+    /** Hand-typed pharmacy bills (Quick Bill → Pharmacy) over a period — kept apart from stock-based pharmacy sales. */
+    manualPharmacy: (from: string, to: string) => ipcRenderer.invoke('analytics:manualPharmacy', from, to) as Promise<ManualPharmacy>,
   },
   license: {
     status: () => ipcRenderer.invoke('license:status') as Promise<LicenseStatusIPC>,

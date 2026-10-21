@@ -11,8 +11,9 @@
  *     count as paid: while the stay is running, up to what the bill still needs; after discharge approval, the
  *     amount the approval recorded as adjusted into the bill (bills.advance_adjusted).
  *   - A cancelled bill is shown, but is not revenue and is never "due".
- *   - Counter pharmacy sales (under this patient) are paid in full at the counter. Medicines dispensed on a ward
- *     are already lines on the in-patient bill, so they are NOT listed again here.
+ *   - Counter pharmacy sales (under this patient) are paid at the counter — or, when the clinic allows medicines on
+ *     credit, only in part, and the rest is due like any bill. Medicines dispensed on a ward (or charged to the
+ *     in-patient bill) are already lines on that bill, so they are NOT listed again here.
  *   - "Can be billed" = something real that has no live bill: a visit without a consultation bill, a lab or
  *     radiology order whose tests have prices but no bill, a prescription not yet dispensed. Nothing is invented.
  */
@@ -22,7 +23,7 @@ import { fromPaise, r2, toPaise } from '../lib/pharmacyMath';
 import { raiseLabBill } from './lab-billing';
 import type {
   Collections, DailyCollectionRow, OrderBillResult, OutstandingBill, PatientPortal, PortalKind, PortalLine, PortalStatus, PortalTodo,
-  DiscountRow, DiscountsGiven, Receivables, UnbilledItem, UnbilledWork,
+  DiscountRow, DiscountsGiven, ManualPharmacy, Receivables, UnbilledItem, UnbilledWork,
 } from '../lib/billingPortal';
 import * as rad from './radiology';
 
@@ -33,7 +34,7 @@ const shorten = (s: string | null | undefined, n = 140) => {
 
 const KIND_TITLE: Record<PortalKind, string> = {
   consultation: 'Consultation', lab: 'Laboratory', radiology: 'Radiology', service: 'Service',
-  pharmacy: 'Pharmacy bill', ipd: 'In-patient bill',
+  pharmacy: 'Pharmacy (on credit)', pharmacy_manual: 'Pharmacy bill (hand-typed)', ipd: 'In-patient bill',
 };
 
 function kindOfBill(b: { bill_type: string | null; bill_kind: string | null; admission_id: number | null }): PortalKind {
@@ -41,7 +42,7 @@ function kindOfBill(b: { bill_type: string | null; bill_kind: string | null; adm
   switch (b.bill_type) {
     case 'lab': return 'lab';
     case 'radiology': return 'radiology';
-    case 'pharmacy': return 'pharmacy';
+    case 'pharmacy': return 'pharmacy_manual';      // a hand-typed pharmacy bill: no stock, cost or profit behind it
     case 'opd_consult': return b.bill_kind === 'misc' ? 'service' : 'consultation';
     default: return 'service';        // misc, custom, anything a clinic invents
   }
@@ -156,13 +157,16 @@ export function patientPortal(db: Database.Database, patientId: number): Patient
 
   // ---- counter pharmacy sales under this patient (ward-dispensed ones are on the in-patient bill) ----
   const sales = db.prepare(`
-    SELECT s.id, s.sale_number, s.created_at, s.total, s.payment_mode,
+    SELECT s.id, s.sale_number, s.created_at, s.total, s.payment_mode, s.on_credit, COALESCE(s.amount_paid, s.total) AS received,
            (SELECT group_concat(si.drug_name || ' ×' || si.qty, ' · ') FROM pharmacy_sale_items si WHERE si.sale_id = s.id) AS items
       FROM pharmacy_sales s
      WHERE s.patient_id = ? AND COALESCE(s.payment_mode, '') <> 'IPD-bill'
      ORDER BY s.created_at DESC, s.id DESC
   `).all(p.id) as any[];
   for (const s of sales) {
+    // An ordinary sale is paid at the counter; one made on credit may still owe (all or part of it).
+    const saleTotalP = toPaise(s.total);
+    const saleReceivedP = Math.min(saleTotalP, Math.max(0, toPaise(s.received)));
     history.push({
       key: `sale:${s.id}`,
       source: 'pharmacy_sale',
@@ -170,13 +174,13 @@ export function patientPortal(db: Database.Database, patientId: number): Patient
       number: s.sale_number,
       date: s.created_at,
       title: 'Pharmacy',
-      detail: shorten(s.items),
+      detail: [shorten(s.items), s.on_credit ? 'sold on credit' : ''].filter(Boolean).join(' · '),
       doctor_name: null,
-      total: r2(s.total),
-      paid: r2(s.total),
+      total: fromPaise(saleTotalP),
+      paid: fromPaise(saleReceivedP),
       advance: 0,
-      due: 0,
-      status: 'paid',
+      due: fromPaise(saleTotalP - saleReceivedP),
+      status: statusOf(saleTotalP, saleReceivedP, false),
       payment_mode: s.payment_mode ?? null,
       bill_id: null,
       sale_id: s.id,
@@ -200,7 +204,7 @@ export function patientPortal(db: Database.Database, patientId: number): Patient
         ? `Bill so far ${h.total.toFixed(2)}, received ${have.toFixed(2)}${h.advance > 0 ? ' (advance counted)' : ''}`
         : `${h.status === 'part_paid' ? 'Part-paid' : 'Not paid yet'} — billed ${h.total.toFixed(2)}, received ${have.toFixed(2)}`,
       date: h.date, date_is_local: false, amount: null, due: h.due,
-      appointment_id: null, order_id: null, bill_id: h.bill_id, admission_id: h.admission_id,
+      appointment_id: null, order_id: null, bill_id: h.bill_id, sale_id: h.sale_id, admission_id: h.admission_id,
     });
   }
 
@@ -224,7 +228,7 @@ export function patientPortal(db: Database.Database, patientId: number): Patient
       title: `Consultation not billed — ${v.doctor_name}`,
       detail: `Token #${v.token_number}${v.appointment_time ? ` · ${v.appointment_time}` : ''} · ${v.status}`,
       date: v.appointment_date, date_is_local: true, amount: r2(v.default_fee), due: null,
-      appointment_id: v.id, order_id: null, bill_id: null, admission_id: null,
+      appointment_id: v.id, order_id: null, bill_id: null, sale_id: null, admission_id: null,
     });
   }
 
@@ -242,7 +246,7 @@ export function patientPortal(db: Database.Database, patientId: number): Patient
     todo.push({
       key: `lab:${o.id}`, kind: 'lab_unbilled', title: `Lab order ${o.order_number} not billed`, detail: shorten(o.tests),
       date: o.ordered_at, date_is_local: false, amount: r2(o.price), due: null,
-      appointment_id: null, order_id: o.id, bill_id: null, admission_id: null,
+      appointment_id: null, order_id: o.id, bill_id: null, sale_id: null, admission_id: null,
     });
   }
 
@@ -260,7 +264,7 @@ export function patientPortal(db: Database.Database, patientId: number): Patient
     todo.push({
       key: `rad:${o.id}`, kind: 'radiology_unbilled', title: `Radiology order ${o.order_number} not billed`, detail: shorten(o.tests),
       date: o.ordered_at, date_is_local: false, amount: r2(o.price), due: null,
-      appointment_id: null, order_id: o.id, bill_id: null, admission_id: null,
+      appointment_id: null, order_id: o.id, bill_id: null, sale_id: null, admission_id: null,
     });
   }
 
@@ -280,7 +284,7 @@ export function patientPortal(db: Database.Database, patientId: number): Patient
       key: `rx:${r.id}`, kind: 'rx_pending', title: `Prescription not dispensed — ${r.doctor_name}`,
       detail: `${r.rx_count} medicine${r.rx_count === 1 ? '' : 's'} prescribed; sell them from the Pharmacy counter`,
       date: r.appointment_date, date_is_local: true, amount: null, due: null,
-      appointment_id: r.id, order_id: null, bill_id: null, admission_id: null,
+      appointment_id: r.id, order_id: null, bill_id: null, sale_id: null, admission_id: null,
     });
   }
 
@@ -404,14 +408,34 @@ export function outstandingBills(db: Database.Database): OutstandingBill[] {
     // A walk-in bill has no patient: the name typed for it is in the notes ("Name: …").
     const typed = !r.patient_id && typeof r.notes === 'string' && r.notes.startsWith('Name: ') ? r.notes.slice(6).trim() : null;
     out.push({
-      bill_id: r.id, bill_number: r.bill_number, patient_id: r.patient_id ?? null,
+      source: 'bill', bill_id: r.id, sale_id: null, bill_number: r.bill_number, patient_id: r.patient_id ?? null,
       name: r.name?.trim() || typed || 'Walk-in', uhid: r.uhid ?? null, kind: kindOfBill(r), created_at: r.created_at,
       total: fromPaise(pos.totalP), paid: fromPaise(pos.paidP), advance: fromPaise(pos.advanceP), due: fromPaise(pos.dueP),
       age_days: Math.max(0, Number(r.age_days) || 0),
     });
   }
+
+  // Medicines sold on credit that still owe money. (An ordinary sale is paid at the counter, and one charged on an
+  // in-patient bill is part of that bill — neither can owe anything here.)
+  const credit = db.prepare(`
+    SELECT s.id, s.sale_number, s.patient_id, s.created_at, s.total, COALESCE(s.amount_paid, s.total) AS received,
+           (p.first_name || ' ' || p.last_name) AS name, p.uhid,
+           CAST(julianday(date('now', 'localtime')) - julianday(date(s.created_at, 'localtime')) AS INTEGER) AS age_days
+      FROM pharmacy_sales s LEFT JOIN patients p ON p.id = s.patient_id
+     WHERE s.on_credit = 1 AND COALESCE(s.payment_mode, '') <> 'IPD-bill' AND s.total - COALESCE(s.amount_paid, s.total) > 0.004
+  `).all() as any[];
+  for (const r of credit) {
+    const totalP = toPaise(r.total), paidP = Math.min(totalP, toPaise(r.received));
+    if (totalP - paidP <= 0) continue;
+    out.push({
+      source: 'pharmacy_sale', bill_id: 0, sale_id: r.id, bill_number: r.sale_number, patient_id: r.patient_id ?? null,
+      name: r.name?.trim() || 'Walk-in', uhid: r.uhid ?? null, kind: 'pharmacy', created_at: r.created_at,
+      total: fromPaise(totalP), paid: fromPaise(paidP), advance: 0, due: fromPaise(totalP - paidP),
+      age_days: Math.max(0, Number(r.age_days) || 0),
+    });
+  }
   // Oldest first (sorted here, not in SQL: an ORDER BY on the date makes SQLite walk the whole table by that index).
-  return out.sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.bill_id - b.bill_id));
+  return out.sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : (a.bill_id - b.bill_id) || ((a.sale_id ?? 0) - (b.sale_id ?? 0))));
 }
 
 export function receivables(db: Database.Database, opts: { limit?: number } = {}): Receivables {
@@ -495,10 +519,19 @@ export function collections(db: Database.Database, from: string, to: string): Co
           AND date(b.created_at, 'localtime') BETWEEN ? AND ?
      ) WHERE rem > 0.004 GROUP BY mode`,
   ).all(slack.lo, slack.hi, from, to) as { mode: string; n: number; amt: number }[];
+  // Pharmacy: what was taken when the sale was made (an ordinary sale: all of it; on credit: only what was paid then) …
   const pharm = db.prepare(
-    `SELECT COALESCE(NULLIF(TRIM(payment_mode), ''), 'Unspecified') AS mode, COUNT(*) AS n, COALESCE(SUM(total), 0) AS amt
-       FROM pharmacy_sales WHERE created_at >= ? AND created_at < ? AND COALESCE(payment_mode, '') <> 'IPD-bill'
-        AND date(created_at, 'localtime') BETWEEN ? AND ? GROUP BY mode`,
+    `SELECT COALESCE(NULLIF(TRIM(payment_mode), ''), 'Unspecified') AS mode, COUNT(*) AS n, COALESCE(SUM(rem), 0) AS amt FROM (
+       SELECT s.payment_mode, COALESCE(s.amount_paid, s.total) - COALESCE(p.s, 0) AS rem
+         FROM pharmacy_sales s LEFT JOIN (SELECT sale_id, SUM(amount) AS s FROM pharmacy_sale_payments GROUP BY sale_id) p ON p.sale_id = s.id
+        WHERE s.created_at >= ? AND s.created_at < ? AND COALESCE(s.payment_mode, '') <> 'IPD-bill'
+          AND date(s.created_at, 'localtime') BETWEEN ? AND ?
+     ) WHERE rem > 0.004 GROUP BY mode`,
+  ).all(slack.lo, slack.hi, from, to) as { mode: string; n: number; amt: number }[];
+  // … and what was paid later against a sale made on credit, on the day it was paid.
+  const pharmLater = db.prepare(
+    `SELECT COALESCE(NULLIF(TRIM(payment_mode), ''), 'Unspecified') AS mode, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amt
+       FROM pharmacy_sale_payments WHERE received_at >= ? AND received_at < ? AND date(received_at, 'localtime') BETWEEN ? AND ? GROUP BY mode`,
   ).all(slack.lo, slack.hi, from, to) as { mode: string; n: number; amt: number }[];
 
   const merged = new Map<string, { n: number; p: number }>();
@@ -508,7 +541,7 @@ export function collections(db: Database.Database, from: string, to: string): Co
       m.n += r.n; m.p += toPaise(r.amt); merged.set(r.mode, m);
     }
   };
-  add(rows); add(atBilling); add(pharm);
+  add(rows); add(atBilling); add(pharm); add(pharmLater);
   const sumP = (list: { amt: number }[]) => list.reduce((a, r) => a + toPaise(r.amt), 0);
   const by_mode = [...merged.entries()]
     .map(([payment_mode, v]) => ({ payment_mode, count: v.n, total: fromPaise(v.p) }))
@@ -520,6 +553,7 @@ export function collections(db: Database.Database, from: string, to: string): Co
       bill_payments: fromPaise(sumP(rows)),
       paid_at_billing: fromPaise(sumP(atBilling)),
       pharmacy_counter: fromPaise(sumP(pharm)),
+      pharmacy_credit_payments: fromPaise(sumP(pharmLater)),
     },
   };
 }
@@ -558,12 +592,22 @@ export function dailyCollection(db: Database.Database, from?: string, to?: strin
     const a = at(r.day); a.bills += r.n; a.revenueP += toPaise(r.revenue); a.cashP += toPaise(r.cash); a.cardP += toPaise(r.card); a.upiP += toPaise(r.upi);
   }
 
-  const s = range('created_at');
+  // Pharmacy: `pharmacy` is what was sold that day; what was RECEIVED is what was taken when the sale was made (all of
+  // it for an ordinary sale, only what was paid then for one on credit) …
+  const s = range('s.created_at');
   const pharmRows = db.prepare(
-    `SELECT date(created_at, 'localtime') AS day, COUNT(*) AS n, COALESCE(SUM(total), 0) AS t
-       FROM pharmacy_sales WHERE COALESCE(payment_mode, '') <> 'IPD-bill'${s.and} GROUP BY day`,
+    `SELECT date(s.created_at, 'localtime') AS day, COUNT(*) AS n, COALESCE(SUM(s.total), 0) AS t,
+            COALESCE(SUM(MAX(COALESCE(s.amount_paid, s.total) - COALESCE(pp.s, 0), 0)), 0) AS at_sale
+       FROM pharmacy_sales s LEFT JOIN (SELECT sale_id, SUM(amount) AS s FROM pharmacy_sale_payments GROUP BY sale_id) pp ON pp.sale_id = s.id
+      WHERE COALESCE(s.payment_mode, '') <> 'IPD-bill'${s.and} GROUP BY day`,
   ).all(...s.params) as any[];
-  for (const r of pharmRows) { const a = at(r.day); a.phN += r.n; a.phP += toPaise(r.t); a.recP += toPaise(r.t); }
+  for (const r of pharmRows) { const a = at(r.day); a.phN += r.n; a.phP += toPaise(r.t); a.recP += toPaise(r.at_sale); }
+  // … plus payments taken later against sales made on credit, on the day each was taken.
+  const sp = range('received_at');
+  const pharmLater = db.prepare(
+    `SELECT date(received_at, 'localtime') AS day, COALESCE(SUM(amount), 0) AS t FROM pharmacy_sale_payments WHERE 1=1${sp.and} GROUP BY day`,
+  ).all(...sp.params) as any[];
+  for (const r of pharmLater) at(r.day).recP += toPaise(r.t);
 
   const p = range('received_at');
   const payRows = db.prepare(
@@ -727,3 +771,46 @@ export function discountsGiven(db: Database.Database, from: string, to: string, 
   };
 }
 
+/**
+ * The hand-typed pharmacy bills (Quick Bill → Pharmacy) of a period, on their own. They never touched stock, so they
+ * have no cost and no profit and are kept out of every stock-based pharmacy figure; this is the only place they are
+ * analysed. Same money rule as every other flat bill: paid = what was received (never above the total), due = the rest.
+ */
+export function manualPharmacy(db: Database.Database, from: string, to: string): ManualPharmacy {
+  const slack = utcSlack(from, to);
+  const rows = db.prepare(`
+    SELECT b.bill_number, b.created_at, b.total, b.discount, b.discount_type, b.subtotal, b.payment_mode, b.amount_paid, b.notes, b.patient_id,
+           (p.first_name || ' ' || p.last_name) AS name, date(b.created_at, 'localtime') AS day
+      FROM bills b LEFT JOIN patients p ON p.id = b.patient_id
+     WHERE b.bill_type = 'pharmacy' AND b.admission_id IS NULL AND COALESCE(b.status, '') <> 'cancelled' AND b.cancelled_at IS NULL
+       AND b.created_at >= ? AND b.created_at < ? AND date(b.created_at, 'localtime') BETWEEN ? AND ?
+  `).all(slack.lo, slack.hi, from, to) as any[];
+
+  let billedP = 0, discountP = 0, paidP = 0;
+  const mode = new Map<string, { count: number; totalP: number }>();
+  const day = new Map<string, { bills: number; totalP: number }>();
+  const cust = { patient: { count: 0, totalP: 0 }, 'walk-in': { count: 0, totalP: 0 } };
+  const list = rows.map((r) => {
+    const totalP = toPaise(r.total);
+    const received = Math.min(totalP, Math.max(0, toPaise(r.amount_paid)));
+    const dp = r.discount_type === 'percent' ? Math.round(toPaise(r.subtotal) * (Number(r.discount) || 0) / 100) : toPaise(r.discount);
+    billedP += totalP; paidP += received; discountP += Math.max(0, Math.min(dp, toPaise(r.subtotal)));
+    const m = mode.get(r.payment_mode || '—') ?? { count: 0, totalP: 0 }; m.count++; m.totalP += totalP; mode.set(r.payment_mode || '—', m);
+    const d = day.get(r.day) ?? { bills: 0, totalP: 0 }; d.bills++; d.totalP += totalP; day.set(r.day, d);
+    const c = r.patient_id ? cust.patient : cust['walk-in']; c.count++; c.totalP += totalP;
+    const typed = !r.patient_id && typeof r.notes === 'string' && r.notes.startsWith('Name: ') ? r.notes.slice(6).trim() : null;
+    return {
+      bill_number: r.bill_number as string, created_at: r.created_at as string, name: (r.name?.trim() || typed || 'Walk-in') as string,
+      total: fromPaise(totalP), due: fromPaise(totalP - received), payment_mode: (r.payment_mode ?? null) as string | null,
+    };
+  });
+  const owedNowP = outstandingBills(db).filter((o) => o.kind === 'pharmacy_manual').reduce((a, o) => a + toPaise(o.due), 0);
+  return {
+    from, to, bills: rows.length, billed: fromPaise(billedP), discount: fromPaise(discountP),
+    collected: fromPaise(paidP), still_owed: fromPaise(billedP - paidP), owed_now: fromPaise(owedNowP),
+    by_mode: [...mode.entries()].map(([k, v]) => ({ mode: k, count: v.count, total: fromPaise(v.totalP) })).sort((a, b) => b.total - a.total),
+    by_day: [...day.entries()].map(([k, v]) => ({ day: k, bills: v.bills, total: fromPaise(v.totalP) })).sort((a, b) => (a.day < b.day ? -1 : 1)),
+    by_customer: (['patient', 'walk-in'] as const).filter((k) => cust[k].count > 0).map((k) => ({ kind: k, count: cust[k].count, total: fromPaise(cust[k].totalP) })),
+    largest: list.sort((a, b) => b.total - a.total).slice(0, 10),
+  };
+}

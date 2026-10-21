@@ -65,7 +65,7 @@ const before = (() => {
   const snapRoot = path.join(userData, 'backups', 'pre-migration');
   const snaps = fs.existsSync(snapRoot) ? fs.readdirSync(snapRoot) : [];
   eq(snaps.length, 1, 'one safety snapshot was taken before the upgrade');
-  ok(/^v4-to-v6-/.test(snaps[0] || ''), `…named for the upgrade it protects (${snaps[0]})`);
+  ok(/^v4-to-v7-/.test(snaps[0] || ''), `…named for the upgrade it protects (${snaps[0]})`);
   const snapDb = path.join(snapRoot, snaps[0] || 'x', 'caredesk.sqlite');
   ok(fs.existsSync(snapDb), '…containing a copy of the old database file');
   ok(fs.existsSync(path.join(snapRoot, snaps[0] || 'x', 'README.txt')), '…with a README saying how to roll back');
@@ -75,8 +75,13 @@ const before = (() => {
     eq((s.prepare('SELECT COUNT(*) c FROM patients').get() as any).c, before.patients, 'the snapshot holds all the old patients');
     s.close();
   }
-  eq((db.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '6', 'the live database is now v6');
+  eq((db.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '7', 'the live database is now v7');
   ok((db.prepare('PRAGMA table_info(pharmacy_sales)').all() as any[]).some((x) => x.name === 'customer_name'), '…with the guest-name column added to pharmacy sales');
+  const psCols = (db.prepare('PRAGMA table_info(pharmacy_sales)').all() as any[]).map((x) => x.name);
+  ok(psCols.includes('amount_paid') && psCols.includes('on_credit'), '…and the credit columns (amount paid, on credit)');
+  ok(!!db.prepare("SELECT 1 FROM sqlite_master WHERE name='pharmacy_sale_payments'").get(), '…and the table that holds payments taken later on credit sales');
+  eq((db.prepare('SELECT COUNT(*) c FROM pharmacy_sales WHERE amount_paid IS NOT NULL OR on_credit <> 0').get() as any).c, 0, '…no old sale was turned into a credit sale by the upgrade (every old sale stays paid in full)');
+  eq((db.prepare("SELECT COALESCE(SUM(MAX(total - COALESCE(amount_paid, total), 0)), 0) d FROM pharmacy_sales").get() as any).d, 0, '…so an upgraded clinic owes nothing on credit');
   for (const [k, t] of [['patients', 'patients'], ['appointments', 'appointments'], ['bills', 'bills'], ['pharmacy_sales', 'pharmacy_sales'], ['purchase_invoices', 'purchase_invoices'], ['batches', 'drug_stock_batches'], ['register', 'dispensing_register']] as const) {
     eq(c(t), (before as any)[k], `no ${k} rows lost or added by the upgrade`);
   }
@@ -84,6 +89,8 @@ const before = (() => {
   eq(db.prepare("SELECT total FROM bills WHERE bill_number='OLD-1'").get() && (db.prepare("SELECT total FROM bills WHERE bill_number='OLD-1'").get() as any).total, 300, 'an old bill keeps its amount');
   eq((db.prepare("SELECT COUNT(*) c FROM bill_items bi JOIN bills b ON b.id=bi.bill_id WHERE b.bill_number='OLD-1'").get() as any).c, 1, '…and its line (created from the old items_json)');
   note(`old database was ${before.bytes} bytes; nothing was deleted`);
+  const guide = await call('setup:status');
+  ok(guide.show === false && guide.existing_clinic === true, 'the first-run setup guide is NOT shown to an upgraded clinic that already has data');
 
   section('the new version works on the old data');
   const patients = await call('patients:search', 'Legacy');
@@ -106,6 +113,6 @@ const before = (() => {
   const again = getDb();
   eq(fs.readdirSync(snapRoot).length, 1, 'no second snapshot on the next start');
   eq((again.prepare('SELECT COUNT(*) c FROM purchase_payments').get() as any).c, 2, 'no duplicate payment rows from the backfill (the one entered above + its opening amount)');
-  eq((again.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '6', 'still v6');
+  eq((again.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '7', 'still v7');
   finish();
 })().catch((e) => { console.error('E2E CRASHED', e); process.exit(1); });

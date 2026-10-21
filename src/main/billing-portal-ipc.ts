@@ -32,6 +32,8 @@ export function registerBillingPortalIpc() {
   ipcMain.handle('analytics:receivables', (_e, opts: { limit?: number } = {}) => portal.receivables(getDb(), opts || {}));
   ipcMain.handle('analytics:discounts', (_e, from: string, to: string, limit?: number) => portal.discountsGiven(getDb(), from, to, limit));
   ipcMain.handle('analytics:unbilled', (_e, opts: { days?: number; limit?: number } = {}) => portal.unbilledWork(getDb(), opts || {}));
+  // Hand-typed pharmacy bills (Quick Bill → Pharmacy), on their own: no stock, cost or profit sits behind them.
+  ipcMain.handle('analytics:manualPharmacy', (_e, from: string, to: string) => portal.manualPharmacy(getDb(), from, to));
 
   ipcMain.handle(
     'billing:createOrderBill',

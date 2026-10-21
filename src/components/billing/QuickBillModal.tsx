@@ -24,7 +24,7 @@ type Line = { description: string; qty: number; rate: number; charge_head_id?: n
 
 const BILL_TYPES: { id: string; label: string }[] = [
   { id: 'opd_consult', label: 'Consultation' },
-  { id: 'pharmacy', label: 'Pharmacy' },
+  { id: 'pharmacy', label: 'Pharmacy (hand-typed)' },
   { id: 'lab', label: 'Laboratory' },
   { id: 'radiology', label: 'Radiology' },
   { id: 'custom', label: 'Custom' },
@@ -167,6 +167,15 @@ export function QuickBillModal({
             </button>
           ))}
         </div>
+
+        {/* A hand-typed pharmacy bill touches no stock — say so, and where the real thing is done. */}
+        {billType === 'pharmacy' && (
+          <div className="text-[11px] rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200 px-3 py-2">
+            This is a bill you type by hand. <b>No medicine is taken out of stock</b>, so there is no cost or profit on it, and it is reported
+            separately from the Pharmacy stock figures. To sell medicines from stock, use the <b>Pharmacy</b> counter (or &ldquo;Sell medicines&rdquo; on a
+            patient&rsquo;s billing page).
+          </div>
+        )}
 
         {/* Payer: registered patient OR typed name */}
         {patient ? (

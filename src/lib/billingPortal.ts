@@ -5,7 +5,9 @@
  * the main process. The rules that fill them live in main/billing-portal.ts.
  */
 
-export type PortalKind = 'consultation' | 'lab' | 'radiology' | 'service' | 'pharmacy' | 'ipd';
+/** 'pharmacy' = medicines sold from stock (a counter sale / dispensing); 'pharmacy_manual' = a hand-typed pharmacy bill that
+ *  never touched stock, cost or profit. They are kept apart everywhere. */
+export type PortalKind = 'consultation' | 'lab' | 'radiology' | 'service' | 'pharmacy' | 'pharmacy_manual' | 'ipd';
 export type PortalStatus = 'paid' | 'part_paid' | 'unpaid' | 'cancelled';
 
 export interface PortalLine {
@@ -53,6 +55,8 @@ export interface PortalTodo {
   appointment_id: number | null;
   order_id: number | null;
   bill_id: number | null;
+  /** A pharmacy sale made on credit that still owes money (collect it with `pharmacy.payCredit`). */
+  sale_id: number | null;
   admission_id: number | null;
 }
 
@@ -79,7 +83,12 @@ export type OrderBillResult =
   | { ok: false; error: string; needs_confirm?: boolean };
 
 export interface OutstandingBill {
+  /** 'bill' = a row in bills; 'pharmacy_sale' = a pharmacy sale made on credit. */
+  source: 'bill' | 'pharmacy_sale';
+  /** 0 for a pharmacy sale. */
   bill_id: number;
+  sale_id: number | null;
+  /** The bill number, or the pharmacy sale number. */
   bill_number: string;
   patient_id: number | null;
   /** The patient's name, or the name typed for a walk-in bill. */
@@ -116,8 +125,10 @@ export interface Collections {
     bill_payments: number;
     /** Bills paid in full the moment they were raised (OPD, lab, radiology, services). */
     paid_at_billing: number;
-    /** Pharmacy counter sales — always paid at the counter. */
+    /** Pharmacy sales — what was taken at the counter when the sale was made. */
     pharmacy_counter: number;
+    /** Payments taken later against pharmacy sales made on credit. */
+    pharmacy_credit_payments: number;
   };
 }
 
@@ -181,5 +192,39 @@ export interface DiscountsGiven {
   /** Discount as a share of what was charged before any discount (bills + counter pharmacy); null with nothing billed. */
   pct_of_gross: number | null;
   largest: DiscountRow[];
+}
+
+/**
+ * Hand-typed pharmacy bills (Quick Bill → Pharmacy) over a period. Nothing moved out of stock for these, so they have no
+ * cost and no profit; they are reported here and nowhere in the stock-based Pharmacy analytics.
+ */
+export interface ManualPharmacy {
+  from: string;
+  to: string;
+  bills: number;
+  billed: number;
+  discount: number;
+  /** Received on the bills of this period. */
+  collected: number;
+  /** Still unpaid on the bills of this period. */
+  still_owed: number;
+  /** Unpaid on ALL hand-typed pharmacy bills, whenever they were raised (the Receivables figure for this kind). */
+  owed_now: number;
+  by_mode: { mode: string; count: number; total: number }[];
+  by_day: { day: string; bills: number; total: number }[];
+  by_customer: { kind: 'patient' | 'walk-in'; count: number; total: number }[];
+  largest: { bill_number: string; created_at: string; name: string; total: number; due: number; payment_mode: string | null }[];
+}
+
+/** First-run setup guide — where a freshly installed clinic stands (see main/setup.ts). */
+export type SetupStepKey = 'clinic' | 'doctors' | 'fees' | 'staff' | 'pharmacy' | 'inpatient';
+export interface SetupStatus {
+  show: boolean;
+  status: 'pending' | 'skipped' | 'done';
+  clinic_named: boolean;
+  clinic_name: string;
+  existing_clinic: boolean;
+  steps: Record<SetupStepKey, 'todo' | 'done' | 'skipped'>;
+  reminder: boolean;
 }
 

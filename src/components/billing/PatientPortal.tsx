@@ -6,22 +6,21 @@
  * All figures come from one function in the main process (main/billing-portal.ts) — the same rule Accounts and
  * Analytics use for "outstanding" — so this screen can never disagree with them.
  */
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, BedDouble, FlaskConical, Pill, Plus, Printer, Receipt, ScanLine, Search, Stethoscope, Wallet,
 } from 'lucide-react';
-import { Modal } from '../Modal';
 import { EmptyState } from '../EmptyState';
 import { BillPrint } from './BillPrint';
 import { QuickBillModal } from './QuickBillModal';
 import { AdmissionBillWorkspace } from './AdmissionBillWorkspace';
 import { PharmacySaleReceipt } from '../pharmacy/PharmacySaleReceipt';
+import { CollectPaymentModal, type CollectTarget } from './CollectPaymentModal';
 import { useToast } from '../../hooks/useToast';
-import { useAuth } from '../../hooks/useAuth';
 import { useLicensedModules } from '../../hooks/useLicensedModules';
-import { cn, fmtDate, fmtDateTime, formatINR, newRef, refFor } from '../../lib/utils';
+import { cn, fmtDate, fmtDateTime, formatINR } from '../../lib/utils';
 import type { PortalKind, PortalLine, PortalStatus, PortalTodo } from '../../lib/billingPortal';
 
 const KIND: Record<PortalKind, { label: string; badge: string }> = {
@@ -29,6 +28,8 @@ const KIND: Record<PortalKind, { label: string; badge: string }> = {
   lab: { label: 'Lab', badge: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-200' },
   radiology: { label: 'Radiology', badge: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-200' },
   pharmacy: { label: 'Pharmacy', badge: 'bg-lime-100 text-lime-700 dark:bg-lime-900/40 dark:text-lime-200' },
+  // A pharmacy bill typed by hand never touched stock, cost or profit, so it is labelled differently everywhere.
+  pharmacy_manual: { label: 'Hand-typed pharmacy', badge: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200' },
   ipd: { label: 'IPD', badge: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200' },
   service: { label: 'Service', badge: 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-200' },
 };
@@ -83,75 +84,6 @@ export function PortalSearch({ onPick, autoFocus }: { onPick: (p: { id: number }
   );
 }
 
-/* ============================ collect a payment ============================ */
-
-function CollectModal({ billId, label, due, onClose, onDone }: {
-  billId: number; label: string; due: number; onClose: () => void; onDone: () => void;
-}) {
-  const toast = useToast();
-  const { user } = useAuth();
-  const [amount, setAmount] = useState(String(due));
-  const [mode, setMode] = useState('Cash');
-  const [busy, setBusy] = useState(false);
-  const base = useRef(newRef());                       // one id per sitting of this dialog; see refFor
-  const amt = Number(amount);
-  const valid = Number.isFinite(amt) && amt > 0 && amt <= due + 0.001;
-
-  const submit = async () => {
-    if (!valid || busy) return;
-    setBusy(true);
-    try {
-      const r = await window.electronAPI.billing.pay(billId, amt, mode, user?.username, refFor(base.current, { billId, amt, mode }));
-      if (r.ok) {
-        toast(r.duplicate ? 'That payment was already recorded' : `${formatINR(amt)} received`);
-        onDone();
-      } else {
-        toast(r.error || 'Could not record the payment', 'error');
-      }
-    } catch (e: any) {
-      toast(e?.message || 'Could not record the payment', 'error');
-    } finally { setBusy(false); }
-  };
-
-  return (
-    <Modal open onClose={onClose} title="Collect payment" size="sm">
-      <div className="space-y-3">
-        <div className="text-[13px] text-gray-700 dark:text-slate-300">
-          {label} — <b>{formatINR(due)}</b> still due.
-        </div>
-        <div>
-          <label className="label">Amount received (₹)</label>
-          <div className="flex gap-2">
-            <input className="input text-right" type="number" min={0} step="0.01" autoFocus value={amount} onChange={(e) => setAmount(e.target.value)} />
-            <button type="button" className="btn-secondary text-xs whitespace-nowrap" onClick={() => setAmount(String(due))}>Full due</button>
-          </div>
-          {!valid && amount !== '' && (
-            <div className="text-[11px] text-red-600 mt-1">
-              {amt > due ? `That is more than the ${formatINR(due)} still due.` : 'Enter an amount above zero.'}
-            </div>
-          )}
-        </div>
-        <div>
-          <label className="label">Paid by</label>
-          <div className="flex gap-2">
-            {['Cash', 'Card', 'UPI'].map((m) => (
-              <button key={m} type="button" onClick={() => setMode(m)}
-                className={cn('px-3 py-1.5 text-xs rounded-md border',
-                  mode === m ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-200')}>
-                {m}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex justify-end gap-2 pt-2">
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" disabled={!valid || busy} onClick={submit}>{busy ? 'Saving…' : 'Record payment'}</button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
 /* ============================ the portal ============================ */
 
 export function PatientPortal({ patientId, onBack, onBillVisit }: {
@@ -166,7 +98,7 @@ export function PatientPortal({ patientId, onBack, onBillVisit }: {
   const { has } = useLicensedModules();
   const [kindFilter, setKindFilter] = useState<'all' | PortalKind>('all');
   const [onlyDue, setOnlyDue] = useState(false);
-  const [collect, setCollect] = useState<{ billId: number; label: string; due: number } | null>(null);
+  const [collect, setCollect] = useState<{ target: CollectTarget; label: string; due: number } | null>(null);
   const [printBill, setPrintBill] = useState<number | null>(null);
   const [printSale, setPrintSale] = useState<number | null>(null);
   const [openAdmission, setOpenAdmission] = useState<number | null>(null);
@@ -221,7 +153,9 @@ export function PatientPortal({ patientId, onBack, onBillVisit }: {
 
   const runTodo = (t: PortalTodo) => {
     switch (t.kind) {
-      case 'bill_due': setCollect({ billId: t.bill_id!, label: t.title, due: t.due! }); break;
+      case 'bill_due':
+        setCollect({ target: t.sale_id ? { saleId: t.sale_id } : { billId: t.bill_id! }, label: t.title, due: t.due! });
+        break;
       case 'ipd_running': setOpenAdmission(t.admission_id!); break;
       case 'consultation_unbilled': onBillVisit(t.appointment_id!); break;
       case 'lab_unbilled': case 'radiology_unbilled': setBusyKey(t.key); billOrder.mutate(t); break;
@@ -380,10 +314,11 @@ export function PatientPortal({ patientId, onBack, onBillVisit }: {
                     <td className={cn('py-2 text-right tabular-nums font-semibold', h.due > 0 ? 'text-red-600' : 'text-gray-400')}>{h.due > 0 ? formatINR(h.due) : '—'}</td>
                     <td className="py-2 pl-2"><span className={cn('badge text-[10px]', STATUS[h.status].cls)}>{STATUS[h.status].label}</span></td>
                     <td className="py-2 text-right whitespace-nowrap">
-                      {h.due > 0 && h.bill_id && (
+                      {h.due > 0 && (h.bill_id || h.sale_id) && (
                         h.admission_id
                           ? <button className="btn-secondary text-[11px] py-1 px-2 mr-1" onClick={() => setOpenAdmission(h.admission_id!)}>Open bill</button>
-                          : <button className="btn-primary text-[11px] py-1 px-2 mr-1" onClick={() => setCollect({ billId: h.bill_id!, label: `${h.title} ${h.number}`, due: h.due })}>Collect</button>
+                          : <button className="btn-primary text-[11px] py-1 px-2 mr-1"
+                              onClick={() => setCollect({ target: h.sale_id ? { saleId: h.sale_id } : { billId: h.bill_id! }, label: `${h.title} ${h.number}`, due: h.due })}>Collect</button>
                       )}
                       <button className="btn-secondary text-[11px] py-1 px-2 inline-flex items-center gap-1"
                         title={`Print ${h.number}`}
@@ -400,7 +335,7 @@ export function PatientPortal({ patientId, onBack, onBillVisit }: {
       </div>
 
       {collect && (
-        <CollectModal billId={collect.billId} label={collect.label} due={collect.due}
+        <CollectPaymentModal target={collect.target} label={collect.label} due={collect.due}
           onClose={() => setCollect(null)} onDone={() => { setCollect(null); refresh(); }} />
       )}
       {printBill !== null && <BillPrint billId={printBill} onClose={() => setPrintBill(null)} />}

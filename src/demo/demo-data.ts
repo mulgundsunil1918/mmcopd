@@ -129,6 +129,7 @@ export const DEMO_SETTINGS: Settings = {
   ipd_admission_requests_enabled: true,
   discharge_summary_enabled: true,
   lab_auto_bill: true, radiology_auto_bill: true,
+  pharmacy_credit_enabled: true, pharmacy_ipd_charge_enabled: true,
   role_access_json: '',
   sidebar_layout: '',
   station_role: 'everything',

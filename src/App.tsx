@@ -27,6 +27,7 @@ import { WhatsApp } from './pages/WhatsApp';
 import { Pediatrics } from './pages/Pediatrics';
 import { TPA } from './pages/TPA';
 import { WelcomeWizard } from './components/WelcomeWizard';
+import { SetupReminder, SetupWizard } from './components/SetupWizard';
 import { ForceAdminPasswordGate } from './components/ForceAdminPasswordGate';
 import { ForceBackupFolderGate } from './components/ForceBackupFolderGate';
 import { LicenseGate } from './components/LicenseGate';
@@ -65,26 +66,33 @@ export default function App() {
     queryKey: ['settings'],
     queryFn: () => window.electronAPI.settings.get(),
   });
+  // The network picker ("this is the main PC" / "join an existing clinic"). It opens when asked for: from the setup guide's
+  // "this PC is an extra computer" link, or Settings → Run Setup Wizard. (It used to try to open itself on a fresh install,
+  // but tested a clinic name that always reads "CureDesk HMS" by default, so it never did; the setup guide below owns
+  // the first run now.)
   const [wizardOpen, setWizardOpen] = useState(false);
-  // Auto-open the wizard on FRESH installs as soon as settings load — does NOT
-  // wait for login. The wizard renders OVER the Login screen so the user can't
-  // miss it. Suppression uses sessionStorage so "Skip" only hides for this
-  // session; next launch reshows until clinic_name is set.
-  useEffect(() => {
-    if (!settings) return;
-    let dismissed = false;
-    try { dismissed = sessionStorage.getItem('caredesk:welcome-dismissed') === '1'; } catch { /* ignore */ }
-    const isFreshInstall = !settings.clinic_name && settings.network_mode === 'local';
-    if (isFreshInstall && !dismissed) setWizardOpen(true);
-  }, [settings?.clinic_name, settings?.network_mode]);
-
-  // Settings → "Run Setup Wizard" button dispatches this event so the
-  // Settings page can re-open the App-level wizard without prop-drilling.
   useEffect(() => {
     const open = () => setWizardOpen(true);
     window.addEventListener('caredesk:openWelcomeWizard', open);
     return () => window.removeEventListener('caredesk:openWelcomeWizard', open);
   }, []);
+
+  // First-run setup guide: shown for a freshly installed clinic until it is finished or skipped; never for a clinic that
+  // already has data and never on a client PC (main/setup.ts decides). A skipped guide leaves a reminder strip.
+  const { data: setupStatus } = useQuery({
+    queryKey: ['setup-status'],
+    queryFn: () => window.electronAPI.setup.status(),
+    staleTime: 0,
+  });
+  useEffect(() => {
+    // Settings → "Open the setup guide" asks for it again.
+    const reopen = async () => {
+      const r = await window.electronAPI.setup.setStatus('pending');
+      if (r.ok) queryClient.setQueryData(['setup-status'], r.status);
+    };
+    window.addEventListener('caredesk:openSetupGuide', reopen);
+    return () => window.removeEventListener('caredesk:openSetupGuide', reopen);
+  }, [queryClient]);
 
   useEffect(() => {
     if (clinicName) document.title = `${clinicName} · CureDesk HMS`;
@@ -123,7 +131,6 @@ export default function App() {
   // client picker immediately — user doesn't have to log in first. The setup
   // banner reminds them on every page after login if clinic isn't configured.
   const wizardOverlay = wizardOpen ? <WelcomeWizard onClose={() => setWizardOpen(false)} /> : null;
-  const needsSetupBanner = !!settings && !settings.clinic_name && settings.network_mode === 'local';
 
   /*
    * Connection facts, read from the MAIN PROCESS (not the renderer socket), so
@@ -161,6 +168,10 @@ export default function App() {
   if (!user) return <>{hostOffline}{licenseGate}<ForceAdminPasswordGate />{wizardOverlay}<Login /></>;
   if (user.must_change_password) return <ForcePasswordChange />;
 
+  // Only someone who can set the clinic up is shown the setup guide (or its reminder): the administrator, a manager, or the
+  // default station session of a clinic that runs without sign-in. A receptionist or nurse signing in never sees it.
+  const setupAllowed = user.role === 'admin' || user.role === 'manager' || user.role === 'staff';
+
   return (
     <>
       {hostOffline}
@@ -168,16 +179,17 @@ export default function App() {
       <ForceAdminPasswordGate />
       <ForceBackupFolderGate />
       {wizardOverlay}
-      {needsSetupBanner && !wizardOpen && (
-        <div className="no-print fixed top-0 left-0 right-0 z-[140] bg-blue-600 text-white px-4 py-2 text-xs text-center font-semibold shadow flex items-center justify-center gap-3">
-          <span>🪄 Clinic not set up yet — pick how this PC fits into your clinic</span>
-          <button
-            onClick={() => setWizardOpen(true)}
-            className="bg-white text-blue-700 px-3 py-0.5 rounded font-bold hover:bg-blue-50"
-          >
-            Open Setup Wizard
-          </button>
-        </div>
+      {setupStatus?.show && setupAllowed && !isClient && !wizardOpen && (
+        <SetupWizard status={setupStatus} onJoinExisting={() => setWizardOpen(true)} />
+      )}
+      {setupStatus?.reminder && !setupStatus.show && setupAllowed && !isClient && !wizardOpen && (
+        <SetupReminder
+          onOpen={() => window.dispatchEvent(new Event('caredesk:openSetupGuide'))}
+          onStop={async () => {
+            const r = await window.electronAPI.setup.setStatus('skipped', { stop_reminders: true });
+            if (r.ok) queryClient.setQueryData(['setup-status'], r.status);
+          }}
+        />
       )}
     <Routes>
       <Route element={<Layout />}>

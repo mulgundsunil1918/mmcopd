@@ -138,6 +138,8 @@ export function Accounts() {
             <Tile label="Pharmacy" value={formatINR(data.range.pharma.total)}
               sub={`${data.range.pharma.count} sale${data.range.pharma.count === 1 ? '' : 's'}${data.range.pharmaSplit
                 ? ` · ${formatINR(data.range.pharmaSplit.patient.total)} under patients, ${formatINR(data.range.pharmaSplit.guest.total)} walk-in`
+                : ''}${data.range.pharmaCredit?.still_owed > 0.004
+                ? ` · ${formatINR(data.range.pharmaCredit.still_owed)} of it still owed on credit`
                 : ''}`}
               icon={<Pill className="w-4 h-4" />} tone="lime" />
             {/* "Collected" was a lie: this sums bill TOTALS, which includes

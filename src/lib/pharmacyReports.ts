@@ -225,8 +225,9 @@ export interface CounterSalesFilter {
   /** Local calendar days, inclusive. */
   from?: string;
   to?: string;
-  /** 'patient' = sold under a registered patient (shown with that patient's bills); 'guest' = walk-in, no patient. */
-  scope?: 'all' | 'patient' | 'guest';
+  /** 'patient' = sold under a registered patient (shown with that patient's bills); 'guest' = walk-in, no patient;
+   *  'credit' = sales that still have a balance owing. */
+  scope?: 'all' | 'patient' | 'guest' | 'credit';
   /** Matches the patient's name or UHID, the guest's name, or the sale number. */
   q?: string;
   limit?: number;
@@ -246,11 +247,21 @@ export interface CounterSaleRow {
   patient_uhid: string | null;
   customer_name: string | null;
   item_count: number;
+  /** Received so far (the part taken at the counter plus any later payments). */
+  amount_paid: number;
+  /** Still owing — 0 for an ordinary sale. */
+  due: number;
+  /** 1 when the sale was made with a balance owing (medicines on credit). */
+  on_credit: number;
 }
 
 export interface CounterSalesResult {
   rows: CounterSaleRow[];
-  totals: { count: number; total: number; discount: number; by_mode: { mode: string; count: number; total: number }[] };
+  totals: {
+    count: number; total: number; discount: number; by_mode: { mode: string; count: number; total: number }[];
+    /** Sales in this list that still owe money, and how much. */
+    credit_count: number; credit_due: number;
+  };
 }
 
 /** Stock whose cost came from somebody typing it in, not from a purchase bill (see the "Cost not recorded" button). */

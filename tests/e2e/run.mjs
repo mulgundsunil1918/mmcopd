@@ -17,7 +17,9 @@ const ZONES = {
   // Money screens group by the clinic's local day: a PC far behind UTC (Los Angeles) and one far ahead (Auckland) are the hard cases.
   portal: ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   analytics: ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
+  credit: ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   'upgrade-v5': ['Asia/Kolkata', 'America/Los_Angeles'],
+  'upgrade-v6': ['Asia/Kolkata', 'America/Los_Angeles'],
 };
 
 let failed = 0;

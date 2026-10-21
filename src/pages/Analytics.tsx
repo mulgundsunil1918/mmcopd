@@ -12,6 +12,7 @@ import { DonutChart, VBarChart, TrendChart } from '../components/analytics/Chart
 import { Kpi, SectionTitle } from '../components/analytics/Kpi';
 import { PharmacyChecksSection, PharmacyProfitSection, PharmacyValuationSection, SupplierSection } from '../components/analytics/PharmacyProfit';
 import { DiscountsSection, ReceivablesSection, UnbilledWorkSection } from '../components/analytics/Receivables';
+import { ManualPharmacySection } from '../components/analytics/ManualPharmacy';
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { cn, fmt12h, fmtDate, fmtDateTime, formatINR, todayISO } from '../lib/utils';
 import { colorForDoctor } from '../lib/doctor-colors';
@@ -735,7 +736,10 @@ function PharmacyTab({ from, to }: { from: string; to: string }) {
         />
         <BarListCard
           title="Paid by"
-          rows={(p.paymentMix || []).map((m) => ({ label: `${m.mode} · ${m.count} sale${m.count === 1 ? '' : 's'}`, value: m.revenue }))}
+          rows={(p.paymentMix || []).map((m) => ({
+            label: `${m.mode} · ${m.count} sale${m.count === 1 ? '' : 's'}`, value: m.revenue,
+            color: m.mode === 'On credit' ? '#f59e0b' : undefined,
+          }))}
           formatValue={formatINR}
         />
         <BarListCard
@@ -744,6 +748,21 @@ function PharmacyTab({ from, to }: { from: string; to: string }) {
           formatValue={formatINR}
         />
       </div>
+
+      {/* Medicines handed over now and paid for later — only when the clinic has used credit */}
+      {p.creditSummary && (p.creditSummary.sold_count > 0 || p.creditSummary.owed_now > 0) && (
+        <section>
+          <SectionTitle icon={<Wallet className="w-4 h-4 text-amber-600" />} title="Medicines on credit"
+            subtitle="handed over now, paid for later — the money owed is also in Receivables below" />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Kpi label="Sold on credit" value={p.creditSummary.sold_count} sub={`${formatINR(p.creditSummary.credit_value)} left unpaid at the counter`} tone="amber" />
+            <Kpi label="Still owed from these" value={formatINR(p.creditSummary.still_owed_from_these)} tone={p.creditSummary.still_owed_from_these > 0 ? 'rose' : 'gray'} sub="of this period's credit sales" />
+            <Kpi label="Owed now, in all" value={formatINR(p.creditSummary.owed_now)} tone={p.creditSummary.owed_now > 0 ? 'rose' : 'gray'}
+              sub={`${p.creditSummary.sales_owing} sale${p.creditSummary.sales_owing === 1 ? '' : 's'} · ${p.creditSummary.patients_owing} patient${p.creditSummary.patients_owing === 1 ? '' : 's'}`} />
+            <Kpi label="Oldest unpaid since" value={p.creditSummary.oldest_owed_since ? fmtDate(p.creditSummary.oldest_owed_since) : '—'} tone="gray" />
+          </div>
+        </section>
+      )}
 
       {/* Realised profit on medicines already sold (reports A–H) */}
       <PharmacyProfitSection from={from} to={to} />
@@ -833,6 +852,9 @@ function PharmacyTab({ from, to }: { from: string; to: string }) {
           )}
         </div>
       </div>
+
+      {/* Bills typed by hand: their own analysis, never mixed into the stock figures above */}
+      <ManualPharmacySection from={from} to={to} />
 
       <SupplierSection from={from} to={to} />
       <PharmacyChecksSection />

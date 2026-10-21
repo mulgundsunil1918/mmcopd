@@ -21,6 +21,7 @@ import { computeBill, money, discountCapForRole, type BillLineInput, transferDay
 import { nextIpNumber, nextBillNumber } from '../db/ids';
 import { requireModule } from './licensing/enforce';
 import { collections, outstandingTotal } from './billing-portal';
+import { sellItems, type SellIn } from './pharmacy-finance';
 
 type Ok<T> = { ok: true } & T;
 type Err = { ok: false; error: string };
@@ -389,6 +390,84 @@ function addLine(db: Database.Database, billId: number, line: BillLineInput, by?
     }
     throw new Error(`Could not add "${line.description}" to bill #${billId}: ${msg}`);
   }
+}
+
+/**
+ * Medicines for an admitted patient, put on the stay's running bill instead of being paid for at the counter.
+ *
+ * One transaction: the sale (stock out, dispensing register, payment mode 'IPD-bill' so the counter totals leave it out)
+ * and one line per medicine on the in-patient bill. The line is priced exactly as the counter would price it — the MRP,
+ * with its tax already inside — so the same strip costs an in-patient what it costs anyone else. Repeating the same
+ * `client_ref` returns the sale made the first time and adds nothing to the bill.
+ *
+ * Refuses, in plain words, whenever the charge could not be collected: switched off in Settings, not admitted any more,
+ * a discharge already requested (the final bill has been looked at), a cancelled bill, a different patient, a discount.
+ */
+export function chargeMedicinesToAdmission(db: Database.Database, payload: SellIn, by: string | null) {
+  const ref = typeof payload?.client_ref === 'string' && payload.client_ref.trim() ? payload.client_ref.trim() : null;
+  if (ref) {
+    const hit = db.prepare('SELECT * FROM pharmacy_sales WHERE client_ref=?').get(ref);
+    if (hit) return hit as any;
+  }
+  if (!getAllSettings(db).pharmacy_ipd_charge_enabled) {
+    throw new Error('Charging medicines to the in-patient bill is switched off. Turn it on in Settings → Billing & IPD → Pharmacy, or take the payment now.');
+  }
+  const aid = requireId(payload.ipd_admission_id, 'Admission');
+  const adm = db.prepare(
+    'SELECT id, patient_id, status, discharge_status, admission_number, bill_id FROM ip_admissions WHERE id=?'
+  ).get(aid) as { id: number; patient_id: number; status: string; discharge_status: string | null; admission_number: string; bill_id: number | null } | undefined;
+  if (!adm) throw new Error('That admission was not found — pick the in-patient again.');
+  if (adm.status !== 'admitted') {
+    throw new Error(`${adm.admission_number} is no longer admitted, so its bill is closed. Take the payment now instead.`);
+  }
+  if (adm.discharge_status === 'requested') {
+    throw new Error(`A discharge has been requested for ${adm.admission_number} and the final bill is being prepared. Take the payment now, or ask the ward to cancel the discharge request first.`);
+  }
+  if (payload.patient_id && Number(payload.patient_id) !== adm.patient_id) {
+    throw new Error('That admission belongs to a different patient — pick the in-patient again.');
+  }
+  if (Number(payload.discount) > 0) {
+    throw new Error('A discount on an in-patient bill is given on the bill itself, where it is approved. Remove the discount here.');
+  }
+  if (payload.credit) {
+    throw new Error('A medicine charged to the in-patient bill is not a sale on credit — choose one or the other.');
+  }
+  if (adm.bill_id) {
+    const b = db.prepare('SELECT status FROM bills WHERE id=?').get(adm.bill_id) as { status: string } | undefined;
+    if (b?.status === 'cancelled') {
+      throw new Error(`The bill for ${adm.admission_number} was cancelled. Ask billing to open it again, or take the payment now.`);
+    }
+  }
+
+  const head = db.prepare("SELECT id FROM charge_heads WHERE category='pharmacy' AND COALESCE(is_active, 1)=1 ORDER BY id LIMIT 1").get() as { id: number } | undefined;
+  const tx = db.transaction(() => {
+    const sale = sellItems(db, {
+      ...payload,
+      patient_id: adm.patient_id,
+      customer_name: null,
+      payment_mode: 'IPD-bill',
+      discount: 0,
+      credit: false,
+      paid_now: undefined,
+      sold_by: by ?? payload.sold_by ?? undefined,
+    });
+    const billId = getOrCreateAdmissionBill(db, aid);
+    const lines = db.prepare('SELECT id, drug_name, qty, rate, amount FROM pharmacy_sale_items WHERE sale_id=? ORDER BY id').all(sale.id) as
+      { id: number; drug_name: string; qty: number; rate: number; amount: number }[];
+    for (const l of lines) {
+      addLine(db, billId, {
+        description: `${l.drug_name} × ${l.qty}`,
+        qty: l.qty, rate: l.rate, amount: l.amount,
+        // The MRP already contains the tax; adding it again would make an in-patient pay more than anyone else.
+        gst_rate: 0, is_taxable: false,
+        charge_head_id: head?.id,
+        source: 'pharmacy_ipd', source_ref_id: sale.id,
+      }, by ?? undefined);
+    }
+    recalcBill(db, billId);
+    return sale;
+  });
+  return tx() as any;
 }
 
 // =====================================================================

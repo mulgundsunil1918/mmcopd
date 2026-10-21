@@ -38,7 +38,9 @@ export function Layout() {
   const isDemo = typeof window !== 'undefined' && (window as any).__CUREDESK_DEMO__ === true;
 
   return (
-    <div className="h-full flex flex-col bg-white">
+    // `--top-strip` is the height of a slim notice pinned to the top of the window (the setup reminder), so the app is pushed
+    // down beneath it instead of being covered by it. Unset (0) the rest of the time.
+    <div className="h-full flex flex-col bg-white" style={{ paddingTop: 'var(--top-strip, 0px)' }}>
       <div className="flex flex-1 min-h-0 relative">
         {!collapsed && <Sidebar onCollapse={() => setCollapsed(true)} />}
         {collapsed && (

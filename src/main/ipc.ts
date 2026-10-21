@@ -9,6 +9,7 @@ import { nextUHID, nextBillNumber, nextIpNumber, nextVisitNumber, formatVisitId,
 import { clinicalLineTax } from './gst';
 import { writeLabBillLines } from './lab-billing';
 import { ADV_SPARE_SQL, billPosition, collections, dailyCollection, outstandingBills, outstandingTotal, utcSlack } from './billing-portal';
+import { SALE_DUE_SQL } from './pharmacy-finance';
 import { fromPaise, toPaise } from '../lib/pharmacyMath';
 import { localISO, addDaysISO } from '../lib/localDate';
 import { LAB_CATALOG } from '../data/lab-catalog';
@@ -438,6 +439,7 @@ export function registerIpc() {
     // Radiology orders + their items
     deleteRadiologyForPatient(db, id);
     // Pharmacy sales + items (now safe because dispensing_register no longer references them).
+    db.prepare('DELETE FROM pharmacy_sale_payments WHERE sale_id IN (SELECT id FROM pharmacy_sales WHERE patient_id = ?)').run(id);
     db.prepare('DELETE FROM pharmacy_sale_items WHERE sale_id IN (SELECT id FROM pharmacy_sales WHERE patient_id = ?)').run(id);
     db.prepare('DELETE FROM pharmacy_sales WHERE patient_id = ?').run(id);
     // IP admissions
@@ -535,6 +537,7 @@ export function registerIpc() {
       // Radiology orders + items linked to this appointment
       deleteRadiologyForAppointment(db, appointmentId);
       // Pharmacy sales linked to this appointment (now safe — dispensing_register cleared above).
+      db.prepare('DELETE FROM pharmacy_sale_payments WHERE sale_id IN (SELECT id FROM pharmacy_sales WHERE appointment_id = ?)').run(appointmentId);
       db.prepare('DELETE FROM pharmacy_sale_items WHERE sale_id IN (SELECT id FROM pharmacy_sales WHERE appointment_id = ?)').run(appointmentId);
       db.prepare('DELETE FROM pharmacy_sales WHERE appointment_id = ?').run(appointmentId);
       // Now delete the appointment — consultation + Rx cascade
@@ -2484,7 +2487,13 @@ export function registerIpc() {
          LEFT JOIN drug_master m ON m.id = si.drug_master_id
         WHERE si.sale_id = ? ORDER BY si.id`
     ).all(saleId);
-    return { ...sale, items };
+    // Credit: what has been received so far and each later payment, so a reprint shows the true balance.
+    const received = Number(sale.amount_paid ?? sale.total);
+    const payments = db.prepare(
+      'SELECT amount, payment_mode, received_at, received_by, reference FROM pharmacy_sale_payments WHERE sale_id = ? ORDER BY id'
+    ).all(saleId);
+    const due = sale.payment_mode === 'IPD-bill' ? 0 : Math.max(0, Math.round((Number(sale.total) - received) * 100) / 100);
+    return { ...sale, items, amount_received: received, due, payments };
   });
 
   ipcMain.handle('pharmacy:listSales', (_e, filter: { from?: string; to?: string } = {}) => {
@@ -2496,7 +2505,8 @@ export function registerIpc() {
     const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
     return db
       .prepare(
-        `SELECT s.*, (p.first_name || ' ' || p.last_name) as patient_name, p.uhid as patient_uhid
+        `SELECT s.*, (p.first_name || ' ' || p.last_name) as patient_name, p.uhid as patient_uhid,
+                ${SALE_DUE_SQL} as due
          FROM pharmacy_sales s
          LEFT JOIN patients p ON p.id=s.patient_id
          ${where}
@@ -2954,7 +2964,7 @@ export function registerIpc() {
     // workbook. The .sqlite copy already has everything; this keeps the readable
     // Excel complete too. Secrets/internal tables stay in the .sqlite backup only.
     try {
-      const CURATED = new Set(['patients', 'doctors', 'appointments', 'consultations', 'prescription_items', 'bills', 'lab_orders', 'lab_order_items', 'lab_tests', 'pharmacy_sales', 'pharmacy_sale_items', 'drug_inventory', 'drug_master', 'drug_stock_batches', 'wholesalers', 'purchase_invoices', 'purchase_invoice_items', 'purchase_payments', 'dispensing_register', 'ip_admissions', 'wards', 'beds', 'bed_transfers', 'ip_vitals', 'ip_medication_orders', 'ip_medication_admin', 'ip_progress_notes', 'ip_nursing_notes', 'ip_intake_output', 'ip_diet_orders', 'ip_cross_consultations', 'mlc_register', 'admission_requests', 'bill_items', 'bill_payments', 'advances', 'charge_heads', 'tpa_master', 'tpa_claims', 'discharge_templates', 'peds_growth_measurements', 'peds_vaccine_records', 'patient_allergies', 'patient_conditions', 'patient_family_history', 'radiology_orders', 'radiology_order_items', 'radiology_tests']);
+      const CURATED = new Set(['patients', 'doctors', 'appointments', 'consultations', 'prescription_items', 'bills', 'lab_orders', 'lab_order_items', 'lab_tests', 'pharmacy_sales', 'pharmacy_sale_items', 'pharmacy_sale_payments', 'drug_inventory', 'drug_master', 'drug_stock_batches', 'wholesalers', 'purchase_invoices', 'purchase_invoice_items', 'purchase_payments', 'dispensing_register', 'ip_admissions', 'wards', 'beds', 'bed_transfers', 'ip_vitals', 'ip_medication_orders', 'ip_medication_admin', 'ip_progress_notes', 'ip_nursing_notes', 'ip_intake_output', 'ip_diet_orders', 'ip_cross_consultations', 'mlc_register', 'admission_requests', 'bill_items', 'bill_payments', 'advances', 'charge_heads', 'tpa_master', 'tpa_claims', 'discharge_templates', 'peds_growth_measurements', 'peds_vaccine_records', 'patient_allergies', 'patient_conditions', 'patient_family_history', 'radiology_orders', 'radiology_order_items', 'radiology_tests']);
       const SKIP = new Set(['sqlite_sequence', 'schema_meta', 'settings', 'users']); // secrets/internal → .sqlite backup only
       for (const t of listUserTables(db)) {
         if (CURATED.has(t) || SKIP.has(t)) continue;
@@ -3022,7 +3032,8 @@ export function registerIpc() {
       // Computed at backup time with the same rule the Billing portal and Accounts use, so the workbook says who
       // owed what on the day it was taken.
       { sheet: 'Outstanding Dues', rows: (d) => outstandingBills(d).map((r) => ({
-          bill_number: r.bill_number, patient_uhid: r.uhid, patient_name: r.name, kind: r.kind, billed_on: r.created_at,
+          bill_number: r.bill_number, source: r.source === 'bill' ? 'Bill' : 'Pharmacy sale on credit',
+          patient_uhid: r.uhid, patient_name: r.name, kind: r.kind, billed_on: r.created_at,
           total: r.total, paid: r.paid, advance_counted: r.advance, still_due: r.due, days_outstanding: r.age_days,
         })) },
       { sheet: 'Lab Orders', sql: `
@@ -3063,10 +3074,22 @@ export function registerIpc() {
                CASE WHEN s.payment_mode = 'IPD-bill' THEN 'Ward (on the IPD bill)'
                     WHEN s.patient_id IS NULL THEN 'Walk-in guest' ELSE 'Registered patient' END as customer_type,
                p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name, s.customer_name as guest_name,
-               s.sold_by, s.appointment_id, s.taxable_total, s.exempt_total, s.cgst_total, s.sgst_total, s.is_tax_invoice
+               s.sold_by, s.appointment_id, s.taxable_total, s.exempt_total, s.cgst_total, s.sgst_total, s.is_tax_invoice,
+               CASE WHEN s.payment_mode = 'IPD-bill' THEN NULL ELSE COALESCE(s.amount_paid, s.total) END as amount_received,
+               ${SALE_DUE_SQL} as balance_due,
+               CASE WHEN s.on_credit = 1 THEN 'Yes' ELSE '' END as on_credit
         FROM pharmacy_sales s
         LEFT JOIN patients p ON p.id = s.patient_id
         ORDER BY s.created_at DESC` },
+      // Money taken later against medicines sold on credit — one row per payment, so the workbook can rebuild every balance.
+      { sheet: 'Pharmacy Credit Payments', sql: `
+        SELECT sp.id, s.sale_number, s.created_at as sale_date, s.total as sale_total,
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               sp.amount, sp.payment_mode, sp.received_at, sp.received_by, sp.reference, sp.notes
+        FROM pharmacy_sale_payments sp
+        JOIN pharmacy_sales s ON s.id = sp.sale_id
+        LEFT JOIN patients p ON p.id = s.patient_id
+        ORDER BY sp.received_at DESC, sp.id DESC` },
       { sheet: 'Pharmacy Sale Items', sql: `
         SELECT si.id, si.sale_id, s.sale_number, s.created_at as sale_date,
                si.drug_name, si.qty, si.rate, si.amount, si.discount_alloc,
@@ -3279,10 +3302,19 @@ export function registerIpc() {
       { name: 'radiology_test_catalog.csv', sql: `SELECT * FROM radiology_tests ORDER BY name` },
       { name: 'pharmacy_sales.csv', sql: `
         SELECT s.id, s.sale_number, s.subtotal, s.discount, s.total, s.payment_mode, s.created_at,
-               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name,
+               CASE WHEN s.payment_mode = 'IPD-bill' THEN NULL ELSE COALESCE(s.amount_paid, s.total) END as amount_received,
+               ${SALE_DUE_SQL} as balance_due
         FROM pharmacy_sales s
         LEFT JOIN patients p ON p.id = s.patient_id
         ORDER BY s.created_at DESC` },
+      { name: 'pharmacy_credit_payments.csv', sql: `
+        SELECT sp.id, s.sale_number, sp.amount, sp.payment_mode, sp.received_at, sp.received_by, sp.reference,
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name
+        FROM pharmacy_sale_payments sp
+        JOIN pharmacy_sales s ON s.id = sp.sale_id
+        LEFT JOIN patients p ON p.id = s.patient_id
+        ORDER BY sp.received_at DESC, sp.id DESC` },
       { name: 'pharmacy_sale_items.csv', sql: `
         SELECT si.id, si.sale_id, s.sale_number, s.created_at as sale_date,
                si.drug_name, si.qty, si.rate, si.amount
@@ -3648,6 +3680,7 @@ export function registerIpc() {
       add('Stock batches', 'drug_stock_batches');
       add('Supplier purchase bills', 'purchase_invoices');
       add('Supplier payments', 'purchase_payments');
+      add('Pharmacy credit payments', 'pharmacy_sale_payments');
       add('Dispensing register entries', 'dispensing_register');
       add('Advance deposits', 'advances');
       add('Uploaded documents', 'patient_documents');
@@ -3987,8 +4020,10 @@ export function registerIpc() {
       pharmacyMonthRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM pharmacy_sales WHERE created_at >= ? AND COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') >= ?`, loMonth, monthStart),
       pharmacyMonthPatientRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM pharmacy_sales WHERE created_at >= ? AND patient_id IS NOT NULL AND COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') >= ?`, loMonth, monthStart),
       pharmacyMonthGuestRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM pharmacy_sales WHERE created_at >= ? AND patient_id IS NULL AND COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') >= ?`, loMonth, monthStart),
-      // Money still to collect across every bill (same rule as the patient portal and Accounts).
+      // Money still to collect across every bill and credit sale (same rule as the patient portal and Accounts).
       outstandingTotal: outstandingTotal(db),
+      // …of which owed for medicines sold on credit.
+      pharmacyCreditDue: ss(`SELECT COALESCE(SUM(MAX(total - COALESCE(amount_paid, total), 0)), 0) as t FROM pharmacy_sales WHERE on_credit = 1 AND COALESCE(payment_mode, '') <> 'IPD-bill'`),
       totalPatients: sc(`SELECT COUNT(*) as c FROM patients`),
       patientsThisMonth: sc(`SELECT COUNT(*) as c FROM patients WHERE created_at >= ? AND date(created_at, 'localtime') >= ?`, loMonth, monthStart),
       activeDoctors: sc(`SELECT COUNT(*) as c FROM doctors WHERE is_active=1`),
@@ -4325,12 +4360,52 @@ export function registerIpc() {
         WHERE created_at >= ? AND created_at < ? AND COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?
         GROUP BY kind
       `).all(slack.lo, slack.hi, filter.from, filter.to),
-      paymentMix: db.prepare(`
-        SELECT COALESCE(NULLIF(TRIM(payment_mode), ''), 'Unspecified') as mode, COUNT(*) as count, COALESCE(SUM(total),0) as revenue
-        FROM pharmacy_sales
-        WHERE created_at >= ? AND created_at < ? AND COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?
-        GROUP BY mode ORDER BY revenue DESC
-      `).all(slack.lo, slack.hi, filter.from, filter.to),
+      // Paid by: what was taken at the counter, by payment mode — plus "On credit" for the part of a sale left owing.
+      paymentMix: (() => {
+        const rows = db.prepare(`
+          SELECT COALESCE(NULLIF(TRIM(x.payment_mode), ''), 'Unspecified') as mode,
+                 COALESCE(SUM(x.at_sale), 0) as paid_now, COALESCE(SUM(x.total - x.at_sale), 0) as credit,
+                 SUM(CASE WHEN x.at_sale > 0.004 THEN 1 ELSE 0 END) as paid_n,
+                 SUM(CASE WHEN x.total - x.at_sale > 0.004 THEN 1 ELSE 0 END) as credit_n
+            FROM (SELECT s.payment_mode, s.total,
+                         MAX(COALESCE(s.amount_paid, s.total) - COALESCE(pp.s, 0), 0) as at_sale
+                    FROM pharmacy_sales s
+                    LEFT JOIN (SELECT sale_id, SUM(amount) AS s FROM pharmacy_sale_payments GROUP BY sale_id) pp ON pp.sale_id = s.id
+                   WHERE s.created_at >= ? AND s.created_at < ? AND COALESCE(s.payment_mode, '') <> 'IPD-bill'
+                     AND date(s.created_at, 'localtime') BETWEEN ? AND ?) x
+           GROUP BY mode
+        `).all(slack.lo, slack.hi, filter.from, filter.to) as { mode: string; paid_now: number; credit: number; paid_n: number; credit_n: number }[];
+        const out: { mode: string; count: number; revenue: number }[] = [];
+        let creditP = 0, creditN = 0;
+        for (const r of rows) {
+          if (r.paid_now > 0.004) out.push({ mode: r.mode, count: r.paid_n || 0, revenue: Math.round(r.paid_now * 100) / 100 });
+          creditP += Math.round(r.credit * 100); creditN += r.credit_n || 0;
+        }
+        if (creditP > 0) out.push({ mode: 'On credit', count: creditN, revenue: creditP / 100 });
+        return out.sort((a, b) => b.revenue - a.revenue);
+      })(),
+      // Medicines sold on credit: this period's, and what is owed now across every credit sale.
+      creditSummary: (() => {
+        const win = db.prepare(`
+          SELECT COUNT(*) as sold_count,
+                 COALESCE(SUM(s.total - MAX(COALESCE(s.amount_paid, s.total) - COALESCE(pp.s, 0), 0)), 0) as credit_value,
+                 COALESCE(SUM(MAX(s.total - COALESCE(s.amount_paid, s.total), 0)), 0) as still_owed
+            FROM pharmacy_sales s
+            LEFT JOIN (SELECT sale_id, SUM(amount) AS s FROM pharmacy_sale_payments GROUP BY sale_id) pp ON pp.sale_id = s.id
+           WHERE s.on_credit = 1 AND s.created_at >= ? AND s.created_at < ? AND COALESCE(s.payment_mode, '') <> 'IPD-bill'
+             AND date(s.created_at, 'localtime') BETWEEN ? AND ?
+        `).get(slack.lo, slack.hi, filter.from, filter.to) as { sold_count: number; credit_value: number; still_owed: number };
+        const all = db.prepare(`
+          SELECT COALESCE(SUM(MAX(total - COALESCE(amount_paid, total), 0)), 0) as due, COUNT(DISTINCT patient_id) as patients,
+                 SUM(CASE WHEN total - COALESCE(amount_paid, total) > 0.004 THEN 1 ELSE 0 END) as sales,
+                 MIN(CASE WHEN total - COALESCE(amount_paid, total) > 0.004 THEN date(created_at, 'localtime') END) as oldest
+            FROM pharmacy_sales WHERE on_credit = 1 AND COALESCE(payment_mode, '') <> 'IPD-bill' AND total - COALESCE(amount_paid, total) > 0.004
+        `).get() as { due: number; patients: number; sales: number | null; oldest: string | null };
+        return {
+          sold_count: win.sold_count, credit_value: Math.round(win.credit_value * 100) / 100, still_owed_from_these: Math.round(win.still_owed * 100) / 100,
+          owed_now: Math.round(all.due * 100) / 100, sales_owing: all.sales ?? 0, patients_owing: all.patients ?? 0, oldest_owed_since: all.oldest ?? null,
+        };
+      })(),
       topPatients: db.prepare(`
         SELECT p.id as patient_id, (p.first_name || ' ' || p.last_name) as name, p.uhid,
                COUNT(*) as sales, COALESCE(SUM(s.total),0) as revenue
@@ -4398,10 +4473,13 @@ export function registerIpc() {
       }
       return { count: n, revenue: fromPaise(revenueP), collected: fromPaise(revenueP - dueP) };
     };
+    // Pharmacy sales are normally paid at the counter; one made on credit can still owe (all or part of it).
     const phar = db.prepare(
-      `SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue FROM pharmacy_sales
+      `SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue,
+              COALESCE(SUM(MAX(total - COALESCE(amount_paid, total), 0)), 0) as due
+         FROM pharmacy_sales
         WHERE created_at >= ? AND created_at < ? AND COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?`
-    ).get(slack.lo, slack.hi, from, to) as { count: number; revenue: number };
+    ).get(slack.lo, slack.hi, from, to) as { count: number; revenue: number; due: number };
 
     const mk = (key: string, label: string, a: { count: number; revenue: number; collected: number }) => ({
       key, label, count: a.count, revenue: Math.round(a.revenue),
@@ -4410,14 +4488,17 @@ export function registerIpc() {
     // Every non-cancelled bill falls in exactly one of these, so the rows add up to the Accounts total:
     // in-patient / lab / radiology by bill type first; then a Services bill (bill_kind='misc'); then a consultation;
     // and whatever is left (Quick-Bill "custom" and hand-made pharmacy bills) is "Other".
-    const NOT_SPECIAL = "COALESCE(bill_type,'') NOT IN ('ipd','lab','radiology')";
+    // A hand-typed pharmacy bill (Quick Bill → Pharmacy) never touched stock, cost or profit, so it has its own row and is
+    // never mixed into Pharmacy (stock sales) or Other.
+    const NOT_SPECIAL = "COALESCE(bill_type,'') NOT IN ('ipd','lab','radiology','pharmacy')";
     const modules = [
       mk('opd', 'OPD / Consultation', billAgg(`bill_type='opd_consult' AND COALESCE(bill_kind,'') <> 'misc'`)),
       mk('ipd', 'IPD (in-patient)', billAgg("bill_type='ipd'")),
       mk('lab', 'Laboratory', billAgg("bill_type='lab'")),
       mk('radiology', 'Radiology', billAgg("bill_type='radiology'")),
-      // Pharmacy sells over the counter — treat sale value as collected.
-      { key: 'pharmacy', label: 'Pharmacy', count: phar.count, revenue: Math.round(phar.revenue), collected: Math.round(phar.revenue), outstanding: 0 },
+      // Pharmacy (from stock): sale value, less what a credit sale still owes.
+      { key: 'pharmacy', label: 'Pharmacy', count: phar.count, revenue: Math.round(phar.revenue), collected: Math.round(phar.revenue - phar.due), outstanding: Math.round(phar.due) },
+      mk('pharmacy_manual', 'Pharmacy — hand-typed bills', billAgg("bill_type='pharmacy'")),
       mk('misc', 'Procedures / Misc', billAgg(`bill_kind='misc' AND ${NOT_SPECIAL}`)),
       mk('other', 'Other / quick bills', billAgg(`${NOT_SPECIAL} AND COALESCE(bill_type,'') <> 'opd_consult' AND COALESCE(bill_kind,'') <> 'misc'`)),
     ].filter((m) => m.count > 0 || m.revenue > 0);
@@ -4524,6 +4605,12 @@ export function registerIpc() {
       [lo(rangeFrom), hi(rangeTo), rangeFrom, rangeTo]
     );
     const whoOf = (k: string) => { const r = pharmaWho.find((x) => x.who === k); return { total: r ? r.t : 0, count: r ? r.c : 0 }; };
+    // Medicines sold on credit in the range: how much of the sales was left owing, and what is still owed on those sales.
+    const pharmaCreditRow = row(
+      `SELECT COUNT(*) as c, COALESCE(SUM(MAX(total - COALESCE(amount_paid, total), 0)), 0) as due
+         FROM pharmacy_sales WHERE on_credit = 1 AND created_at >= ? AND created_at < ? AND COALESCE(payment_mode, '') <> 'IPD-bill'
+          AND date(created_at, 'localtime') BETWEEN ? AND ?`,
+      [lo(rangeFrom), hi(rangeTo), rangeFrom, rangeTo]);
 
     const byDay = all(
       `SELECT date(created_at, 'localtime') as day, COALESCE(SUM(total),0) as total, COUNT(*) as count
@@ -4614,6 +4701,7 @@ export function registerIpc() {
         bills: { total: rangeBills.t, count: rangeBills.c },
         pharma: { total: rangePharma.t, count: rangePharma.c },
         pharmaSplit: { patient: whoOf('patient'), guest: whoOf('guest') },
+        pharmaCredit: { count: pharmaCreditRow.c, still_owed: pharmaCreditRow.due },
       },
       compare30: {
         opd: { total: opd30.t, count: opd30.c },

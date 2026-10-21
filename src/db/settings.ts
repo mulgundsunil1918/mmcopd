@@ -141,6 +141,9 @@ export function getAllSettings(db: Database.Database): Settings {
     discharge_summary_enabled: map.discharge_summary_enabled !== 'false',
     lab_auto_bill: map.lab_auto_bill !== 'false',
     radiology_auto_bill: map.radiology_auto_bill !== 'false',
+    // Medicines on credit. Both default OFF: selling on credit creates money owed, so a clinic switches it on deliberately.
+    pharmacy_credit_enabled: map.pharmacy_credit_enabled === 'true',
+    pharmacy_ipd_charge_enabled: map.pharmacy_ipd_charge_enabled === 'true',
     role_access_json: map.role_access_json || '',
     // Per-install sidebar customisation: JSON array of { to, hidden } in the
     // user's chosen order. Empty = default order, nothing hidden.

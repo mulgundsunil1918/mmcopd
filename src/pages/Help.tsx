@@ -46,10 +46,11 @@ const Warn = ({ children }: { children: React.ReactNode }) => (
 const TOPICS: Topic[] = [
   {
     id: 'start', icon: BookOpen, title: 'First-time setup — start here', tag: 'Getting started',
-    keywords: 'first setup start begin new install clinic name logo backup admin password getting started',
+    keywords: 'first setup start begin new install clinic name logo backup admin password getting started setup guide wizard skip later',
     body: (
       <>
-        <p>Do these five things once, in this order, and the rest of the app behaves properly.</p>
+        <p>A brand-new install opens a <b>setup guide</b> by itself — clinic details, doctors, fees, staff logins, pharmacy and wards, one screen at a time. Every screen saves as you go and can be skipped (<i>&ldquo;Skip setup for now — I&rsquo;ll do it later&rdquo;</i>); only the clinic name is required. Skipped something? <Path>Settings → Clinic → Open the setup guide</Path> brings it back.</p>
+        <p className="mt-2">If you prefer to do it by hand, these are the five things, in this order:</p>
         <ol className="space-y-2 mt-2">
           <Step n={1}><b>Fill in your clinic details</b> — <Path>Settings → Clinic → Clinic Identity</Path>. Name, address, phone, logo. This becomes the letterhead on every slip and bill.</Step>
           <Step n={2}><b>Add your doctors</b> — <Path>Settings → Doctors</Path>. Name, specialty, room number, consultation fee.</Step>
@@ -109,7 +110,7 @@ const TOPICS: Topic[] = [
   },
   {
     id: 'pharmacy', icon: Pill, title: 'Pharmacy — dispensing & stock', tag: 'Modules',
-    keywords: 'pharmacy dispense counter sale drug stock batch expiry fefo schedule h receipt medicine inventory walk-in guest cost not recorded',
+    keywords: 'pharmacy dispense counter sale drug stock batch expiry fefo schedule h receipt medicine inventory walk-in guest cost not recorded credit pay later udhaar in-patient bill hand-typed',
     body: (
       <>
         <p className="mb-2">CureDesk ships with <b>~220 common medicines</b> already loaded. Edit prices, add your own, or remove what you don't stock at <Path>Pharmacy → Drug Master</Path>.</p>
@@ -122,6 +123,7 @@ const TOPICS: Topic[] = [
         <div className="mt-2 space-y-2">
           <Tip>Stock is deducted automatically using <b>FEFO</b> — first-expiring batch goes out first, so nothing expires on your shelf unnoticed.</Tip>
           <Warn>Schedule H / H1 medicines are flagged on screen and on the receipt. Add stock via <b>Purchases</b> so batch and expiry are recorded for the register.</Warn>
+          <Tip><b>On credit.</b> If <Path>Settings → Billing &amp; IPD → Pharmacy</Path> allows it, a <i>registered</i> patient can take medicines and pay part now (or nothing) and the rest later: choose <b>On credit</b> under &ldquo;How is it paid?&rdquo;. What is still owed shows on the patient&rsquo;s billing page, in Accounts and under <Path>Analytics → Receivables</Path>; take the money with <b>Collect</b> (Pharmacy → Sales, or the patient&rsquo;s billing page). A walk-in guest cannot take credit. For an admitted patient, <b>Charge to IPD bill</b> puts the medicines on that stay&rsquo;s running bill at the same MRP, to be collected at discharge.</Tip>
           <Tip>Stock you typed in by hand carries a cost nobody can vouch for. <Path>Stock &amp; Batches → Cost not recorded</Path> clears it, so profit is never worked out from a guess. Stock bought on a supplier bill is never touched.</Tip>
         </div>
       </>
@@ -183,7 +185,7 @@ const TOPICS: Topic[] = [
         <ul className="list-disc pl-5 space-y-1.5">
           <li><b>Everything for one patient</b> — type a name, phone or UHID at the top of Billing. The page becomes that patient&rsquo;s <b>billing portal</b>: what has been billed and paid (including medicines bought at the pharmacy counter), what is still to collect, and what can be billed now — a visit with no bill, a lab or scan order with no bill, a prescription not yet dispensed. Collect, bill and print from there.</li>
           <li><b>OPD bill</b> — Billing → Billing Queue → pick the patient → generate → Print.</li>
-          <li><b>Quick Bill</b> — the <b>New Bill</b> button in the top bar, for anyone, any amount. Save &amp; Print in one step.</li>
+          <li><b>Quick Bill</b> — the <b>New Bill</b> button in the top bar, for anyone, any amount. Save &amp; Print in one step. A <b>Pharmacy (hand-typed)</b> quick bill takes nothing out of stock, so it is reported on its own in Analytics and never mixed into the pharmacy stock and profit figures.</li>
           <li><b>IPD bill</b> — Billing → <b>IPD / Admissions</b> tab shows every admission with its balance. Click to open the same bill the IPD screen uses.</li>
           <li><b>Pharmacy receipt</b> — printed right after a sale. A sale under a patient shows with their bills; a sale to a guest is under <b>Pharmacy walk-ins</b>.</li>
           <li><b>Reprint anything</b> — Billing → Billing History → Reprint.</li>
@@ -256,6 +258,7 @@ const TOPICS: Topic[] = [
           <li><b>Finance</b> — revenue by day, month, weekday, peak hours, payment mode, doctor.</li>
           <li><b>Modules P&amp;L</b> — what OPD, Pharmacy, Lab and IPD each earn.</li>
           <li><b>Demographics</b> — age, gender, blood group, where patients come from.</li>
+          <li><b>Receivables</b> (in Finance) — money billed but not yet collected, by department, by patient, and by how long it has waited: unpaid bills are sorted by age (up to a week, 8–30 days, 31–90 days, over 90 days), so the oldest are the ones to chase first.</li>
         </ul>
         <div className="mt-2"><Tip>Testing on a fresh install? <Path>Settings → System → Load sample data</Path> fills the app with fictional patients so you can see every chart working.</Tip></div>
       </>

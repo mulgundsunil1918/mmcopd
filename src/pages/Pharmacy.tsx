@@ -20,6 +20,10 @@ import { DispensingRegisterPrint } from '../components/DispensingRegisterPrint';
 import { StockRegisterPrint } from '../components/StockRegisterPrint';
 import { PurchaseRegisterPrint } from '../components/PurchaseRegisterPrint';
 import { PharmacySaleReceipt } from '../components/pharmacy/PharmacySaleReceipt';
+import { CollectPaymentModal } from '../components/billing/CollectPaymentModal';
+import {
+  SalePaymentChoice, initialPayChoice, payDoneText, payFields, payProblem, usePayOptions, type PayChoice,
+} from '../components/pharmacy/SalePaymentChoice';
 import { BarcodeScanModal } from '../components/BarcodeScanModal';
 import { Scan, Printer } from 'lucide-react';
 import { localISO } from '../lib/localDate';
@@ -227,7 +231,8 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
   type Row = { drug_master_id?: number; drug_name: string; qty: number; rate: number; nextBatch?: string; nextExpiry?: string; stock?: number };
   const [rows, setRows] = useState<Row[]>([]);
   const [discount, setDiscount] = useState(0);
-  const [paymentMode, setPaymentMode] = useState('Cash');
+  const [pay, setPay] = useState<PayChoice>(initialPayChoice);       // paid now / on credit / charged to the in-patient bill
+  const payOpts = usePayOptions(appointment.patient_id);
   const [scanOpen, setScanOpen] = useState(false);
   const [receiptId, setReceiptId] = useState<number | null>(null);   // printed bill after dispensing
   // One id per sale attempt: the same attempt sent twice (double click, lost reply) is one sale.
@@ -284,6 +289,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
 
   const subtotal = useMemo(() => rows.reduce((s, r) => s + r.qty * r.rate, 0), [rows]);
   const total = Math.max(0, subtotal - discount);
+  const payBlocked = payProblem(pay, payOpts, total, discount);
 
   const sell = useMutation({
     mutationFn: () => {
@@ -297,7 +303,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
           rate: r.rate,
         })),
         discount,
-        payment_mode: paymentMode,
+        ...payFields(pay, payOpts),
       };
       return window.electronAPI.pharmacy.sell({ ...payload, sold_by: user?.username, client_ref: refFor(saleRef, payload) });
     },
@@ -309,7 +315,9 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
       qc.invalidateQueries({ queryKey: ['pharmacy-drugs-active'] });
       qc.invalidateQueries({ queryKey: ['pharmacy-alerts'] });
       qc.invalidateQueries({ queryKey: ['pharmacy-batches'] });
-      toast(`Dispensed — ${formatINR(total)}`);
+      // A sale on credit or on an in-patient bill changes what the patient owes — keep Billing, Accounts and Analytics in step.
+      for (const k of ['billing-portal', 'bills', 'bill-admissions', 'finance', 'receivables']) qc.invalidateQueries({ queryKey: [k] });
+      toast(`Dispensed — ${payDoneText(pay, payOpts, total)}`);
       // Offer the printed bill before closing.
       if (sale?.id) setReceiptId(Number(sale.id));
       else onDone();
@@ -406,17 +414,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-4">
-        <div>
-          <div className="label">Payment Mode</div>
-          <div className="flex gap-2">
-            {['Cash','Card','UPI'].map((m) => (
-              <button key={m} type="button" onClick={() => setPaymentMode(m)}
-                className={cn('px-3 py-1.5 text-xs rounded-md border',
-                  paymentMode === m ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-200'
-                )}>{m}</button>
-            ))}
-          </div>
-        </div>
+        <SalePaymentChoice value={pay} onChange={setPay} options={payOpts} total={total} discount={discount} />
         <div className="card p-3 bg-gray-50 dark:bg-slate-900">
           <div className="flex justify-between text-xs"><span>Subtotal</span><span>{formatINR(subtotal)}</span></div>
           <div className="flex justify-between text-xs items-center"><span>Discount</span>
@@ -429,8 +427,8 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
       </div>
 
       <div className="flex justify-end gap-2 mt-4">
-        <button className="btn-success" onClick={() => sell.mutate()} disabled={sell.isPending || rows.length === 0}>
-          {sell.isPending ? 'Dispensing…' : 'Dispense (FEFO) & Charge'}
+        <button className="btn-success" onClick={() => sell.mutate()} disabled={sell.isPending || rows.length === 0 || !!payBlocked}>
+          {sell.isPending ? 'Dispensing…' : pay.how === 'ipd' ? 'Dispense (FEFO) & add to IPD bill' : pay.how === 'credit' ? 'Dispense (FEFO) on credit' : 'Dispense (FEFO) & Charge'}
         </button>
       </div>
 
@@ -469,7 +467,7 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
   type Row = { drug_master_id?: number; drug_name: string; qty: number; rate: number; nextBatch?: string; nextExpiry?: string; stock?: number; schedule?: DrugSchedule };
   const [rows, setRows] = useState<Row[]>([]);
   const [discount, setDiscount] = useState(0);
-  const [paymentMode, setPaymentMode] = useState('Cash');
+  const [pay, setPay] = useState<PayChoice>(initialPayChoice);       // paid now / on credit / charged to the in-patient bill
   const [scanOpen, setScanOpen] = useState(false);
   const [receiptId, setReceiptId] = useState<number | null>(null);   // printed receipt after the sale
   const [saleRef, setSaleRef] = useState(newRef);                      // one id per sale attempt (see DispenseForm)
@@ -486,6 +484,8 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
 
   const subtotal = useMemo(() => rows.reduce((s, r) => s + r.qty * r.rate, 0), [rows]);
   const total = Math.max(0, subtotal - discount);
+  const payOpts = usePayOptions(patient?.id);
+  const payBlocked = payProblem(pay, payOpts, total, discount);
 
   const setRow = (idx: number, patch: Partial<Row>) =>
     setRows((r) => { const n = [...r]; n[idx] = { ...n[idx], ...patch }; return n; });
@@ -527,7 +527,7 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
           rate: r.rate,
         })),
         discount,
-        payment_mode: paymentMode,
+        ...payFields(pay, payOpts),
       };
       return window.electronAPI.pharmacy.sell({ ...payload, sold_by: user?.username, client_ref: refFor(saleRef, payload) });
     },
@@ -539,7 +539,8 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
       qc.invalidateQueries({ queryKey: ['pharmacy-drugs-active'] });
       qc.invalidateQueries({ queryKey: ['pharmacy-alerts'] });
       qc.invalidateQueries({ queryKey: ['pharmacy-batches'] });
-      toast(`Counter sale recorded — ${formatINR(total)}`);
+      for (const k of ['billing-portal', 'bills', 'bill-admissions', 'finance', 'receivables', 'portal-walkins']) qc.invalidateQueries({ queryKey: [k] });
+      toast(`Counter sale recorded — ${payDoneText(pay, payOpts, total)}`);
       // Offer the printed receipt instead of closing straight away; the user
       // prints (or skips) and the panel closes from the receipt's Close button.
       if (sale?.id) setReceiptId(Number(sale.id));
@@ -708,17 +709,7 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-4">
-        <div>
-          <div className="label">Payment Mode</div>
-          <div className="flex gap-2">
-            {['Cash', 'Card', 'UPI'].map((m) => (
-              <button key={m} type="button" onClick={() => setPaymentMode(m)}
-                className={cn('px-3 py-1.5 text-xs rounded-md border',
-                  paymentMode === m ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-200'
-                )}>{m}</button>
-            ))}
-          </div>
-        </div>
+        <SalePaymentChoice value={pay} onChange={setPay} options={payOpts} total={total} discount={discount} />
         <div className="card p-3 bg-gray-50 dark:bg-slate-900">
           <div className="flex justify-between text-xs"><span>Subtotal</span><span>{formatINR(subtotal)}</span></div>
           <div className="flex justify-between text-xs items-center"><span>Discount</span>
@@ -732,8 +723,8 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
 
       <div className="flex justify-end gap-2 mt-4">
         <button className="btn-secondary" onClick={onDone}>Cancel</button>
-        <button className="btn-success" onClick={() => sell.mutate()} disabled={sell.isPending || rows.length === 0}>
-          {sell.isPending ? 'Recording…' : 'Record Sale & Charge'}
+        <button className="btn-success" onClick={() => sell.mutate()} disabled={sell.isPending || rows.length === 0 || !!payBlocked}>
+          {sell.isPending ? 'Recording…' : pay.how === 'ipd' ? 'Record Sale & add to IPD bill' : pay.how === 'credit' ? 'Record Sale on credit' : 'Record Sale & Charge'}
         </button>
       </div>
 
@@ -1501,6 +1492,8 @@ function SalesTab() {
   // Reprint: a customer who lost the slip, or a counter that ran out of paper
   // mid-print, must be able to get the same bill again days later.
   const [receiptId, setReceiptId] = useState<number | null>(null);
+  const [collect, setCollect] = useState<{ saleId: number; label: string; due: number } | null>(null);   // taking the rest of a credit sale
+  const qc = useQueryClient();
   const { data: sales = [] } = useQuery({
     queryKey: ['pharmacy-sales', from, to],
     queryFn: () => window.electronAPI.pharmacy.listSales({ from, to }),
@@ -1510,6 +1503,8 @@ function SalesTab() {
   const isWard = (x: { payment_mode: string | null }) => x.payment_mode === 'IPD-bill';
   const totalRevenue = sales.filter((x) => !isWard(x)).reduce((s, x) => s + Number(x.total || 0), 0);
   const wardTotal = sales.filter(isWard).reduce((s, x) => s + Number(x.total || 0), 0);
+  // Medicines given on credit: revenue counts the whole bill, but part of it may not have been paid yet.
+  const owing = sales.filter((x) => !isWard(x)).reduce((s, x) => s + Math.max(0, Number(x.due || 0)), 0);
   return (
     <section className="card p-4">
       <div className="flex items-center gap-2 flex-wrap mb-3">
@@ -1518,6 +1513,11 @@ function SalesTab() {
         <input type="date" className="input w-auto" value={to} onChange={(e) => setTo(e.target.value)} />
         <div className="ml-auto text-sm">
           <span className="text-gray-500 dark:text-slate-400">Revenue:</span> <span className="font-bold text-emerald-700 dark:text-emerald-300">{formatINR(totalRevenue)}</span>
+          {owing > 0.004 && (
+            <span className="ml-3 text-[11px] text-amber-700 dark:text-amber-300" title="Medicines given on credit that have not been paid for yet">
+              {formatINR(owing)} still owed on credit
+            </span>
+          )}
           {wardTotal > 0 && (
             <span className="ml-3 text-[11px] text-gray-500 dark:text-slate-400" title="Medicines given on a ward — already charged on the patient's IPD bill">
               + {formatINR(wardTotal)} given on wards (billed on IPD bills)
@@ -1554,8 +1554,21 @@ function SalesTab() {
                 </td>
                 <td className="py-2 text-xs text-gray-500 dark:text-slate-400">{fmtDateTime(s.created_at)}</td>
                 <td className="py-2 text-right font-semibold">{formatINR(s.total)}</td>
-                <td className="py-2"><span className="badge bg-gray-100 text-gray-700">{isWard(s) ? 'IPD bill' : (s.payment_mode || '—')}</span></td>
-                <td className="py-2 text-right">
+                <td className="py-2">
+                  <span className="badge bg-gray-100 text-gray-700">{isWard(s) ? 'IPD bill' : (s.payment_mode || '—')}</span>
+                  {Number(s.due) > 0.004 ? (
+                    <div className="mt-0.5"><span className="badge bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">On credit · {formatINR(Number(s.due))} due</span></div>
+                  ) : s.on_credit ? (
+                    <div className="mt-0.5"><span className="badge bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">Credit · settled</span></div>
+                  ) : null}
+                </td>
+                <td className="py-2 text-right whitespace-nowrap">
+                  {Number(s.due) > 0.004 && (
+                    <button className="btn-primary text-[11px] py-1 px-2 mr-1"
+                      onClick={() => setCollect({ saleId: Number(s.id), label: `${s.patient_name || 'Pharmacy'} ${s.sale_number}`, due: Number(s.due) })}>
+                      Collect
+                    </button>
+                  )}
                   <button
                     className="btn-secondary text-[11px] py-1 px-2 inline-flex items-center gap-1"
                     onClick={() => setReceiptId(Number(s.id))}
@@ -1572,6 +1585,14 @@ function SalesTab() {
 
       {receiptId !== null && (
         <PharmacySaleReceipt saleId={receiptId} onClose={() => setReceiptId(null)} />
+      )}
+      {collect && (
+        <CollectPaymentModal target={{ saleId: collect.saleId }} label={collect.label} due={collect.due}
+          onClose={() => setCollect(null)}
+          onDone={() => {
+            setCollect(null);
+            for (const k of ['pharmacy-sales', 'billing-portal', 'bills', 'finance', 'receivables', 'pharmacy-sale-detail', 'portal-walkins']) qc.invalidateQueries({ queryKey: [k] });
+          }} />
       )}
     </section>
   );

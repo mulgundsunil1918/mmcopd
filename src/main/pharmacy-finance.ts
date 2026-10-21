@@ -29,6 +29,7 @@
 
 import type Database from 'better-sqlite3';
 import { nextSaleNumber } from '../db/ids';
+import { getAllSettings } from '../db/settings';
 import { gstContext, medicineLineTax, splitInclusive } from './gst';
 import {
   allocatePaise, blendUnitCost, computePurchase, fromPaise, netRevenueExGst, profitMetrics,
@@ -421,6 +422,14 @@ export interface SellIn {
   discount?: number;
   payment_mode?: string;
   sold_by?: string;
+  /** Medicines on credit: a registered patient takes them now and pays later (all or part is left owing). Needs the
+   *  Settings switch, and a registered patient so it is clear who owes. */
+  credit?: boolean;
+  /** With `credit`: what is paid now (default 0). The rest stays owing. */
+  paid_now?: number;
+  /** Medicines for an admitted patient, charged on that stay's in-patient bill instead of being paid for at the counter.
+   *  Handled by chargeMedicinesToAdmission (ipd-billing-ipc.ts); sellItems itself only knows the resulting 'IPD-bill' mode. */
+  ipd_admission_id?: number | null;
 }
 
 /**
@@ -463,17 +472,43 @@ export function sellItems(db: Database.Database, payload: SellIn, now: Date = ne
       rxReference = `Rx ${a.appointment_date} ${a.appointment_time} · ${a.doctor_name}`;
     }
   }
+  // How much of the bill is received at the counter. Ordinary sale: all of it. On credit: only what was paid now.
+  const totalP = subtotalP - discountP;
+  let amountPaidP = totalP;
+  let onCredit = 0;
+  let paymentMode = payload.payment_mode ?? null;
+  if (paymentMode === 'IPD-bill') {
+    amountPaidP = 0;                                  // charged on the in-patient bill — nothing is taken at the counter
+  } else if (payload.credit) {
+    if (!getAllSettings(db).pharmacy_credit_enabled) {
+      throw new Error('Medicines on credit are switched off. Turn them on in Settings → Billing & IPD → Pharmacy, or take the payment now.');
+    }
+    if (!payload.patient_id) {
+      throw new Error('A sale on credit needs a registered patient, so it is clear who owes the money. Pick the patient, or take the payment now.');
+    }
+    if (!db.prepare('SELECT id FROM patients WHERE id=?').get(payload.patient_id)) {
+      throw new Error('That patient was not found — pick the patient again.');
+    }
+    const nowP = toPaise(payload.paid_now ?? 0);
+    if (nowP < 0) throw new Error('The amount paid now cannot be negative.');
+    if (nowP > totalP) throw new Error(`The amount paid now (${rupees(fromPaise(nowP))}) is more than the bill (${rupees(fromPaise(totalP))}).`);
+    if (nowP < totalP) {                               // paying all of it now is not a credit sale
+      onCredit = 1;
+      amountPaidP = nowP;
+      paymentMode = nowP > 0 ? (payload.payment_mode || 'Cash') : 'Credit';
+    }
+  }
   const saleNumber = nextSaleNumber(db, now);
   // A guest's name is kept so even a walk-in sale is accountable by name; a registered patient needs no separate name.
   const guestName = payload.patient_id ? null : (clean(payload.customer_name)?.slice(0, 80) ?? null);
 
   const tx = db.transaction(() => {
     const info = db.prepare(
-      'INSERT INTO pharmacy_sales (sale_number, patient_id, appointment_id, subtotal, discount, total, payment_mode, sold_by, client_ref, customer_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO pharmacy_sales (sale_number, patient_id, appointment_id, subtotal, discount, total, payment_mode, sold_by, client_ref, customer_name, amount_paid, on_credit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     ).run(
       saleNumber, payload.patient_id ?? null, payload.appointment_id ?? null,
-      fromPaise(subtotalP), fromPaise(discountP), fromPaise(subtotalP - discountP),
-      payload.payment_mode ?? null, payload.sold_by ?? null, ref, guestName,
+      fromPaise(subtotalP), fromPaise(discountP), fromPaise(totalP),
+      paymentMode, payload.sold_by ?? null, ref, guestName, fromPaise(amountPaidP), onCredit,
     );
     const saleId = Number(info.lastInsertRowid);
 
@@ -562,6 +597,9 @@ export function sellItems(db: Database.Database, payload: SellIn, now: Date = ne
 // Counter sales as the Billing screen sees them
 // ---------------------------------------------------------------------------------------------
 
+/** SQL: what a sale (alias `s`) still owes. An ordinary sale — and every sale made before credit existed — owes nothing. */
+export const SALE_DUE_SQL = "(CASE WHEN COALESCE(s.payment_mode, '') = 'IPD-bill' THEN 0 ELSE MAX(s.total - COALESCE(s.amount_paid, s.total), 0) END)";
+
 /**
  * Pharmacy sales made at the counter or against a prescription — NOT the ones dispensed on a ward (those are part
  * of the patient's IPD bill and would be counted twice). Money totals cover the whole filtered set, not just the
@@ -574,6 +612,7 @@ export function listCounterSales(db: Database.Database, f: CounterSalesFilter = 
   if (f.to) { conds.push("date(s.created_at, 'localtime') <= ?"); params.push(f.to); }
   if (f.scope === 'patient') conds.push('s.patient_id IS NOT NULL');
   else if (f.scope === 'guest') conds.push('s.patient_id IS NULL');
+  else if (f.scope === 'credit') conds.push(`${SALE_DUE_SQL} > 0.004`);
   const q = clean(f.q);
   if (q) {
     conds.push("((p.first_name || ' ' || p.last_name) LIKE ? OR p.uhid LIKE ? OR s.customer_name LIKE ? OR s.sale_number LIKE ?)");
@@ -584,16 +623,18 @@ export function listCounterSales(db: Database.Database, f: CounterSalesFilter = 
   const rows = db.prepare(`
     SELECT s.id, s.sale_number, s.created_at, s.subtotal, s.discount, s.total, s.payment_mode, s.sold_by,
            s.patient_id, (p.first_name || ' ' || p.last_name) AS patient_name, p.uhid AS patient_uhid, s.customer_name,
-           (SELECT COUNT(*) FROM pharmacy_sale_items si WHERE si.sale_id = s.id) AS item_count
+           (SELECT COUNT(*) FROM pharmacy_sale_items si WHERE si.sale_id = s.id) AS item_count,
+           COALESCE(s.amount_paid, s.total) AS amount_paid, ${SALE_DUE_SQL} AS due, s.on_credit
       FROM pharmacy_sales s LEFT JOIN patients p ON p.id = s.patient_id
       ${where}
      ORDER BY s.created_at DESC, s.id DESC LIMIT ?
   `).all(...params, Math.min(Math.max(Number(f.limit) || 500, 1), 2000)) as CounterSaleRow[];
   const byMode = db.prepare(`
-    SELECT COALESCE(s.payment_mode, '—') AS mode, COUNT(*) AS count, COALESCE(SUM(s.total), 0) AS total, COALESCE(SUM(s.discount), 0) AS discount
+    SELECT COALESCE(s.payment_mode, '—') AS mode, COUNT(*) AS count, COALESCE(SUM(s.total), 0) AS total, COALESCE(SUM(s.discount), 0) AS discount,
+           COALESCE(SUM(${SALE_DUE_SQL}), 0) AS due, SUM(CASE WHEN ${SALE_DUE_SQL} > 0.004 THEN 1 ELSE 0 END) AS due_count
       FROM pharmacy_sales s LEFT JOIN patients p ON p.id = s.patient_id
       ${where} GROUP BY mode ORDER BY total DESC
-  `).all(...params) as { mode: string; count: number; total: number; discount: number }[];
+  `).all(...params) as { mode: string; count: number; total: number; discount: number; due: number; due_count: number }[];
   const sum = (k: 'total' | 'discount') => fromPaise(byMode.reduce((a, m) => a + toPaise(m[k]), 0));
   return {
     rows,
@@ -602,8 +643,69 @@ export function listCounterSales(db: Database.Database, f: CounterSalesFilter = 
       total: sum('total'),
       discount: sum('discount'),
       by_mode: byMode.map((m) => ({ mode: m.mode, count: m.count, total: r2(m.total) })),
+      credit_count: byMode.reduce((a, m) => a + (m.due_count || 0), 0),
+      credit_due: fromPaise(byMode.reduce((a, m) => a + toPaise(m.due), 0)),
     },
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Medicines on credit — taking the money later
+// ---------------------------------------------------------------------------------------------
+
+export interface CreditPaymentIn {
+  amount: number;
+  mode?: string | null;
+  reference?: string | null;
+  notes?: string | null;
+  /** One id per payment attempt: the same attempt sent twice is recorded once. */
+  client_ref?: string | null;
+}
+
+/**
+ * Take a payment against a pharmacy sale that was made on credit. Refuses a sale that is already settled, a payment
+ * above what is still owed, and one that belongs on the in-patient bill; a repeat of the same attempt is recognised.
+ */
+export function payCredit(db: Database.Database, saleId: number, p: CreditPaymentIn, by?: string | null) {
+  const ref = clean(p?.client_ref);
+  if (ref) {
+    const hit = db.prepare('SELECT sale_id FROM pharmacy_sale_payments WHERE client_ref=?').get(ref) as { sale_id: number } | undefined;
+    if (hit) return { duplicate: true as const, sale_id: hit.sale_id, due: saleDue(db, hit.sale_id) };
+  }
+  const sale = db.prepare('SELECT id, sale_number, total, amount_paid, payment_mode FROM pharmacy_sales WHERE id=?').get(Number(saleId)) as any;
+  if (!sale) throw new Error('That pharmacy sale was not found. Refresh the list and try again.');
+  if (sale.payment_mode === 'IPD-bill') throw new Error(`${sale.sale_number} is charged on the in-patient bill — take the payment there.`);
+  const amtP = toPaise(p?.amount);
+  if (!(amtP > 0)) throw new Error('Enter an amount above zero.');
+  const paidP = toPaise(sale.amount_paid ?? sale.total);
+  const dueP = toPaise(sale.total) - paidP;
+  if (dueP <= 0) throw new Error(`${sale.sale_number} is already paid in full — nothing more to collect.`);
+  if (amtP > dueP) {
+    throw new Error(`That is more than the ${rupees(fromPaise(dueP))} still owed on ${sale.sale_number}. Enter ${rupees(fromPaise(dueP))} or less.`);
+  }
+  db.transaction(() => {
+    db.prepare(
+      'INSERT INTO pharmacy_sale_payments (sale_id, amount, payment_mode, received_by, reference, notes, client_ref) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    ).run(sale.id, fromPaise(amtP), clean(p.mode) ?? 'Cash', by ?? null, clean(p.reference), clean(p.notes), ref);
+    db.prepare('UPDATE pharmacy_sales SET amount_paid=? WHERE id=?').run(fromPaise(paidP + amtP), sale.id);
+  })();
+  return { duplicate: false as const, sale_id: sale.id as number, due: fromPaise(dueP - amtP) };
+}
+
+/** The stay a patient is in right now, if any — what the counter needs to offer "charge to the in-patient bill". */
+export function activeAdmissionFor(db: Database.Database, patientId: number) {
+  const r = db.prepare(
+    `SELECT id AS admission_id, admission_number, ward, bed_number, COALESCE(discharge_status, 'none') AS discharge_status
+       FROM ip_admissions WHERE patient_id=? AND status='admitted' ORDER BY id DESC LIMIT 1`,
+  ).get(Number(patientId)) as { admission_id: number; admission_number: string; ward: string | null; bed_number: string | null; discharge_status: string } | undefined;
+  return r ?? null;
+}
+
+/** What a pharmacy sale still owes, in rupees (0 for an ordinary sale and for anything charged on a bill). */
+export function saleDue(db: Database.Database, saleId: number): number {
+  const r = db.prepare('SELECT total, amount_paid, payment_mode FROM pharmacy_sales WHERE id=?').get(Number(saleId)) as any;
+  if (!r || r.payment_mode === 'IPD-bill') return 0;
+  return Math.max(0, fromPaise(toPaise(r.total) - toPaise(r.amount_paid ?? r.total)));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1014,6 +1116,14 @@ export function integrityChecks(db: Database.Database): IntegrityFinding[] {
     SELECT COUNT(*) AS c FROM (
       SELECT 1 FROM purchase_invoices GROUP BY wholesaler_id, lower(trim(invoice_number)) HAVING COUNT(*) > 1)`),
     'The same supplier invoice number appears more than once — possible double entry (stock would be counted twice).');
+  add('credit_overpaid', 'error', n(`
+    SELECT COUNT(*) AS c FROM pharmacy_sales s
+     WHERE COALESCE(s.payment_mode, '') <> 'IPD-bill' AND s.amount_paid IS NOT NULL AND s.amount_paid > s.total + 0.01`),
+    'Some pharmacy sales show more received than their total — check Pharmacy → Sales.');
+  add('credit_payments_exceed_paid', 'error', n(`
+    SELECT COUNT(*) AS c FROM pharmacy_sales s
+     WHERE (SELECT COALESCE(SUM(amount), 0) FROM pharmacy_sale_payments p WHERE p.sale_id = s.id) > COALESCE(s.amount_paid, s.total) + 0.01`),
+    'Some credit payments add up to more than the sale shows as received — the sale and its payments disagree.');
   add('uncosted_stock', 'info', n(`
     SELECT COUNT(*) AS c FROM drug_stock_batches
      WHERE is_active = 1 AND qty_remaining > 0 AND COALESCE(unit_cost, purchase_price) IS NULL`),
