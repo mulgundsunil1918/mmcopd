@@ -474,7 +474,7 @@ export function cancelOrder(db: Database.Database, orderId: number, reason: stri
     if (bill) {
       const settled = Number(bill.amount_paid) > 0 || !!bill.paid_at || !!bill.finalized_at;
       if (settled) {
-        note = `Order cancelled. Bill ${bill.bill_number} had already been paid — refund or adjust it from Billing.`;
+        note = `Order cancelled. Bill ${bill.bill_number} had already been paid — cancel it from Billing (Billing History → Cancel) to record the refund.`;
       } else if (!bill.cancelled_at) {
         db.prepare("UPDATE bills SET status='cancelled', cancelled_at=?, cancelled_by=?, cancel_reason=? WHERE id=?")
           .run(nowIso(), by, orNull(reason) ?? 'Radiology order cancelled', bill.id);

@@ -9,6 +9,7 @@ import { registerRadiologyIpc } from './main/radiology-ipc';
 import { registerPharmacyFinanceIpc } from './main/pharmacy-finance-ipc';
 import { registerBillingPortalIpc } from './main/billing-portal-ipc';
 import { registerSetupIpc } from './main/setup-ipc';
+import { registerBillCancelIpc } from './main/bill-cancel';
 import { registerPedsIpc } from './main/peds-ipc';
 import { installIpcRegistry, setReadOnlyMode } from './main/ipc-registry';
 import { getLicenseStatus, activateLicense, activateOnline, machineFingerprint } from './main/licensing/license';
@@ -928,6 +929,7 @@ app.whenReady().then(async () => {
   registerPharmacyFinanceIpc();
   registerBillingPortalIpc();
   registerSetupIpc();
+  registerBillCancelIpc();
   registerPedsIpc();
 
   // ===== Licensing =====

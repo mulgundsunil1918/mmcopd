@@ -352,6 +352,7 @@ export function createMockElectronAPI(): any {
     },
     // What the printable bill (BillPrint) loads: the bill header, its lines and totals.
     billing: {
+      cancel: (billId: number, reason: string) => r({ ok: true as const, bill_number: `INV-DEMO-${billId}`, refunded: 0 }),
       patientPortal: (patientId: number) => r(demoPortal(patientId, { patients, bills, pharmSales, appointments, doctors })),
       createOrderBill: (kind: string, orderId: number) =>
         r({ ok: true, bill_id: 900000 + orderId, bill_number: `INV-DEMO-${kind === 'lab' ? 'L' : 'R'}${orderId}`, total: kind === 'lab' ? 950 : 1500 } as any),

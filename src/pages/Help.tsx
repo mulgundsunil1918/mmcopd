@@ -188,7 +188,8 @@ const TOPICS: Topic[] = [
           <li><b>Quick Bill</b> — the <b>New Bill</b> button in the top bar, for anyone, any amount. Save &amp; Print in one step. A <b>Pharmacy (hand-typed)</b> quick bill takes nothing out of stock, so it is reported on its own in Analytics and never mixed into the pharmacy stock and profit figures.</li>
           <li><b>IPD bill</b> — Billing → <b>IPD / Admissions</b> tab shows every admission with its balance. Click to open the same bill the IPD screen uses.</li>
           <li><b>Pharmacy receipt</b> — printed right after a sale. A sale under a patient shows with their bills; a sale to a guest is under <b>Pharmacy walk-ins</b>.</li>
-          <li><b>Reprint anything</b> — Billing → Billing History → Reprint.</li>
+          <li><b>Reprint anything</b> — Billing → Billing History → Reprint. <b>Cancel</b> (manager / administrator) takes a wrongly raised bill off the books and records the refund.</li>
+          <li><b>GST</b> — if you are registered, medicines on an in-patient bill carry their GST <i>inside</i> the MRP (CGST + SGST shown); a switch in <Path>Settings → Billing &amp; IPD</Path> turns that on or off.</li>
         </ul>
         <div className="mt-2"><Tip>GST is off by default. If you're registered, switch it on at <Path>Settings → Billing &amp; IPD</Path> and bills become proper tax invoices with CGST/SGST.</Tip></div>
       </>

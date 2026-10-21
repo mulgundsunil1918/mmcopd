@@ -82,6 +82,7 @@ const HELP: Record<PageKey, { title: string; body: React.ReactNode }> = {
         <p>Money owed and money taken. Raise a bill, settle one, or print a copy for a patient.</p>
         <p><b>Find a patient</b> at the top and the page becomes that patient&rsquo;s billing portal: everything already billed and paid (consultations, lab, radiology, in-patient, and medicines bought at the pharmacy counter), what is still to collect, and what can be billed now &mdash; a visit with no bill, a lab or scan order with no bill, a prescription not yet dispensed.</p>
         <p>A pharmacy sale made <i>under a patient&rsquo;s name</i> shows with that patient&rsquo;s bills &mdash; if it was taken on credit, the unpaid part is listed to collect like any other bill. A sale to a guest with no patient record is listed separately under <b>Pharmacy walk-ins</b>. Either way it is counted once in Accounts and Analytics.</p>
+        <p><b>Raised a bill by mistake?</b> A manager or administrator can <b>Cancel</b> it from <b>Billing History</b> (not an in-patient bill). It stops counting as income and as money owed, and anything already received is recorded as a refund — never erased — with the reason and who did it.</p>
         <p>A <b>Quick Bill &rarr; Pharmacy (hand-typed)</b> bill is different from a pharmacy sale: you type it, no medicine leaves stock, and it is reported on its own in Analytics instead of in the Pharmacy stock figures.</p>
       </>
     ),

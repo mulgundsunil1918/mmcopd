@@ -12,6 +12,8 @@ import { AdmissionBillWorkspace } from '../components/billing/AdmissionBillWorks
 import { PatientPortal, PortalSearch } from '../components/billing/PatientPortal';
 import { PharmacySaleReceipt } from '../components/pharmacy/PharmacySaleReceipt';
 import { CollectPaymentModal } from '../components/billing/CollectPaymentModal';
+import { CancelBillModal } from '../components/billing/CancelBillModal';
+import { useAuth, canAnyRole } from '../hooks/useAuth';
 import { Modal } from '../components/Modal';
 import { addDaysISO } from '../lib/localDate';
 import type { AppointmentWithJoins, BillItem, BillWithJoins, PaymentMode } from '../types';
@@ -663,7 +665,10 @@ function BillingHistory() {
   const [reprint, setReprint] = useState<BillWithJoins | null>(null);
   const [receiptId, setReceiptId] = useState<number | null>(null);
   const [collect, setCollect] = useState<{ saleId: number; label: string; due: number } | null>(null);   // the rest of a credit sale
+  const [cancelling, setCancelling] = useState<{ id: number; label: string; received: number } | null>(null);   // a wrongly raised bill
   const qc = useQueryClient();
+  const { user, adminUnlocked } = useAuth();
+  const canCancel = canAnyRole(user, ['manager'], adminUnlocked);
 
   const { data: bills = [], isLoading } = useQuery({
     queryKey: ['bills', q, from, to],
@@ -720,16 +725,24 @@ function BillingHistory() {
           <tbody>
             {merged.map((row) => row.bill ? (
               <tr key={row.key} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="py-2 font-medium text-gray-900">
+                <td className={cn('py-2 font-medium text-gray-900', (row.bill as any).status === 'cancelled' && 'line-through text-gray-400')}>
                   {row.bill.bill_number}
                   <BillKindBadge bill={row.bill} />
+                  {(row.bill as any).status === 'cancelled' && <span className="badge ml-2 align-middle text-[9px] bg-gray-200 text-gray-600 no-underline">Cancelled</span>}
                 </td>
                 <td className="py-2">{row.bill.patient_name}<div className="text-[11px] text-gray-500">{row.bill.patient_uhid || (row.bill.patient_id ? '' : 'walk-in')}</div></td>
                 <td className="py-2 text-gray-600">{row.bill.doctor_name || '—'}</td>
                 <td className="py-2 text-gray-600">{fmtDate(row.bill.created_at)}</td>
                 <td className="py-2 text-right font-semibold">{formatINR(row.bill.total)}</td>
                 <td className="py-2"><span className="badge bg-gray-100 text-gray-700">{row.bill.payment_mode}</span></td>
-                <td className="py-2 text-right">
+                <td className="py-2 text-right whitespace-nowrap">
+                  {canCancel && (row.bill as any).status !== 'cancelled' && !(row.bill as any).admission_id && (row.bill as any).bill_type !== 'ipd' && (
+                    <button className="btn-ghost text-xs text-red-600"
+                      title="Cancel this bill (wrong patient, never happened…) — any money received is recorded as a refund"
+                      onClick={() => setCancelling({ id: row.bill!.id, label: `${row.bill!.bill_number} · ${row.bill!.patient_name}`, received: Math.max(0, Number((row.bill as any).amount_paid) || 0) })}>
+                      Cancel
+                    </button>
+                  )}
                   <button className="btn-ghost text-xs" onClick={() => setReprint(row.bill!)}>
                     <Printer className="w-3.5 h-3.5" /> Reprint
                   </button>
@@ -774,6 +787,14 @@ function BillingHistory() {
           onDone={() => {
             setCollect(null);
             for (const k of ['bills-pharmacy', 'pharmacy-sales', 'billing-portal', 'finance', 'receivables', 'portal-walkins']) qc.invalidateQueries({ queryKey: [k] });
+          }} />
+      )}
+      {cancelling && (
+        <CancelBillModal billId={cancelling.id} label={cancelling.label} received={cancelling.received}
+          onClose={() => setCancelling(null)}
+          onDone={() => {
+            setCancelling(null);
+            for (const k of ['bills', 'billing-portal', 'finance', 'receivables', 'billing-queue']) qc.invalidateQueries({ queryKey: [k] });
           }} />
       )}
     </div>

@@ -608,6 +608,11 @@ const api = {
     billingAnalytics: (from: string, to: string) =>
       ipcRenderer.invoke('analytics:billing', from, to) as Promise<any>,
     // Standalone bills — OPD consult, pharmacy, lab, or a quick custom bill.
+    /** Cancel a wrongly raised (non in-patient) bill; money already received is recorded as a refund. Manager / admin. */
+    cancel: (billId: number, reason: string, refundMode?: string | null) =>
+      ipcRenderer.invoke('bill:cancel', billId, reason, refundMode) as Promise<
+        { ok: true; bill_number: string; refunded: number } | { ok: false; error: string }
+      >,
     createStandalone: (input: any) =>
       ipcRenderer.invoke('bill:createStandalone', input) as Promise<{ ok: true; id: number; bill_number: string } | { ok: false; error: string }>,
     previewById: (billId: number) =>

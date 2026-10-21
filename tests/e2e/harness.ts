@@ -12,6 +12,7 @@ import { registerPedsIpc } from '../../src/main/peds-ipc';
 import { registerPharmacyFinanceIpc } from '../../src/main/pharmacy-finance-ipc';
 import { registerBillingPortalIpc } from '../../src/main/billing-portal-ipc';
 import { registerSetupIpc } from '../../src/main/setup-ipc';
+import { registerBillCancelIpc } from '../../src/main/bill-cancel';
 import { ensureDefaultAdmin } from '../../src/main/auth';
 
 export { userData, stubState, setReadOnlyMode, getDb, closeDb, electron };
@@ -29,6 +30,7 @@ export function boot() {
   registerPharmacyFinanceIpc();
   registerBillingPortalIpc();
   registerSetupIpc();
+  registerBillCancelIpc();
   try { ensureDefaultAdmin(getDb()); } catch { /* auth is optional for most flows */ }
 }
 

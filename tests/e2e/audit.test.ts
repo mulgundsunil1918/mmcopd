@@ -131,6 +131,9 @@ function rng(seed: number) { let a = seed >>> 0; return () => { a = (a + 0x6d2b7
         else if (x < 0.75) { desc(`addItem bill #${id}`); await attempt('bill:addItem', id, { description: 'Extra', qty: 1, rate: pick([50, 99.5]) }, 'tester'); }
         else { desc(`discount bill #${id}`); await attempt('bill:setDiscount', id, pick([10, 50]), pick(['flat', 'percent']), 'admin', 'audit', 'tester'); }
       }
+    } else if (w < 0.875) {                                                             // cancel a (non in-patient) bill, refunding what it took
+      const ids = q("SELECT id FROM bills WHERE admission_id IS NULL AND COALESCE(status,'') <> 'cancelled' AND cancelled_at IS NULL").map((r) => r.id);
+      if (ids.length && rnd() < 0.5) { const id = pick(ids); desc(`cancel bill #${id}`); await attempt('bill:cancel', id, 'audit', pick(['Cash', 'UPI'])); }
     } else if (w < 0.89) {                                                              // cancel a scan order (and its bill)
       const o = q("SELECT id FROM radiology_orders WHERE status <> 'cancelled' ORDER BY id DESC LIMIT 5");
       if (o.length) { const id = pick(o).id; desc(`cancel scan order #${id}`); await attempt('radiology:cancelOrder', id, 'audit'); }
