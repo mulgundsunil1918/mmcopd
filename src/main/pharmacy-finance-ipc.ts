@@ -75,9 +75,33 @@ export function registerPharmacyFinanceIpc() {
   // Same contract as before (returns the sale row); a problem is thrown so the screens show it.
   ipcMain.handle('pharmacy:sell', (_e, payload: fin.SellIn) => {
     requireModule('pharmacy', 'Pharmacy');
-    const sale = fin.sellItems(getDb(), payload);
+    // Every sale is accountable: it records who made it (the signed-in user) unless the caller already said.
+    const sale = fin.sellItems(getDb(), { ...payload, sold_by: payload?.sold_by ?? who() ?? undefined });
     tell();
     return sale;
+  });
+
+  // ----- counter sales (named-patient ones also show in Billing; walk-ins are their own list) -----
+  ipcMain.handle('pharmacy:counterSales', (_e, filter: fin.CounterSalesFilter = {}) => fin.listCounterSales(getDb(), filter || {}));
+
+  // ----- "Cost not recorded": stock someone typed in by hand carries a cost nobody can vouch for -----
+  ipcMain.handle('pharmacy:costSummary', () => fin.costNotRecordedSummary(getDb()));
+  ipcMain.handle('pharmacy:clearManualCost', (_e, opts: { include_past_sales?: boolean } = {}) => {
+    requireModule('pharmacy', 'Pharmacy');
+    requireRole(PAYERS, 'clear hand-typed stock costs');
+    try {
+      const r = fin.clearManualCost(getDb(), { include_past_sales: !!opts?.include_past_sales });
+      // The previous figures go in the audit line so a mistaken click can be undone by hand (capped: a very large
+      // catalogue would otherwise make one enormous log entry).
+      audit('pharmacy.cost_cleared', 'drug_stock_batches', 0, {
+        batches: r.batches, register_rows: r.register_rows, include_past_sales: !!opts?.include_past_sales,
+        previous: r.previous.slice(0, 1000), previous_truncated: r.previous.length > 1000,
+      });
+      tell();
+      return { ok: true as const, batches: r.batches, register_rows: r.register_rows };
+    } catch (e: any) {
+      return { ok: false as const, error: e?.message || 'Could not clear the costs.' };
+    }
   });
 
   // ----- reports -----

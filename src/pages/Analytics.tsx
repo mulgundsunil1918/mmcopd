@@ -11,6 +11,7 @@ import { IpdAnalyticsTab } from '../components/analytics/IpdAnalyticsTab';
 import { DonutChart, VBarChart, TrendChart } from '../components/analytics/Charts';
 import { Kpi, SectionTitle } from '../components/analytics/Kpi';
 import { PharmacyChecksSection, PharmacyProfitSection, PharmacyValuationSection, SupplierSection } from '../components/analytics/PharmacyProfit';
+import { ReceivablesSection } from '../components/analytics/Receivables';
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { cn, fmt12h, fmtDate, fmtDateTime, formatINR, todayISO } from '../lib/utils';
 import { colorForDoctor } from '../lib/doctor-colors';
@@ -140,7 +141,8 @@ function OverviewTab() {
         <SectionTitle icon={<TrendingUp className="w-4 h-4" />} title="This Month" subtitle={fmtDate(new Date().toISOString().slice(0, 8) + '01') + ' onwards'} />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Kpi label="OPD revenue" value={formatINR(ov.monthRevenue)} tone="emerald" />
-          <Kpi label="Pharmacy revenue" value={formatINR(ov.pharmacyMonthRevenue)} tone="emerald" />
+          <Kpi label="Pharmacy revenue" value={formatINR(ov.pharmacyMonthRevenue)}
+            sub={`${formatINR(ov.pharmacyMonthPatientRevenue ?? 0)} under patients · ${formatINR(ov.pharmacyMonthGuestRevenue ?? 0)} walk-in`} tone="emerald" />
           <Kpi label="New patients" value={ov.patientsThisMonth} tone="blue" />
           <Kpi label="Total patients" value={ov.totalPatients.toLocaleString('en-IN')} sub="all-time" tone="indigo" />
         </div>
@@ -162,6 +164,12 @@ function OverviewTab() {
             value={formatINR(ov.servicesRevenueThisMonth ?? 0)}
             sub={`${ov.servicesCountThisMonth ?? 0} services rendered · see Services tab`}
             tone="rose"
+          />
+          <Kpi
+            label="Still to collect"
+            value={formatINR(ov.outstandingTotal ?? 0)}
+            sub="all unpaid bills · details in Finance"
+            tone={(ov.outstandingTotal ?? 0) > 0 ? 'red' : 'gray'}
           />
         </div>
       </section>
@@ -232,6 +240,8 @@ function FinanceTab({ from, to }: { from: string; to: string }) {
         </div>
       </section>
 
+      <ReceivablesSection />
+
       {/* Weekday × Hour heatmap */}
       <section>
         <SectionTitle icon={<Calendar className="w-4 h-4 text-indigo-600" />} title="Busiest day × hour" subtitle="Last 90 days of appointments. Cell intensity scales with visit count." />
@@ -247,9 +257,9 @@ function FinanceTab({ from, to }: { from: string; to: string }) {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <VBarChart title="Revenue by month" rows={(f.byMonth || []).map((r: any) => ({ label: r.month, value: r.total }))} formatValue={formatINR} />
-        <DonutChart title="By payment mode" subtitle="Share of collection" rows={(f.byMode || []).map((r: any) => ({ label: r.mode || '(none)', value: r.total }))} formatValue={formatINR} />
-        <VBarChart title="Busiest weekday (last 90 days)" rows={(f.byWeekday || []).map((r: any) => ({ label: r.weekday, value: r.total }))} formatValue={formatINR} />
-        <VBarChart title="Peak hours" singleColor="#4f46e5" colorful={false} rows={(f.byHour || []).map((r: any) => ({ label: `${r.hour}`, value: r.total }))} formatValue={formatINR} />
+        <DonutChart title="By payment mode" subtitle="Share of billing" rows={(f.byMode || []).map((r: any) => ({ label: r.payment_mode || r.mode || '(none)', value: r.total }))} formatValue={formatINR} />
+        <VBarChart title="Busiest weekday (last 90 days)" rows={(f.byWeekday || []).map((r: any) => ({ label: r.wd !== undefined ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][Number(r.wd)] ?? String(r.wd) : r.weekday, value: r.total }))} formatValue={formatINR} />
+        <VBarChart title="Peak hours" singleColor="#4f46e5" colorful={false} rows={(f.byHour || []).map((r: any) => ({ label: `${Number(r.hr ?? r.hour)}h`, value: r.total }))} formatValue={formatINR} />
         <BarListCard
           title="By doctor (all-time) — colored by tag"
           rows={(f.byDoctor || []).map((r: any) => ({
@@ -619,7 +629,7 @@ function ModulesTab({ from, to }: { from: string; to: string }) {
   if (isLoading || !data) return <div className="text-xs text-gray-500 dark:text-slate-400 p-4">Loading…</div>;
   const mods = data.modules || [];
   const t = data.totals || { revenue: 0, collected: 0, outstanding: 0, count: 0 };
-  const MODULE_HEX: Record<string, string> = { ipd: '#3b82f6', pharmacy: '#10b981', lab: '#d946ef', radiology: '#0ea5e9', opd: '#8b5cf6', misc: '#f59e0b' };
+  const MODULE_HEX: Record<string, string> = { ipd: '#3b82f6', pharmacy: '#10b981', lab: '#d946ef', radiology: '#0ea5e9', opd: '#8b5cf6', misc: '#f59e0b', other: '#64748b' };
   const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
 
   return (
@@ -709,6 +719,29 @@ function PharmacyTab({ from, to }: { from: string; to: string }) {
           <Kpi label="Schedule H/H1 entries" value={p.scheduleHCount} sub="legal register" tone="violet" />
         </div>
       </section>
+
+      {/* Who the sales were to: registered patients (also in their Billing) vs walk-in guests */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <BarListCard
+          title="Whose sales — patients vs walk-ins"
+          rows={(p.customerMix || []).map((m) => ({
+            label: `${m.kind === 'patient' ? 'Registered patients' : 'Walk-in guests'} · ${m.count} sale${m.count === 1 ? '' : 's'} · avg ${formatINR(m.avg_sale)}`,
+            value: m.revenue,
+            color: m.kind === 'patient' ? '#059669' : '#f59e0b',
+          }))}
+          formatValue={formatINR}
+        />
+        <BarListCard
+          title="Paid by"
+          rows={(p.paymentMix || []).map((m) => ({ label: `${m.mode} · ${m.count} sale${m.count === 1 ? '' : 's'}`, value: m.revenue }))}
+          formatValue={formatINR}
+        />
+        <BarListCard
+          title="Patients buying the most medicines"
+          rows={(p.topPatients || []).map((t) => ({ label: `${t.name} · ${t.uhid} · ${t.sales} sale${t.sales === 1 ? '' : 's'}`, value: t.revenue }))}
+          formatValue={formatINR}
+        />
+      </div>
 
       {/* Realised profit on medicines already sold (reports A–H) */}
       <PharmacyProfitSection from={from} to={to} />

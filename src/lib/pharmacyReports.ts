@@ -216,3 +216,49 @@ export interface IntegrityFinding {
   count: number;
   message: string;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Counter sales as the Billing screen sees them
+// ---------------------------------------------------------------------------------------------
+
+export interface CounterSalesFilter {
+  /** Local calendar days, inclusive. */
+  from?: string;
+  to?: string;
+  /** 'patient' = sold under a registered patient (shown with that patient's bills); 'guest' = walk-in, no patient. */
+  scope?: 'all' | 'patient' | 'guest';
+  /** Matches the patient's name or UHID, the guest's name, or the sale number. */
+  q?: string;
+  limit?: number;
+}
+
+export interface CounterSaleRow {
+  id: number;
+  sale_number: string;
+  created_at: string;
+  subtotal: number;
+  discount: number;
+  total: number;
+  payment_mode: string | null;
+  sold_by: string | null;
+  patient_id: number | null;
+  patient_name: string | null;
+  patient_uhid: string | null;
+  customer_name: string | null;
+  item_count: number;
+}
+
+export interface CounterSalesResult {
+  rows: CounterSaleRow[];
+  totals: { count: number; total: number; discount: number; by_mode: { mode: string; count: number; total: number }[] };
+}
+
+/** Stock whose cost came from somebody typing it in, not from a purchase bill (see the "Cost not recorded" button). */
+export interface CostNotRecordedSummary {
+  batches: number;
+  units_in_stock: number;
+  value_in_stock: number;
+  /** Units already sold from those batches, and the number of sale slices carrying a cost taken from them. */
+  past_sale_units: number;
+  past_sale_slices: number;
+}

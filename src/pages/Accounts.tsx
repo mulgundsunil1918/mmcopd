@@ -19,6 +19,11 @@ export function Accounts() {
     queryFn: () => window.electronAPI.finance.summary({ from, to }),
     refetchInterval: 30_000,
   });
+  const { data: rec } = useQuery({
+    queryKey: ['receivables', 'accounts'],
+    queryFn: () => window.electronAPI.analytics.receivables({ limit: 1 }),
+    refetchInterval: 30_000,
+  });
   const { data: doctors = [] } = useQuery({
     queryKey: ['doctors-all'],
     queryFn: () => window.electronAPI.doctors.list(false),
@@ -128,9 +133,13 @@ export function Accounts() {
               Range · {fmtDate(data.range?.from)} → {fmtDate(data.range?.to)}
             </h2>
           </div>
-          <div className="grid grid-cols-3 gap-3">
-            <Tile label="OPD Bills" value={formatINR(data.range.bills.total)} sub={`${data.range.bills.count}`} icon={<Stethoscope className="w-4 h-4" />} tone="blue" />
-            <Tile label="Pharmacy" value={formatINR(data.range.pharma.total)} sub={`${data.range.pharma.count}`} icon={<Pill className="w-4 h-4" />} tone="lime" />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Tile label="Bills" value={formatINR(data.range.bills.total)} sub={`${data.range.bills.count} bill${data.range.bills.count === 1 ? '' : 's'}`} icon={<Stethoscope className="w-4 h-4" />} tone="blue" />
+            <Tile label="Pharmacy" value={formatINR(data.range.pharma.total)}
+              sub={`${data.range.pharma.count} sale${data.range.pharma.count === 1 ? '' : 's'}${data.range.pharmaSplit
+                ? ` · ${formatINR(data.range.pharmaSplit.patient.total)} under patients, ${formatINR(data.range.pharmaSplit.guest.total)} walk-in`
+                : ''}`}
+              icon={<Pill className="w-4 h-4" />} tone="lime" />
             {/* "Collected" was a lie: this sums bill TOTALS, which includes
                 unpaid lab bills and anything still owed. Renamed rather than
                 silently changed, so the figure you have been reading keeps
@@ -142,11 +151,18 @@ export function Accounts() {
               icon={<ShoppingCart className="w-4 h-4" />}
               tone="emerald"
             />
+            <Tile
+              label="Still to collect"
+              value={formatINR(rec?.total_due ?? 0)}
+              sub={rec ? `${rec.bills_due} unpaid bill${rec.bills_due === 1 ? '' : 's'} · ${rec.patients_due} patient${rec.patients_due === 1 ? '' : 's'} · all-time` : 'checking…'}
+              icon={<Wallet className="w-4 h-4" />}
+              tone="rose"
+            />
           </div>
         </section>
 
         <section className="card p-5">
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-3">Today by Payment Mode</h2>
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-3">Collected today, by payment mode</h2>
           {data.today.byMode.length === 0 ? (
             <div className="text-xs text-gray-500 dark:text-slate-400">No collections today yet.</div>
           ) : (
@@ -394,8 +410,9 @@ function KpiCard({ label, value, sub, change, compareLabel, icon, tone }: { labe
   );
 }
 
-function Tile({ label, value, sub, icon, tone }: { label: string; value: string; sub: string; icon: React.ReactNode; tone: 'blue' | 'lime' | 'emerald' }) {
+function Tile({ label, value, sub, icon, tone }: { label: string; value: string; sub: string; icon: React.ReactNode; tone: 'blue' | 'lime' | 'emerald' | 'rose' }) {
   const tones: Record<string, string> = {
+    rose: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
     blue: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
     lime: 'bg-lime-100 text-lime-700 dark:bg-lime-900/40 dark:text-lime-300',
     emerald: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
@@ -405,7 +422,7 @@ function Tile({ label, value, sub, icon, tone }: { label: string; value: string;
       <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center mb-2', tones[tone])}>{icon}</div>
       <div className="text-xs text-gray-500 dark:text-slate-400">{label}</div>
       <div className="text-lg font-bold text-gray-900 dark:text-slate-100">{value}</div>
-      <div className="text-[11px] text-gray-500 dark:text-slate-400">{sub} bill{Number(sub) === 1 ? '' : 's'}</div>
+      <div className="text-[11px] text-gray-500 dark:text-slate-400">{sub}</div>
     </div>
   );
 }

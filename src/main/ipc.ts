@@ -7,6 +7,9 @@ import Database from 'better-sqlite3';
 import { getDb, closeDb } from '../db/db';
 import { nextUHID, nextBillNumber, nextIpNumber, nextVisitNumber, formatVisitId, nextLabOrderNumber } from '../db/ids';
 import { clinicalLineTax } from './gst';
+import { writeLabBillLines } from './lab-billing';
+import { ADV_SPARE_SQL, billPosition, collections, dailyCollection, outstandingBills, outstandingTotal, utcSlack } from './billing-portal';
+import { fromPaise, toPaise } from '../lib/pharmacyMath';
 import { localISO, addDaysISO } from '../lib/localDate';
 import { LAB_CATALOG } from '../data/lab-catalog';
 import { PHARMACY_CATALOG } from '../data/pharmacy-catalog';
@@ -1187,9 +1190,10 @@ export function registerIpc() {
     const conditions: string[] = [];
     const params: string[] = [];
     if (filter?.q) {
-      conditions.push("((p.first_name || ' ' || p.last_name) LIKE ? OR b.bill_number LIKE ?)");
+      // A walk-in bill (raised with just a typed name) has no patient; its name is kept in the notes as "Name: …".
+      conditions.push("((p.first_name || ' ' || p.last_name) LIKE ? OR b.bill_number LIKE ? OR (b.patient_id IS NULL AND b.notes LIKE ?))");
       const like = `%${filter.q}%`;
-      params.push(like, like);
+      params.push(like, like, like);
     }
     if (filter?.from) {
       conditions.push("date(b.created_at, 'localtime') >= ?");
@@ -1202,12 +1206,15 @@ export function registerIpc() {
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
     return db
       .prepare(
+        // LEFT JOIN: this list used to skip every walk-in bill (no patient), so money that was billed and counted in
+        // Accounts could not be found here.
         `SELECT b.*,
-           (p.first_name || ' ' || p.last_name) as patient_name,
+           COALESCE(NULLIF(TRIM(p.first_name || ' ' || p.last_name), ''),
+                    CASE WHEN b.notes LIKE 'Name: %' THEN substr(b.notes, 7) END, 'Walk-in') as patient_name,
            p.uhid as patient_uhid,
            COALESCE(da.name, db2.name) as doctor_name
          FROM bills b
-         JOIN patients p ON p.id=b.patient_id
+         LEFT JOIN patients p ON p.id=b.patient_id
          LEFT JOIN appointments a ON a.id=b.appointment_id
          LEFT JOIN doctors da ON da.id=a.doctor_id
          LEFT JOIN doctors db2 ON db2.id=b.doctor_id
@@ -1359,7 +1366,7 @@ export function registerIpc() {
              COUNT(*) as count,
              COALESCE(SUM(b.total),0) as revenue
       FROM bills b
-      WHERE b.bill_kind='misc' AND date(b.created_at, 'localtime') BETWEEN ? AND ?
+      WHERE b.bill_kind='misc' AND COALESCE(b.status,'') <> 'cancelled' AND date(b.created_at, 'localtime') BETWEEN ? AND ?
       GROUP BY day
       ORDER BY day ASC
     `).all(from, to);
@@ -1372,14 +1379,14 @@ export function registerIpc() {
     const to = filter.to || today;
     const sc = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { c: number }).c;
     const ss = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { t: number }).t || 0;
-    const count = sc(`SELECT COUNT(*) as c FROM bills WHERE bill_kind='misc' AND date(created_at, 'localtime') BETWEEN ? AND ?`, from, to);
-    const revenue = ss(`SELECT COALESCE(SUM(total),0) as t FROM bills WHERE bill_kind='misc' AND date(created_at, 'localtime') BETWEEN ? AND ?`, from, to);
+    const count = sc(`SELECT COUNT(*) as c FROM bills WHERE bill_kind='misc' AND COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') BETWEEN ? AND ?`, from, to);
+    const revenue = ss(`SELECT COALESCE(SUM(total),0) as t FROM bills WHERE bill_kind='misc' AND COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') BETWEEN ? AND ?`, from, to);
     const topServices = db.prepare(`
       SELECT json_extract(j.value, '$.description') as service,
              COUNT(*) as count,
              COALESCE(SUM(json_extract(j.value, '$.amount')), 0) as revenue
       FROM bills b, json_each(b.items_json) j
-      WHERE b.bill_kind='misc' AND date(b.created_at, 'localtime') BETWEEN ? AND ?
+      WHERE b.bill_kind='misc' AND COALESCE(b.status,'') <> 'cancelled' AND date(b.created_at, 'localtime') BETWEEN ? AND ?
       GROUP BY service
       ORDER BY revenue DESC
       LIMIT 10
@@ -1390,7 +1397,7 @@ export function registerIpc() {
              COALESCE(SUM(b.total),0) as revenue
       FROM bills b
       LEFT JOIN doctors d ON d.id = b.doctor_id
-      WHERE b.bill_kind='misc' AND date(b.created_at, 'localtime') BETWEEN ? AND ?
+      WHERE b.bill_kind='misc' AND COALESCE(b.status,'') <> 'cancelled' AND date(b.created_at, 'localtime') BETWEEN ? AND ?
       GROUP BY d.id
       ORDER BY revenue DESC
     `).all(from, to);
@@ -1862,23 +1869,6 @@ export function registerIpc() {
       return { ok: false as const, error: e?.message || 'Failed to load sample data' };
     }
   });
-
-  /**
-   * Write a lab bill's real line rows (and the legacy items_json) from the order's priced tests — the same
-   * thing radiology does. Lab bills used to carry items_json only, so printing one showed an empty table
-   * until the app was next restarted, and a test added later was silently dropped from the total the next
-   * time the bill was previewed. Replaces the lines the lab order owns (and ones migrated from items_json).
-   */
-  function writeLabBillLines(db: any, billId: number, lines: { id: number | null; description: string; rate: number }[]): string {
-    const tax = clinicalLineTax(db, null);
-    db.prepare("DELETE FROM bill_items WHERE bill_id=? AND source IN ('lab', 'migrated')").run(billId);
-    const ins = db.prepare(
-      `INSERT INTO bill_items (bill_id, description, qty, rate, amount, is_taxable, gst_rate, hsn_sac, source, source_ref_id)
-       VALUES (?, ?, 1, ?, ?, ?, ?, ?, 'lab', ?)`
-    );
-    for (const l of lines) ins.run(billId, l.description, l.rate, l.rate, tax.is_taxable ? 1 : 0, tax.gst_rate, tax.hsn_sac, l.id);
-    return JSON.stringify(lines.map((l) => ({ description: l.description, qty: 1, rate: l.rate, amount: l.rate })));
-  }
 
   ipcMain.handle(
     'lab:createOrder',
@@ -2838,20 +2828,7 @@ export function registerIpc() {
       if (to) { conds.push(`${day} <= ?`); p.push(to); }
       return { where: conds.length ? 'WHERE ' + conds.join(' AND ') : '', params: p };
     };
-    if (kind === 'daily_collection') {
-      const r = range('b.created_at');
-      return db
-        .prepare(
-          `SELECT date(b.created_at, 'localtime') as day,
-             COUNT(*) as bills,
-             COALESCE(SUM(b.total), 0) as revenue,
-             COALESCE(SUM(CASE WHEN b.payment_mode='Cash' THEN b.total ELSE 0 END), 0) as cash,
-             COALESCE(SUM(CASE WHEN b.payment_mode='Card' THEN b.total ELSE 0 END), 0) as card,
-             COALESCE(SUM(CASE WHEN b.payment_mode='UPI' THEN b.total ELSE 0 END), 0) as upi
-           FROM bills b ${r.where ? r.where + " AND " : "WHERE "}COALESCE(b.status,'') <> 'cancelled' GROUP BY day ORDER BY day DESC`
-        )
-        .all(...r.params);
-    }
+    if (kind === 'daily_collection') return dailyCollection(db, from, to);
     if (kind === 'doctor_performance') {
       const r = range('a.appointment_date', false);
       return db
@@ -2961,7 +2938,7 @@ export function registerIpc() {
     const sheets: string[] = [];
     for (const spec of EXPORTS) {
       try {
-        const rawRows = db.prepare(spec.sql).all() as any[];
+        const rawRows = (spec.rows ? spec.rows(db) : db.prepare(spec.sql!).all()) as any[];
         const rows = sanitizeRows(rawRows);
         const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{}]);
         const sheetName = spec.sheet.replace(/[\/\\?*\[\]]/g, '').slice(0, 31);
@@ -2977,7 +2954,7 @@ export function registerIpc() {
     // workbook. The .sqlite copy already has everything; this keeps the readable
     // Excel complete too. Secrets/internal tables stay in the .sqlite backup only.
     try {
-      const CURATED = new Set(['patients', 'doctors', 'appointments', 'consultations', 'prescription_items', 'bills', 'lab_orders', 'lab_order_items', 'lab_tests', 'pharmacy_sales', 'pharmacy_sale_items', 'drug_inventory', 'drug_master', 'drug_stock_batches', 'wholesalers', 'purchase_invoices', 'purchase_invoice_items', 'dispensing_register', 'ip_admissions', 'wards', 'beds', 'bed_transfers', 'ip_vitals', 'ip_medication_orders', 'ip_medication_admin', 'ip_progress_notes', 'ip_nursing_notes', 'ip_intake_output', 'ip_diet_orders', 'ip_cross_consultations', 'mlc_register', 'admission_requests', 'bill_items', 'bill_payments', 'advances', 'charge_heads', 'tpa_master', 'tpa_claims', 'discharge_templates', 'peds_growth_measurements', 'peds_vaccine_records', 'patient_allergies', 'patient_conditions', 'patient_family_history', 'radiology_orders', 'radiology_order_items', 'radiology_tests']);
+      const CURATED = new Set(['patients', 'doctors', 'appointments', 'consultations', 'prescription_items', 'bills', 'lab_orders', 'lab_order_items', 'lab_tests', 'pharmacy_sales', 'pharmacy_sale_items', 'drug_inventory', 'drug_master', 'drug_stock_batches', 'wholesalers', 'purchase_invoices', 'purchase_invoice_items', 'purchase_payments', 'dispensing_register', 'ip_admissions', 'wards', 'beds', 'bed_transfers', 'ip_vitals', 'ip_medication_orders', 'ip_medication_admin', 'ip_progress_notes', 'ip_nursing_notes', 'ip_intake_output', 'ip_diet_orders', 'ip_cross_consultations', 'mlc_register', 'admission_requests', 'bill_items', 'bill_payments', 'advances', 'charge_heads', 'tpa_master', 'tpa_claims', 'discharge_templates', 'peds_growth_measurements', 'peds_vaccine_records', 'patient_allergies', 'patient_conditions', 'patient_family_history', 'radiology_orders', 'radiology_order_items', 'radiology_tests']);
       const SKIP = new Set(['sqlite_sequence', 'schema_meta', 'settings', 'users']); // secrets/internal → .sqlite backup only
       for (const t of listUserTables(db)) {
         if (CURATED.has(t) || SKIP.has(t)) continue;
@@ -3000,7 +2977,7 @@ export function registerIpc() {
     return { sheets, rowCounts };
   }
 
-  function buildExportSpecs(): { sheet: string; sql: string }[] {
+  function buildExportSpecs(): { sheet: string; sql?: string; rows?: (db: any) => any[] }[] {
     return [
       { sheet: 'Patients', sql: `SELECT id, uhid, first_name, last_name, dob, gender, phone, email, address, blood_group, place, district, state, created_at FROM patients ORDER BY created_at DESC` },
       { sheet: 'Doctors', sql: `SELECT id, name, specialty, qualifications, registration_no, phone, email, room_number, default_fee, is_active FROM doctors ORDER BY name` },
@@ -3030,13 +3007,24 @@ export function registerIpc() {
       { sheet: 'Bills', sql: `
         SELECT b.id, b.bill_number, b.total, b.subtotal, b.discount, b.discount_type, b.payment_mode,
                b.paid_at, b.created_at, b.items_json,
+               b.status, b.bill_type, b.bill_kind, b.amount_paid, b.advance_adjusted,
+               b.discount_reason, b.round_off, b.taxable_total, b.exempt_total, b.cgst_total, b.sgst_total, b.is_tax_invoice,
+               b.is_free_followup, b.is_relaxed_followup, b.admission_id, b.lab_order_id, b.radiology_order_id,
+               b.finalized_at, b.cancelled_at, b.cancelled_by, b.cancel_reason, b.notes,
                p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name,
-               d.name as doctor_name
+               COALESCE(d.name, bd.name) as doctor_name
         FROM bills b
         LEFT JOIN patients p ON p.id = b.patient_id
         LEFT JOIN appointments a ON a.id = b.appointment_id
         LEFT JOIN doctors d ON d.id = a.doctor_id
+        LEFT JOIN doctors bd ON bd.id = b.doctor_id
         ORDER BY b.created_at DESC` },
+      // Computed at backup time with the same rule the Billing portal and Accounts use, so the workbook says who
+      // owed what on the day it was taken.
+      { sheet: 'Outstanding Dues', rows: (d) => outstandingBills(d).map((r) => ({
+          bill_number: r.bill_number, patient_uhid: r.uhid, patient_name: r.name, kind: r.kind, billed_on: r.created_at,
+          total: r.total, paid: r.paid, advance_counted: r.advance, still_due: r.due, days_outstanding: r.age_days,
+        })) },
       { sheet: 'Lab Orders', sql: `
         SELECT o.id, o.order_number, o.status, o.ordered_at, o.collected_at, o.reported_at, o.notes,
                p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name,
@@ -3072,13 +3060,17 @@ export function registerIpc() {
       { sheet: 'Radiology Catalog', sql: `SELECT * FROM radiology_tests ORDER BY name` },
       { sheet: 'Pharmacy Sales', sql: `
         SELECT s.id, s.sale_number, s.subtotal, s.discount, s.total, s.payment_mode, s.created_at,
-               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name
+               CASE WHEN s.payment_mode = 'IPD-bill' THEN 'Ward (on the IPD bill)'
+                    WHEN s.patient_id IS NULL THEN 'Walk-in guest' ELSE 'Registered patient' END as customer_type,
+               p.uhid as patient_uhid, (p.first_name || ' ' || p.last_name) as patient_name, s.customer_name as guest_name,
+               s.sold_by, s.appointment_id, s.taxable_total, s.exempt_total, s.cgst_total, s.sgst_total, s.is_tax_invoice
         FROM pharmacy_sales s
         LEFT JOIN patients p ON p.id = s.patient_id
         ORDER BY s.created_at DESC` },
       { sheet: 'Pharmacy Sale Items', sql: `
         SELECT si.id, si.sale_id, s.sale_number, s.created_at as sale_date,
-               si.drug_name, si.qty, si.rate, si.amount
+               si.drug_name, si.qty, si.rate, si.amount, si.discount_alloc,
+               si.gst_rate, si.gst_amount, si.cgst, si.sgst, si.hsn_sac, si.drug_master_id, si.batch_id
         FROM pharmacy_sale_items si
         JOIN pharmacy_sales s ON s.id = si.sale_id
         ORDER BY s.created_at DESC` },
@@ -3090,9 +3082,10 @@ export function registerIpc() {
         FROM drug_master ORDER BY name
       `},
       { sheet: 'Drug Stock Batches', sql: `
-        SELECT b.id, m.name as drug_name, b.batch_no, b.expiry,
-               b.qty_received, b.qty_remaining, b.purchase_price, b.mrp,
-               b.manufacturer_license_no, b.received_at, b.is_active
+        SELECT b.id, m.name as drug_name, b.batch_no, b.expiry, b.manufacture_date,
+               b.qty_received, b.qty_remaining, b.purchase_price, b.unit_cost, b.mrp, b.selling_price,
+               CASE WHEN b.purchase_item_id IS NULL THEN 'typed in by hand' ELSE 'from a purchase bill' END as cost_source,
+               b.purchase_item_id, b.manufacturer_license_no, b.received_at, b.is_active
         FROM drug_stock_batches b
         JOIN drug_master m ON m.id=b.drug_master_id
         ORDER BY m.name, date(b.expiry)
@@ -3106,7 +3099,8 @@ export function registerIpc() {
         SELECT pi.id, pi.invoice_number, w.name as wholesaler_name,
                w.drug_license_no as wholesaler_license_no,
                pi.invoice_date, pi.received_date, pi.subtotal, pi.cgst, pi.sgst, pi.igst,
-               pi.discount, pi.total, pi.payment_mode, pi.payment_status,
+               pi.discount, pi.other_charges, pi.round_off, pi.total, pi.payment_mode, pi.payment_status,
+               pi.amount_paid, (pi.total - COALESCE(pi.amount_paid, 0)) as balance_due, pi.gst_in_cost,
                pi.scan_path, pi.notes, pi.created_at
         FROM purchase_invoices pi
         JOIN wholesalers w ON w.id=pi.wholesaler_id
@@ -3116,7 +3110,8 @@ export function registerIpc() {
         SELECT pii.id, pi.invoice_number, w.name as wholesaler_name,
                m.name as drug_name, pii.batch_no, pii.expiry,
                pii.qty_received, pii.pack_qty, pii.free_qty,
-               pii.purchase_price, pii.mrp, pii.gst_rate,
+               pii.purchase_price, pii.disc_pct, pii.discount_amount, pii.taxable_value, pii.gst_rate, pii.gst_amount,
+               pii.unit_cost, pii.mrp, pii.selling_price, pii.manufacture_date,
                pii.manufacturer_license_no, pii.line_total
         FROM purchase_invoice_items pii
         JOIN purchase_invoices pi ON pi.id=pii.invoice_id
@@ -3124,11 +3119,19 @@ export function registerIpc() {
         JOIN drug_master m ON m.id=pii.drug_master_id
         ORDER BY date(pi.invoice_date) DESC, pii.id
       `},
+      { sheet: 'Supplier Payments', sql: `
+        SELECT pp.id, pi.invoice_number, w.name as wholesaler_name, pp.amount, pp.payment_mode, pp.paid_on,
+               pp.reference, pp.notes, pp.created_by, pp.created_at
+        FROM purchase_payments pp
+        JOIN purchase_invoices pi ON pi.id = pp.invoice_id
+        JOIN wholesalers w ON w.id = pi.wholesaler_id
+        ORDER BY pp.paid_on DESC, pp.id DESC
+      `},
       { sheet: 'Dispensing Register', sql: `
         SELECT dr.id, dr.dispensed_at, dr.schedule,
                (p.first_name || ' ' || p.last_name) as patient_name, p.uhid as patient_uhid,
                m.name as drug_name, dr.batch_no, dr.expiry,
-               dr.qty, dr.rate, d.name as doctor_name,
+               dr.qty, dr.rate, dr.unit_cost, dr.sale_id, d.name as doctor_name,
                dr.rx_reference, dr.dispensed_by
         FROM dispensing_register dr
         LEFT JOIN patients p ON p.id=dr.patient_id
@@ -3641,6 +3644,12 @@ export function registerIpc() {
       add('Lab orders', 'lab_orders');
       add('Radiology orders', 'radiology_orders');
       add('Pharmacy sales', 'pharmacy_sales');
+      add('Pharmacy sale lines', 'pharmacy_sale_items');
+      add('Stock batches', 'drug_stock_batches');
+      add('Supplier purchase bills', 'purchase_invoices');
+      add('Supplier payments', 'purchase_payments');
+      add('Dispensing register entries', 'dispensing_register');
+      add('Advance deposits', 'advances');
       add('Uploaded documents', 'patient_documents');
 
       return { integrityOk, verified: integrityOk && mismatches.length === 0, mismatches, receipt, totalRows };
@@ -3957,6 +3966,9 @@ export function registerIpc() {
     const db = getDb();
     const today = localISO();
     const monthStart = today.slice(0, 8) + '01';
+    // UTC lower bounds (see utcSlack): the index on created_at skips everything older before the exact local-day test runs.
+    const loToday = utcSlack(today, today).lo;
+    const loMonth = utcSlack(monthStart, monthStart).lo;
     const sc = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { c: number }).c;
     const ss = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { t: number }).t || 0;
     // Defensive variants — return 0 on ANY error (missing column on a pre-migration
@@ -3968,11 +3980,17 @@ export function registerIpc() {
       asOf: new Date().toISOString(),
       todayVisits: sc(`SELECT COUNT(*) as c FROM appointments WHERE appointment_date=?`, today),
       todayDone: sc(`SELECT COUNT(*) as c FROM appointments WHERE appointment_date=? AND status='Done'`, today),
-      todayRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime')=?`, today),
-      monthRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') >= ?`, monthStart),
-      pharmacyMonthRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM pharmacy_sales WHERE date(created_at, 'localtime') >= ?`, monthStart),
+      todayRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND created_at >= ? AND date(created_at, 'localtime')=?`, loToday, today),
+      monthRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND created_at >= ? AND date(created_at, 'localtime') >= ?`, loMonth, monthStart),
+      // Counter sales only: ward-dispensed medicines are already lines on the in-patient bill, so counting the sale
+      // too reported the same rupee twice.
+      pharmacyMonthRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM pharmacy_sales WHERE created_at >= ? AND COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') >= ?`, loMonth, monthStart),
+      pharmacyMonthPatientRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM pharmacy_sales WHERE created_at >= ? AND patient_id IS NOT NULL AND COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') >= ?`, loMonth, monthStart),
+      pharmacyMonthGuestRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM pharmacy_sales WHERE created_at >= ? AND patient_id IS NULL AND COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') >= ?`, loMonth, monthStart),
+      // Money still to collect across every bill (same rule as the patient portal and Accounts).
+      outstandingTotal: outstandingTotal(db),
       totalPatients: sc(`SELECT COUNT(*) as c FROM patients`),
-      patientsThisMonth: sc(`SELECT COUNT(*) as c FROM patients WHERE date(created_at, 'localtime') >= ?`, monthStart),
+      patientsThisMonth: sc(`SELECT COUNT(*) as c FROM patients WHERE created_at >= ? AND date(created_at, 'localtime') >= ?`, loMonth, monthStart),
       activeDoctors: sc(`SELECT COUNT(*) as c FROM doctors WHERE is_active=1`),
       pendingRx: sc(`
         SELECT COUNT(DISTINCT a.id) as c FROM appointments a
@@ -4000,27 +4018,27 @@ export function registerIpc() {
       // returns 0 instead of throwing and breaking the whole Overview tab.
       freeFollowupsThisMonth: scSafe(`
         SELECT COUNT(*) as c FROM bills
-        WHERE COALESCE(is_free_followup,0)=1 AND date(created_at, 'localtime') >= ?
-      `, monthStart),
+        WHERE COALESCE(is_free_followup,0)=1 AND created_at >= ? AND date(created_at, 'localtime') >= ?
+      `, loMonth, monthStart),
       relaxedFollowupsThisMonth: scSafe(`
         SELECT COUNT(*) as c FROM bills
-        WHERE COALESCE(is_relaxed_followup,0)=1 AND date(created_at, 'localtime') >= ?
-      `, monthStart),
+        WHERE COALESCE(is_relaxed_followup,0)=1 AND created_at >= ? AND date(created_at, 'localtime') >= ?
+      `, loMonth, monthStart),
       registrationFeesThisMonth: ssSafe(`
         SELECT COALESCE(SUM(rate),0) as t
         FROM bills b, json_each(b.items_json) j
-        WHERE date(b.created_at, 'localtime') >= ?
+        WHERE b.created_at >= ? AND date(b.created_at, 'localtime') >= ?
           AND lower(json_extract(j.value, '$.description')) LIKE '%registration%'
-      `, monthStart),
+      `, loMonth, monthStart),
       registrationFeeCountThisMonth: scSafe(`
         SELECT COUNT(*) as c FROM patients WHERE registration_fee_paid=1 AND date(registration_fee_paid_at) >= ?
       `, monthStart),
       servicesCountThisMonth: scSafe(`
-        SELECT COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND bill_kind='misc' AND date(created_at, 'localtime') >= ?
-      `, monthStart),
+        SELECT COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND bill_kind='misc' AND created_at >= ? AND date(created_at, 'localtime') >= ?
+      `, loMonth, monthStart),
       servicesRevenueThisMonth: ssSafe(`
-        SELECT COALESCE(SUM(total),0) as t FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND bill_kind='misc' AND date(created_at, 'localtime') >= ?
-      `, monthStart),
+        SELECT COALESCE(SUM(total),0) as t FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND bill_kind='misc' AND created_at >= ? AND date(created_at, 'localtime') >= ?
+      `, loMonth, monthStart),
     };
   });
 
@@ -4239,10 +4257,11 @@ export function registerIpc() {
           SELECT SUM(qty) as units FROM pharmacy_sale_items psi
           JOIN pharmacy_sales s2 ON s2.id = psi.sale_id
           WHERE strftime('%Y-%m', s2.created_at, 'localtime') = strftime('%Y-%m', s.created_at, 'localtime')
+            AND COALESCE(s2.payment_mode, '') <> 'IPD-bill'
           GROUP BY psi.sale_id
         )) as avg_units
       FROM pharmacy_sales s
-      WHERE s.created_at >= date('now', 'localtime', '-12 months')
+      WHERE s.created_at >= date('now', 'localtime', '-12 months') AND COALESCE(s.payment_mode, '') <> 'IPD-bill'
       GROUP BY month
       ORDER BY month
     `).all();
@@ -4250,13 +4269,15 @@ export function registerIpc() {
 
   ipcMain.handle('analytics:pharmacyOverview', (_e, filter: { from: string; to: string }) => {
     const db = getDb();
+    // UTC bounds that only prune (see utcSlack) — the exact local-day test still decides.
+    const slack = utcSlack(filter.from, filter.to);
     const sc = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { c: number }).c;
     const ss = (sql: string, ...p: any[]) => (db.prepare(sql).get(...p) as { t: number }).t || 0;
     return {
-      totalDispensed: sc(`SELECT COUNT(*) as c FROM dispensing_register WHERE date(dispensed_at, 'localtime') BETWEEN ? AND ?`, filter.from, filter.to),
-      scheduleHCount: sc(`SELECT COUNT(*) as c FROM dispensing_register WHERE date(dispensed_at, 'localtime') BETWEEN ? AND ? AND schedule IN ('H','H1')`, filter.from, filter.to),
-      totalRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM pharmacy_sales WHERE COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?`, filter.from, filter.to),
-      totalSales: sc(`SELECT COUNT(*) as c FROM pharmacy_sales WHERE COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?`, filter.from, filter.to),
+      totalDispensed: sc(`SELECT COUNT(*) as c FROM dispensing_register WHERE dispensed_at >= ? AND dispensed_at < ? AND date(dispensed_at, 'localtime') BETWEEN ? AND ?`, slack.lo, slack.hi, filter.from, filter.to),
+      scheduleHCount: sc(`SELECT COUNT(*) as c FROM dispensing_register WHERE dispensed_at >= ? AND dispensed_at < ? AND date(dispensed_at, 'localtime') BETWEEN ? AND ? AND schedule IN ('H','H1')`, slack.lo, slack.hi, filter.from, filter.to),
+      totalRevenue: ss(`SELECT COALESCE(SUM(total),0) as t FROM pharmacy_sales WHERE created_at >= ? AND created_at < ? AND COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?`, slack.lo, slack.hi, filter.from, filter.to),
+      totalSales: sc(`SELECT COUNT(*) as c FROM pharmacy_sales WHERE created_at >= ? AND created_at < ? AND COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?`, slack.lo, slack.hi, filter.from, filter.to),
       // Live inventory valuation (not date-filtered — it's a snapshot of stock now).
       valuation: db.prepare(`
         SELECT COUNT(DISTINCT m.id) as skus,
@@ -4281,10 +4302,10 @@ export function registerIpc() {
         FROM pharmacy_sale_items ps
         JOIN pharmacy_sales s ON s.id = ps.sale_id
         LEFT JOIN drug_master m ON m.id = ps.drug_master_id
-        WHERE COALESCE(s.payment_mode, '') <> 'IPD-bill' AND date(s.created_at, 'localtime') BETWEEN ? AND ?
+        WHERE s.created_at >= ? AND s.created_at < ? AND COALESCE(s.payment_mode, '') <> 'IPD-bill' AND date(s.created_at, 'localtime') BETWEEN ? AND ?
         GROUP BY name
         ORDER BY revenue DESC LIMIT 20
-      `).all(filter.from, filter.to),
+      `).all(slack.lo, slack.hi, filter.from, filter.to),
       salesMix: db.prepare(`
         SELECT
           CASE WHEN appointment_id IS NULL THEN 'Counter Sale (walk-in)' ELSE 'Rx-driven (from doctor)' END as kind,
@@ -4293,16 +4314,37 @@ export function registerIpc() {
         FROM pharmacy_sales
         -- Ward-dispensed medicines are billed on the IPD bill; counting the
         -- pharmacy sale too would report the same rupee twice.
-        WHERE COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?
+        WHERE created_at >= ? AND created_at < ? AND COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?
         GROUP BY kind
-      `).all(filter.from, filter.to),
+      `).all(slack.lo, slack.hi, filter.from, filter.to),
+      // Whose sales: registered patients (also in their Billing) vs walk-in guests. Together they are totalSales/totalRevenue.
+      customerMix: db.prepare(`
+        SELECT CASE WHEN patient_id IS NULL THEN 'guest' ELSE 'patient' END as kind,
+               COUNT(*) as count, COALESCE(SUM(total),0) as revenue, COALESCE(AVG(total),0) as avg_sale
+        FROM pharmacy_sales
+        WHERE created_at >= ? AND created_at < ? AND COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?
+        GROUP BY kind
+      `).all(slack.lo, slack.hi, filter.from, filter.to),
+      paymentMix: db.prepare(`
+        SELECT COALESCE(NULLIF(TRIM(payment_mode), ''), 'Unspecified') as mode, COUNT(*) as count, COALESCE(SUM(total),0) as revenue
+        FROM pharmacy_sales
+        WHERE created_at >= ? AND created_at < ? AND COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?
+        GROUP BY mode ORDER BY revenue DESC
+      `).all(slack.lo, slack.hi, filter.from, filter.to),
+      topPatients: db.prepare(`
+        SELECT p.id as patient_id, (p.first_name || ' ' || p.last_name) as name, p.uhid,
+               COUNT(*) as sales, COALESCE(SUM(s.total),0) as revenue
+        FROM pharmacy_sales s JOIN patients p ON p.id = s.patient_id
+        WHERE s.created_at >= ? AND s.created_at < ? AND COALESCE(s.payment_mode, '') <> 'IPD-bill' AND date(s.created_at, 'localtime') BETWEEN ? AND ?
+        GROUP BY p.id ORDER BY revenue DESC LIMIT 10
+      `).all(slack.lo, slack.hi, filter.from, filter.to),
       scheduleMix: db.prepare(`
         SELECT schedule, COUNT(*) as count, SUM(qty) as units
         FROM dispensing_register
-        WHERE date(dispensed_at, 'localtime') BETWEEN ? AND ?
+        WHERE dispensed_at >= ? AND dispensed_at < ? AND date(dispensed_at, 'localtime') BETWEEN ? AND ?
         GROUP BY schedule
         ORDER BY count DESC
-      `).all(filter.from, filter.to),
+      `).all(slack.lo, slack.hi, filter.from, filter.to),
       lowStock: db.prepare(`
         SELECT m.name,
                (SELECT COALESCE(SUM(b.qty_remaining), 0) FROM drug_stock_batches b
@@ -4329,29 +4371,55 @@ export function registerIpc() {
   // ===== Modules P&L — revenue by clinical module, side by side =====
   ipcMain.handle('analytics:modules', (_e, from: string, to: string) => {
     const db = getDb();
-    const billAgg = (cond: string) => db.prepare(
-      `SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue, COALESCE(SUM(amount_paid), 0) as collected
-       FROM bills WHERE (status IS NULL OR status <> 'cancelled') AND date(created_at, 'localtime') BETWEEN ? AND ? AND ${cond}`
-    ).get(from, to) as { count: number; revenue: number; collected: number };
+    // Collected = billed − still due, with "due" worked out per bill by the one rule the patient portal and Accounts
+    // use (billing-portal.ts): an in-patient's advance deposit counts as received, a cancelled bill is out. Everything
+    // except in-patient bills is plain arithmetic (billed − paid, never below zero), so it is summed in SQL; the few
+    // in-patient bills go through the full rule one by one.
+    const slack = utcSlack(from, to);
+    const billAgg = (cond: string) => {
+      const rangeSql = `FROM bills b WHERE (b.status IS NULL OR b.status <> 'cancelled') AND b.created_at >= ? AND b.created_at < ?
+                        AND date(b.created_at, 'localtime') BETWEEN ? AND ? AND ${cond}`;
+      const args = [slack.lo, slack.hi, from, to];
+      const isIpd = "(b.admission_id IS NOT NULL OR COALESCE(b.bill_type, '') = 'ipd')";
+      const flat = db.prepare(
+        `SELECT SUM(CASE WHEN ${isIpd} THEN 0 ELSE 1 END) AS n,
+                COALESCE(SUM(CASE WHEN ${isIpd} THEN 0 ELSE b.total END), 0) AS revenue,
+                COALESCE(SUM(CASE WHEN ${isIpd} THEN 0 ELSE MAX(b.total - b.amount_paid, 0) END), 0) AS due,
+                SUM(CASE WHEN ${isIpd} THEN 1 ELSE 0 END) AS ipd_n
+           ${rangeSql}`
+      ).get(...args) as { n: number | null; revenue: number; due: number; ipd_n: number | null };
+      let revenueP = toPaise(flat.revenue), dueP = toPaise(flat.due), n = flat.n ?? 0;
+      if ((flat.ipd_n ?? 0) > 0) {
+        const ipd = db.prepare(
+          `SELECT b.total, b.amount_paid, b.advance_adjusted, b.finalized_at, b.admission_id, b.bill_type, ${ADV_SPARE_SQL} AS adv_spare
+             ${rangeSql} AND ${isIpd}`
+        ).all(...args) as any[];
+        for (const r of ipd) { const pos = billPosition(r); revenueP += pos.totalP; dueP += pos.dueP; n++; }
+      }
+      return { count: n, revenue: fromPaise(revenueP), collected: fromPaise(revenueP - dueP) };
+    };
     const phar = db.prepare(
-      `SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue FROM pharmacy_sales WHERE payment_mode <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?`
-    ).get(from, to) as { count: number; revenue: number };
+      `SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue FROM pharmacy_sales
+        WHERE created_at >= ? AND created_at < ? AND COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?`
+    ).get(slack.lo, slack.hi, from, to) as { count: number; revenue: number };
 
     const mk = (key: string, label: string, a: { count: number; revenue: number; collected: number }) => ({
       key, label, count: a.count, revenue: Math.round(a.revenue),
       collected: Math.round(a.collected), outstanding: Math.round(a.revenue - a.collected),
     });
+    // Every non-cancelled bill falls in exactly one of these, so the rows add up to the Accounts total:
+    // in-patient / lab / radiology by bill type first; then a Services bill (bill_kind='misc'); then a consultation;
+    // and whatever is left (Quick-Bill "custom" and hand-made pharmacy bills) is "Other".
+    const NOT_SPECIAL = "COALESCE(bill_type,'') NOT IN ('ipd','lab','radiology')";
     const modules = [
-      // Exclusive: a Services bill carries bill_kind='misc'. Historic rows created
-      // before bill_type was set still default to 'opd_consult', so they would be
-      // counted here AND under Misc below without this guard.
-      mk('opd', 'OPD / Consultation', billAgg("bill_type='opd_consult' AND (bill_kind IS NULL OR bill_kind <> 'misc')")),
+      mk('opd', 'OPD / Consultation', billAgg(`bill_type='opd_consult' AND COALESCE(bill_kind,'') <> 'misc'`)),
       mk('ipd', 'IPD (in-patient)', billAgg("bill_type='ipd'")),
       mk('lab', 'Laboratory', billAgg("bill_type='lab'")),
       mk('radiology', 'Radiology', billAgg("bill_type='radiology'")),
       // Pharmacy sells over the counter — treat sale value as collected.
       { key: 'pharmacy', label: 'Pharmacy', count: phar.count, revenue: Math.round(phar.revenue), collected: Math.round(phar.revenue), outstanding: 0 },
-      mk('misc', 'Procedures / Misc', billAgg("bill_kind='misc'")),
+      mk('misc', 'Procedures / Misc', billAgg(`bill_kind='misc' AND ${NOT_SPECIAL}`)),
+      mk('other', 'Other / quick bills', billAgg(`${NOT_SPECIAL} AND COALESCE(bill_type,'') <> 'opd_consult' AND COALESCE(bill_kind,'') <> 'misc'`)),
     ].filter((m) => m.count > 0 || m.revenue > 0);
 
     const totals = modules.reduce((t, m) => ({
@@ -4422,14 +4490,21 @@ export function registerIpc() {
     const today = todayISO();
     const row = (sql: string, params: any[] = []) => db.prepare(sql).get(...params) as any;
     const all = (sql: string, params: any[] = []) => db.prepare(sql).all(...params) as any[];
+    // Bills and sales are indexed by their UTC timestamp. Each window query below first narrows to a UTC range that
+    // surely contains the window (utcSlack), then applies the exact local-day test — otherwise every card scanned the
+    // whole table. `lo`/`hi` only prune; they never decide which day a bill belongs to.
+    const lo = (fromISO: string) => utcSlack(fromISO, fromISO).lo;
+    const hi = (toISO: string) => utcSlack(toISO, toISO).hi;
+    const monthStartOf = (iso: string) => iso.slice(0, 8) + '01';
+    const prevMonthStart = addDaysISO(monthStartOf(today), -1).slice(0, 8) + '01';
 
     // --- Quick-period cards
-    const yesterday = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime')=date(?, '-1 day')", [today]);
-    const todayTotal = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime')=?", [today]);
-    const weekTotal = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') >= date(?, '-6 days')", [today]);
-    const prevWeek = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') >= date(?, '-13 days') AND date(created_at, 'localtime') < date(?, '-6 days')", [today, today]);
-    const monthTotal = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', ?)", [today]);
-    const prevMonth = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', date(?, 'start of month', '-1 day'))", [today]);
+    const yesterday = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND created_at >= ? AND created_at < ? AND date(created_at, 'localtime')=date(?, '-1 day')", [lo(addDaysISO(today, -1)), hi(today), today]);
+    const todayTotal = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND created_at >= ? AND date(created_at, 'localtime')=?", [lo(today), today]);
+    const weekTotal = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND created_at >= ? AND date(created_at, 'localtime') >= date(?, '-6 days')", [lo(addDaysISO(today, -6)), today]);
+    const prevWeek = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND created_at >= ? AND created_at < ? AND date(created_at, 'localtime') >= date(?, '-13 days') AND date(created_at, 'localtime') < date(?, '-6 days')", [lo(addDaysISO(today, -13)), hi(addDaysISO(today, -7)), today, today]);
+    const monthTotal = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND created_at >= ? AND strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', ?)", [lo(monthStartOf(today)), today]);
+    const prevMonth = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND created_at >= ? AND created_at < ? AND strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', date(?, 'start of month', '-1 day'))", [lo(prevMonthStart), hi(addDaysISO(monthStartOf(today), -1)), today]);
     const allTime = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled'");
 
     // Avg + largest in whole-time
@@ -4438,24 +4513,35 @@ export function registerIpc() {
     // Custom range (default = last 30 days)
     const rangeFrom = filter.from || addDaysISO(today, -29);
     const rangeTo = filter.to || today;
-    const rangeBills = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') BETWEEN ? AND ?", [rangeFrom, rangeTo]);
-    const rangePharma = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM pharmacy_sales WHERE payment_mode <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?", [rangeFrom, rangeTo]);
+    const rangeBills = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND created_at >= ? AND created_at < ? AND date(created_at, 'localtime') BETWEEN ? AND ?", [lo(rangeFrom), hi(rangeTo), rangeFrom, rangeTo]);
+    const rangePharma = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM pharmacy_sales WHERE created_at >= ? AND created_at < ? AND COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?", [lo(rangeFrom), hi(rangeTo), rangeFrom, rangeTo]);
+    // Counter sales under a registered patient (they also show in that patient's Billing) vs walk-in / guest sales.
+    // Both are in `rangePharma` already, so the split never adds anything — it only says whose they were.
+    const pharmaWho = all(
+      `SELECT CASE WHEN patient_id IS NULL THEN 'guest' ELSE 'patient' END as who, COALESCE(SUM(total),0) as t, COUNT(*) as c
+         FROM pharmacy_sales WHERE created_at >= ? AND created_at < ? AND COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?
+        GROUP BY who`,
+      [lo(rangeFrom), hi(rangeTo), rangeFrom, rangeTo]
+    );
+    const whoOf = (k: string) => { const r = pharmaWho.find((x) => x.who === k); return { total: r ? r.t : 0, count: r ? r.c : 0 }; };
 
     const byDay = all(
       `SELECT date(created_at, 'localtime') as day, COALESCE(SUM(total),0) as total, COUNT(*) as count
-       FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') BETWEEN ? AND ?
+       FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND created_at >= ? AND created_at < ? AND date(created_at, 'localtime') BETWEEN ? AND ?
        GROUP BY date(created_at, 'localtime') ORDER BY day DESC`,
-      [rangeFrom, rangeTo]
+      [lo(rangeFrom), hi(rangeTo), rangeFrom, rangeTo]
     );
     const byWeek = all(
       `SELECT strftime('%Y-W%W', created_at, 'localtime') as week, COALESCE(SUM(total),0) as total, COUNT(*) as count
-       FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') >= date(?, '-56 days')
+       FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND created_at >= ? AND date(created_at, 'localtime') >= date(?, '-56 days')
        GROUP BY week ORDER BY week DESC`,
-      [today]
+      [lo(addDaysISO(today, -56)), today]
     );
     const byMonth = all(
+      // Only the last 12 months are shown, so only they are read.
       `SELECT strftime('%Y-%m', created_at, 'localtime') as month, COALESCE(SUM(total),0) as total, COUNT(*) as count
-       FROM bills WHERE COALESCE(status,'') <> 'cancelled' GROUP BY month ORDER BY month DESC LIMIT 12`
+       FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND created_at >= ? GROUP BY month ORDER BY month DESC LIMIT 12`,
+      [lo(localISO(new Date(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 12, 1)))]
     );
     const byMode = all(
       `SELECT payment_mode, COALESCE(SUM(total),0) as total, COUNT(*) as count
@@ -4469,27 +4555,25 @@ export function registerIpc() {
        WHERE d.id IS NOT NULL AND COALESCE(b.status,'') <> 'cancelled'
        GROUP BY d.id ORDER BY total DESC`
     );
-    const todayByMode = all(
-      `SELECT payment_mode, COALESCE(SUM(total),0) as total, COUNT(*) as count
-       FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime')=?
-       GROUP BY payment_mode`,
-      [today]
-    );
+    // Money actually received today, by how it was paid — payments taken against bills, bills paid when raised, and
+    // pharmacy counter sales. (This used to group today's BILLS by their payment mode, so an unpaid lab bill showed up
+    // as a "Pending" collection and a payment taken today on an older bill was missing.)
+    const todayByMode = collections(db, today, today).by_mode.map((m) => ({ payment_mode: m.payment_mode, total: m.total, count: m.count }));
 
     // Weekday pattern (0=Sun ... 6=Sat) — last 90 days
     const byWeekday = all(
       `SELECT strftime('%w', created_at, 'localtime') as wd, COALESCE(SUM(total),0) as total, COUNT(*) as count
-       FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') >= date(?, '-89 days')
+       FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND created_at >= ? AND date(created_at, 'localtime') >= date(?, '-89 days')
        GROUP BY wd ORDER BY wd`,
-      [today]
+      [lo(addDaysISO(today, -89)), today]
     );
 
     // Hour-of-day distribution — last 30 days
     const byHour = all(
       `SELECT strftime('%H', created_at, 'localtime') as hr, COALESCE(SUM(total),0) as total, COUNT(*) as count
-       FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') >= date(?, '-29 days')
+       FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND created_at >= ? AND date(created_at, 'localtime') >= date(?, '-29 days')
        GROUP BY hr ORDER BY hr`,
-      [today]
+      [lo(addDaysISO(today, -29)), today]
     );
 
     // Top patients by revenue — all-time
@@ -4506,27 +4590,30 @@ export function registerIpc() {
       `SELECT COALESCE(NULLIF(TRIM(p.place), ''), 'Unknown') as place,
               COALESCE(SUM(b.total),0) as total, COUNT(b.id) as bills
        FROM bills b JOIN patients p ON p.id=b.patient_id
-       WHERE COALESCE(b.status,'') <> 'cancelled' AND date(b.created_at, 'localtime') >= date(?, '-89 days')
+       WHERE COALESCE(b.status,'') <> 'cancelled' AND b.created_at >= ? AND date(b.created_at, 'localtime') >= date(?, '-89 days')
        GROUP BY LOWER(TRIM(COALESCE(p.place,''))) ORDER BY total DESC LIMIT 15`,
-      [today]
+      [lo(addDaysISO(today, -89)), today]
     );
 
     // Pharmacy vs OPD comparison — last 30 days
-    const opd30 = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND date(created_at, 'localtime') >= date(?, '-29 days')", [today]);
-    const pharma30 = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM pharmacy_sales WHERE payment_mode <> 'IPD-bill' AND date(created_at, 'localtime') >= date(?, '-29 days')", [today]);
+    const opd30 = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM bills WHERE COALESCE(status,'') <> 'cancelled' AND created_at >= ? AND date(created_at, 'localtime') >= date(?, '-29 days')", [lo(addDaysISO(today, -29)), today]);
+    const pharma30 = row("SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM pharmacy_sales WHERE created_at >= ? AND COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') >= date(?, '-29 days')", [lo(addDaysISO(today, -29)), today]);
 
+    // Change against the period before it, as a fraction (0.12 = 12% up); null when there was nothing to compare with.
+    const change = (cur: number, prev: number) => (prev > 0 ? (cur - prev) / prev : null);
     return {
-      today: { total: todayTotal.t, count: todayTotal.c, byMode: todayByMode },
+      today: { total: todayTotal.t, count: todayTotal.c, byMode: todayByMode, delta: change(todayTotal.t, yesterday.t) },
       yesterday: { total: yesterday.t, count: yesterday.c },
-      week: { total: weekTotal.t, count: weekTotal.c },
+      week: { total: weekTotal.t, count: weekTotal.c, delta: change(weekTotal.t, prevWeek.t) },
       prevWeek: { total: prevWeek.t, count: prevWeek.c },
-      month: { total: monthTotal.t, count: monthTotal.c },
+      month: { total: monthTotal.t, count: monthTotal.c, delta: change(monthTotal.t, prevMonth.t) },
       prevMonth: { total: prevMonth.t, count: prevMonth.c },
       allTime: { total: allTime.t, count: allTime.c, avg: avg.avg, max: avg.max },
       range: {
         from: rangeFrom, to: rangeTo,
         bills: { total: rangeBills.t, count: rangeBills.c },
         pharma: { total: rangePharma.t, count: rangePharma.c },
+        pharmaSplit: { patient: whoOf('patient'), guest: whoOf('guest') },
       },
       compare30: {
         opd: { total: opd30.t, count: opd30.c },

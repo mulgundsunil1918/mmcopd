@@ -618,6 +618,8 @@ export interface PharmacySale {
   total: number;
   payment_mode: string | null;
   sold_by: string | null;
+  /** Name typed for a walk-in (guest) sale — only ever set when no patient is attached. */
+  customer_name?: string | null;
   created_at: string;
 }
 

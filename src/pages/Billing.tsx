@@ -1,44 +1,179 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, Printer, Receipt, FileText, ListFilter, BedDouble } from 'lucide-react';
+import { Plus, Trash2, Printer, Receipt, FileText, ListFilter, BedDouble, ShoppingBag } from 'lucide-react';
 import { PrintHeader } from '../components/print/PrintHeader';
 import { EmptyState } from '../components/EmptyState';
 import { cn, fmtDate, fmtDateTime, formatINR, todayISO } from '../lib/utils';
 import { useToast } from '../hooks/useToast';
 import { useLicensedModules } from '../hooks/useLicensedModules';
 import { AdmissionBillWorkspace } from '../components/billing/AdmissionBillWorkspace';
+import { PatientPortal, PortalSearch } from '../components/billing/PatientPortal';
+import { PharmacySaleReceipt } from '../components/pharmacy/PharmacySaleReceipt';
+import { Modal } from '../components/Modal';
+import { addDaysISO } from '../lib/localDate';
 import type { AppointmentWithJoins, BillItem, BillWithJoins, PaymentMode } from '../types';
 
-type Tab = 'queue' | 'history' | 'ipd';
+type Tab = 'queue' | 'history' | 'ipd' | 'walkins';
 
 export function Billing() {
   const { has } = useLicensedModules();
+  const qc = useQueryClient();
   // Open on IPD when the clinic runs beds — that is where unsettled money sits.
   const [tab, setTab] = useState<Tab>(has('ipd') ? 'ipd' : 'queue');
+  // The patient portal: pick a patient and the page shows everything about their billing. (`?patient=12` opens it directly.)
+  const [params, setParams] = useSearchParams();
+  const [portalId, setPortalId] = useState<number | null>(() => {
+    const v = Number(params.get('patient'));
+    return Number.isInteger(v) && v > 0 ? v : null;
+  });
+  const [visitToBill, setVisitToBill] = useState<number | null>(null);
+  const [visitInvoice, setVisitInvoice] = useState<BillWithJoins | null>(null);
+
+  const openPortal = (id: number) => { setPortalId(id); setParams({ patient: String(id) }, { replace: true }); };
+  const closePortal = () => { setPortalId(null); setParams({}, { replace: true }); };
+  const pickTab = (t: Tab) => { setTab(t); if (portalId !== null) closePortal(); };
+
+  if (visitInvoice) {
+    return (
+      <div className="p-6">
+        <Invoice bill={visitInvoice} onNew={() => { setVisitInvoice(null); qc.invalidateQueries({ queryKey: ['billing-portal'] }); }} />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-lg font-bold text-gray-900 inline-flex items-center gap-1.5">Billing<PageHelp page="billing" /></h1>
-          <p className="text-xs text-gray-500">Generate and reprint invoices. Click an admission to edit its charges, discount it and take payment.</p>
+          <p className="text-xs text-gray-500">Generate and reprint invoices. Pick a patient to see all their billing in one place, or open an admission to edit its charges and take payment.</p>
         </div>
         <div className="flex gap-2 bg-gray-100 dark:bg-slate-800 p-1 rounded-lg">
           {/* IPD leads: an admitted patient's bill is the one that grows every day,
               carries the largest amount and has a deadline (discharge). OPD bills
               are settled at the counter in the same minute they are raised. */}
           {has('ipd') && (
-            <TabButton active={tab === 'ipd'} onClick={() => setTab('ipd')} icon={<BedDouble className="w-3.5 h-3.5" />}>IPD / Admissions</TabButton>
+            <TabButton active={portalId === null && tab === 'ipd'} onClick={() => pickTab('ipd')} icon={<BedDouble className="w-3.5 h-3.5" />}>IPD / Admissions</TabButton>
           )}
-          <TabButton active={tab === 'queue'} onClick={() => setTab('queue')} icon={<Receipt className="w-3.5 h-3.5" />}>Billing Queue</TabButton>
-          <TabButton active={tab === 'history'} onClick={() => setTab('history')} icon={<FileText className="w-3.5 h-3.5" />}>Billing History</TabButton>
+          <TabButton active={portalId === null && tab === 'queue'} onClick={() => pickTab('queue')} icon={<Receipt className="w-3.5 h-3.5" />}>Billing Queue</TabButton>
+          <TabButton active={portalId === null && tab === 'history'} onClick={() => pickTab('history')} icon={<FileText className="w-3.5 h-3.5" />}>Billing History</TabButton>
+          {has('pharmacy') && (
+            <TabButton active={portalId === null && tab === 'walkins'} onClick={() => pickTab('walkins')} icon={<ShoppingBag className="w-3.5 h-3.5" />}>Pharmacy walk-ins</TabButton>
+          )}
         </div>
       </div>
 
-      {tab === 'queue' && <BillingQueue />}
-      {tab === 'history' && <BillingHistory />}
-      {tab === 'ipd' && <IpdBilling />}
+      <div className="max-w-xl"><PortalSearch onPick={(p) => openPortal(p.id)} /></div>
+
+      {portalId !== null ? (
+        <PatientPortal key={portalId} patientId={portalId} onBack={closePortal} onBillVisit={setVisitToBill} />
+      ) : (
+        <>
+          {tab === 'queue' && <BillingQueue />}
+          {tab === 'history' && <BillingHistory />}
+          {tab === 'ipd' && <IpdBilling />}
+          {tab === 'walkins' && <PharmacyWalkIns />}
+        </>
+      )}
+
+      {visitToBill !== null && (
+        <VisitBillModal appointmentId={visitToBill} onClose={() => setVisitToBill(null)}
+          onGenerated={(b) => { setVisitToBill(null); setVisitInvoice(b); }} />
+      )}
+    </div>
+  );
+}
+
+/** The consultation bill form for one visit, opened from the patient portal. */
+function VisitBillModal({ appointmentId, onClose, onGenerated }: {
+  appointmentId: number; onClose: () => void; onGenerated: (b: BillWithJoins) => void;
+}) {
+  const { data: appt, isLoading } = useQuery({
+    queryKey: ['appointment', appointmentId],
+    queryFn: () => window.electronAPI.appointments.get(appointmentId),
+  });
+  return (
+    <Modal open onClose={onClose} title="Bill this visit" size="xl">
+      {isLoading ? <div className="text-sm text-gray-500 p-4">Loading the visit…</div>
+        : !appt ? <div className="text-sm text-red-600 p-4">That visit no longer exists. Close this and refresh.</div>
+        : <BillForm key={appt.id} appointment={appt} onGenerated={onGenerated} />}
+    </Modal>
+  );
+}
+
+/**
+ * Pharmacy counter sales made to a guest — someone who is not a registered patient. (A sale under a patient's name is
+ * in that patient's billing and in Billing History instead.) Counted once in Accounts and Analytics like every sale.
+ */
+function PharmacyWalkIns() {
+  const [from, setFrom] = useState(() => addDaysISO(todayISO(), -29));
+  const [to, setTo] = useState(todayISO());
+  const [q, setQ] = useState('');
+  const [receiptId, setReceiptId] = useState<number | null>(null);
+  const { data, isLoading } = useQuery({
+    queryKey: ['portal-walkins', from, to, q],
+    queryFn: () => window.electronAPI.pharmacy.counterSales({ from, to, scope: 'guest', q: q.trim() || undefined }),
+    refetchInterval: 30_000,
+  });
+  const rows = data?.rows ?? [];
+  const t = data?.totals;
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <input type="date" className="input w-auto" value={from} onChange={(e) => setFrom(e.target.value)} />
+        <span className="text-xs text-gray-500">to</span>
+        <input type="date" className="input w-auto" value={to} onChange={(e) => setTo(e.target.value)} />
+        <input className="input max-w-xs text-sm" placeholder="Search guest name or sale number…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="ml-auto flex gap-4 text-[11px]">
+          <span className="text-gray-500 dark:text-slate-400">Sales <b className="text-gray-900 dark:text-slate-100 tabular-nums">{t?.count ?? 0}</b></span>
+          <span className="text-gray-500 dark:text-slate-400">Total <b className="text-emerald-600 tabular-nums">{formatINR(t?.total ?? 0)}</b></span>
+          {(t?.by_mode ?? []).map((m) => (
+            <span key={m.mode} className="text-gray-500 dark:text-slate-400">{m.mode} <b className="tabular-nums text-gray-800 dark:text-slate-200">{formatINR(m.total)}</b></span>
+          ))}
+        </div>
+      </div>
+      <div className="card overflow-x-auto">
+        {isLoading ? <div className="p-6 text-xs text-gray-500">Loading…</div> : rows.length === 0 ? (
+          <EmptyState icon={ShoppingBag} title="No walk-in sales in this period"
+            description="Counter sales made without picking a patient appear here. Sales under a patient's name are in that patient's billing." />
+        ) : (
+          <table className="w-full text-[12px] min-w-[720px]">
+            <thead>
+              <tr className="text-left text-[10px] uppercase text-gray-500 border-b dark:border-slate-700">
+                <th className="py-2 px-3">Sale</th>
+                <th className="py-2 px-3">Date</th>
+                <th className="py-2 px-3">Guest</th>
+                <th className="py-2 px-3 text-right">Items</th>
+                <th className="py-2 px-3 text-right">Total</th>
+                <th className="py-2 px-3">Paid by</th>
+                <th className="py-2 px-3">Sold by</th>
+                <th className="py-2 px-3 text-right"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} className="border-b border-gray-50 dark:border-slate-800/60">
+                  <td className="py-2 px-3 font-mono text-[11px]">{r.sale_number}</td>
+                  <td className="py-2 px-3 text-gray-600 dark:text-slate-400">{fmtDateTime(r.created_at)}</td>
+                  <td className="py-2 px-3">{r.customer_name || <span className="text-gray-400">No name taken</span>}</td>
+                  <td className="py-2 px-3 text-right tabular-nums">{r.item_count}</td>
+                  <td className="py-2 px-3 text-right tabular-nums font-semibold">{formatINR(r.total)}</td>
+                  <td className="py-2 px-3"><span className="badge bg-gray-100 text-gray-700">{r.payment_mode || '—'}</span></td>
+                  <td className="py-2 px-3 text-gray-500">{r.sold_by || '—'}</td>
+                  <td className="py-2 px-3 text-right">
+                    <button className="btn-secondary text-[11px] py-1 px-2 inline-flex items-center gap-1" onClick={() => setReceiptId(r.id)}>
+                      <Printer className="w-3 h-3" /> Print
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      {receiptId !== null && <PharmacySaleReceipt saleId={receiptId} onClose={() => setReceiptId(null)} />}
     </div>
   );
 }
@@ -280,6 +415,7 @@ function BillForm({ appointment, onGenerated }: { appointment: AppointmentWithJo
       qc.invalidateQueries({ queryKey: ['appointments'] });
       qc.invalidateQueries({ queryKey: ['billing-queue'] });
       qc.invalidateQueries({ queryKey: ['bills'] });
+      qc.invalidateQueries({ queryKey: ['billing-portal'] });
       toast('Bill generated');
       onGenerated(bill);
     },
@@ -506,15 +642,31 @@ function BillKindBadge({ bill }: { bill: any }) {
 }
 
 function BillingHistory() {
+  const { has } = useLicensedModules();
   const [q, setQ] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [reprint, setReprint] = useState<BillWithJoins | null>(null);
+  const [receiptId, setReceiptId] = useState<number | null>(null);
 
   const { data: bills = [], isLoading } = useQuery({
     queryKey: ['bills', q, from, to],
     queryFn: () => window.electronAPI.bills.list({ q, from, to }),
   });
+  // Pharmacy counter sales made under a registered patient's name sit alongside that patient's other bills.
+  // (Walk-in guest sales are their own tab; ward-dispensed medicines are on the IPD bill already.)
+  const { data: sales } = useQuery({
+    queryKey: ['bills-pharmacy', q, from, to],
+    queryFn: () => window.electronAPI.pharmacy.counterSales({ from: from || undefined, to: to || undefined, scope: 'patient', q: q.trim() || undefined }),
+    enabled: has('pharmacy'),
+  });
+  const merged = useMemo(() => {
+    const list: { key: string; at: string; bill?: BillWithJoins; sale?: NonNullable<typeof sales>['rows'][number] }[] = [
+      ...bills.map((b) => ({ key: `b${b.id}`, at: b.created_at, bill: b })),
+      ...(sales?.rows ?? []).map((x) => ({ key: `s${x.id}`, at: x.created_at, sale: x })),
+    ];
+    return list.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+  }, [bills, sales]);
 
   if (reprint) {
     return <Invoice bill={reprint} onNew={() => setReprint(null)} />;
@@ -534,7 +686,7 @@ function BillingHistory() {
 
       {isLoading ? (
         <div className="text-xs text-gray-500 py-4">Loading…</div>
-      ) : bills.length === 0 ? (
+      ) : merged.length === 0 ? (
         <EmptyState icon={FileText} title="No bills found" />
       ) : (
         <table className="w-full text-sm">
@@ -550,19 +702,36 @@ function BillingHistory() {
             </tr>
           </thead>
           <tbody>
-            {bills.map((b) => (
-              <tr key={b.id} className="border-b border-gray-100 hover:bg-gray-50">
+            {merged.map((row) => row.bill ? (
+              <tr key={row.key} className="border-b border-gray-100 hover:bg-gray-50">
                 <td className="py-2 font-medium text-gray-900">
-                  {b.bill_number}
-                  <BillKindBadge bill={b} />
+                  {row.bill.bill_number}
+                  <BillKindBadge bill={row.bill} />
                 </td>
-                <td className="py-2">{b.patient_name}<div className="text-[11px] text-gray-500">{b.patient_uhid}</div></td>
-                <td className="py-2 text-gray-600">{b.doctor_name || '—'}</td>
-                <td className="py-2 text-gray-600">{fmtDate(b.created_at)}</td>
-                <td className="py-2 text-right font-semibold">{formatINR(b.total)}</td>
-                <td className="py-2"><span className="badge bg-gray-100 text-gray-700">{b.payment_mode}</span></td>
+                <td className="py-2">{row.bill.patient_name}<div className="text-[11px] text-gray-500">{row.bill.patient_uhid || (row.bill.patient_id ? '' : 'walk-in')}</div></td>
+                <td className="py-2 text-gray-600">{row.bill.doctor_name || '—'}</td>
+                <td className="py-2 text-gray-600">{fmtDate(row.bill.created_at)}</td>
+                <td className="py-2 text-right font-semibold">{formatINR(row.bill.total)}</td>
+                <td className="py-2"><span className="badge bg-gray-100 text-gray-700">{row.bill.payment_mode}</span></td>
                 <td className="py-2 text-right">
-                  <button className="btn-ghost text-xs" onClick={() => setReprint(b)}>
+                  <button className="btn-ghost text-xs" onClick={() => setReprint(row.bill!)}>
+                    <Printer className="w-3.5 h-3.5" /> Reprint
+                  </button>
+                </td>
+              </tr>
+            ) : (
+              <tr key={row.key} className="border-b border-gray-100 hover:bg-gray-50">
+                <td className="py-2 font-medium text-gray-900">
+                  {row.sale!.sale_number}
+                  <span className="badge ml-2 align-middle text-[9px] bg-lime-100 text-lime-700">Pharmacy</span>
+                </td>
+                <td className="py-2">{row.sale!.patient_name}<div className="text-[11px] text-gray-500">{row.sale!.patient_uhid}</div></td>
+                <td className="py-2 text-gray-600">—</td>
+                <td className="py-2 text-gray-600">{fmtDate(row.sale!.created_at)}</td>
+                <td className="py-2 text-right font-semibold">{formatINR(row.sale!.total)}</td>
+                <td className="py-2"><span className="badge bg-gray-100 text-gray-700">{row.sale!.payment_mode}</span></td>
+                <td className="py-2 text-right">
+                  <button className="btn-ghost text-xs" onClick={() => setReceiptId(row.sale!.id)}>
                     <Printer className="w-3.5 h-3.5" /> Reprint
                   </button>
                 </td>
@@ -571,6 +740,7 @@ function BillingHistory() {
           </tbody>
         </table>
       )}
+      {receiptId !== null && <PharmacySaleReceipt saleId={receiptId} onClose={() => setReceiptId(null)} />}
     </div>
   );
 }

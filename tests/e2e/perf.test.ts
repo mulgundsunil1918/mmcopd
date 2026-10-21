@@ -74,6 +74,12 @@ const utc = (daysAgo: number, h: number) => { const d = new Date(); d.setDate(d.
   await time('drug list', 'pharmacy:listDrugs', {});
   await time('stock register', 'stock:register', {});
   await time('pharmacy sales list', 'pharmacy:listSales', { from: iso(30), to: today });
+  await time('billing portal, a patient with years of visits', 'billing:patientPortal', 77);
+  await time('receivables (money still to collect)', 'analytics:receivables', {});
+  await time('IPD & billing analytics, 1 year', 'analytics:billing', iso(365), today);
+  await time('counter sales, last 30 days', 'pharmacy:counterSales', { from: iso(30), to: today, scope: 'all' });
+  await time('counter sales, walk-ins, search', 'pharmacy:counterSales', { scope: 'guest', q: 'Ramesh' });
+  await time('cost-not-recorded summary', 'pharmacy:costSummary');
   for (const [l, ms] of rows) console.log(`  ${ms < 300 ? '✓' : ms < 1000 ? '~' : '✗'} ${String(ms).padStart(5)} ms  ${l}`);
   const broken = rows.filter(([, ms]) => ms >= 3000);
   const slow = rows.filter(([, ms]) => ms >= 1000 && ms < 3000);

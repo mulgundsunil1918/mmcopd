@@ -20,6 +20,7 @@ import { broadcastEvent } from './network-server';
 import { computeBill, money, discountCapForRole, type BillLineInput, transferDayRate } from './billing-engine';
 import { nextIpNumber, nextBillNumber } from '../db/ids';
 import { requireModule } from './licensing/enforce';
+import { collections, outstandingTotal } from './billing-portal';
 
 type Ok<T> = { ok: true } & T;
 type Err = { ok: false; error: string };
@@ -2036,27 +2037,21 @@ export function registerIpdBillingIpc() {
     try {
       const range = [from, to];
 
-      const collections = d.prepare(
-        `SELECT payment_mode, COUNT(*) AS count, COALESCE(SUM(amount), 0) AS total
-         FROM bill_payments WHERE date(received_at, 'localtime') BETWEEN ? AND ? GROUP BY payment_mode`
-      ).all(...range) as any[];
+      /**
+       * Money received in the period from EVERY channel — payments entered against a bill, bills paid in full when
+       * they were raised (no payment row), and pharmacy counter sales. This used to read the payment rows alone, so
+       * every counter-paid bill and every pharmacy sale was missing from "collected".
+       */
+      const received = collections(d, from, to);
+      const collectionRows = received.by_mode;
 
-      const outstanding = d.prepare(
-        /**
-         * Driven by money owed, not by a status whitelist.
-         *
-         * The whitelist missed every bill left at the column's default status —
-         * which is most lab and OPD bills — and included 'finalised', a value
-         * nothing ever writes (the code spells it 'paid'). Outstanding therefore
-         * under-reported real debt while listing settled bills as owing.
-         */
-        `SELECT COALESCE(SUM(total - amount_paid - advance_adjusted), 0) AS due
-           FROM bills
-          WHERE COALESCE(status,'') <> 'cancelled'
-            AND cancelled_at IS NULL
-            AND paid_at IS NULL
-            AND (total - amount_paid - advance_adjusted) > 0.5`
-      ).get() as { due: number };
+      /**
+       * Outstanding is money owed, worked out per bill by the same rule the patient portal uses (billing-portal.ts):
+       * never a status whitelist (the column is unreliable), cancelled bills out, and an in-patient's advance counted
+       * as paid. It used to skip any bill with a first payment on it (`paid_at IS NULL`), so a part-paid bill dropped
+       * out of "outstanding" the moment it took its first rupee.
+       */
+      const outstanding = { due: outstandingTotal(d) };
 
       const gst = d.prepare(
         `SELECT COALESCE(SUM(cgst_total), 0) AS cgst, COALESCE(SUM(sgst_total), 0) AS sgst,
@@ -2073,6 +2068,16 @@ export function registerIpdBillingIpc() {
          WHERE b.status != 'cancelled' AND date(b.created_at, 'localtime') BETWEEN ? AND ?
          GROUP BY ch.category ORDER BY total DESC`
       ).all(...range) as any[];
+      // Pharmacy counter sales are not bill lines (a sale under a registered patient still lives in pharmacy_sales,
+      // so it is counted once, here); ward-dispensed medicines are already lines on the in-patient bill.
+      const counterPharmacy = d.prepare(
+        `SELECT COALESCE(SUM(total), 0) AS t FROM pharmacy_sales
+          WHERE COALESCE(payment_mode, '') <> 'IPD-bill' AND date(created_at, 'localtime') BETWEEN ? AND ?`
+      ).get(...range) as { t: number };
+      if (counterPharmacy.t > 0) {
+        bySection.push({ category: 'pharmacy_counter', total: money(counterPharmacy.t) });
+        bySection.sort((a, b) => b.total - a.total);
+      }
 
       // Patient advances / deposits — money held on account, net of what's been
       // adjusted into bills or refunded, so it reads as a real liability.
@@ -2100,8 +2105,9 @@ export function registerIpdBillingIpc() {
 
       return {
         ok: true,
-        collections,
-        totalCollected: money(collections.reduce((s, c) => s + c.total, 0)),
+        collections: collectionRows,
+        totalCollected: received.total,
+        collectedBySource: received.by_source,
         outstanding: money(outstanding.due),
         gst: { cgst: money(gst.cgst), sgst: money(gst.sgst), total: money(gst.cgst + gst.sgst), taxable: money(gst.taxable), exempt: money(gst.exempt) },
         bySection,

@@ -11,7 +11,14 @@ mkdirSync(out, { recursive: true });
 const electron = join(root, 'node_modules', '.bin', 'electron');
 const esbuild = join(root, 'node_modules', '.bin', 'esbuild');
 
-const ZONES = { modules: ['Asia/Kolkata', 'America/Los_Angeles'], localday: ['Asia/Kolkata', 'UTC', 'America/Los_Angeles', 'Pacific/Auckland'] };
+const ZONES = {
+  modules: ['Asia/Kolkata', 'America/Los_Angeles'],
+  localday: ['Asia/Kolkata', 'UTC', 'America/Los_Angeles', 'Pacific/Auckland'],
+  // Money screens group by the clinic's local day: a PC far behind UTC (Los Angeles) and one far ahead (Auckland) are the hard cases.
+  portal: ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
+  analytics: ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
+  'upgrade-v5': ['Asia/Kolkata', 'America/Los_Angeles'],
+};
 
 let failed = 0;
 const only = process.argv[2];

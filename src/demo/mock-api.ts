@@ -17,6 +17,7 @@ import {
 } from './demo-data';
 import { LAB_CATALOG } from '../data/lab-catalog';
 import { demoPriceHistory, demoProfitReport, demoSupplierReport, demoValuation, makeDemoPurchaseStore } from './demo-pharmacy-finance';
+import { demoCounterSales, demoPortal, demoReceivables } from './demo-portal';
 import { RADIOLOGY_CATALOG, modalityOf } from '../data/radiology-catalog';
 
 /**
@@ -304,6 +305,10 @@ export function createMockElectronAPI(): any {
         appointments = [...appointments, created];
         return r(buildAppointmentRow(created));
       },
+      get: (id: number) => {
+        const a = appointments.find((x) => x.id === id);
+        return r(a ? buildAppointmentRow(a) : undefined);
+      },
       updateStatus: (id: number, status: any) => {
         appointments = appointments.map((a) => a.id === id ? { ...a, status } : a);
         return r(buildAppointmentRow(appointments.find((a) => a.id === id)));
@@ -329,6 +334,9 @@ export function createMockElectronAPI(): any {
     },
     // What the printable bill (BillPrint) loads: the bill header, its lines and totals.
     billing: {
+      patientPortal: (patientId: number) => r(demoPortal(patientId, { patients, bills, pharmSales, appointments, doctors })),
+      createOrderBill: (kind: string, orderId: number) =>
+        r({ ok: true, bill_id: 900000 + orderId, bill_number: `INV-DEMO-${kind === 'lab' ? 'L' : 'R'}${orderId}`, total: kind === 'lab' ? 950 : 1500 } as any),
       previewById: (id: number) => {
         const b: any = bills.find((x: any) => x.id === id) ?? MISC_DEMO_BILLS.find((x: any) => x.id === id) ?? bills[0];
         const pt: any = patients.find((p: any) => p.id === b?.patient_id) ?? patients[0];
@@ -552,6 +560,9 @@ export function createMockElectronAPI(): any {
           patient_phone: pt?.phone ?? null, patient_address: pt?.address ?? null,
         });
       },
+      counterSales: (f: any) => r(demoCounterSales(f || {}, { patients, bills, pharmSales, appointments, doctors })),
+      costSummary: () => r({ batches: 12, units_in_stock: 640, value_in_stock: 18450, past_sale_units: 95, past_sale_slices: 31 }),
+      clearManualCost: () => r({ ok: true, batches: 12, register_rows: 0 } as any),
       listSales: () => r(pharmSales.map((s) => ({ ...s, patient_name: patients.find((p) => p.id === s.patient_id)?.first_name || null, patient_uhid: patients.find((p) => p.id === s.patient_id)?.uhid || null }))),
       recordCustomSale: (payload: any) => {
         const id = nextId(pharmSales);
@@ -603,7 +614,7 @@ export function createMockElectronAPI(): any {
     reports: {
       run: ({ kind }: any) => {
         // Generate a tiny realistic dummy result per report kind.
-        if (kind === 'daily_collection') return r(Array.from({ length: 7 }, (_, i) => ({ day: `2026-04-${20 + i}`, cash: 1200, card: 800, upi: 1500, revenue: 3500 })));
+        if (kind === 'daily_collection') return r(Array.from({ length: 7 }, (_, i) => ({ day: `2026-04-${20 + i}`, bills: 9, revenue: 3500, cash: 1200, card: 800, upi: 1500, pharmacy_sales: 6, pharmacy: 2100, received: 5600 })));
         if (kind === 'doctor_performance') return r(doctors.map((d) => ({ doctor: d.name, visits: 20 + Math.floor(Math.random() * 30), unique_patients: 18, revenue: 12000 })));
         if (kind === 'top_diagnoses') return r([{ impression: 'Acute viral URI', count: 18 }, { impression: 'Osteoarthritis', count: 11 }, { impression: 'GERD', count: 7 }]);
         if (kind === 'top_drugs') return r(drugMaster.slice(0, 8).map((d) => ({ drug_name: d.name, units: 50 + Math.floor(Math.random() * 100), revenue: 800 })));
@@ -659,16 +670,21 @@ export function createMockElectronAPI(): any {
         return r({
           today: { total: today, count: 8, delta: 0.12, byMode: [{ payment_mode: 'Cash', total: today * 0.55, count: 4 }, { payment_mode: 'UPI', total: today * 0.35, count: 3 }, { payment_mode: 'Card', total: today * 0.1, count: 1 }] },
           yesterday: { total: today * 0.85, count: 7 },
-          week: { total: totalAll * 0.18, count: 42 },
+          week: { total: totalAll * 0.18, count: 42, delta: 0.125 },
           prevWeek: { total: totalAll * 0.16, count: 38 },
-          month: { total: totalAll * 0.55, count: 180 },
+          month: { total: totalAll * 0.55, count: 180, delta: 0.1 },
           prevMonth: { total: totalAll * 0.5, count: 165 },
           allTime: { total: totalAll, count: nBills, avg: Math.round(totalAll / nBills), max: maxBill },
-          range: { bills: { total: totalAll * 0.7, count: Math.round(nBills * 0.7) }, pharma: { total: totalAll * 0.3, count: Math.round(nBills * 0.3) } },
+          range: {
+            bills: { total: totalAll * 0.7, count: Math.round(nBills * 0.7) },
+            pharma: { total: totalAll * 0.3, count: Math.round(nBills * 0.3) },
+            pharmaSplit: { patient: { total: totalAll * 0.22, count: Math.round(nBills * 0.2) }, guest: { total: totalAll * 0.08, count: Math.round(nBills * 0.1) } },
+          },
           byDay: Array.from({ length: 14 }, (_, i) => ({ day: new Date(Date.now() - (13 - i) * 86400000).toISOString().slice(0, 10), total: 1500 + Math.floor(Math.random() * 4000) })),
           byMonth: Array.from({ length: 6 }, (_, i) => ({ month: `2026-${String(i + 1).padStart(2, '0')}`, total: 30000 + Math.floor(Math.random() * 30000) })),
-          byWeekday: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((wd) => ({ weekday: wd, total: 5000 + Math.floor(Math.random() * 8000) })),
-          byHour: Array.from({ length: 14 }, (_, i) => ({ hour: 8 + i, total: 500 + Math.floor(Math.random() * 4000) })),
+          // Same shape as the real summary: wd = '0'..'6' (Sun..Sat), hr = '08'..'21'.
+          byWeekday: [0, 1, 2, 3, 4, 5, 6].map((wd) => ({ wd: String(wd), total: 5000 + Math.floor(Math.random() * 8000), count: 10 + wd })),
+          byHour: Array.from({ length: 14 }, (_, i) => ({ hr: String(8 + i).padStart(2, '0'), total: 500 + Math.floor(Math.random() * 4000), count: 3 + i })),
           byDoctor: doctors.map((d) => ({ doctor: d.name, count: 10 + Math.floor(Math.random() * 30), total: 5000 + Math.floor(Math.random() * 25000) })),
           byMode: [{ payment_mode: 'Cash', total: totalAll * 0.5, count: 60 }, { payment_mode: 'UPI', total: totalAll * 0.35, count: 30 }, { payment_mode: 'Card', total: totalAll * 0.15, count: 10 }],
           byPlace: ['Shantipur', 'Gadag', 'Lakshmeshwar', 'Naregal', 'Annigeri'].map((p) => ({ place: p, total: 3000 + Math.floor(Math.random() * 12000) })),
@@ -695,19 +711,22 @@ export function createMockElectronAPI(): any {
           { key: 'lab', label: 'Laboratory', count: 15, revenue: 10770, collected: 5660, outstanding: 5110 },
           { key: 'radiology', label: 'Radiology', count: 12, revenue: 14600, collected: 11800, outstanding: 2800 },
           { key: 'opd', label: 'OPD / Consultation', count: 20, revenue: 6979, collected: 6979, outstanding: 0 },
+          { key: 'other', label: 'Other / quick bills', count: 4, revenue: 2400, collected: 1900, outstanding: 500 },
         ],
-        totals: { revenue: 530700, collected: 438869, outstanding: 91831, count: 117 },
+        totals: { revenue: 533100, collected: 440769, outstanding: 92331, count: 121 },
       }),
       overview: () => r({
         asOf: new Date().toISOString(),
         todayVisits: 8, todayDone: 6, todayRevenue: 4200,
-        monthRevenue: 78000, pharmacyMonthRevenue: 32000,
+        monthRevenue: 78000, pharmacyMonthRevenue: 32000, pharmacyMonthPatientRevenue: 22400, pharmacyMonthGuestRevenue: 9600,
+        outstandingTotal: demoReceivables({ patients, bills, pharmSales, appointments, doctors }).total_due,
         totalPatients: patients.length, patientsThisMonth: 12, activeDoctors: doctors.length,
         pendingRx: 3, lowStockDrugs: 2, expiringSoonBatches: 4, expiredBatches: 0,
         freeFollowupsThisMonth: 14, relaxedFollowupsThisMonth: 3,
         registrationFeesThisMonth: 1200, registrationFeeCountThisMonth: 12,
         servicesCountThisMonth: 18, servicesRevenueThisMonth: 4250,
       }),
+      receivables: () => r(demoReceivables({ patients, bills, pharmSales, appointments, doctors })),
       followups: () => r({
         from: '2026-04-01', to: '2026-04-27',
         free_count: 14, relaxed_count: 3, total_waivers: 17,
@@ -735,6 +754,9 @@ export function createMockElectronAPI(): any {
         lowStockCount: 30,
         topDrugs: drugMaster.slice(0, 8).map((d) => ({ name: d.name, units: 50, revenue: 1500, sales: 12 })),
         salesMix: [{ kind: 'Counter Sale (walk-in)', count: 18, revenue: 9000 }, { kind: 'Rx-driven (from doctor)', count: 32, revenue: 23000 }],
+        customerMix: [{ kind: 'patient', count: 34, revenue: 22400, avg_sale: 659 }, { kind: 'guest', count: 16, revenue: 9600, avg_sale: 600 }],
+        paymentMix: [{ mode: 'Cash', count: 26, revenue: 15200 }, { mode: 'UPI', count: 18, revenue: 12100 }, { mode: 'Card', count: 6, revenue: 4700 }],
+        topPatients: patients.slice(0, 6).map((p, i) => ({ patient_id: p.id, name: `${p.first_name} ${p.last_name}`, uhid: p.uhid, sales: 4 - Math.floor(i / 2), revenue: 3100 - i * 380 })),
         scheduleMix: [{ schedule: 'OTC', count: 110, units: 320 }, { schedule: 'H', count: 80, units: 220 }, { schedule: 'H1', count: 10, units: 25 }],
         lowStock: [{ name: 'Azithromycin 500mg', stock: 8, low_stock_threshold: 10 }, { name: 'Pantoprazole 40mg', stock: 6, low_stock_threshold: 10 }],
         expiringSoon: batches.filter((b) => {

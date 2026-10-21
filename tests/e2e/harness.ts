@@ -10,6 +10,7 @@ import { registerIpdBillingIpc } from '../../src/main/ipd-billing-ipc';
 import { registerRadiologyIpc } from '../../src/main/radiology-ipc';
 import { registerPedsIpc } from '../../src/main/peds-ipc';
 import { registerPharmacyFinanceIpc } from '../../src/main/pharmacy-finance-ipc';
+import { registerBillingPortalIpc } from '../../src/main/billing-portal-ipc';
 import { ensureDefaultAdmin } from '../../src/main/auth';
 
 export { userData, stubState, setReadOnlyMode, getDb, closeDb, electron };
@@ -25,6 +26,7 @@ export function boot() {
   registerRadiologyIpc();
   registerPedsIpc();
   registerPharmacyFinanceIpc();
+  registerBillingPortalIpc();
   try { ensureDefaultAdmin(getDb()); } catch { /* auth is optional for most flows */ }
 }
 

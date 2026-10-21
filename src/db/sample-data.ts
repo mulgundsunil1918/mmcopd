@@ -90,8 +90,9 @@ export function seedSampleData(db: Database.Database): { patients: number; bills
       VALUES (?, ?, ?, ?, ?, 'Completed', ?)`);
     const insC = db.prepare(`INSERT INTO consultations (appointment_id, patient_id, doctor_id, history, impression, advice, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)`);
-    const insBill = db.prepare(`INSERT INTO bills (bill_number, appointment_id, patient_id, doctor_id, items_json, subtotal, discount, discount_type, total, payment_mode, bill_kind, paid_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, 0, 'flat', ?, ?, ?, ?, ?)`);
+    // Counter bills are paid when they are raised, so amount_paid = total (without it every sample bill reads as unpaid).
+    const insBill = db.prepare(`INSERT INTO bills (bill_number, appointment_id, patient_id, doctor_id, items_json, subtotal, discount, discount_type, total, payment_mode, bill_kind, paid_at, created_at, amount_paid, status)
+      VALUES (?, ?, ?, ?, ?, ?, 0, 'flat', ?, ?, ?, ?, ?, ?, 'paid')`);
     const insSale = db.prepare(`INSERT INTO pharmacy_sales (sale_number, patient_id, subtotal, discount, total, payment_mode, sold_by, created_at)
       VALUES (?, ?, ?, 0, ?, ?, 'Pharmacy', ?)`);
     const insSaleItem = db.prepare(`INSERT INTO pharmacy_sale_items (sale_id, drug_name, qty, rate, amount) VALUES (?, ?, ?, ?, ?)`);
@@ -132,7 +133,7 @@ export function seedSampleData(db: Database.Database): { patients: number; bills
         if (Math.random() < 0.3) { const proc = pick([150, 250, 400]); items.push({ description: pick(['Dressing', 'Injection', 'Nebulisation', 'ECG']), section: 'Procedure', qty: 1, rate: proc, amount: proc }); }
         const total = items.reduce((s, it) => s + it.amount, 0);
         const mode = pick(PAY);
-        insBill.run(`INV-${pad(seq, 5)}`, aid, pid, docId, JSON.stringify(items), total, total, mode, 'opd', when.dt, when.dt);
+        insBill.run(`INV-${pad(seq, 5)}`, aid, pid, docId, JSON.stringify(items), total, total, mode, 'opd', when.dt, when.dt, total);
         counts.bills++;
 
         // Pharmacy sale (~45%)
@@ -161,7 +162,7 @@ export function seedSampleData(db: Database.Database): { patients: number; bills
           }
           // lab bill so lab revenue shows in Modules P&L
           const labTotal = 100 * n + 50;
-          insBill.run(`LABINV-${pad(seq, 5)}`, aid, pid, docId, JSON.stringify([{ description: 'Lab tests', section: 'Lab', qty: n, rate: 100, amount: labTotal }]), labTotal, labTotal, mode, 'lab', when.dt, when.dt);
+          insBill.run(`LABINV-${pad(seq, 5)}`, aid, pid, docId, JSON.stringify([{ description: 'Lab tests', section: 'Lab', qty: n, rate: 100, amount: labTotal }]), labTotal, labTotal, mode, 'lab', when.dt, when.dt, labTotal);
           counts.labOrders++;
         }
       }
@@ -184,7 +185,7 @@ export function seedSampleData(db: Database.Database): { patients: number; bills
       if (discharged) {
         const days = randInt(2, 6);
         const ipTotal = days * 1200 + randInt(1000, 5000);
-        insBill.run(`IPINV-${pad(seq, 5)}`, null, pid, pick(docIds), JSON.stringify([{ description: `IPD stay (${days} days)`, section: 'IPD', qty: days, rate: 1200, amount: ipTotal }]), ipTotal, ipTotal, pick(PAY), 'ipd', dischDt, dischDt);
+        insBill.run(`IPINV-${pad(seq, 5)}`, null, pid, pick(docIds), JSON.stringify([{ description: `IPD stay (${days} days)`, section: 'IPD', qty: days, rate: 1200, amount: ipTotal }]), ipTotal, ipTotal, pick(PAY), 'ipd', dischDt, dischDt, ipTotal);
         counts.bills++;
       }
       counts.admissions++;

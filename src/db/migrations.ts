@@ -929,6 +929,36 @@ export function runMigrations(db: Database.Database) {
   } catch { /* ignore */ }
   // (no clinic-specific prefills — admin enters via Settings → Clinic on first run)
 
+  // ===== Schema v6 — who a counter sale was for, when no patient was picked; faster patient-centred lookups =====
+  // Additive only. A sale made under a registered patient shows in that patient's billing; a sale for a walk-in /
+  // guest carries the name typed at the counter (optional) so every sale is still accountable by name.
+  addColumnIfMissing(db, 'pharmacy_sales', 'customer_name', 'TEXT');
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_pharmacy_sales_patient ON pharmacy_sales(patient_id);
+    CREATE INDEX IF NOT EXISTS idx_pharmacy_sales_created ON pharmacy_sales(created_at);
+    CREATE INDEX IF NOT EXISTS idx_bills_appointment ON bills(appointment_id);
+    CREATE INDEX IF NOT EXISTS idx_lab_orders_appointment ON lab_orders(appointment_id);
+    CREATE INDEX IF NOT EXISTS idx_bill_payments_received ON bill_payments(received_at);
+  `);
+  // One-time repair of old counter bills. Before release 0.5.7 a bill paid in full at the desk was stamped as paid
+  // (paid_at) but its amount_paid was left at 0 — so every screen that works out "still owed" as total − amount_paid
+  // would read all of those old bills as unpaid. A bill with paid_at set, nothing recorded as paid and no payment rows
+  // can only be one of those (a bill that is unpaid has no paid_at; a bill paid in instalments has payment rows), so
+  // its amount_paid is set to its total. In-patient and cancelled bills are never touched. Re-running changes nothing.
+  try {
+    const fixed = db.prepare(`
+      UPDATE bills SET amount_paid = total
+       WHERE amount_paid = 0 AND total > 0 AND paid_at IS NOT NULL
+         AND COALESCE(status, '') <> 'cancelled' AND cancelled_at IS NULL
+         AND COALESCE(bill_type, '') <> 'ipd' AND admission_id IS NULL
+         AND NOT EXISTS (SELECT 1 FROM bill_payments bp WHERE bp.bill_id = bills.id)
+    `).run().changes;
+    if (fixed > 0) {
+      db.prepare("INSERT INTO audit_log (username, role, action, entity, details) VALUES ('system', 'system', 'legacy_bills_amount_paid_repaired', 'bills', ?)")
+        .run(`${fixed} old counter bill(s) that were paid at the desk had no amount recorded as paid; set to their total (schema v6 upgrade).`);
+    }
+  } catch { /* the repair is best-effort; the rest of the upgrade must not depend on it */ }
+
   // ===== Pharmacy finance (schema v5) — true unit cost, selling price, supplier payments, retry safety =====
   // Everything here is ADDITIVE: no column is changed or dropped, so older data stays exactly as it was.
   //   unit_cost   what a unit really cost to acquire (free units, discounts, freight and — when it cannot

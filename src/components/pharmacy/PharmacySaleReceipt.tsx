@@ -77,7 +77,9 @@ export function PharmacySaleReceipt({ saleId, onClose }: { saleId: number; onClo
         <div className="flex justify-between gap-6 text-[12px] mb-3 p-3 rounded" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
           <div className="space-y-0.5">
             <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Customer</div>
-            <div className="font-bold text-[13px]">{(sale as any).patient_name || 'Walk-in (cash)'}</div>
+            <div className="font-bold text-[13px]">
+              {(sale as any).patient_name || ((sale as any).customer_name ? `${(sale as any).customer_name} (walk-in)` : 'Walk-in (cash)')}
+            </div>
             {(sale as any).patient_uhid && <div className="text-slate-600">UHID: {(sale as any).patient_uhid}</div>}
             {(sale as any).patient_phone && <div className="text-slate-600">☎ {(sale as any).patient_phone}</div>}
           </div>

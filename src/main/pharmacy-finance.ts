@@ -36,9 +36,11 @@ import {
 } from '../lib/pharmacyMath';
 import {
   rankProfit,
+  type CostNotRecordedSummary, type CounterSaleRow, type CounterSalesFilter, type CounterSalesResult,
   type DrugProfitRow, type IntegrityFinding, type PriceHistoryRow, type ProfitReport, type ProfitTotals,
   type StockBucket, type SupplierReport, type Valuation,
 } from '../lib/pharmacyReports';
+export type { CounterSalesFilter, CounterSalesResult, CounterSaleRow, CostNotRecordedSummary } from '../lib/pharmacyReports';
 
 // ---------------------------------------------------------------------------------------------
 // small helpers
@@ -411,6 +413,8 @@ export interface SellItemIn {
 export interface SellIn {
   client_ref?: string | null;
   patient_id?: number | null;
+  /** Name of a walk-in / guest customer, when no registered patient is picked. Ignored when patient_id is set. */
+  customer_name?: string | null;
   appointment_id?: number | null;
   items: SellItemIn[];
   /** Flat bill discount in rupees. */
@@ -460,14 +464,16 @@ export function sellItems(db: Database.Database, payload: SellIn, now: Date = ne
     }
   }
   const saleNumber = nextSaleNumber(db, now);
+  // A guest's name is kept so even a walk-in sale is accountable by name; a registered patient needs no separate name.
+  const guestName = payload.patient_id ? null : (clean(payload.customer_name)?.slice(0, 80) ?? null);
 
   const tx = db.transaction(() => {
     const info = db.prepare(
-      'INSERT INTO pharmacy_sales (sale_number, patient_id, appointment_id, subtotal, discount, total, payment_mode, sold_by, client_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO pharmacy_sales (sale_number, patient_id, appointment_id, subtotal, discount, total, payment_mode, sold_by, client_ref, customer_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     ).run(
       saleNumber, payload.patient_id ?? null, payload.appointment_id ?? null,
       fromPaise(subtotalP), fromPaise(discountP), fromPaise(subtotalP - discountP),
-      payload.payment_mode ?? null, payload.sold_by ?? null, ref,
+      payload.payment_mode ?? null, payload.sold_by ?? null, ref, guestName,
     );
     const saleId = Number(info.lastInsertRowid);
 
@@ -550,6 +556,106 @@ export function sellItems(db: Database.Database, payload: SellIn, now: Date = ne
   });
   const id = tx();
   return db.prepare('SELECT * FROM pharmacy_sales WHERE id=?').get(id) as any;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Counter sales as the Billing screen sees them
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Pharmacy sales made at the counter or against a prescription — NOT the ones dispensed on a ward (those are part
+ * of the patient's IPD bill and would be counted twice). Money totals cover the whole filtered set, not just the
+ * rows returned.
+ */
+export function listCounterSales(db: Database.Database, f: CounterSalesFilter = {}): CounterSalesResult {
+  const conds: string[] = ["COALESCE(s.payment_mode, '') <> 'IPD-bill'"];
+  const params: any[] = [];
+  if (f.from) { conds.push("date(s.created_at, 'localtime') >= ?"); params.push(f.from); }
+  if (f.to) { conds.push("date(s.created_at, 'localtime') <= ?"); params.push(f.to); }
+  if (f.scope === 'patient') conds.push('s.patient_id IS NOT NULL');
+  else if (f.scope === 'guest') conds.push('s.patient_id IS NULL');
+  const q = clean(f.q);
+  if (q) {
+    conds.push("((p.first_name || ' ' || p.last_name) LIKE ? OR p.uhid LIKE ? OR s.customer_name LIKE ? OR s.sale_number LIKE ?)");
+    const like = `%${q}%`;
+    params.push(like, like, like, like);
+  }
+  const where = 'WHERE ' + conds.join(' AND ');
+  const rows = db.prepare(`
+    SELECT s.id, s.sale_number, s.created_at, s.subtotal, s.discount, s.total, s.payment_mode, s.sold_by,
+           s.patient_id, (p.first_name || ' ' || p.last_name) AS patient_name, p.uhid AS patient_uhid, s.customer_name,
+           (SELECT COUNT(*) FROM pharmacy_sale_items si WHERE si.sale_id = s.id) AS item_count
+      FROM pharmacy_sales s LEFT JOIN patients p ON p.id = s.patient_id
+      ${where}
+     ORDER BY s.created_at DESC, s.id DESC LIMIT ?
+  `).all(...params, Math.min(Math.max(Number(f.limit) || 500, 1), 2000)) as CounterSaleRow[];
+  const byMode = db.prepare(`
+    SELECT COALESCE(s.payment_mode, '—') AS mode, COUNT(*) AS count, COALESCE(SUM(s.total), 0) AS total, COALESCE(SUM(s.discount), 0) AS discount
+      FROM pharmacy_sales s LEFT JOIN patients p ON p.id = s.patient_id
+      ${where} GROUP BY mode ORDER BY total DESC
+  `).all(...params) as { mode: string; count: number; total: number; discount: number }[];
+  const sum = (k: 'total' | 'discount') => fromPaise(byMode.reduce((a, m) => a + toPaise(m[k]), 0));
+  return {
+    rows,
+    totals: {
+      count: byMode.reduce((a, m) => a + m.count, 0),
+      total: sum('total'),
+      discount: sum('discount'),
+      by_mode: byMode.map((m) => ({ mode: m.mode, count: m.count, total: r2(m.total) })),
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// "Cost not recorded"
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Batches whose cost did not come from a purchase bill: typed in by hand, or the starter stock a new install ships
+ * with. Their cost is whatever somebody entered — often a guess — so profit on them is only as good as that guess.
+ */
+const MANUAL_BATCH = 'purchase_item_id IS NULL AND COALESCE(unit_cost, purchase_price) IS NOT NULL';
+
+export function costNotRecordedSummary(db: Database.Database): CostNotRecordedSummary {
+  const b = db.prepare(`
+    SELECT COUNT(*) AS batches,
+           COALESCE(SUM(CASE WHEN qty_remaining > 0 THEN qty_remaining ELSE 0 END), 0) AS units_in_stock,
+           COALESCE(SUM(CASE WHEN qty_remaining > 0 THEN qty_remaining * COALESCE(unit_cost, purchase_price) ELSE 0 END), 0) AS value_in_stock
+      FROM drug_stock_batches WHERE ${MANUAL_BATCH}
+  `).get() as { batches: number; units_in_stock: number; value_in_stock: number };
+  const sold = db.prepare(`
+    SELECT COALESCE(SUM(dr.qty), 0) AS units, COUNT(*) AS slices
+      FROM dispensing_register dr
+     WHERE dr.unit_cost IS NOT NULL AND dr.batch_id IN (SELECT id FROM drug_stock_batches WHERE purchase_item_id IS NULL)
+  `).get() as { units: number; slices: number };
+  return {
+    batches: b.batches,
+    units_in_stock: b.units_in_stock,
+    value_in_stock: r2(b.value_in_stock),
+    past_sale_units: sold.units,
+    past_sale_slices: sold.slices,
+  };
+}
+
+/**
+ * Mark those batches "cost not recorded": their purchase price and unit cost are cleared, so stock value and profit
+ * stop treating a guess as fact. Batches received through a purchase bill are never touched. With
+ * `include_past_sales` the cost frozen on sales already made from these batches is cleared too, so past profit leaves
+ * them out as well. Nothing is deleted; the previous figures are returned so the caller can write them to the audit log.
+ */
+export function clearManualCost(db: Database.Database, opts: { include_past_sales?: boolean } = {}) {
+  let previous: { id: number; batch_no: string; drug_master_id: number; purchase_price: number | null; unit_cost: number | null }[] = [];
+  let batches = 0, registerRows = 0;
+  db.transaction(() => {
+    previous = db.prepare(`SELECT id, batch_no, drug_master_id, purchase_price, unit_cost FROM drug_stock_batches WHERE ${MANUAL_BATCH} ORDER BY id`).all() as typeof previous;
+    if (opts.include_past_sales) {
+      registerRows = db.prepare(
+        "UPDATE dispensing_register SET unit_cost = NULL WHERE unit_cost IS NOT NULL AND batch_id IN (SELECT id FROM drug_stock_batches WHERE purchase_item_id IS NULL)",
+      ).run().changes;
+    }
+    batches = db.prepare(`UPDATE drug_stock_batches SET purchase_price = NULL, unit_cost = NULL WHERE ${MANUAL_BATCH}`).run().changes;
+  })();
+  return { batches, register_rows: registerRows, previous };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -917,6 +1023,6 @@ export function integrityChecks(db: Database.Database): IntegrityFinding[] {
   add('manual_cost_stock', 'info', n(`
     SELECT COUNT(*) AS c FROM drug_stock_batches
      WHERE is_active = 1 AND qty_remaining > 0 AND purchase_item_id IS NULL AND COALESCE(unit_cost, purchase_price) IS NOT NULL`),
-    'Batches in stock typed in by hand (not received through a purchase bill) — their cost is whatever was entered, so profit on them is only as good as that figure. Receive stock through Purchases for true cost.');
+    'Batches in stock typed in by hand (not received through a purchase bill) — their cost is whatever was entered, so profit on them is only as good as that figure. Receive stock through Purchases for true cost, or use Pharmacy → Stock & Batches → "Cost not recorded" to stop counting the guess.');
   return out;
 }

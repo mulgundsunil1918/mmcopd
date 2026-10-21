@@ -463,6 +463,7 @@ function CounterSaleForm({ onDone }: { onDone: () => void }) {
   const [scanOpen, setScanOpen] = useState(false);
   const [receiptId, setReceiptId] = useState<number | null>(null);   // printed receipt after the sale
   const [saleRef, setSaleRef] = useState(newRef);                      // one id per sale attempt (see DispenseForm)
+  const [guestName, setGuestName] = useState('');                       // walk-in only: an optional name for the receipt and the walk-in list
 
   // Optional patient picker
   const [patientQuery, setPatientQuery] = useState('');
@@ -508,6 +509,7 @@ function CounterSaleForm({ onDone }: { onDone: () => void }) {
       const payload = {
         appointment_id: null,
         patient_id: patient?.id ?? null,
+        customer_name: patient ? null : (guestName.trim() || null),
         items: rows.filter((r) => r.drug_name && r.qty > 0).map((r) => ({
           drug_master_id: r.drug_master_id,
           drug_name: r.drug_name,
@@ -521,6 +523,7 @@ function CounterSaleForm({ onDone }: { onDone: () => void }) {
     },
     onSuccess: (sale: any) => {
       setSaleRef(newRef());
+      setGuestName('');
       qc.invalidateQueries({ queryKey: ['pharmacy-sales'] });
       qc.invalidateQueries({ queryKey: ['pharmacy-drugs'] });
       qc.invalidateQueries({ queryKey: ['pharmacy-drugs-active'] });
@@ -543,7 +546,7 @@ function CounterSaleForm({ onDone }: { onDone: () => void }) {
       <div className="flex items-center justify-between pb-3 border-b border-gray-200 dark:border-slate-700 mb-3">
         <div>
           <div className="text-sm font-semibold text-emerald-700 dark:text-emerald-300 inline-flex items-center gap-1.5">
-            <ShoppingCart className="w-4 h-4" /> Counter Sale (Walk-in)
+            <ShoppingCart className="w-4 h-4" /> Counter Sale
           </div>
           <div className="text-[11px] text-gray-500 dark:text-slate-400">No prescription required. FEFO batches are still allocated automatically.</div>
         </div>
@@ -551,7 +554,7 @@ function CounterSaleForm({ onDone }: { onDone: () => void }) {
 
       {/* Optional patient picker */}
       <div className="mb-3">
-        <label className="label">Customer (optional — leave blank for cash walk-in)</label>
+        <label className="label">Customer (optional)</label>
         {patient ? (
           <div className="flex items-center justify-between p-2 rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20">
             <div>
@@ -585,6 +588,25 @@ function CounterSaleForm({ onDone }: { onDone: () => void }) {
                 ))}
               </ul>
             )}
+          </div>
+        )}
+        {patient ? (
+          <div className="text-[11px] text-emerald-700 dark:text-emerald-300 mt-1.5">
+            This sale will appear in {patient.first_name}'s Billing, together with their other bills.
+          </div>
+        ) : (
+          <div className="mt-2">
+            <input
+              className="input"
+              placeholder="Walk-in guest's name (optional)"
+              maxLength={80}
+              value={guestName}
+              onChange={(e) => setGuestName(e.target.value)}
+            />
+            <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-1">
+              Pick a patient above to put this sale on their bill. A walk-in sale prints with the name typed here and is listed under
+              Billing → Pharmacy walk-ins. Either way it is counted once in Accounts and Analytics.
+            </div>
           </div>
         )}
       </div>
@@ -1025,6 +1047,7 @@ function StockBatchesTab() {
   const [q, setQ] = useState('');
   const [openId, setOpenId] = useState<number | null>(null);
   const [editing, setEditing] = useState<(Partial<DrugStockBatch> & { drug_master_id: number; drug_name?: string }) | null>(null);
+  const [costOpen, setCostOpen] = useState(false);
 
   const { data: drugs = [] } = useQuery({
     queryKey: ['pharmacy-drugs', q, true],
@@ -1050,10 +1073,17 @@ function StockBatchesTab() {
           <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input className="input pl-9" placeholder="Search drug" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
-        <div className="text-[11px] text-gray-500 dark:text-slate-400">
-          Click a drug to expand its batches. Stock dispenses FEFO — earliest expiry first.
+        <div className="flex items-center gap-3">
+          <div className="text-[11px] text-gray-500 dark:text-slate-400">
+            Click a drug to expand its batches. Stock dispenses FEFO — earliest expiry first.
+          </div>
+          <button className="btn-secondary text-xs whitespace-nowrap" onClick={() => setCostOpen(true)}
+            title="Stock you typed in by hand carries a cost nobody can vouch for — clear it so profit is not based on a guess">
+            Cost not recorded…
+          </button>
         </div>
       </div>
+      {costOpen && <CostNotRecordedModal onClose={() => setCostOpen(false)} />}
 
       <ul className="divide-y divide-gray-100 dark:divide-slate-800">
         {drugs.map((d) => {
@@ -1128,6 +1158,84 @@ function StockBatchesTab() {
         )}
       </Modal>
     </section>
+  );
+}
+
+/**
+ * "Cost not recorded": stock somebody typed in (or the starter stock a new install ships with) has a cost that is
+ * only a guess. This clears that cost on those batches — and, if asked, on the sales already made from them — so profit
+ * and stock value leave them out instead of treating the guess as fact. Batches received through a purchase bill are
+ * never touched. Nothing is deleted, and the old figures are written to the audit log.
+ */
+function CostNotRecordedModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [includePast, setIncludePast] = useState(false);
+  const [sure, setSure] = useState(false);
+  const { data: sum, isLoading } = useQuery({
+    queryKey: ['pharmacy-cost-summary'],
+    queryFn: () => window.electronAPI.pharmacy.costSummary(),
+  });
+  const run = useMutation({
+    mutationFn: () => window.electronAPI.pharmacy.clearManualCost({ include_past_sales: includePast }),
+    onSuccess: (r) => {
+      if (!r.ok) { toast(r.error, 'error'); return; }
+      for (const k of ['pharmacy-drugs', 'pharmacy-drugs-active', 'pharmacy-batches', 'pharmacy-cost-summary', 'pharmacy-profit', 'pharmacy-valuation', 'pharmacy-checks']) {
+        qc.invalidateQueries({ queryKey: [k] });
+      }
+      toast(`Cost cleared on ${r.batches} batch${r.batches === 1 ? '' : 'es'}${includePast ? ` and ${r.register_rows} past sale line${r.register_rows === 1 ? '' : 's'}` : ''}`);
+      onClose();
+    },
+    onError: (e: any) => toast(e?.message || 'Could not clear the costs', 'error'),
+  });
+  const n = sum?.batches ?? 0;
+  return (
+    <Modal open onClose={onClose} title="Cost not recorded" size="md">
+      <div className="space-y-3 text-[13px] text-gray-700 dark:text-slate-300">
+        <p>
+          Stock that was typed in by hand — or the starter stock a new install comes with — has a cost nobody can vouch for.
+          Mark it <b>cost not recorded</b> and profit and stock value will stop treating that guess as fact. Real costs come
+          from supplier bills entered under <b>Purchases</b>.
+        </p>
+        {isLoading ? <div className="text-xs text-gray-500">Checking stock…</div> : n === 0 ? (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 p-3 text-emerald-800 dark:text-emerald-200">
+            Nothing to clear — every batch with a cost came from a purchase bill.
+          </div>
+        ) : (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 p-3 space-y-1">
+            <div><b>{n}</b> batch{n === 1 ? '' : 'es'} carry a hand-typed cost.</div>
+            <div className="text-[12px]">
+              {sum!.units_in_stock} unit{sum!.units_in_stock === 1 ? '' : 's'} in stock, valued at {formatINR(sum!.value_in_stock)} at that cost.
+              {sum!.past_sale_units > 0 && <> {sum!.past_sale_units} unit{sum!.past_sale_units === 1 ? ' has' : 's have'} already been sold from them.</>}
+            </div>
+          </div>
+        )}
+        {n > 0 && (
+          <>
+            <label className="flex items-start gap-2 text-[12px]">
+              <input type="checkbox" className="mt-0.5" checked={includePast} onChange={(e) => setIncludePast(e.target.checked)} />
+              <span>
+                Also clear the cost recorded on <b>past sales</b> from these batches
+                {sum && sum.past_sale_slices > 0 ? ` (${sum.past_sale_slices} line${sum.past_sale_slices === 1 ? '' : 's'})` : ''}.
+                Past profit will then leave them out. Leave this off to keep the profit already reported.
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-[12px]">
+              <input type="checkbox" className="mt-0.5" checked={sure} onChange={(e) => setSure(e.target.checked)} />
+              <span>I understand this clears costs on {n} batch{n === 1 ? '' : 'es'}. It can be re-entered later; the old figures are kept in the audit log.</span>
+            </label>
+          </>
+        )}
+        <div className="flex justify-end gap-2 pt-2">
+          <button className="btn-secondary" onClick={onClose}>Close</button>
+          {n > 0 && (
+            <button className="btn-primary" disabled={!sure || run.isPending} onClick={() => run.mutate()}>
+              {run.isPending ? 'Clearing…' : 'Mark cost not recorded'}
+            </button>
+          )}
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -1387,7 +1495,11 @@ function SalesTab() {
     queryKey: ['pharmacy-sales', from, to],
     queryFn: () => window.electronAPI.pharmacy.listSales({ from, to }),
   });
-  const totalRevenue = sales.reduce((s, x) => s + Number(x.total || 0), 0);
+  // Medicines given on a ward are charged on the patient's IPD bill, so they are listed here (the stock went out) but
+  // are not pharmacy revenue — counting them would report the same rupee twice.
+  const isWard = (x: { payment_mode: string | null }) => x.payment_mode === 'IPD-bill';
+  const totalRevenue = sales.filter((x) => !isWard(x)).reduce((s, x) => s + Number(x.total || 0), 0);
+  const wardTotal = sales.filter(isWard).reduce((s, x) => s + Number(x.total || 0), 0);
   return (
     <section className="card p-4">
       <div className="flex items-center gap-2 flex-wrap mb-3">
@@ -1396,6 +1508,11 @@ function SalesTab() {
         <input type="date" className="input w-auto" value={to} onChange={(e) => setTo(e.target.value)} />
         <div className="ml-auto text-sm">
           <span className="text-gray-500 dark:text-slate-400">Revenue:</span> <span className="font-bold text-emerald-700 dark:text-emerald-300">{formatINR(totalRevenue)}</span>
+          {wardTotal > 0 && (
+            <span className="ml-3 text-[11px] text-gray-500 dark:text-slate-400" title="Medicines given on a ward — already charged on the patient's IPD bill">
+              + {formatINR(wardTotal)} given on wards (billed on IPD bills)
+            </span>
+          )}
         </div>
       </div>
       {sales.length === 0 ? (
@@ -1405,7 +1522,7 @@ function SalesTab() {
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
               <th className="py-2">Sale No</th>
-              <th className="py-2">Patient</th>
+              <th className="py-2">Customer</th>
               <th className="py-2">Date</th>
               <th className="py-2 text-right">Total</th>
               <th className="py-2">Mode</th>
@@ -1416,10 +1533,18 @@ function SalesTab() {
             {sales.map((s) => (
               <tr key={s.id} className="border-b border-gray-100 dark:border-slate-800">
                 <td className="py-2 font-mono text-xs">{s.sale_number}</td>
-                <td className="py-2">{s.patient_name || '—'}<div className="text-[11px] text-gray-500">{s.patient_uhid || ''}</div></td>
+                <td className="py-2">
+                  {s.patient_name ? (
+                    <>{s.patient_name}<div className="text-[11px] text-gray-500">{s.patient_uhid || ''} · also in their Billing</div></>
+                  ) : isWard(s) ? (
+                    <>—<div className="text-[11px] text-gray-500">given on a ward · on the IPD bill</div></>
+                  ) : (
+                    <>{s.customer_name || 'Walk-in'}<div className="text-[11px] text-gray-500">walk-in guest · Billing → Pharmacy walk-ins</div></>
+                  )}
+                </td>
                 <td className="py-2 text-xs text-gray-500 dark:text-slate-400">{fmtDateTime(s.created_at)}</td>
                 <td className="py-2 text-right font-semibold">{formatINR(s.total)}</td>
-                <td className="py-2"><span className="badge bg-gray-100 text-gray-700">{s.payment_mode || '—'}</span></td>
+                <td className="py-2"><span className="badge bg-gray-100 text-gray-700">{isWard(s) ? 'IPD bill' : (s.payment_mode || '—')}</span></td>
                 <td className="py-2 text-right">
                   <button
                     className="btn-secondary text-[11px] py-1 px-2 inline-flex items-center gap-1"

@@ -1,6 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-import type { IntegrityFinding, PriceHistoryRow, ProfitReport, SupplierReport, Valuation } from './lib/pharmacyReports';
+import type {
+  CostNotRecordedSummary, CounterSalesFilter, CounterSalesResult, IntegrityFinding, PriceHistoryRow, ProfitReport,
+  SupplierReport, Valuation,
+} from './lib/pharmacyReports';
+import type { OrderBillResult, PatientPortal, Receivables } from './lib/billingPortal';
 
 export type LicenseStatusIPC = {
   state: 'valid' | 'grace' | 'locked' | 'invalid' | 'wrong_machine' | 'clock_tampered' | 'none' | 'dev';
@@ -391,12 +395,22 @@ const api = {
       /** Generated once per attempt; sending the same attempt twice returns the first sale. */
       client_ref?: string;
       patient_id?: number | null;
+      /** Walk-in sales only: a name for the guest (ignored when a patient is attached). Optional. */
+      customer_name?: string | null;
       appointment_id?: number | null;
       items: { drug_id?: number | null; drug_master_id?: number | null; drug_name: string; qty: number; rate: number; gst_amount?: number }[];
       discount?: number;
       payment_mode?: string;
       sold_by?: string;
     }) => ipcRenderer.invoke('pharmacy:sell', payload) as Promise<PharmacySale>,
+    /** Counter sales (never ward-dispensed ones): under a registered patient, or walk-in guests. Totals cover the whole filter. */
+    counterSales: (filter?: CounterSalesFilter) =>
+      ipcRenderer.invoke('pharmacy:counterSales', filter || {}) as Promise<CounterSalesResult>,
+    /** How much stock carries a hand-typed cost, for the "Cost not recorded" button. */
+    costSummary: () => ipcRenderer.invoke('pharmacy:costSummary') as Promise<CostNotRecordedSummary>,
+    /** Clear the cost on hand-typed batches (never purchase-bill ones); optionally on past sales from them too. */
+    clearManualCost: (opts?: { include_past_sales?: boolean }) =>
+      ipcRenderer.invoke('pharmacy:clearManualCost', opts || {}) as Promise<{ ok: true; batches: number; register_rows: number } | { ok: false; error: string }>,
     listSales: (filter?: { from?: string; to?: string }) =>
       ipcRenderer.invoke('pharmacy:listSales', filter || {}) as Promise<(PharmacySale & { patient_name: string | null; patient_uhid: string | null })[]>,
     /** Free-form pharmacy sale (no FEFO, no inventory deduct, no register). Mirrors
@@ -553,6 +567,12 @@ const api = {
     /** `ref`: one id per payment attempt — the same attempt sent twice is recorded once. */
     pay: (billId: number, amount: number, mode: string, by?: string, ref?: string) =>
       ipcRenderer.invoke('bill:pay', billId, amount, mode, by, ref) as Promise<{ ok: boolean; error?: string; duplicate?: boolean }>,
+    /** Everything for ONE patient: bills + counter pharmacy sales already made, and what can still be billed or collected. */
+    patientPortal: (patientId: number) =>
+      ipcRenderer.invoke('billing:patientPortal', patientId) as Promise<PatientPortal>,
+    /** Raise the bill for a lab/radiology order that has none. `force` confirms past the "already billed by hand?" warning. */
+    createOrderBill: (kind: 'lab' | 'radiology', orderId: number, opts?: { force?: boolean }) =>
+      ipcRenderer.invoke('billing:createOrderBill', kind, orderId, opts || {}) as Promise<OrderBillResult>,
     /** Advance receipts on an admission, each with its refundable balance. */
     advancesList: (admissionId: number) =>
       ipcRenderer.invoke('advances:list', admissionId) as Promise<{ ok: boolean; error?: string; rows: any[] }>,
@@ -634,6 +654,9 @@ const api = {
       asOf: string;
       todayVisits: number; todayDone: number; todayRevenue: number;
       monthRevenue: number; pharmacyMonthRevenue: number;
+      pharmacyMonthPatientRevenue: number; pharmacyMonthGuestRevenue: number;
+      /** Money still to collect across every bill. */
+      outstandingTotal: number;
       totalPatients: number; patientsThisMonth: number; activeDoctors: number;
       pendingRx: number;
       lowStockDrugs: number; expiringSoonBatches: number; expiredBatches: number;
@@ -664,6 +687,10 @@ const api = {
         lowStockCount: number;
         topDrugs: { name: string; units: number; revenue: number; sales: number }[];
         salesMix: { kind: string; count: number; revenue: number }[];
+        /** Registered patients vs walk-in guests. */
+        customerMix: { kind: 'patient' | 'guest'; count: number; revenue: number; avg_sale: number }[];
+        paymentMix: { mode: string; count: number; revenue: number }[];
+        topPatients: { patient_id: number; name: string; uhid: string; sales: number; revenue: number }[];
         scheduleMix: { schedule: string; count: number; units: number }[];
         lowStock: { name: string; stock: number; low_stock_threshold: number }[];
         expiringSoon: { drug_name: string; batch_no: string; expiry: string; qty_remaining: number; days: number }[];
@@ -698,6 +725,8 @@ const api = {
       ipcRenderer.invoke('analytics:drugPriceHistory', drugId) as Promise<PriceHistoryRow[]>,
     /** Read-only sanity checks over the pharmacy ledger. */
     pharmacyChecks: () => ipcRenderer.invoke('analytics:pharmacyChecks') as Promise<IntegrityFinding[]>,
+    /** Money still to collect, by kind of bill, by patient, and by how long it has been owed. */
+    receivables: (opts?: { limit?: number }) => ipcRenderer.invoke('analytics:receivables', opts || {}) as Promise<Receivables>,
   },
   license: {
     status: () => ipcRenderer.invoke('license:status') as Promise<LicenseStatusIPC>,

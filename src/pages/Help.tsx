@@ -109,19 +109,20 @@ const TOPICS: Topic[] = [
   },
   {
     id: 'pharmacy', icon: Pill, title: 'Pharmacy — dispensing & stock', tag: 'Modules',
-    keywords: 'pharmacy dispense counter sale drug stock batch expiry fefo schedule h receipt medicine inventory',
+    keywords: 'pharmacy dispense counter sale drug stock batch expiry fefo schedule h receipt medicine inventory walk-in guest cost not recorded',
     body: (
       <>
         <p className="mb-2">CureDesk ships with <b>~220 common medicines</b> already loaded. Edit prices, add your own, or remove what you don't stock at <Path>Pharmacy → Drug Master</Path>.</p>
         <ol className="space-y-2">
           <Step n={1}><b>Against a prescription:</b> Pharmacy → Dispense → pick the waiting patient. Their medicines are already listed.</Step>
-          <Step n={2}><b>Walk-in customer:</b> Pharmacy → Dispense → <b>Counter Sale</b>. Type the medicine; the price fills in automatically.</Step>
+          <Step n={2}><b>Counter sale:</b> Pharmacy → Dispense → <b>Counter Sale</b>. Type the medicine; the price fills in automatically. <b>Pick the patient</b> and the sale goes on that patient&rsquo;s bill in Billing; leave it blank (optionally type a guest name) for a walk-in, which is listed under <Path>Billing → Pharmacy walk-ins</Path>.</Step>
           <Step n={3}>Set quantity, apply a discount if any, choose payment mode.</Step>
           <Step n={4}><b>Record Sale &amp; Charge</b> → the printable receipt opens with batch numbers and expiry on every line.</Step>
         </ol>
         <div className="mt-2 space-y-2">
           <Tip>Stock is deducted automatically using <b>FEFO</b> — first-expiring batch goes out first, so nothing expires on your shelf unnoticed.</Tip>
           <Warn>Schedule H / H1 medicines are flagged on screen and on the receipt. Add stock via <b>Purchases</b> so batch and expiry are recorded for the register.</Warn>
+          <Tip>Stock you typed in by hand carries a cost nobody can vouch for. <Path>Stock &amp; Batches → Cost not recorded</Path> clears it, so profit is never worked out from a guess. Stock bought on a supplier bill is never touched.</Tip>
         </div>
       </>
     ),
@@ -175,15 +176,16 @@ const TOPICS: Topic[] = [
   },
   {
     id: 'billing', icon: Receipt, title: 'Billing & printing bills', tag: 'Daily use',
-    keywords: 'billing bill invoice print gst tax discount payment receipt quick bill reprint',
+    keywords: 'billing bill invoice print gst tax discount payment receipt quick bill reprint portal patient outstanding due collect walk-in',
     body: (
       <>
         <p className="mb-2">Every bill in CureDesk can be printed on your letterhead, and every one can be reprinted later.</p>
         <ul className="list-disc pl-5 space-y-1.5">
+          <li><b>Everything for one patient</b> — type a name, phone or UHID at the top of Billing. The page becomes that patient&rsquo;s <b>billing portal</b>: what has been billed and paid (including medicines bought at the pharmacy counter), what is still to collect, and what can be billed now — a visit with no bill, a lab or scan order with no bill, a prescription not yet dispensed. Collect, bill and print from there.</li>
           <li><b>OPD bill</b> — Billing → Billing Queue → pick the patient → generate → Print.</li>
           <li><b>Quick Bill</b> — the <b>New Bill</b> button in the top bar, for anyone, any amount. Save &amp; Print in one step.</li>
           <li><b>IPD bill</b> — Billing → <b>IPD / Admissions</b> tab shows every admission with its balance. Click to open the same bill the IPD screen uses.</li>
-          <li><b>Pharmacy receipt</b> — printed right after a sale.</li>
+          <li><b>Pharmacy receipt</b> — printed right after a sale. A sale under a patient shows with their bills; a sale to a guest is under <b>Pharmacy walk-ins</b>.</li>
           <li><b>Reprint anything</b> — Billing → Billing History → Reprint.</li>
         </ul>
         <div className="mt-2"><Tip>GST is off by default. If you're registered, switch it on at <Path>Settings → Billing &amp; IPD</Path> and bills become proper tax invoices with CGST/SGST.</Tip></div>

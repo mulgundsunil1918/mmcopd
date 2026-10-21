@@ -17,13 +17,14 @@ const file = path.join(userData, 'caredesk.sqlite');
   const d = new Database(file);
   d.pragma('journal_mode = WAL'); d.pragma('foreign_keys = ON');
   runMigrations(d);
-  for (const i of ['ux_purchase_client_ref', 'ux_sales_client_ref', 'ux_purchase_payment_ref', 'ux_bill_payment_ref', 'idx_register_batch', 'idx_register_sale_item', 'idx_psi_sale', 'idx_psi_drug']) d.exec(`DROP INDEX IF EXISTS ${i}`);
+  for (const i of ['ux_purchase_client_ref', 'ux_sales_client_ref', 'ux_purchase_payment_ref', 'ux_bill_payment_ref', 'idx_register_batch', 'idx_register_sale_item', 'idx_psi_sale', 'idx_psi_drug',
+    'idx_pharmacy_sales_patient', 'idx_pharmacy_sales_created', 'idx_bills_appointment', 'idx_lab_orders_appointment', 'idx_bill_payments_received']) d.exec(`DROP INDEX IF EXISTS ${i}`);
   d.exec('DROP TABLE purchase_payments');
   const v5: Record<string, string[]> = {
     purchase_invoices: ['other_charges', 'round_off', 'amount_paid', 'client_ref', 'gst_in_cost'],
     purchase_invoice_items: ['disc_pct', 'discount_amount', 'taxable_value', 'gst_amount', 'selling_price', 'unit_cost'],
     drug_stock_batches: ['selling_price', 'unit_cost'], dispensing_register: ['unit_cost'],
-    pharmacy_sale_items: ['discount_alloc'], pharmacy_sales: ['client_ref'], bill_payments: ['client_ref'],
+    pharmacy_sale_items: ['discount_alloc'], pharmacy_sales: ['client_ref', 'customer_name'], bill_payments: ['client_ref'],
   };
   for (const [t, cols] of Object.entries(v5)) for (const c of cols) d.exec(`ALTER TABLE ${t} DROP COLUMN ${c}`);
   d.prepare("UPDATE schema_meta SET value='4' WHERE key='version'").run();
@@ -64,7 +65,7 @@ const before = (() => {
   const snapRoot = path.join(userData, 'backups', 'pre-migration');
   const snaps = fs.existsSync(snapRoot) ? fs.readdirSync(snapRoot) : [];
   eq(snaps.length, 1, 'one safety snapshot was taken before the upgrade');
-  ok(/^v4-to-v5-/.test(snaps[0] || ''), `…named for the upgrade it protects (${snaps[0]})`);
+  ok(/^v4-to-v6-/.test(snaps[0] || ''), `…named for the upgrade it protects (${snaps[0]})`);
   const snapDb = path.join(snapRoot, snaps[0] || 'x', 'caredesk.sqlite');
   ok(fs.existsSync(snapDb), '…containing a copy of the old database file');
   ok(fs.existsSync(path.join(snapRoot, snaps[0] || 'x', 'README.txt')), '…with a README saying how to roll back');
@@ -74,7 +75,8 @@ const before = (() => {
     eq((s.prepare('SELECT COUNT(*) c FROM patients').get() as any).c, before.patients, 'the snapshot holds all the old patients');
     s.close();
   }
-  eq((db.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '5', 'the live database is now v5');
+  eq((db.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '6', 'the live database is now v6');
+  ok((db.prepare('PRAGMA table_info(pharmacy_sales)').all() as any[]).some((x) => x.name === 'customer_name'), '…with the guest-name column added to pharmacy sales');
   for (const [k, t] of [['patients', 'patients'], ['appointments', 'appointments'], ['bills', 'bills'], ['pharmacy_sales', 'pharmacy_sales'], ['purchase_invoices', 'purchase_invoices'], ['batches', 'drug_stock_batches'], ['register', 'dispensing_register']] as const) {
     eq(c(t), (before as any)[k], `no ${k} rows lost or added by the upgrade`);
   }
@@ -104,6 +106,6 @@ const before = (() => {
   const again = getDb();
   eq(fs.readdirSync(snapRoot).length, 1, 'no second snapshot on the next start');
   eq((again.prepare('SELECT COUNT(*) c FROM purchase_payments').get() as any).c, 2, 'no duplicate payment rows from the backfill (the one entered above + its opening amount)');
-  eq((again.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '5', 'still v5');
+  eq((again.prepare("SELECT value v FROM schema_meta WHERE key='version'").get() as any).v, '6', 'still v6');
   finish();
 })().catch((e) => { console.error('E2E CRASHED', e); process.exit(1); });
