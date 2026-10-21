@@ -29,8 +29,8 @@ export function LabPrint({ order, items, mode, onClose }: {
         <button className="btn-secondary" onClick={onClose}><X className="w-4 h-4" /> Close</button>
       </div>
 
-      <div className="print-area mx-auto bg-white text-slate-900" style={{ width: '210mm', minHeight: '148mm', padding: '12mm 14mm' }}>
-        <PrintHeader settings={s} />
+      <div className="print-area mx-auto bg-white text-slate-900" style={{ width: '210mm', minHeight: '148mm', padding: mode === 'bill' ? '8mm 12mm' : '12mm 14mm' }}>
+        <PrintHeader settings={s} compact={mode === 'bill'} />
 
         <div className="text-center my-3">
           <span className="inline-block px-4 py-1 rounded font-bold tracking-wide" style={{ background: '#eff6ff', color: '#1e3a8a', fontSize: 14 }}>{title}</span>

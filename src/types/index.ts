@@ -208,6 +208,8 @@ export interface AppointmentWithJoins extends Appointment {
   doctor_name: string;
   doctor_specialty: string;
   doctor_room: string | null;
+  /** The visit's bill (latest live one), when there is one — lets the list print it. */
+  bill_id?: number | null;
 }
 
 export interface BillItem {

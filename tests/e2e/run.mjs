@@ -22,6 +22,11 @@ const ZONES = {
   'audit-rules': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   'upgrade-v5': ['Asia/Kolkata', 'America/Los_Angeles'],
   'upgrade-v6': ['Asia/Kolkata', 'America/Los_Angeles'],
+  'upgrade-legacy': ['Asia/Kolkata', 'America/Los_Angeles'],
+};
+// Suites that run once per fixture file (a database as an earlier release left it) — see tools/make-legacy-fixture.mjs.
+const FIXTURES = {
+  'upgrade-legacy': () => readdirSync(join(root, 'tests', 'e2e', 'legacy-fixtures')).filter((n) => n.endsWith('.sql.gz')).map((n) => n.replace(/\.sql\.gz$/, '')).sort(),
 };
 
 let failed = 0;
@@ -32,17 +37,20 @@ for (const f of readdirSync(join(root, 'tests', 'e2e')).filter((n) => n.endsWith
   const bundle = join(out, `e2e-${name}.cjs`);
   execFileSync(esbuild, [join(root, 'tests', 'e2e', f), '--bundle', '--platform=node', '--format=cjs', '--packages=external', `--outfile=${bundle}`, '--log-level=error'], { stdio: 'inherit' });
   for (const tz of ZONES[name] ?? [process.env.TZ || 'Asia/Kolkata']) {
-    try {
-      console.log(`\n######## ${name} · TZ=${tz}`);
-      const o = execFileSync(electron, [bundle], {
-        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_PATH: join(root, 'node_modules'), TZ: tz },
-        encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-      });
-      process.stdout.write(o);
-    } catch (e) {
-      failed++;
-      process.stdout.write(String(e.stdout || '') + String(e.stderr || ''));
-      console.error(`FAILED: ${name} (TZ=${tz})`);
+    for (const fx of FIXTURES[name] ? FIXTURES[name]() : [null]) {
+      const tag = `${name}${fx ? ` · ${fx}` : ''}`;
+      try {
+        console.log(`\n######## ${tag} · TZ=${tz}`);
+        const o = execFileSync(electron, [bundle], {
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_PATH: join(root, 'node_modules'), TZ: tz, ...(fx ? { LEGACY_FIXTURE: fx } : {}) },
+          encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+        });
+        process.stdout.write(o);
+      } catch (e) {
+        failed++;
+        process.stdout.write(String(e.stdout || '') + String(e.stderr || ''));
+        console.error(`FAILED: ${tag} (TZ=${tz})`);
+      }
     }
   }
 }

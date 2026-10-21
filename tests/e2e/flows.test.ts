@@ -75,6 +75,12 @@ const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String
   const pv = await call('bill:previewById', bill.id);
   ok(pv.ok && pv.totals && pv.items.length === 1, 'bill preview loads with its line');
   near(pv.totals.total, 300, 'preview total matches the bill');
+  {
+    // the visit list says which visits have a bill, so the desk can print it from the list (the "Bill" button)
+    const day = await call('appointments:list', { date: today });
+    eq(day.find((x: any) => x.id === a1.id)?.bill_id, bill.id, 'the visit list points a billed visit at its bill');
+    ok(day.find((x: any) => x.id === a2.id)?.bill_id == null, '…and a visit with no bill has none');
+  }
   const pct = await call('bills:create', { appointment_id: a2.id, patient_id: p2.id, items: [{ description: 'Consultation', qty: 1, rate: 300, amount: 300 }, { description: 'Dressing', qty: 2, rate: 100, amount: 200 }], discount: 10, discount_type: 'percent', payment_mode: 'UPI' });
   eq(pct.subtotal, 500, 'subtotal = 300 + 2×100');
   eq(pct.total, 450, '10% discount → ₹450');

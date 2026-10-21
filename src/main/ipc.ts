@@ -1025,7 +1025,9 @@ export function registerIpc() {
             (p.first_name || ' ' || p.last_name) as patient_name,
             p.uhid as patient_uhid, p.dob as patient_dob, p.gender as patient_gender,
             p.phone as patient_phone, p.blood_group as patient_blood_group, p.created_at as patient_created_at,
-            d.name as doctor_name, d.specialty as doctor_specialty, d.room_number as doctor_room
+            d.name as doctor_name, d.specialty as doctor_specialty, d.room_number as doctor_room,
+            (SELECT b.id FROM bills b WHERE b.appointment_id = a.id AND COALESCE(b.status,'') <> 'cancelled' AND b.cancelled_at IS NULL
+              ORDER BY b.id DESC LIMIT 1) as bill_id
           FROM appointments a
           JOIN patients p ON p.id=a.patient_id
           JOIN doctors d ON d.id=a.doctor_id

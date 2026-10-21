@@ -575,8 +575,8 @@ function Invoice({ bill, onNew }: { bill: BillWithJoins; onNew: () => void }) {
         </button>
       </div>
 
-      <div className="print-area card p-8 max-w-2xl mx-auto bg-white">
-        <PrintHeader settings={settings ?? {}} accent="#111827" />
+      <div className="print-area card p-6 max-w-2xl mx-auto bg-white">
+        <PrintHeader settings={settings ?? {}} accent="#111827" compact />
         <div className="flex items-end justify-between mt-3">
           <div className="text-xs uppercase tracking-wide text-gray-500">Invoice</div>
           <div className="text-right">

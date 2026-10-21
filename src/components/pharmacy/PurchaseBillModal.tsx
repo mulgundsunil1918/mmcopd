@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Plus, X } from 'lucide-react';
 import { Modal } from '../Modal';
+import { QuickDrugModal } from './QuickDrugModal';
 import { useToast } from '../../hooks/useToast';
 import { cn, fmtDate, formatINR, newRef, todayISO } from '../../lib/utils';
 import { computePurchase, profitMetrics, toPaise, validatePurchase } from '../../lib/pharmacyMath';
@@ -33,6 +34,9 @@ type Line = {
   gst_rate: number;
   manufacturer_license_no: string;
 };
+
+/** Entering a number box selects what is in it, so typing replaces the 0 rather than sitting beside it. */
+const selectAll = (e: React.FocusEvent<HTMLInputElement>) => e.target.select();
 
 const blankLine = (): Line => ({
   drug_master_id: null, drug_name: '', batch_no: '', expiry: '', manufacture_date: '',
@@ -98,6 +102,7 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
   const [paidNow, setPaidNow] = useState(0);
   const [payMode, setPayMode] = useState('Cash');
   const [serverError, setServerError] = useState('');
+  const [newDrugFor, setNewDrugFor] = useState<number | null>(null);   // the line that is waiting for a drug being added to the Drug Master
   const claimable = claimOverride ?? gstCharged;
 
   const setLine = (i: number, patch: Partial<Line>) =>
@@ -189,7 +194,8 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
   const canSubmit = issues.length === 0 && !create.isPending;
 
   return (
-    <Modal open onClose={onClose} title="New Purchase Bill" size="xl">
+    <>
+    <Modal open onClose={() => { if (newDrugFor === null) onClose(); }} title="New Purchase Bill" size="full">
       <div className="space-y-4">
         {/* Header */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -215,23 +221,24 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
             </button>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            {/* Wide enough that every box can show what is typed (they used to be squeezed to a few pixels); it scrolls sideways instead. */}
+            <table className="w-full text-xs min-w-[1480px]">
               <thead>
                 <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
-                  <th className="py-2 min-w-[180px]">Drug</th>
-                  <th className="py-2 min-w-[100px]">Batch *</th>
-                  <th className="py-2 min-w-[110px]">Mfg</th>
+                  <th className="py-2 min-w-[200px]">Drug</th>
+                  <th className="py-2 min-w-[96px]">Batch *</th>
+                  <th className="py-2 min-w-[112px]">Mfg</th>
                   <th className="py-2 min-w-[120px]">Expiry *</th>
-                  <th className="py-2 w-16 text-right">Qty</th>
-                  <th className="py-2 w-16 text-right" title="Free / scheme units received on top">Free</th>
-                  <th className="py-2 w-24 text-right" title="Supplier's rate per paid unit, before discount and GST">Buy ₹</th>
-                  <th className="py-2 w-16 text-right" title="Trade discount on this line">Disc %</th>
-                  <th className="py-2 w-24 text-right" title="Printed on the pack">MRP ₹</th>
-                  <th className="py-2 w-24 text-right" title="What you will charge. Blank = sell at MRP">Sell ₹</th>
-                  <th className="py-2 w-16 text-right">GST%</th>
-                  <th className="py-2 min-w-[120px]">Mfg. Lic.</th>
-                  <th className="py-2 w-24 text-right" title="Value of the line after discount, before GST">Line ₹</th>
-                  <th className="py-2 w-28 text-right" title="True cost of one unit: free units, discount, freight and unclaimable GST included">Cost / unit</th>
+                  <th className="py-2 min-w-[80px] text-right">Qty</th>
+                  <th className="py-2 min-w-[80px] text-right" title="Free / scheme units received on top">Free</th>
+                  <th className="py-2 min-w-[104px] text-right" title="Supplier's rate per paid unit, before discount and GST">Buy ₹</th>
+                  <th className="py-2 min-w-[80px] text-right" title="Trade discount on this line">Disc %</th>
+                  <th className="py-2 min-w-[104px] text-right" title="Printed on the pack">MRP ₹</th>
+                  <th className="py-2 min-w-[104px] text-right" title="What you will charge. Blank = sell at MRP">Sell ₹</th>
+                  <th className="py-2 min-w-[84px] text-right">GST%</th>
+                  <th className="py-2 min-w-[100px]">Mfg. Lic.</th>
+                  <th className="py-2 min-w-[100px] text-right" title="Value of the line after discount, before GST">Line ₹</th>
+                  <th className="py-2 min-w-[112px] text-right" title="True cost of one unit: free units, discount, freight and unclaimable GST included">Cost / unit</th>
                   <th></th>
                 </tr>
               </thead>
@@ -245,6 +252,7 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
                     <tr key={idx} className="border-b border-gray-100 dark:border-slate-800 align-top">
                       <td className="py-1 pr-1">
                         <select className="input" value={l.drug_master_id ?? ''} onChange={(e) => {
+                          if (e.target.value === '__new__') { setNewDrugFor(idx); return; }     // not in the list: add it to the Drug Master first
                           const dm = drugs.find((d) => d.id === Number(e.target.value));
                           setLine(idx, {
                             drug_master_id: dm ? dm.id : null,
@@ -253,6 +261,7 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
                             gst_rate: dm ? dm.gst_rate : l.gst_rate,
                           });
                         }}>
+                          <option value="__new__">＋ Add this drug to the Drug Master…</option>
                           <option value="">— Pick drug —</option>
                           {drugs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                         </select>
@@ -260,17 +269,17 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
                       <td className="py-1 px-1"><input className="input font-mono" value={l.batch_no} onChange={(e) => setLine(idx, { batch_no: e.target.value })} /></td>
                       <td className="py-1 px-1"><input type="month" className="input" value={l.manufacture_date} onChange={(e) => setLine(idx, { manufacture_date: e.target.value })} /></td>
                       <td className="py-1 px-1"><input type="date" className="input" value={l.expiry} onChange={(e) => setLine(idx, { expiry: e.target.value })} /></td>
-                      <td className="py-1 px-1"><input type="number" min={0} className="input text-right" value={l.qty_received} onChange={(e) => setLine(idx, { qty_received: Number(e.target.value) })} /></td>
-                      <td className="py-1 px-1"><input type="number" min={0} className="input text-right" value={l.free_qty} onChange={(e) => setLine(idx, { free_qty: Number(e.target.value) })} /></td>
+                      <td className="py-1 px-1"><input type="number" min={0} onFocus={selectAll} className="input text-right px-2 min-w-[76px]" value={l.qty_received} onChange={(e) => setLine(idx, { qty_received: Number(e.target.value) })} /></td>
+                      <td className="py-1 px-1"><input type="number" min={0} onFocus={selectAll} className="input text-right px-2 min-w-[76px]" value={l.free_qty} onChange={(e) => setLine(idx, { free_qty: Number(e.target.value) })} /></td>
                       <td className="py-1 px-1">
-                        <input type="number" min={0} step="0.01" className="input text-right" value={l.purchase_price} onChange={(e) => setLine(idx, { purchase_price: Number(e.target.value) })} />
+                        <input type="number" min={0} step="0.01" onFocus={selectAll} className="input text-right px-2 min-w-[104px]" value={l.purchase_price} onChange={(e) => setLine(idx, { purchase_price: Number(e.target.value) })} />
                         <LastRateHint drugId={l.drug_master_id} rate={l.purchase_price} />
                       </td>
-                      <td className="py-1 px-1"><input type="number" min={0} max={100} step="0.01" className="input text-right" value={l.disc_pct} onChange={(e) => setLine(idx, { disc_pct: Number(e.target.value) })} /></td>
-                      <td className="py-1 px-1"><input type="number" min={0} step="0.01" className="input text-right" value={l.mrp} onChange={(e) => setLine(idx, { mrp: Number(e.target.value) })} /></td>
-                      <td className="py-1 px-1"><input type="number" min={0} step="0.01" className="input text-right" placeholder="= MRP" value={l.selling_price ?? ''} onChange={(e) => setLine(idx, { selling_price: e.target.value === '' ? null : Number(e.target.value) })} /></td>
+                      <td className="py-1 px-1"><input type="number" min={0} max={100} step="0.01" onFocus={selectAll} className="input text-right px-2 min-w-[76px]" value={l.disc_pct} onChange={(e) => setLine(idx, { disc_pct: Number(e.target.value) })} /></td>
+                      <td className="py-1 px-1"><input type="number" min={0} step="0.01" onFocus={selectAll} className="input text-right px-2 min-w-[104px]" value={l.mrp} onChange={(e) => setLine(idx, { mrp: Number(e.target.value) })} /></td>
+                      <td className="py-1 px-1"><input type="number" min={0} step="0.01" onFocus={selectAll} className="input text-right px-2 min-w-[104px]" placeholder="= MRP" value={l.selling_price ?? ''} onChange={(e) => setLine(idx, { selling_price: e.target.value === '' ? null : Number(e.target.value) })} /></td>
                       <td className="py-1 px-1">
-                        <select className="input" value={l.gst_rate} onChange={(e) => setLine(idx, { gst_rate: Number(e.target.value) })}>
+                        <select className="input px-2 min-w-[80px]" value={l.gst_rate} onChange={(e) => setLine(idx, { gst_rate: Number(e.target.value) })}>
                           {[0, 5, 12, 18, 28].map((g) => <option key={g} value={g}>{g}</option>)}
                         </select>
                       </td>
@@ -382,5 +391,17 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
         </div>
       </div>
     </Modal>
+    {newDrugFor !== null && (
+      <QuickDrugModal
+        onClose={() => setNewDrugFor(null)}
+        onCreated={(d) => {
+          const idx = newDrugFor;
+          setNewDrugFor(null);
+          // the new drug is picked straight into the line that asked for it
+          setLines((arr) => arr.map((l, k) => (k === idx ? { ...l, drug_master_id: d.id, drug_name: d.name, mrp: l.mrp || (d.default_mrp ?? 0), gst_rate: d.gst_rate } : l)));
+        }}
+      />
+    )}
+    </>
   );
 }

@@ -183,6 +183,7 @@ function buildAppointmentRow(a: any): any {
     doctor_name: d?.name || a.doctor_name,
     doctor_specialty: d?.specialty || a.doctor_specialty,
     doctor_room: d?.room_number || a.doctor_room,
+    bill_id: (bills as any[]).find((b) => b.appointment_id === a.id && b.status !== 'cancelled')?.id ?? null,
   };
 }
 
@@ -537,7 +538,7 @@ export function createMockElectronAPI(): any {
       listBatches: (id: number) => r(batches.filter((b) => b.drug_master_id === id)),
       upsertDrug: (d: any) => {
         if (d.id) drugMaster = drugMaster.map((x) => x.id === d.id ? { ...x, ...d } : x);
-        else { const id = nextId(drugMaster); d = { id, ...d }; drugMaster = [...drugMaster, d]; }
+        else { const id = nextId(drugMaster); d = { is_active: 1, default_mrp: 0, gst_rate: 12, ...d, id }; drugMaster = [...drugMaster, d]; }   // like the real table: a new drug is active
         return r(d);
       },
       upsertBatch: (b: any) => {

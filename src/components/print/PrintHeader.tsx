@@ -72,6 +72,7 @@ export function PrintHeader({
   legal,
   right,
   nameSize = 22,
+  compact = false,
 }: {
   settings: Partial<Settings>;
   /** The rule under the header (and the clinic name colour, where the sheet keeps colour). */
@@ -82,6 +83,8 @@ export function PrintHeader({
   /** Optional block at the far right (e.g. a document number). */
   right?: React.ReactNode;
   nameSize?: number;
+  /** For a half-page bill: a smaller logo and name so the header does not eat the sheet. */
+  compact?: boolean;
 }) {
   const lh = resolveLetterhead(settings);
   const logo = settings.clinic_logo || '';
@@ -109,14 +112,17 @@ export function PrintHeader({
   }
 
   // ---- Logo beside the clinic details ------------------------------------------------
-  const mm = LOGO_MM[lh.logoSize];
+  const mm = compact ? Math.min(LOGO_MM[lh.logoSize], 20) : LOGO_MM[lh.logoSize];
+  const nameFont = compact ? Math.min(nameSize, 18) : nameSize;
   return (
-    <div className="flex items-start gap-4 pb-3" style={{ borderBottom: `2px solid ${accent}` }}>
+    // Centred on one line: the logo keeps its OWN shape (a wide logo used to be squeezed into a square box and sat lower than
+    // the clinic name), and the clinic details sit level with the middle of it.
+    <div className={compact ? 'flex items-center gap-3 pb-2' : 'flex items-center gap-4 pb-3'} style={{ borderBottom: `2px solid ${accent}` }}>
       {logo ? (
         <img
           src={logo}
           alt="Logo"
-          style={{ width: `${mm}mm`, height: `${mm}mm`, objectFit: 'contain', flexShrink: 0 }}
+          style={{ maxHeight: `${mm}mm`, maxWidth: `${Math.round(mm * 1.7)}mm`, width: 'auto', height: 'auto', objectFit: 'contain', flexShrink: 0, display: 'block' }}
         />
       ) : (
         <div
@@ -128,7 +134,7 @@ export function PrintHeader({
       )}
       <div className="flex-1 min-w-0">
         {lh.showName && (
-          <div className="font-extrabold uppercase" style={{ color: accent, fontSize: nameSize, lineHeight: 1.1 }}>{name}</div>
+          <div className="font-extrabold uppercase" style={{ color: accent, fontSize: nameFont, lineHeight: 1.1 }}>{name}</div>
         )}
         {lh.showTagline && settings.clinic_tagline && (
           <div className="italic" style={{ color: accent, fontSize: 12 }}>{settings.clinic_tagline}</div>

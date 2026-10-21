@@ -33,6 +33,7 @@ const HELP: Record<PageKey, { title: string; body: React.ReactNode }> = {
       <>
         <p>Today&rsquo;s queue, doctor by doctor. Each row is one patient waiting, with their token number.</p>
         <p>Print a slip for the patient, or move them along as they are seen. What the doctor records in the consultation flows on to Pharmacy, Lab and Billing automatically.</p>
+        <p>Each row has two print buttons: <b>Consultation</b> prints the OPD consultation paper, and <b>Bill</b> prints that visit&rsquo;s bill (greyed out until the visit has been billed).</p>
       </>
     ),
   },
@@ -43,7 +44,7 @@ const HELP: Record<PageKey, { title: string; body: React.ReactNode }> = {
         <p>Dispensing and stock. <b>Dispense</b> handles both a doctor&rsquo;s prescription and a walk-in counter sale; batches are picked oldest-expiry-first for you.</p>
         <p><b>Drug Master</b> is your catalogue, <b>Stock &amp; Batches</b> is what you physically hold, and <b>Purchases</b> records what you bought. Every sale prints a bill and can be reprinted later from <b>Sales</b>.</p>
         <p>On a counter sale, pick the patient to put it on their bill, or leave it blank (optionally typing a guest name) for a walk-in. If your clinic has turned them on in <b>Settings &rarr; Billing &amp; IPD</b>, a registered patient can take medicines <b>on credit</b> (pay part now, the rest later &mdash; collect it from <b>Sales</b> or the patient&rsquo;s billing page), and an admitted patient&rsquo;s medicines can be <b>charged to their in-patient bill</b>. Stock you typed in by hand has a cost nobody can vouch for &mdash; <b>Stock &amp; Batches &rarr; Cost not recorded</b> clears it so profit is never based on a guess.</p>
-        <p>On a <b>purchase bill</b> enter the supplier&rsquo;s rate, any free units, discount and freight &mdash; the screen shows what each unit <i>really</i> cost you and the margin it leaves. Click a bill to record what you paid the supplier; the amount still owed is always bill total minus payments.</p>
+        <p>On a <b>purchase bill</b> enter the supplier&rsquo;s rate, any free units, discount and freight &mdash; the screen shows what each unit <i>really</i> cost you and the margin it leaves. If a medicine is not in the drug list yet, choose <b>Add this drug to the Drug Master</b> at the top of that line&rsquo;s list &mdash; it is saved and picked into the line straight away. Click a bill to record what you paid the supplier; the amount still owed is always bill total minus payments.</p>
         <p>Profit, margin and stock value are in <b>Analytics &rarr; Pharmacy</b>.</p>
       </>
     ),

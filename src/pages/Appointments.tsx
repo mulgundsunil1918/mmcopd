@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Plus, Calendar, Search, Clock4, Loader2, CheckCircle2, Printer, ArrowDownNarrowWide, ArrowUpNarrowWide, Columns, List, X } from 'lucide-react';
+import { Plus, Calendar, Search, Clock4, Loader2, CheckCircle2, Printer, Receipt, FileText, ArrowDownNarrowWide, ArrowUpNarrowWide, Columns, List, X } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
 import { OpdSlipFor } from '../components/OpdSlipFor';
+import { BillPrint } from '../components/billing/BillPrint';
 import { BookingDoneDialog } from '../components/BookingDoneDialog';
 import { colorForDoctor } from '../lib/doctor-colors';
 import { useToast } from '../hooks/useToast';
@@ -43,6 +44,7 @@ export function Appointments() {
   const [searchQ, setSearchQ] = useState('');
   const [bookOpen, setBookOpen] = useState(false);
   const [printAppt, setPrintAppt] = useState<AppointmentWithJoins | null>(null);
+  const [printBillId, setPrintBillId] = useState<number | null>(null);   // the OPD bill of a visit, to print
   // Just booked: offer the consultation paper AND the consultation bill (see BookingDoneDialog).
   const [booked, setBooked] = useState<{ appt: AppointmentWithJoins; bill: any | null } | null>(null);
   const [sortOrder, setSortOrder] = useState<'oldest_first' | 'newest_first' | null>(null);
@@ -408,12 +410,21 @@ export function Appointments() {
 
                     {/* Actions */}
                     <div className="flex items-center gap-1">
+                      {/* Two papers for a visit: the consultation paper (OPD slip) and the OPD bill. */}
                       <button
                         className="btn-ghost text-xs"
                         onClick={() => setPrintAppt(a)}
-                        title="Print OPD slip"
+                        title="Print the OPD consultation paper (slip)"
                       >
-                        <Printer className="w-3.5 h-3.5" /> Slip
+                        <FileText className="w-3.5 h-3.5" /> Consultation
+                      </button>
+                      <button
+                        className="btn-ghost text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+                        disabled={!a.bill_id}
+                        onClick={() => a.bill_id && setPrintBillId(a.bill_id)}
+                        title={a.bill_id ? 'Print the OPD bill' : 'No bill has been raised for this visit yet (Billing → Billing Queue)'}
+                      >
+                        <Receipt className="w-3.5 h-3.5" /> Bill
                       </button>
                       {queueOn && a.status !== 'Done' && a.status !== 'Cancelled' && (
                         <>
@@ -458,6 +469,7 @@ export function Appointments() {
 
       {booked && <BookingDoneDialog appt={booked.appt} bill={booked.bill} onClose={() => setBooked(null)} />}
       {printAppt && <OpdSlipFor appointment={printAppt} onClose={() => setPrintAppt(null)} />}
+      {printBillId !== null && <BillPrint billId={printBillId} onClose={() => setPrintBillId(null)} />}
     </div>
   );
 }

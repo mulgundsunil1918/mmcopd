@@ -81,6 +81,8 @@ export function BillPrint({ admissionId, billId, onClose }: {
   const totals = data?.totals;
   const isTax = totals?.isTaxInvoice;
   const title = !s.gst_enabled ? 'RECEIPT' : isTax ? 'TAX INVOICE' : 'BILL OF SUPPLY';
+  // An ordinary bill (OPD, lab, scan, service, quick bill) is half a page; an in-patient bill — long, with a day-by-day list — gets the full A4.
+  const inPatient = !!admissionId || bill?.admission_id != null || bill?.bill_type === 'ipd';
 
   return (
     <div className="fixed inset-0 z-[200] bg-black/50 overflow-auto p-4 no-print-bg">
@@ -90,10 +92,11 @@ export function BillPrint({ admissionId, billId, onClose }: {
         <button className="btn-secondary" onClick={onClose}><X className="w-4 h-4" /> Close</button>
       </div>
 
-      <div className="print-area mx-auto bg-white text-slate-900" style={{ width: '210mm', minHeight: '297mm', padding: '12mm 14mm' }}>
+      <div className="print-area mx-auto bg-white text-slate-900" style={{ width: '210mm', minHeight: inPatient ? '297mm' : '148mm', padding: inPatient ? '12mm 14mm' : '8mm 12mm' }}>
         {/* ===== Letterhead (mirrors OpdSlip) ===== */}
         <PrintHeader
           settings={s}
+          compact={!inPatient}
           legal={
             s.gst_enabled && (s.clinic_gstin || s.clinic_state_code || (s.clinic_legal_name && s.clinic_legal_name !== s.clinic_name)) ? (
               <>

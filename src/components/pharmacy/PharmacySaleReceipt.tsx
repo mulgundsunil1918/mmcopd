@@ -59,6 +59,7 @@ export function PharmacySaleReceipt({ saleId, onClose }: { saleId: number; onClo
         {/* ===== Letterhead ===== */}
         <PrintHeader
           settings={s}
+          compact
           accent="#047857"
           legal={
             (s as any).pharmacy_drug_license_no || (s.gst_enabled && (s.clinic_gstin || s.clinic_state_code || (s.clinic_legal_name && s.clinic_legal_name !== s.clinic_name))) ? (

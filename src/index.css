@@ -96,9 +96,11 @@ html.dark :where(.bg-white) { background-color: #1e293b; }
 html.dark :where(.bg-gray-50) { background-color: #0f172a; }
 html.dark :where(.bg-gray-100) { background-color: #1e293b; }
 html.dark :where(.bg-gray-200) { background-color: #334155; }
-html.dark :where(.hover\:bg-gray-50:hover) { background-color: #334155; }
-html.dark :where(.hover\:bg-gray-100:hover) { background-color: #334155; }
-html.dark :where(.hover\:bg-gray-200:hover) { background-color: #475569; }
+/* The hover remaps put :hover OUTSIDE :where() — inside it the rule had less specificity than Tailwind's own .hover\:bg-gray-50:hover, so a hovered
+   row/card turned WHITE while its text stayed light (unreadable). Outside, it beats the utility but still loses to a local dark:hover: class. */
+html.dark :where(.hover\:bg-gray-50):hover { background-color: #334155; }
+html.dark :where(.hover\:bg-gray-100):hover { background-color: #334155; }
+html.dark :where(.hover\:bg-gray-200):hover { background-color: #475569; }
 
 html.dark :where(.border-gray-200) { border-color: #334155; }
 html.dark :where(.border-gray-300) { border-color: #475569; }

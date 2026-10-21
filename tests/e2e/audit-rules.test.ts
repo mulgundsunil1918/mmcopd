@@ -190,6 +190,15 @@ const today = localISO();
   near((await call('analytics:receivables')).total_due, dueBase, 'nothing is owed on it');
   ok((await call('bill:cancel', wrong.id, 'again')).ok === false, 'it cannot be cancelled twice');
   ok((await call('bill:pay', wrong.id, 10, 'Cash')).ok === false, '…nor take a payment');
+  {
+    // the visit list's "Bill" button points at the live bill of a visit — never at a cancelled one
+    const dr = one('SELECT id FROM doctors ORDER BY id LIMIT 1');
+    const ap = await call('appointments:create', { patient_id: p2.id, doctor_id: dr.id, appointment_date: today, appointment_time: '07:41' });
+    const vb = await call('bills:create', { appointment_id: ap.id, patient_id: p2.id, items: [{ description: 'Consultation', qty: 1, rate: 200, amount: 200 }], discount: 0, discount_type: 'flat', payment_mode: 'Cash' });
+    eq((await call('appointments:list', { date: today })).find((x: any) => x.id === ap.id)?.bill_id, vb.id, 'the visit list points a billed visit at its bill');
+    await call('bill:cancel', vb.id, 'raised by mistake', 'Cash');
+    ok((await call('appointments:list', { date: today })).find((x: any) => x.id === ap.id)?.bill_id == null, '…and not at a bill that was cancelled');
+  }
   const unpaid = await call('bill:createStandalone', { patient_id: p2.id, bill_type: 'custom', items: [{ description: 'Mistake', qty: 1, rate: 90 }], payment_mode: 'Cash', paid_now: false });
   const cu = await call('bill:cancel', unpaid.id, 'raised by mistake');
   ok(cu.ok && cu.refunded === 0, 'an unpaid bill is cancelled with nothing to refund');
