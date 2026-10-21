@@ -23,7 +23,7 @@ import { ok, eq, near, section, finish, note } from './lib';
 const root = fs.existsSync(path.join(process.cwd(), 'tests', 'e2e')) ? process.cwd() : path.resolve(__dirname, '..');
 const dir = path.join(root, 'tests', 'e2e', 'legacy-fixtures');
 const available = fs.readdirSync(dir).filter((f) => f.endsWith('.sql.gz')).map((f) => f.replace(/\.sql\.gz$/, ''));
-const name = process.env.LEGACY_FIXTURE || 'v0.9.2';
+const name = process.env.LEGACY_FIXTURE || 'v0.9.3';
 if (!available.includes(name)) { console.error(`no fixture "${name}" in ${dir} (have: ${available.join(', ')})`); process.exit(2); }
 
 /**
