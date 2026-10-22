@@ -585,42 +585,55 @@ export function supplierSummary(db: Database.Database) {
 // "Start fresh" / delete selected drugs — clear drugs, stock and batches
 // ---------------------------------------------------------------------------------------------
 
-/** How many records of each kind point at a drug. A table that is missing (a very old file) counts as none. */
-function drugRefs(db: Database.Database, drugId: number) {
-  const n = (sql: string) => { try { return (db.prepare(sql).get(drugId) as { c: number }).c; } catch { return 0; } };
-  return {
-    sales: n('SELECT COUNT(*) c FROM pharmacy_sale_items WHERE drug_master_id=?') + n('SELECT COUNT(*) c FROM dispensing_register WHERE drug_master_id=?'),
-    purchases: n('SELECT COUNT(*) c FROM purchase_invoice_items WHERE drug_master_id=?'),
-    prescriptions: n('SELECT COUNT(*) c FROM prescription_items WHERE drug_master_id=?') + n('SELECT COUNT(*) c FROM ip_medication_orders WHERE drug_master_id=?'),
-  };
+/**
+ * Which drugs and batches other records point at, found with ONE pass over each table. (Not one query per drug: the register, the
+ * prescriptions and the ward orders have no index on the drug, so a busy clinic with thousands of drugs would make the dialog hang.)
+ * A table that cannot be read counts as "no records"; the foreign keys still stop a referenced drug from ever being deleted, and the
+ * clear then keeps it Inactive.
+ */
+interface RefIndex {
+  /** Drugs named on a sale line or in the dispensing register. */
+  sales: Set<number>;
+  purchases: Set<number>;
+  /** Drugs on a prescription line or a ward medication order. */
+  prescriptions: Set<number>;
+  /** Batches something was sold or given from (register, sale lines, ward administration). Null = could not be worked out: every batch is then kept. */
+  soldBatches: Set<number> | null;
 }
-/** Was anything ever sold or given from this batch? (Then the dispensing register / ward medication record points at it and it can never be deleted.) */
-function batchWasSold(db: Database.Database, batchId: number): boolean {
+function buildRefIndex(db: Database.Database): RefIndex {
+  const ids = (sql: string): number[] => { try { return (db.prepare(sql).all() as { id: number }[]).map((r) => r.id); } catch { return []; } };
+  let soldBatches: Set<number> | null = new Set<number>();
   try {
-    return !!db.prepare(`SELECT 1 FROM dispensing_register WHERE batch_id=?
-                         UNION ALL SELECT 1 FROM pharmacy_sale_items WHERE batch_id=?
-                         UNION ALL SELECT 1 FROM ip_medication_admin WHERE batch_id=? LIMIT 1`).get(batchId, batchId, batchId);
-  } catch { return true; }                       // if in doubt, keep the batch
+    for (const t of ['dispensing_register', 'pharmacy_sale_items', 'ip_medication_admin']) {
+      for (const r of db.prepare(`SELECT DISTINCT batch_id AS id FROM ${t} WHERE batch_id IS NOT NULL`).all() as { id: number }[]) soldBatches.add(r.id);
+    }
+  } catch { soldBatches = null; }                 // if in doubt, keep the batch
+  return {
+    sales: new Set([...ids('SELECT DISTINCT drug_master_id AS id FROM pharmacy_sale_items WHERE drug_master_id IS NOT NULL'), ...ids('SELECT DISTINCT drug_master_id AS id FROM dispensing_register')]),
+    purchases: new Set(ids('SELECT DISTINCT drug_master_id AS id FROM purchase_invoice_items')),
+    prescriptions: new Set([...ids('SELECT DISTINCT drug_master_id AS id FROM prescription_items WHERE drug_master_id IS NOT NULL'), ...ids('SELECT DISTINCT drug_master_id AS id FROM ip_medication_orders WHERE drug_master_id IS NOT NULL')]),
+    soldBatches,
+  };
 }
 
 interface DrugPlan {
   id: number;
   batches: { id: number; qty: number; active: boolean; fromPurchase: boolean; sold: boolean }[];
-  refs: { sales: number; purchases: number; prescriptions: number };
+  refs: { sales: boolean; purchases: boolean; prescriptions: boolean };
   /** Nothing points at the drug, so it can be erased from the Drug List. */
   erasable: boolean;
   /** Already Inactive with every batch at zero and switched off while records still mention it: an earlier clear left it exactly like this. */
   settled: boolean;
 }
 /** What clearing one drug means. Null when there is no such drug. */
-function planDrug(db: Database.Database, id: number): DrugPlan | null {
+function planDrug(db: Database.Database, id: number, idx: RefIndex): DrugPlan | null {
   const m = db.prepare('SELECT is_active FROM drug_master WHERE id=?').get(id) as { is_active: number } | undefined;
   if (!m) return null;
   const batches = (db.prepare('SELECT id, qty_remaining, is_active, purchase_item_id FROM drug_stock_batches WHERE drug_master_id=?').all(id) as
     { id: number; qty_remaining: number; is_active: number; purchase_item_id: number | null }[])
-    .map((b) => ({ id: b.id, qty: Math.max(0, b.qty_remaining), active: b.is_active === 1, fromPurchase: b.purchase_item_id !== null, sold: batchWasSold(db, b.id) }));
-  const refs = drugRefs(db, id);
-  const erasable = refs.sales + refs.purchases + refs.prescriptions === 0;
+    .map((b) => ({ id: b.id, qty: Math.max(0, b.qty_remaining), active: b.is_active === 1, fromPurchase: b.purchase_item_id !== null, sold: idx.soldBatches === null || idx.soldBatches.has(b.id) }));
+  const refs = { sales: idx.sales.has(id), purchases: idx.purchases.has(id), prescriptions: idx.prescriptions.has(id) };
+  const erasable = !refs.sales && !refs.purchases && !refs.prescriptions;
   const settled = !erasable && m.is_active === 0 && batches.every((b) => b.qty === 0 && !b.active);
   return { id, batches, refs, erasable, settled };
 }
@@ -628,8 +641,10 @@ const targetDrugIds = (db: Database.Database, ids: number[] | null): number[] =>
   ids ? Array.from(new Set(ids.map(Number).filter((x) => Number.isInteger(x) && x > 0)))
     : (db.prepare('SELECT id FROM drug_master').all() as { id: number }[]).map((r) => r.id);
 /** The drugs a clear would actually act on, planned: unknown ids and drugs an earlier clear already settled are left out. */
-const plansFor = (db: Database.Database, ids: number[] | null): DrugPlan[] =>
-  targetDrugIds(db, ids).map((id) => planDrug(db, id)).filter((p): p is DrugPlan => !!p && !p.settled);
+function plansFor(db: Database.Database, ids: number[] | null): DrugPlan[] {
+  const idx = buildRefIndex(db);
+  return targetDrugIds(db, ids).map((id) => planDrug(db, id, idx)).filter((p): p is DrugPlan => !!p && !p.settled);
+}
 
 /** What "clear these drugs" (or, with ids = null, "start fresh") WOULD do — nothing is changed. */
 export function previewClearDrugs(db: Database.Database, ids: number[] | null): ClearPreview {

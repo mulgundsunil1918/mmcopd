@@ -256,6 +256,24 @@ const CAT = PHARMACY_CATALOG.length;
   eq(`${r3.ok}/${r3.drugs_deleted}/${r3.drugs_kept_inactive}/${r3.batches_deleted}/${r3.batches_zeroed}/${r3.units_removed}`, 'true/0/0/0/0/0', 'a third run finds nothing to do…');
   eq(`${backups().length}/${count('audit_log')}`, `${copies}/${auditRows}`, '…and makes no safety copy and no audit entry for it');
 
+  // ============================================================================================================
+  section('8 · a big clinic: thousands of drugs and a long register must not make the dialog hang');
+  // (the register has no index on the drug, so looking each drug up one by one would scan it thousands of times)
+  db.pragma('foreign_keys = OFF');
+  const insDrug = db.prepare("INSERT INTO drug_master (name, default_mrp, gst_rate, schedule, low_stock_threshold, is_active) VALUES (?, 10, 0, 'OTC', 5, 1)");
+  const insReg = db.prepare("INSERT INTO dispensing_register (sale_item_id, sale_id, drug_master_id, batch_id, batch_no, expiry, schedule, qty, rate) VALUES (1, 1, ?, 1, 'X', '2030-01-01', 'OTC', 1, 10)");
+  db.transaction(() => {
+    const ids: number[] = [];
+    for (let i = 0; i < 10000; i++) ids.push(Number(insDrug.run(`SF Bulk ${i}`).lastInsertRowid));
+    for (let i = 0; i < 120000; i++) insReg.run(ids[i % ids.length]);
+  })();
+  db.pragma('foreign_keys = ON');
+  const t0 = Date.now();
+  const big = await preview(null);
+  const ms = Date.now() - t0;
+  ok(big.drugs >= 10000 && big.keep_drugs >= 10000, `the preview covers all ${big.drugs} drugs (those with register entries are kept)`);
+  ok(ms < 4000, `…and takes ${ms} ms over 10,000 drugs and 120,000 register rows (it must stay far below the many seconds a drug-by-drug look-up would need)`);
+
   finish();
 
   function restart() { seedIfEmpty(db); runMigrations(db); }
