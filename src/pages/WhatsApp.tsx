@@ -14,6 +14,7 @@ import { copyText } from '../lib/clipboard';
 import { useToast } from '../hooks/useToast';
 import { useLicensedModules } from '../hooks/useLicensedModules';
 import { buildWhatsAppUrl, renderTemplate, DEFAULT_WHATSAPP_TEMPLATE, buildContext } from '../lib/whatsapp';
+import { cleanForWhatsApp } from '../lib/messageText';
 import type { WaAutomationTrigger } from '../types/whatsapp';
 import { localISO } from '../lib/localDate';
 
@@ -525,43 +526,22 @@ function GuidePanel({ onClose }: { onClose: () => void }) {
 
 // ── Module 1 — WhatsApp Business App ─────────────────────────────────────────
 // Default message templates — variables: {{patient_name}} {{doctor_name}} {{date}} {{time}} {{token}} {{clinic_name}} {{clinic_phone}} {{clinic_address}} {{review_link}}
-// Bumped v1 → v2 to ABANDON any saved copy from earlier builds. Those saves
-// carried emoji-corrupted text (shown as "�" in WhatsApp) in forms that on-load
-// repair could not always catch — including a split surrogate pair, which is not
-// the U+FFFD character in the string but still encodes to "�" in the wa.me link.
-// A new key means the old broken save is simply never read again; templates
-// start from the clean built-ins (and any clean custom text is migrated across).
+//
+// NO EMOJI, anywhere in what is sent. On some PCs an emoji in the pre-filled message reached WhatsApp as "?" (the replacement
+// character); it kept coming back however the templates were repaired. So the built-in templates are plain text, a saved copy has its
+// emoji removed when it is loaded, and buildWhatsAppUrl (lib/whatsapp.ts) removes any emoji from EVERY message at the moment the link is
+// built — the characters cannot return, whatever is typed into a template or restored from an old copy.
 const M1_TEMPLATES_KEY = 'curedesk_wa_m1_templates_v2';
 const M1_TEMPLATES_KEY_OLD = 'curedesk_wa_m1_templates_v1';
 
-/**
- * Is this string safe to send as-is, or does it carry corrupted emoji?
- * Corrupt if it contains the replacement character (U+FFFD, "�") OR any LONE
- * surrogate (half of an emoji's code-unit pair) — the latter is invisible as a
- * character but turns into "�" the moment it is URL-encoded for WhatsApp.
- */
-function isEmojiSafe(s: string): boolean {
-  if (s.includes('�')) return false;
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    if (c >= 0xD800 && c <= 0xDBFF) {           // high surrogate — must be followed by a low one
-      const n = s.charCodeAt(i + 1);
-      if (!(n >= 0xDC00 && n <= 0xDFFF)) return false;
-      i++;
-    } else if (c >= 0xDC00 && c <= 0xDFFF) {    // lone low surrogate
-      return false;
-    }
-  }
-  return true;
-}
 const DEFAULT_M1_TEMPLATES: Record<string, string> = {
-  confirmed:  `Namaste {{patient_name}} 🙏\n\nYour appointment at *{{clinic_name}}* is confirmed!\n\n👨‍⚕️ *Doctor:* {{doctor_name}}\n📅 *Date:* {{date}}  🕒 *Time:* {{time}}\n🎟️ *Token:* #{{token}}\n\nPlease arrive 10 minutes early.\n\n📍 {{clinic_address}}\n☎️ {{clinic_phone}}\n\nThank you,\n*{{clinic_name}}*`,
-  visit_done: `Hello {{patient_name}} 👋\n\nThank you for visiting *{{clinic_name}}* today! We hope you had a wonderful experience.\n\nFor any follow-up or queries, please call us at {{clinic_phone}}.\n\nTake care! 🙏\n*{{clinic_name}}*`,
-  review:     `Hello {{patient_name}} 👋\n\nThank you for visiting *{{clinic_name}}*! 🙏\n\nWe'd love to hear about your experience — could you spare a moment to leave us a Google review?\n\n⭐ {{review_link}}\n\nYour feedback means a lot to us. Thank you!\n*{{clinic_name}}*`,
-  rx:         `Hello {{patient_name}} 👋\n\nYour prescription from *{{clinic_name}}* is ready. Please collect it at your earliest convenience.\n\nThank you,\n*{{clinic_name}}*`,
-  lab:        `Hello {{patient_name}} 👋\n\nYour lab report is ready at *{{clinic_name}}*. Please collect it at your convenience.\n\nThank you,\n*{{clinic_name}}*`,
-  radiology:  `Hello {{patient_name}} 👋\n\nYour radiology report is ready at *{{clinic_name}}*. Please collect it at your convenience.\n\nThank you,\n*{{clinic_name}}*`,
-  bill:       `Hello {{patient_name}} 👋\n\nThank you for visiting *{{clinic_name}}*. Your bill is ready.\n\nFor any queries, call us at {{clinic_phone}}.\n\nThank you!`,
+  confirmed:  `Namaste {{patient_name}},\n\nYour appointment at *{{clinic_name}}* is confirmed!\n\n*Doctor:* {{doctor_name}}\n*Date:* {{date}}   *Time:* {{time}}\n*Token:* #{{token}}\n\nPlease arrive 10 minutes early.\n\n{{clinic_address}}\nPhone: {{clinic_phone}}\n\nThank you,\n*{{clinic_name}}*`,
+  visit_done: `Hello {{patient_name}},\n\nThank you for visiting *{{clinic_name}}* today! We hope you had a wonderful experience.\n\nFor any follow-up or queries, please call us at {{clinic_phone}}.\n\nTake care!\n*{{clinic_name}}*`,
+  review:     `Hello {{patient_name}},\n\nThank you for visiting *{{clinic_name}}*!\n\nWe'd love to hear about your experience - could you spare a moment to leave us a Google review?\n\n{{review_link}}\n\nYour feedback means a lot to us. Thank you!\n*{{clinic_name}}*`,
+  rx:         `Hello {{patient_name}},\n\nYour prescription from *{{clinic_name}}* is ready. Please collect it at your earliest convenience.\n\nThank you,\n*{{clinic_name}}*`,
+  lab:        `Hello {{patient_name}},\n\nYour lab report is ready at *{{clinic_name}}*. Please collect it at your convenience.\n\nThank you,\n*{{clinic_name}}*`,
+  radiology:  `Hello {{patient_name}},\n\nYour radiology report is ready at *{{clinic_name}}*. Please collect it at your convenience.\n\nThank you,\n*{{clinic_name}}*`,
+  bill:       `Hello {{patient_name}},\n\nThank you for visiting *{{clinic_name}}*. Your bill is ready.\n\nFor any queries, call us at {{clinic_phone}}.\n\nThank you!`,
 };
 
 const M1_TYPE_META: { key: string; label: string; icon: string; color: string }[] = [
@@ -581,17 +561,15 @@ function loadM1Templates(): Record<string, string> {
       if (!saved) return {};
       const parsed = JSON.parse(saved) as Record<string, unknown>;
       const clean: Record<string, string> = {};
-      // Keep only entries that are safe (no "�", no lone surrogate). Corrupted
-      // entries are dropped so the clean built-in default takes their place.
+      // A saved copy keeps the clinic's own wording but loses any emoji (and any broken character) — see the note at the top.
       for (const [k, v] of Object.entries(parsed)) {
-        if (typeof v === 'string' && isEmojiSafe(v)) clean[k] = v;
+        if (typeof v === 'string') clean[k] = cleanForWhatsApp(v);
       }
       return clean;
     } catch { return {}; }
   };
   try {
-    // Prefer the new key. If it's empty, migrate CLEAN entries out of the old
-    // v1 key one time — corrupted v1 entries are left behind and never used.
+    // Prefer the new key. If it's empty, carry the (cleaned) entries across from the old v1 key one time.
     const current = localStorage.getItem(M1_TEMPLATES_KEY);
     const clean = current !== null ? readClean(M1_TEMPLATES_KEY) : readClean(M1_TEMPLATES_KEY_OLD);
     const merged = { ...DEFAULT_M1_TEMPLATES, ...clean };
@@ -637,12 +615,7 @@ function Module1Section() {
   const buildMessage = (typeKey: string, appt: any) => {
     const ctx = { ...buildContext(appt, settings as any), review_link: reviewLink || '[Set Google Review link]' };
     let tpl = templates[typeKey] ?? DEFAULT_M1_TEMPLATES[typeKey] ?? '';
-    // Last-line guarantee against the "�" WhatsApp corruption. The built-in
-    // templates are UTF-8 clean (verified in the bundle), so anything unsafe here
-    // (a "�" OR a split-surrogate emoji) came from a corrupted saved/older copy.
-    // Fall back to the clean built-in for this type so a replacement character
-    // can never reach WhatsApp, no matter where the corruption crept in.
-    if (!isEmojiSafe(tpl) && DEFAULT_M1_TEMPLATES[typeKey]) tpl = DEFAULT_M1_TEMPLATES[typeKey];
+    tpl = cleanForWhatsApp(tpl);                       // no emoji, ever (buildWhatsAppUrl does this again at the end)
     return renderTemplate(tpl, ctx);
   };
 
@@ -736,6 +709,9 @@ function Module1Section() {
                   <strong>Variables you can use:</strong><br />
                   <span className="font-mono">{VARS}</span><br />
                   <span className="font-mono">{'{{review_link}}'}</span> — Google Review URL (Review template only)
+                </div>
+                <div className="text-[10px] text-gray-500 dark:text-slate-400">
+                  Emoji are removed from WhatsApp messages automatically, so strange characters can never appear — write the wording in plain text.
                 </div>
                 {M1_TYPE_META.map(meta => (
                   <div key={meta.key}>

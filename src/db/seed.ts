@@ -71,16 +71,16 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   station_name: '',
   // Default click-to-WhatsApp template. Placeholders are case-insensitive.
   whatsapp_template:
-    'Namaste {{patient_name}} 🙏\n\n' +
+    'Namaste {{patient_name}},\n\n' +
     'Your appointment at *{{clinic_name}}* is confirmed.\n\n' +
-    '👨‍⚕️ *Doctor:* {{doctor_name}}\n' +
-    '🚪 *Room:* {{room}}\n' +
-    '📅 *Date:* {{date}}    🕒 *Time:* {{time}}\n' +
-    '🎟️ *Token:* #{{token}}\n\n' +
-    '🆔 *Patient ID (UHID):* {{uhid}}\n' +
-    '📋 *Visit ID:* {{visit_id}}\n\n' +
-    '📍 {{clinic_address}}\n' +
-    '☎️ {{clinic_phone}}\n\n' +
+    '*Doctor:* {{doctor_name}}\n' +
+    '*Room:* {{room}}\n' +
+    '*Date:* {{date}}   *Time:* {{time}}\n' +
+    '*Token:* #{{token}}\n\n' +
+    '*Patient ID (UHID):* {{uhid}}\n' +
+    '*Visit ID:* {{visit_id}}\n\n' +
+    '{{clinic_address}}\n' +
+    'Phone: {{clinic_phone}}\n\n' +
     'Please arrive 10 minutes early. For any change, simply reply to this message or call us.\n\n' +
     'Thank you,\n*{{clinic_name}}*',
 };
@@ -133,33 +133,22 @@ export function seedIfEmpty(db: Database.Database) {
     for (const d of drugs) ins.run(...d);
   }
 
-  // Seed the full pharmacy CATALOGUE into drug_master (the table the Pharmacy
-  // screen actually lists), plus an opening stock batch for each, so a fresh
-  // install starts with a ready, sellable drug list. Clinics edit prices / stock
-  // or remove items from Pharmacy → Manage Drugs. Only runs when empty.
-  const masterCount = db.prepare('SELECT COUNT(*) as c FROM drug_master').get() as { c: number };
-  if (masterCount.c === 0) {
-    const insM = db.prepare(
-      `INSERT INTO drug_master (name, generic_name, form, strength, pack_size, schedule, gst_rate, default_mrp, low_stock_threshold, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
-    );
-    const insB = db.prepare(
-      `INSERT INTO drug_stock_batches (drug_master_id, batch_no, expiry, qty_received, qty_remaining, purchase_price, mrp, received_at, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, date('now'), 1)`
-    );
-    const exp = new Date(); exp.setMonth(exp.getMonth() + 18);
-    const expiryStr = exp.toISOString().slice(0, 10);
-    let n = 0;
-    for (const d of PHARMACY_CATALOG) {
-      const r = insM.run(d.name, d.generic_name, d.form, d.strength, d.pack_size ?? null, d.schedule, d.gst_rate, d.default_mrp, 10);
-      const qty = 50 + ((n * 7) % 150);            // varied opening stock 50–200
-      // Opening stock has NO purchase price: the clinic never paid anything for these placeholder units, and an
-      // invented cost (this used to be 72% of MRP) would make every profit and margin figure look real when it is
-      // a guess. With no cost on record, sales from this stock are reported as "cost not recorded" instead, until
-      // real purchase bills (or a typed price on the batch) replace it.
-      insB.run(r.lastInsertRowid, `B${1000 + n}`, expiryStr, qty, qty, null, d.default_mrp);
-      n++;
+  // Put the pharmacy CATALOGUE (name, form, strength, schedule, GST, MRP — and NO stock) into drug_master once, so a fresh install
+  // has a ready list to pick from. "Drugs in my clinic" starts EMPTY: stock only ever comes from the clinic's own supplier bills
+  // (Pharmacy → Purchases) or a batch it types in by hand, so nothing on the shelf is invented. (Fresh installs used to get
+  // 50–200 placeholder units of every drug; that is gone, and clinics that already have them keep them.)
+  // Guarded by a one-time flag, NOT by "is the table empty": the pharmacy in-charge can clear the whole Drug List ("Start fresh"),
+  // and counting rows would put the catalogue back on the next start. A clinic that already has drugs just gets the flag set.
+  if (!db.prepare("SELECT 1 FROM settings WHERE key='drug_catalogue_seeded'").get()) {
+    const masterCount = db.prepare('SELECT COUNT(*) as c FROM drug_master').get() as { c: number };
+    if (masterCount.c === 0) {
+      const insM = db.prepare(
+        `INSERT INTO drug_master (name, generic_name, form, strength, pack_size, schedule, gst_rate, default_mrp, low_stock_threshold, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
+      );
+      for (const d of PHARMACY_CATALOG) insM.run(d.name, d.generic_name, d.form, d.strength, d.pack_size ?? null, d.schedule, d.gst_rate, d.default_mrp, 10);
     }
+    upsert.run('drug_catalogue_seeded', '1');
   }
 
   /**

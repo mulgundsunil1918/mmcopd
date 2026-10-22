@@ -73,7 +73,10 @@ const TOPICS: Topic[] = [
           <Step n={3}>Save. The patient gets a permanent <b>UHID</b> — their file number for life.</Step>
           <Step n={4}>For a returning patient, just search their name, phone or UHID and pick them from the list.</Step>
         </ol>
-        <div className="mt-2"><Tip>The list shows recent patients by default to stay fast. <b>Searching always reaches every record</b>, however old.</Tip></div>
+        <div className="mt-2 space-y-2">
+          <Tip>The list shows recent patients by default to stay fast. <b>Searching always reaches every record</b>, however old.</Tip>
+          <Tip><b>Your sort order stays.</b> Choose <i>Recent visit</i>, <i>Registration date</i> or <i>Name</i> — and how far back the list looks — and this computer keeps that choice until you change it. The same goes for the Appointments list and its sort order and view.</Tip>
+        </div>
       </>
     ),
   },
@@ -127,6 +130,7 @@ const TOPICS: Topic[] = [
           <Warn>Schedule H / H1 medicines are flagged on screen and on the receipt. Add stock via <b>Purchases</b> so batch and expiry are recorded for the register.</Warn>
           <Tip><b>On credit.</b> If <Path>Settings → Billing &amp; IPD → Pharmacy</Path> allows it, a <i>registered</i> patient can take medicines and pay part now (or nothing) and the rest later: choose <b>On credit</b> under &ldquo;How is it paid?&rdquo;. What is still owed shows on the patient&rsquo;s billing page, in Accounts and under <Path>Analytics → Receivables</Path>; take the money with <b>Collect</b> (Pharmacy → Sales, or the patient&rsquo;s billing page). A walk-in guest cannot take credit. For an admitted patient, <b>Charge to IPD bill</b> puts the medicines on that stay&rsquo;s running bill at the same MRP, to be collected at discharge.</Tip>
           <Tip>Stock you typed in by hand carries a cost nobody can vouch for. <Path>Drugs in my clinic → Cost not recorded</Path> clears it, so profit is never worked out from a guess. Stock bought on a supplier bill is never touched.</Tip>
+          <Tip><b>Starting the shelf again.</b> A new install begins with the drug list but an <b>empty shelf</b> — stock comes only from your supplier bills. To clear drugs, the administrator or the pharmacy in-charge can <b>tick drugs</b> under <Path>Drugs in my clinic</Path> and choose <b>Delete selected</b>, or use <b>Start fresh</b> to clear every drug, all stock and all batches. A full copy of your data is saved first, and you must type <b>START FRESH</b> to confirm. Patients, bills, past sales, the Schedule H register, supplier bills and what you owe are never touched; a drug that old bills mention is kept as <i>Inactive</i> rather than erased.</Tip>
         </div>
       </>
     ),

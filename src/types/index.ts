@@ -398,6 +398,28 @@ export interface DrugMaster {
   next_unit_cost?: number | null;
 }
 
+/** What "Start fresh" / "Delete selected" in Drugs in my clinic WOULD do, worked out without changing anything (see previewClearDrugs in main/pharmacy-finance.ts). */
+export interface ClearPreview {
+  /** Drugs this would act on. */
+  drugs: number;
+  /** Drugs with no record anywhere — removed from the Drug List completely. */
+  delete_drugs: number;
+  /** Drugs that something was sold, bought, prescribed or ordered from — kept (marked Inactive) so history stays readable. */
+  keep_drugs: number;
+  kept_with_sales: number;
+  kept_with_purchases: number;
+  kept_with_prescriptions: number;
+  batches: number;
+  /** Batches nothing was ever sold from — deleted outright. */
+  batches_deleted: number;
+  /** Batches something WAS sold from — set to zero and switched off, never deleted (the Schedule H register points at them). */
+  batches_zeroed: number;
+  /** Units on the shelf that will go. */
+  units: number;
+  /** …of which came in on a supplier purchase bill. */
+  units_from_purchases: number;
+}
+
 /** One row of "Drugs in my clinic": a drug the clinic holds, with what its shelf looks like (see clinicStock in main/pharmacy-finance.ts). */
 export interface ClinicStockRow extends DrugMaster {
   stock_qty: number;

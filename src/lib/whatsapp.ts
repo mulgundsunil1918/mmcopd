@@ -1,18 +1,19 @@
 import { format, parseISO } from 'date-fns';
 import { fmt12h } from './utils';
+import { cleanForWhatsApp } from './messageText';
 import type { AppointmentWithJoins, Settings } from '../types';
 
 export const DEFAULT_WHATSAPP_TEMPLATE =
-  'Namaste {{patient_name}} 🙏\n\n' +
+  'Namaste {{patient_name}},\n\n' +
   'Your appointment at *{{clinic_name}}* is confirmed.\n\n' +
-  '👨‍⚕️ *Doctor:* {{doctor_name}}\n' +
-  '🚪 *Room:* {{room}}\n' +
-  '📅 *Date:* {{date}}    🕒 *Time:* {{time}}\n' +
-  '🎟️ *Token:* #{{token}}\n\n' +
-  '🆔 *Patient ID (UHID):* {{uhid}}\n' +
-  '📋 *Visit ID:* {{visit_id}}\n\n' +
-  '📍 {{clinic_address}}\n' +
-  '☎️ {{clinic_phone}}\n\n' +
+  '*Doctor:* {{doctor_name}}\n' +
+  '*Room:* {{room}}\n' +
+  '*Date:* {{date}}   *Time:* {{time}}\n' +
+  '*Token:* #{{token}}\n\n' +
+  '*Patient ID (UHID):* {{uhid}}\n' +
+  '*Visit ID:* {{visit_id}}\n\n' +
+  '{{clinic_address}}\n' +
+  'Phone: {{clinic_phone}}\n\n' +
   'Please arrive 10 minutes early. For any change, simply reply to this message or call us.\n\n' +
   'Thank you,\n*{{clinic_name}}*';
 
@@ -104,8 +105,9 @@ export function buildWhatsAppUrl(phone: string, message: string, countryCode = '
   const norm = normalizeIndianPhone(phone, countryCode);
   if (!norm) return null;
   try {
-    const url = new URL(`https://wa.me/${norm}`);
-    url.searchParams.set('text', message);
+    // EVERY message passes through here, so this is where emoji (and any broken character) are removed: whatever a template or a saved
+    // copy holds, no "�" can reach WhatsApp. %20 for spaces and %0A for line breaks — the plain encoding wa.me documents.
+    const url = new URL(`https://wa.me/${norm}?text=${encodeURIComponent(cleanForWhatsApp(message))}`);
     if (url.protocol !== 'https:' || url.hostname !== 'wa.me') return null;
     return url.toString();
   } catch {

@@ -577,7 +577,7 @@ function PharmacyStep({ settings, register, ipd }: { settings: any; register: Re
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-gray-200 dark:border-slate-700 px-4 py-3 text-[12px] text-gray-700 dark:text-slate-300 bg-white/60 dark:bg-slate-900/40">
-        A starter list of common medicines comes with the software. Put your real stock in from <b>Pharmacy → Purchases</b> (your supplier bills) — that
+        A starter list of common medicines (names and prices only — no stock) comes with the software. Put your real stock in from <b>Pharmacy → Purchases</b> (your supplier bills) — that
         also gives you the true cost of every strip, and so your real profit.
       </div>
       <ToggleBox label="Allow medicines on credit (the patient pays later)" checked={f.credit} onChange={(v) => setF((p: any) => ({ ...p, credit: v }))}

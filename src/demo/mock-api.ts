@@ -146,6 +146,30 @@ const labItemsFor = (orderId: number) =>
 
 const r = <T>(v: T): Promise<T> => Promise.resolve(v);
 // Static "Services" bills the demo shows (also resolvable by the printable bill).
+/** Demo twin of previewClearDrugs() in main/pharmacy-finance.ts. */
+const wasSold = (b: any) => dispensing.some((x: any) => x.batch_id === b.id) || pharmSales.some((s: any) => (s.items || []).some((i: any) => i.batch_id === b.id));
+function clearPlan(ids: number[] | null) {
+  const drugIds = (ids ?? drugMaster.map((d) => d.id)).filter((id) => drugMaster.some((d) => d.id === id));
+  const keepIds = new Set<number>();
+  let sales = 0, purchasesN = 0, rx = 0;
+  const preview = { drugs: drugIds.length, delete_drugs: 0, keep_drugs: 0, kept_with_sales: 0, kept_with_purchases: 0, kept_with_prescriptions: 0,
+    batches: 0, batches_deleted: 0, batches_zeroed: 0, units: 0, units_from_purchases: 0 };
+  for (const id of drugIds) {
+    const mine = batches.filter((b) => b.drug_master_id === id);
+    for (const b of mine) {
+      preview.batches++;
+      if (wasSold(b)) preview.batches_zeroed++; else preview.batches_deleted++;
+      if (b.is_active === 1 && b.qty_remaining > 0) { preview.units += b.qty_remaining; if (b.purchase_item_id != null) preview.units_from_purchases += b.qty_remaining; }
+    }
+    const s = mine.some(wasSold) || dispensing.some((x: any) => x.drug_master_id === id);
+    const p = mine.some((b) => b.purchase_item_id != null);
+    const x = rxItems.some((i: any) => i.drug_master_id === id);
+    if (s || p || x) { keepIds.add(id); preview.keep_drugs++; if (s) sales++; if (p) purchasesN++; if (x) rx++; } else preview.delete_drugs++;
+  }
+  preview.kept_with_sales = sales; preview.kept_with_purchases = purchasesN; preview.kept_with_prescriptions = rx;
+  return { preview, drugIds, keepIds };
+}
+
 const MISC_DEMO_BILLS: any[] = [
         { id: 9001, bill_number: 'BL-9001', patient_name: 'Geeta Hosamani', patient_uhid: 'PT-20260427-0042', doctor_name: 'Dr. Priya Patil', payment_mode: 'Cash', total: 250, notes: 'Booster dose 2/3', items_json: JSON.stringify([{ description: 'Vaccination — TT booster', qty: 1, rate: 250, amount: 250 }]), created_at: new Date(Date.now() - 3 * 3600000).toISOString() },
         { id: 9002, bill_number: 'BL-9002', patient_name: 'Ramesh Mali', patient_uhid: 'PT-20260427-0041', doctor_name: 'Dr. A. Sharma', payment_mode: 'UPI', total: 300, notes: '', items_json: JSON.stringify([{ description: 'Wound dressing', qty: 1, rate: 300, amount: 300 }]), created_at: new Date(Date.now() - 86400000).toISOString() },
@@ -567,6 +591,22 @@ export function createMockElectronAPI(): any {
         return r(b);
       },
       bulkDeleteDrugs: () => r({ ok: true, hardDeleted: 0, softDeleted: 0, results: [] }),
+      // "Start fresh" / "Delete selected": same plan as main/pharmacy-finance.ts. A drug is kept (Inactive) when a sale, purchase or prescription
+      // mentions it; a batch that was sold from or bought on a bill is zeroed rather than deleted in this demo so the numbers stay believable.
+      previewClear: (p?: { ids?: number[] | null }) => r(clearPlan(p?.ids ?? null).preview),
+      clearDrugs: (p: { ids?: number[] | null; confirm?: string }) => {
+        const ids = Array.isArray(p?.ids) ? p.ids : null;
+        if (ids !== null && ids.length === 0) return r({ ok: false, error: 'Tick at least one drug to delete.' });
+        if (ids === null && String(p?.confirm ?? '').trim().toUpperCase() !== 'START FRESH') return r({ ok: false, error: 'To clear everything, type START FRESH to confirm.' });
+        const { preview, drugIds, keepIds } = clearPlan(ids);
+        const gone = new Set(drugIds.filter((id) => !keepIds.has(id)));
+        batches = batches.filter((b) => !(drugIds.includes(b.drug_master_id) && !wasSold(b)))
+          .map((b) => drugIds.includes(b.drug_master_id) ? { ...b, qty_remaining: 0, is_active: 0 } : b);
+        drugMaster = drugMaster.filter((d) => !gone.has(d.id)).map((d) => keepIds.has(d.id) ? { ...d, is_active: 0 } : d);
+        return r({ ok: true, mode: ids === null ? 'all' : 'selected', drugs_deleted: preview.delete_drugs, drugs_kept_inactive: preview.keep_drugs,
+          batches_deleted: preview.batches_deleted, batches_zeroed: preview.batches_zeroed, units_removed: preview.units,
+          backup_path: '(demo) …/backups/before-clear-stock/caredesk-demo.sqlite' });
+      },
       // "Drugs in my clinic": same rules as main/pharmacy-finance.ts clinicStock (active batches only, 90-day window, low = 1…threshold).
       clinicStock: () => {
         const day = (iso: string) => Math.round((new Date(`${String(iso).slice(0, 10)}T00:00:00`).getTime() - new Date(new Date().toDateString()).getTime()) / 86_400_000);

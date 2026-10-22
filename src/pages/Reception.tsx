@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { usePersistedState } from '../hooks/usePersistedState';
 import { PageHelp } from '../components/PageHelp';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -56,9 +57,10 @@ export function Reception() {
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [mode, setMode] = useState<Mode>('idle');
-  // null = follow the global Settings window; a chip click overrides it here.
-  const [winOverride, setWinOverride] = useState<'week' | 'month' | 'quarter' | 'all' | null>(null);
-  const [sortBy, setSortBy] = useState<'recent' | 'registered' | 'name'>('recent');
+  // null = follow the global Settings window; a chip click overrides it here. Both choices are REMEMBERED on this PC (they used to
+  // snap back to "1 mo / Recent visit" every time the screen was reopened).
+  const [winOverride, setWinOverride] = usePersistedState<'week' | 'month' | 'quarter' | 'all' | null>('curedesk-reception-window', null, ['week', 'month', 'quarter', 'all']);
+  const [sortBy, setSortBy] = usePersistedState<'recent' | 'registered' | 'name'>('curedesk-reception-sort', 'recent', ['recent', 'registered', 'name']);
   const toast = useToast();
   const navigate = useNavigate();
   const qc = useQueryClient();

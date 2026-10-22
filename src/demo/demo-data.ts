@@ -83,10 +83,10 @@ export const DEMO_SETTINGS: Settings = {
   whatsapp_api_url: null,
   whatsapp_api_key: null,
   whatsapp_template:
-    'Namaste {{patient_name}} 🙏\n\nYour appointment at *{{clinic_name}}* is confirmed.\n\n' +
-    '👨‍⚕️ *Doctor:* {{doctor_name}}\n🚪 *Room:* {{room}}\n📅 *Date:* {{date}}    🕒 *Time:* {{time}}\n🎟️ *Token:* #{{token}}\n\n' +
-    '🆔 *Patient ID (UHID):* {{uhid}}\n📋 *Visit ID:* {{visit_id}}\n\n' +
-    '📍 {{clinic_address}}\n☎️ {{clinic_phone}}\n\nThank you,\n*{{clinic_name}}*',
+    'Namaste {{patient_name}},\n\nYour appointment at *{{clinic_name}}* is confirmed.\n\n' +
+    '*Doctor:* {{doctor_name}}\n*Room:* {{room}}\n*Date:* {{date}}   *Time:* {{time}}\n*Token:* #{{token}}\n\n' +
+    '*Patient ID (UHID):* {{uhid}}\n*Visit ID:* {{visit_id}}\n\n' +
+    '{{clinic_address}}\nPhone: {{clinic_phone}}\n\nThank you,\n*{{clinic_name}}*',
   whatsapp_country_code: '91',
   aisensy_signup_url: '',
   aisensy_connected_on: '',

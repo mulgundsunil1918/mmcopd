@@ -31,6 +31,7 @@ import type {
   DrugMaster,
   DrugStockBatch,
   ClinicStockRow,
+  ClearPreview,
   SupplierSummaryRow,
   PaySupplierResult,
   DispensingRow,
@@ -411,6 +412,16 @@ const api = {
       ipcRenderer.invoke('pharmacy:alerts') as Promise<{ lowStock: (DrugMaster & Drug)[]; expiringSoon: DrugStockBatch[] }>,
     /** "Drugs in my clinic": the drugs the clinic holds (a batch or a purchase), with stock, next expiry, cost, price and filter flags. */
     clinicStock: () => ipcRenderer.invoke('pharmacy:clinicStock') as Promise<ClinicStockRow[]>,
+    /** What "Start fresh" (ids omitted) or "Delete selected" (ids given) WOULD do — nothing is changed. */
+    previewClear: (payload: { ids?: number[] | null } = {}) =>
+      ipcRenderer.invoke('pharmacy:previewClear', payload) as Promise<ClearPreview>,
+    /** Clear drugs, their stock and batches — admin and the pharmacy in-charge only. Without `ids` it clears everything and needs `confirm: 'START FRESH'`.
+     *  A copy of the whole database is saved first (backup_path). */
+    clearDrugs: (payload: { ids?: number[] | null; confirm?: string }) =>
+      ipcRenderer.invoke('pharmacy:clearDrugs', payload) as Promise<
+        { ok: true; mode: 'all' | 'selected'; drugs_deleted: number; drugs_kept_inactive: number; batches_deleted: number; batches_zeroed: number; units_removed: number; backup_path: string }
+        | { ok: false; error: string }
+      >,
     pendingRx: () => ipcRenderer.invoke('pharmacy:pendingRx') as Promise<(AppointmentWithJoins & { rx_count: number })[]>,
     getAppointmentRx: (appointmentId: number) =>
       ipcRenderer.invoke('pharmacy:getAppointmentRx', appointmentId) as Promise<PrescriptionItem[]>,

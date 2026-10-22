@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { usePersistedState } from '../hooks/usePersistedState';
 import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -49,8 +50,11 @@ export function Appointments() {
   const [billVisitId, setBillVisitId] = useState<number | null>(null);    // a visit that has no bill yet, being billed from the list
   // Just booked: offer the consultation paper AND the consultation bill (see BookingDoneDialog).
   const [booked, setBooked] = useState<{ appt: AppointmentWithJoins; bill: any | null } | null>(null);
-  const [sortOrder, setSortOrder] = useState<'oldest_first' | 'newest_first' | null>(null);
-  const [consultantView, setConsultantView] = useState(false);
+  // The sort order and the list / by-doctor view are REMEMBERED on this PC; until the person picks one, the clinic's default applies.
+  const [sortOrder, setSortOrder] = usePersistedState<'oldest_first' | 'newest_first' | null>('curedesk-appointments-sort', null, ['oldest_first', 'newest_first']);
+  const [viewChoice, setViewChoice] = usePersistedState<'list' | 'doctors'>('curedesk-appointments-view', 'list', ['list', 'doctors']);
+  const consultantView = viewChoice === 'doctors';
+  const setConsultantView = (on: boolean) => setViewChoice(on ? 'doctors' : 'list');
   const toast = useToast();
   const qc = useQueryClient();
 
@@ -81,13 +85,7 @@ export function Appointments() {
   });
   const queueOn = appSettings?.queue_flow_enabled ?? false;
 
-  // First time settings load — adopt the admin's default. After that, the user's
-  // local toggle wins for this session.
-  useEffect(() => {
-    if (sortOrder == null && appSettings?.appointments_default_sort) {
-      setSortOrder(appSettings.appointments_default_sort);
-    }
-  }, [appSettings?.appointments_default_sort, sortOrder]);
+  // The person's own choice wins; before they make one, the clinic's default (Settings) applies.
   const effectiveSort: 'oldest_first' | 'newest_first' =
     sortOrder ?? (appSettings?.appointments_default_sort as any) ?? 'oldest_first';
 

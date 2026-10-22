@@ -62,10 +62,10 @@ export function getAllSettings(db: Database.Database): Settings {
     whatsapp_api_key: map.whatsapp_api_key || null,
     whatsapp_template:
       map.whatsapp_template ||
-      'Namaste {{patient_name}} 🙏\n\nYour appointment at *{{clinic_name}}* is confirmed.\n\n' +
-        '👨‍⚕️ *Doctor:* {{doctor_name}}\n🚪 *Room:* {{room}}\n📅 *Date:* {{date}}    🕒 *Time:* {{time}}\n🎟️ *Token:* #{{token}}\n\n' +
-        '🆔 *Patient ID (UHID):* {{uhid}}\n📋 *Visit ID:* {{visit_id}}\n\n' +
-        '📍 {{clinic_address}}\n☎️ {{clinic_phone}}\n\n' +
+      'Namaste {{patient_name}},\n\nYour appointment at *{{clinic_name}}* is confirmed.\n\n' +
+        '*Doctor:* {{doctor_name}}\n*Room:* {{room}}\n*Date:* {{date}}   *Time:* {{time}}\n*Token:* #{{token}}\n\n' +
+        '*Patient ID (UHID):* {{uhid}}\n*Visit ID:* {{visit_id}}\n\n' +
+        '{{clinic_address}}\nPhone: {{clinic_phone}}\n\n' +
         'Please arrive 10 minutes early. For any change, simply reply to this message or call us.\n\nThank you,\n*{{clinic_name}}*',
     whatsapp_country_code: map.whatsapp_country_code || '91',
     aisensy_signup_url: map.aisensy_signup_url || '',

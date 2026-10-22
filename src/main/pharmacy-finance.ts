@@ -29,6 +29,7 @@
 
 import type Database from 'better-sqlite3';
 import { nextSaleNumber } from '../db/ids';
+import type { ClearPreview } from '../types';
 import { getAllSettings } from '../db/settings';
 import { gstContext, medicineLineTax, splitInclusive } from './gst';
 import {
@@ -581,6 +582,121 @@ export function supplierSummary(db: Database.Database) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// "Start fresh" / delete selected drugs — clear drugs, stock and batches
+// ---------------------------------------------------------------------------------------------
+
+/** How many records of each kind point at a drug. A table that is missing (a very old file) counts as none. */
+function drugRefs(db: Database.Database, drugId: number) {
+  const n = (sql: string) => { try { return (db.prepare(sql).get(drugId) as { c: number }).c; } catch { return 0; } };
+  return {
+    sales: n('SELECT COUNT(*) c FROM pharmacy_sale_items WHERE drug_master_id=?') + n('SELECT COUNT(*) c FROM dispensing_register WHERE drug_master_id=?'),
+    purchases: n('SELECT COUNT(*) c FROM purchase_invoice_items WHERE drug_master_id=?'),
+    prescriptions: n('SELECT COUNT(*) c FROM prescription_items WHERE drug_master_id=?') + n('SELECT COUNT(*) c FROM ip_medication_orders WHERE drug_master_id=?'),
+  };
+}
+/** Was anything ever sold or given from this batch? (Then the dispensing register / ward medication record points at it and it can never be deleted.) */
+function batchWasSold(db: Database.Database, batchId: number): boolean {
+  try {
+    return !!db.prepare(`SELECT 1 FROM dispensing_register WHERE batch_id=?
+                         UNION ALL SELECT 1 FROM pharmacy_sale_items WHERE batch_id=?
+                         UNION ALL SELECT 1 FROM ip_medication_admin WHERE batch_id=? LIMIT 1`).get(batchId, batchId, batchId);
+  } catch { return true; }                       // if in doubt, keep the batch
+}
+
+interface DrugPlan {
+  id: number;
+  batches: { id: number; qty: number; active: boolean; fromPurchase: boolean; sold: boolean }[];
+  refs: { sales: number; purchases: number; prescriptions: number };
+  /** Nothing points at the drug, so it can be erased from the Drug List. */
+  erasable: boolean;
+  /** Already Inactive with every batch at zero and switched off while records still mention it: an earlier clear left it exactly like this. */
+  settled: boolean;
+}
+/** What clearing one drug means. Null when there is no such drug. */
+function planDrug(db: Database.Database, id: number): DrugPlan | null {
+  const m = db.prepare('SELECT is_active FROM drug_master WHERE id=?').get(id) as { is_active: number } | undefined;
+  if (!m) return null;
+  const batches = (db.prepare('SELECT id, qty_remaining, is_active, purchase_item_id FROM drug_stock_batches WHERE drug_master_id=?').all(id) as
+    { id: number; qty_remaining: number; is_active: number; purchase_item_id: number | null }[])
+    .map((b) => ({ id: b.id, qty: Math.max(0, b.qty_remaining), active: b.is_active === 1, fromPurchase: b.purchase_item_id !== null, sold: batchWasSold(db, b.id) }));
+  const refs = drugRefs(db, id);
+  const erasable = refs.sales + refs.purchases + refs.prescriptions === 0;
+  const settled = !erasable && m.is_active === 0 && batches.every((b) => b.qty === 0 && !b.active);
+  return { id, batches, refs, erasable, settled };
+}
+const targetDrugIds = (db: Database.Database, ids: number[] | null): number[] =>
+  ids ? Array.from(new Set(ids.map(Number).filter((x) => Number.isInteger(x) && x > 0)))
+    : (db.prepare('SELECT id FROM drug_master').all() as { id: number }[]).map((r) => r.id);
+/** The drugs a clear would actually act on, planned: unknown ids and drugs an earlier clear already settled are left out. */
+const plansFor = (db: Database.Database, ids: number[] | null): DrugPlan[] =>
+  targetDrugIds(db, ids).map((id) => planDrug(db, id)).filter((p): p is DrugPlan => !!p && !p.settled);
+
+/** What "clear these drugs" (or, with ids = null, "start fresh") WOULD do — nothing is changed. */
+export function previewClearDrugs(db: Database.Database, ids: number[] | null): ClearPreview {
+  const out: ClearPreview = { drugs: 0, delete_drugs: 0, keep_drugs: 0, kept_with_sales: 0, kept_with_purchases: 0, kept_with_prescriptions: 0,
+    batches: 0, batches_deleted: 0, batches_zeroed: 0, units: 0, units_from_purchases: 0 };
+  for (const p of plansFor(db, ids)) {
+    out.drugs++;
+    for (const b of p.batches) {
+      out.batches++;
+      if (b.sold) out.batches_zeroed++; else out.batches_deleted++;
+      if (b.active && b.qty > 0) { out.units += b.qty; if (b.fromPurchase) out.units_from_purchases += b.qty; }
+    }
+    if (p.erasable) out.delete_drugs++;
+    else {
+      out.keep_drugs++;
+      if (p.refs.sales) out.kept_with_sales++;
+      if (p.refs.purchases) out.kept_with_purchases++;
+      if (p.refs.prescriptions) out.kept_with_prescriptions++;
+    }
+  }
+  return out;
+}
+
+export interface ClearResult {
+  drugs_deleted: number;
+  drugs_kept_inactive: number;
+  batches_deleted: number;
+  batches_zeroed: number;
+  units_removed: number;
+  /** [batch id, units it held] for every batch touched — written to the audit log so the stock can be reconstructed. */
+  cleared: [number, number][];
+}
+
+/**
+ * Remove the drugs' stock and batches, and the drugs themselves from the Drug List — one all-or-nothing step.
+ *   - a batch nothing was sold from is deleted; one that was sold from is set to 0 units and switched off (history intact);
+ *   - a drug with no record anywhere (nothing sold, bought, prescribed or ordered) is deleted; any other is kept but marked Inactive.
+ * Patients, bills, sales, purchase bills, suppliers and the Schedule H register are never touched. ids = null → every drug ("start fresh").
+ */
+export function clearDrugs(db: Database.Database, ids: number[] | null): ClearResult {
+  const out: ClearResult = { drugs_deleted: 0, drugs_kept_inactive: 0, batches_deleted: 0, batches_zeroed: 0, units_removed: 0, cleared: [] };
+  const delBatch = db.prepare('DELETE FROM drug_stock_batches WHERE id=?');
+  const zeroBatch = db.prepare('UPDATE drug_stock_batches SET qty_remaining=0, is_active=0 WHERE id=?');
+  const delDrug = db.prepare('DELETE FROM drug_master WHERE id=?');
+  const retire = db.prepare("UPDATE drug_master SET is_active=0, updated_at=datetime('now') WHERE id=?");
+  db.transaction(() => {
+    for (const p of plansFor(db, ids)) {
+      for (const b of p.batches) {
+        let deleted = false;
+        if (!b.sold) {
+          try { delBatch.run(b.id); deleted = true; } catch { /* something still points at it: fall through and keep it */ }
+        }
+        if (deleted) out.batches_deleted++; else { zeroBatch.run(b.id); out.batches_zeroed++; }
+        if (b.active) out.units_removed += b.qty;
+        out.cleared.push([b.id, b.qty]);
+      }
+      let gone = false;
+      if (p.erasable) {
+        try { delDrug.run(p.id); gone = true; } catch { /* a record this code does not know about points at it: keep the drug */ }
+      }
+      if (gone) out.drugs_deleted++; else { retire.run(p.id); out.drugs_kept_inactive++; }
+    }
+  })();
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Selling (FEFO) — cost is frozen on every slice that leaves the shelf
 // ---------------------------------------------------------------------------------------------
 
@@ -951,8 +1067,8 @@ export function saleDue(db: Database.Database, saleId: number): number {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Batches whose cost did not come from a purchase bill: typed in by hand, or the starter stock a new install ships
- * with. Their cost is whatever somebody entered — often a guess — so profit on them is only as good as that guess.
+ * Batches whose cost did not come from a purchase bill: typed in by hand, or starter stock an older version put on the
+ * shelf. Their cost is whatever somebody entered — often a guess — so profit on them is only as good as that guess.
  */
 const MANUAL_BATCH = 'purchase_item_id IS NULL AND COALESCE(unit_cost, purchase_price) IS NOT NULL';
 

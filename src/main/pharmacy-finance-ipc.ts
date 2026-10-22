@@ -13,7 +13,9 @@
  * (create / pay / add / sell …), so payments are `purchase:addPayment`, not "recordPayment".
  */
 
-import { ipcMain } from 'electron';
+import { app, ipcMain } from 'electron';
+import fs from 'node:fs';
+import path from 'node:path';
 import { getDb } from '../db/db';
 import { requireRole, actor } from './ipc';
 import { logAudit } from './auth';
@@ -91,6 +93,51 @@ export function registerPharmacyFinanceIpc() {
       return { ok: true as const, ...r };
     } catch (e: any) {
       return { ok: false as const, error: e?.message || 'Could not record the payment.' };
+    }
+  });
+
+  // ----- clear drugs, stock and batches: "Start fresh" (every drug) or "Delete selected" (the ticked ones) -----
+  /** Who may do it: the pharmacy in-charge (pharmacist) and the administrator (requireRole always lets admin through). */
+  const CLEARERS: Role[] = ['pharmacist'];
+  ipcMain.handle('pharmacy:previewClear', (_e, payload: { ids?: number[] | null } = {}) => {
+    const ids = Array.isArray(payload?.ids) ? payload.ids : null;
+    return fin.previewClearDrugs(getDb(), ids);
+  });
+  ipcMain.handle('pharmacy:clearDrugs', (_e, payload: { ids?: number[] | null; confirm?: string } = {}) => {
+    requireModule('pharmacy', 'Pharmacy');
+    requireRole(CLEARERS, 'clear the drug list and stock');
+    const ids = Array.isArray(payload?.ids) ? payload.ids.map(Number).filter((x) => Number.isInteger(x) && x > 0) : null;
+    if (ids !== null && ids.length === 0) return { ok: false as const, error: 'Tick at least one drug to delete.' };
+    // Everything at once needs the phrase typed — checked HERE too, so no screen (or stray call) can wipe the lot by accident.
+    if (ids === null && String(payload?.confirm ?? '').trim().toUpperCase() !== 'START FRESH') {
+      return { ok: false as const, error: 'To clear everything, type START FRESH to confirm.' };
+    }
+    try {
+      const db = getDb();
+      const mode = ids === null ? ('all' as const) : ('selected' as const);
+      // Nothing left to do (a second click, or only drugs an earlier clear already settled): no safety copy and no audit line for a no-op.
+      if (fin.previewClearDrugs(db, ids).drugs === 0) {
+        return { ok: true as const, mode, drugs_deleted: 0, drugs_kept_inactive: 0, batches_deleted: 0, batches_zeroed: 0, units_removed: 0, backup_path: '' };
+      }
+      // A complete copy of the clinic's data is saved FIRST; if that cannot be done, nothing is cleared.
+      let backup: string;
+      try {
+        const dir = path.join(app.getPath('userData'), 'backups', 'before-clear-stock');
+        fs.mkdirSync(dir, { recursive: true });
+        backup = path.join(dir, `caredesk-${new Date().toISOString().replace(/[:.]/g, '-')}-${Math.random().toString(36).slice(2, 6)}.sqlite`);
+        db.prepare('VACUUM INTO ?').run(backup);
+      } catch (e: any) {
+        return { ok: false as const, error: `Nothing was cleared: a safety copy of your data could not be saved first (${e?.message || e}).` };
+      }
+
+      const { cleared, ...counts } = fin.clearDrugs(db, ids);
+      audit(ids === null ? 'pharmacy.start_fresh' : 'pharmacy.clear_selected', 'drug_master', 0, {
+        ...counts, backup, ...(ids ? { ids } : {}), cleared_batches: cleared.slice(0, 5000),     // [batch id, units it held] — enough to rebuild the shelf
+      });
+      tell();
+      return { ok: true as const, mode, ...counts, backup_path: backup };
+    } catch (e: any) {
+      return { ok: false as const, error: e?.message || 'Could not clear the drugs.' };
     }
   });
 

@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import { modalityOf } from '../data/radiology-catalog';
 import { allocatePaise, toPaise, fromPaise } from '../lib/pharmacyMath';
 import { createSchema, SCHEMA_VERSION } from './schema';
+import { cleanForWhatsApp, hasEmojiOrBrokenText } from '../lib/messageText';
 import { DEFAULT_SLIP_TEMPLATES } from './slip-templates';
 
 /** The factory password created by ensureDefaultAdmin() on a fresh install. */
@@ -500,6 +501,16 @@ function seedCountersFromExistingData(db: Database.Database) {
 function repairMojibakeSettings(db: Database.Database) {
   try {
     const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[];
+    // A saved WhatsApp message keeps the clinic's own wording but loses its emoji (they reached WhatsApp as "?" on some PCs and kept coming
+    // back): cleaned here once, and again at send time (lib/messageText cleanForWhatsApp), so it cannot return. Done BEFORE the delete
+    // pass below so a template is repaired rather than thrown away.
+    const upd = db.prepare('UPDATE settings SET value=? WHERE key=?');
+    for (const r of rows) {
+      if (typeof r.value === 'string' && /whatsapp.*template|template.*whatsapp/i.test(r.key) && hasEmojiOrBrokenText(r.value)) {
+        const cleaned = cleanForWhatsApp(r.value);
+        if (cleaned) { upd.run(cleaned, r.key); r.value = cleaned; }
+      }
+    }
     const del = db.prepare('DELETE FROM settings WHERE key=?');
     for (const r of rows) {
       if (typeof r.value === 'string' && r.value.includes('�')) del.run(r.key);

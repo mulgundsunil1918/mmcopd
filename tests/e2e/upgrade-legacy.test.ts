@@ -18,6 +18,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import Database from 'better-sqlite3';
 import { SCHEMA_VERSION } from '../../src/db/schema';
+import { cleanForWhatsApp } from '../../src/lib/messageText';
 import { ok, eq, near, section, finish, note } from './lib';
 
 const root = fs.existsSync(path.join(process.cwd(), 'tests', 'e2e')) ? process.cwd() : path.resolve(__dirname, '..');
@@ -39,6 +40,8 @@ const COMPATIBLE_CHANGES: Record<string, (before: any, after: any, row: Record<s
   'bills.amount_paid': (b, a, row) => Number(b) === 0 && row.paid_at != null && Number(a) === Number(row.total),
   // New default OPD-slip templates are APPENDED; the clinic's own templates must stay exactly as they were.
   'settings.value': (b, a, row) => {
+    // A saved WhatsApp message keeps its wording but loses its emoji (they reached WhatsApp as "?"; see lib/messageText).
+    if (/whatsapp.*template|template.*whatsapp/i.test(row.key)) return a === cleanForWhatsApp(b);
     if (row.key !== 'slip_templates') return false;
     try {
       const B = JSON.parse(b) as Array<{ id: number }>, A = JSON.parse(a) as Array<{ id: number }>;
@@ -124,7 +127,7 @@ old.close();
       }
     }
   }
-  note(`${Object.keys(before).length} tables, ${rowsChecked} rows, ${cellsChecked} values compared${tolerated ? ` — ${tolerated} changed only in the permitted ways (counters raised, default slip templates appended, old desk-paid bills marked paid in full)` : ''}`);
+  note(`${Object.keys(before).length} tables, ${rowsChecked} rows, ${cellsChecked} values compared${tolerated ? ` — ${tolerated} changed only in the permitted ways (counters raised, default slip templates appended, old desk-paid bills marked paid in full, WhatsApp wording kept but emoji removed)` : ''}`);
   ok(lost.length === 0, `no table, column or row was lost${lost.length ? `: ${lost.slice(0, 8).join('; ')}` : ''}`);
   ok(changed.length === 0, `no existing value was rewritten${changed.length ? `: ${changed.slice(0, 8).join('; ')}` : ''}`);
   eq(one('PRAGMA integrity_check')['integrity_check'], 'ok', 'the database passes the integrity check');

@@ -2,13 +2,15 @@
  * "Drugs in my clinic" — the drugs the clinic actually holds, one row each (this replaces the old Stock & Batches tab and the
  * stock column of Drug Master). What each shelf looks like: units in stock, the next expiry, what a unit costs, what it sells for.
  * Click a drug to see its batches. The low-stock / expiry alerts live here as filters. Which drugs exist at all is the Drug List's job.
+ * Admin and the pharmacy in-charge can also tick drugs and delete them (with their stock and batches), or "Start fresh" to clear the lot.
  */
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ChevronDown, ChevronRight, Layers, Pencil, Plus, Search } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, Layers, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { Modal } from '../Modal';
 import { EmptyState } from '../EmptyState';
 import { useToast } from '../../hooks/useToast';
+import { canAnyRole, useAuth } from '../../hooks/useAuth';
 import { cn, fmtDate, formatINR } from '../../lib/utils';
 import type { ClinicStockRow, DrugMaster, DrugStockBatch } from '../../types';
 import { DrugEditModal } from './DrugEditModal';
@@ -57,6 +59,11 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
   const [editDrug, setEditDrug] = useState<Partial<DrugMaster> | null>(null);
   const [costOpen, setCostOpen] = useState(false);
   const [pickOpen, setPickOpen] = useState(false);
+  // Deleting drugs (and their stock) is for the administrator and the pharmacy in-charge only; the main process checks the role again.
+  const { user, adminUnlocked } = useAuth();
+  const canClear = canAnyRole(user, ['pharmacist'], adminUnlocked);
+  const [sel, setSel] = useState<Set<number>>(new Set());
+  const [clearing, setClearing] = useState<{ ids: number[] | null; names: string[] } | null>(null);
 
   const { data: rows = [], isLoading } = useClinicStock();
   const counts = useMemo(() => clinicCounts(rows), [rows]);
@@ -67,6 +74,19 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
       && (!t || r.name.toLowerCase().includes(t) || (r.generic_name || '').toLowerCase().includes(t)
         || (r.manufacturer || '').toLowerCase().includes(t) || (r.barcode || '') === q.trim()));
   }, [rows, q, filter]);
+
+  // What is ticked AND still on screen: a tick hidden by a search or a filter is never deleted by surprise.
+  const picked = useMemo(() => shown.filter((r) => sel.has(r.id)), [shown, sel]);
+  const allPicked = shown.length > 0 && picked.length === shown.length;
+  const somePicked = picked.length > 0 && !allPicked;
+  const toggleOne = (id: number) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleAll = () => setSel((s) => { const n = new Set(s); for (const r of shown) { if (allPicked) n.delete(r.id); else n.add(r.id); } return n; });
+  const gridHead = canClear
+    ? 'md:grid-cols-[1.25rem_1.25rem_minmax(0,1fr)_3.5rem_6rem_9rem_7rem_9rem_8rem]'
+    : 'md:grid-cols-[1.25rem_minmax(0,1fr)_3.5rem_6rem_9rem_7rem_9rem_8rem]';
+  const gridRow = canClear
+    ? 'grid-cols-[1.25rem_1.25rem_minmax(0,1fr)_auto] md:grid-cols-[1.25rem_1.25rem_minmax(0,1fr)_3.5rem_6rem_9rem_7rem_9rem_8rem]'
+    : 'grid-cols-[1.25rem_minmax(0,1fr)_auto] md:grid-cols-[1.25rem_minmax(0,1fr)_3.5rem_6rem_9rem_7rem_9rem_8rem]';
 
   const save = useMutation({
     mutationFn: (b: Partial<DrugStockBatch>) => window.electronAPI.pharmacy.upsertBatch(b),
@@ -92,6 +112,12 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
             title="Stock you typed in by hand carries a cost nobody can vouch for — clear it so profit is not based on a guess">
             Cost not recorded…
           </button>
+          {canClear && (
+            <button className="btn-secondary text-xs whitespace-nowrap text-red-700 dark:text-red-300" onClick={() => setClearing({ ids: null, names: [] })}
+              title="Clear the whole drug list, all stock and all batches, and begin again — a copy of your data is saved first">
+              <Trash2 className="w-3.5 h-3.5" /> Start fresh…
+            </button>
+          )}
           <button className="btn-primary" onClick={() => setPickOpen(true)} title="For stock that did not come on a supplier bill — bills from a supplier go under Purchases">
             <Plus className="w-4 h-4" /> Add stock by hand
           </button>
@@ -126,8 +152,23 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
       </div>
       <div className="text-[11px] text-gray-500 dark:text-slate-400 mb-2">
         Click a drug to see its batches. Stock is sold earliest-expiry first. Record what you buy from a supplier under <b>Purchases</b>; the drugs themselves (names, prices, GST) are kept in the <b>Drug List</b>.
+        {canClear && <> Tick drugs to delete just those, or use <b>Start fresh</b> to clear everything.</>}
       </div>
       {costOpen && <CostNotRecordedModal onClose={() => setCostOpen(false)} />}
+
+      {/* Bulk action bar — only when at least one drug that is on screen is ticked */}
+      {canClear && picked.length > 0 && (
+        <div className="mb-3 flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800">
+          <div className="text-sm text-blue-900 dark:text-blue-100"><b>{picked.length}</b> drug{picked.length === 1 ? '' : 's'} selected</div>
+          <div className="flex items-center gap-2">
+            <button className="text-xs text-gray-600 dark:text-slate-300 hover:underline" onClick={() => setSel(new Set())}>Clear selection</button>
+            <button className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-md font-semibold bg-red-600 hover:bg-red-700 text-white"
+              onClick={() => setClearing({ ids: picked.map((r) => r.id), names: picked.map((r) => r.name) })}>
+              <Trash2 className="w-3.5 h-3.5" /> Delete selected
+            </button>
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="text-xs text-gray-500 py-8 text-center">Loading…</div>
@@ -145,7 +186,11 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
         </div>
       ) : (
         <>
-          <div className="hidden md:grid grid-cols-[1.25rem_minmax(0,1fr)_3.5rem_6rem_9rem_7rem_9rem_8rem] gap-3 px-2 pb-1.5 text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
+          <div className={cn('hidden md:grid gap-3 px-2 pb-1.5 text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700', gridHead)}>
+            {canClear && (
+              <input type="checkbox" aria-label="Select all the drugs shown" title="Select all the drugs shown" checked={allPicked}
+                ref={(el) => { if (el) el.indeterminate = somePicked; }} onChange={toggleAll} />
+            )}
             <span />
             <span>Drug</span>
             <span>Sched.</span>
@@ -159,16 +204,21 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
             {shown.map((d) => {
               const isOpen = openId === d.id;
               const days = d.next_expiry ? daysUntil(d.next_expiry) : null;
+              const ticked = sel.has(d.id);
               return (
-                <li key={d.id}>
+                <li key={d.id} className={cn(ticked && 'bg-blue-50/60 dark:bg-blue-900/20')}>
                   {/* A div, not a <button>: it holds the "+ Batch" button, and a button inside a button is invalid HTML. */}
                   <div
                     role="button"
                     tabIndex={0}
-                    className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] md:grid-cols-[1.25rem_minmax(0,1fr)_3.5rem_6rem_9rem_7rem_9rem_8rem] items-center gap-3 py-2.5 px-2 hover:bg-gray-50 dark:hover:bg-slate-800/40 text-left cursor-pointer"
+                    className={cn('grid items-center gap-3 py-2.5 px-2 hover:bg-gray-50 dark:hover:bg-slate-800/40 text-left cursor-pointer', gridRow)}
                     onClick={() => setOpenId(isOpen ? null : d.id)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenId(isOpen ? null : d.id); } }}
+                    onKeyDown={(e) => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenId(isOpen ? null : d.id); } }}
                   >
+                    {canClear && (
+                      <input type="checkbox" checked={ticked} aria-label={`Select ${d.name}`}
+                        onClick={(e) => e.stopPropagation()} onChange={() => toggleOne(d.id)} />
+                    )}
                     {isOpen ? <ChevronDown className="w-4 h-4 text-gray-500" /> : <ChevronRight className="w-4 h-4 text-gray-500" />}
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">
@@ -223,6 +273,7 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
       )}
 
       {pickOpen && <StockDrugPicker onClose={() => setPickOpen(false)} onPick={(d) => { setPickOpen(false); startBatch(d); }} />}
+      {clearing && <ClearDrugsModal ids={clearing.ids} names={clearing.names} onClose={() => setClearing(null)} onDone={() => { setSel(new Set()); setOpenId(null); }} />}
       {editDrug && <DrugEditModal drug={editDrug} onClose={() => setEditDrug(null)} />}
 
       <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? `Edit Batch · ${editing.drug_name}` : `New Batch · ${editing?.drug_name}`} size="md">
@@ -299,7 +350,7 @@ function StockDrugPicker({ onClose, onPick }: { onClose: () => void; onPick: (d:
 }
 
 /**
- * "Cost not recorded": stock somebody typed in (or the starter stock a new install ships with) has a cost that is
+ * "Cost not recorded": stock somebody typed in (or starter stock an older version put on the shelf) has a cost that is
  * only a guess. This clears that cost on those batches — and, if asked, on the sales already made from them — so profit
  * and stock value leave them out instead of treating the guess as fact. Batches received through a purchase bill are
  * never touched. Nothing is deleted, and the old figures are written to the audit log.
@@ -330,7 +381,7 @@ function CostNotRecordedModal({ onClose }: { onClose: () => void }) {
     <Modal open onClose={onClose} title="Cost not recorded" size="md">
       <div className="space-y-3 text-[13px] text-gray-700 dark:text-slate-300">
         <p>
-          Stock that was typed in by hand — or the starter stock a new install comes with — has a cost nobody can vouch for.
+          Stock that was typed in by hand — or starter stock an older version put on the shelf — has a cost nobody can vouch for.
           Mark it <b>cost not recorded</b> and profit and stock value will stop treating that guess as fact. Real costs come
           from supplier bills entered under <b>Purchases</b>.
         </p>
@@ -425,5 +476,141 @@ function BatchList({ drugMasterId, drugName: _drugName, drugDefaultMrp: _drugDef
         </tbody>
       </table>
     </div>
+  );
+}
+
+type ClearDone = Extract<Awaited<ReturnType<typeof window.electronAPI.pharmacy.clearDrugs>>, { ok: true }>;
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+/** "a, b and c" */
+const andList = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}` : xs[0] ?? '');
+
+/**
+ * "Start fresh" (ids = null) and "Delete selected" (ids given). It shows exactly what will go BEFORE anything is touched — the same plan the
+ * main process then carries out — asks for a typed confirmation when everything is being cleared, and afterwards says where the safety copy of
+ * the data was saved. Admin and the pharmacy in-charge only; the main process checks the role again and takes the safety copy first.
+ */
+function ClearDrugsModal({ ids, names, onClose, onDone }: { ids: number[] | null; names: string[]; onClose: () => void; onDone: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const everything = ids === null;
+  const [typed, setTyped] = useState('');
+  const [sure, setSure] = useState(false);
+  const [error, setError] = useState('');
+  const [done, setDone] = useState<ClearDone | null>(null);
+  const { data: p, isLoading } = useQuery({
+    queryKey: ['pharmacy-clear-preview', ids ? ids.join(',') : 'all'],
+    queryFn: () => window.electronAPI.pharmacy.previewClear({ ids }),
+    gcTime: 0,
+  });
+  const run = useMutation({
+    mutationFn: () => window.electronAPI.pharmacy.clearDrugs({ ids, confirm: everything ? typed : undefined }),
+    onSuccess: (r) => {
+      if (!r.ok) { setError(r.error); toast(r.error, 'error'); return; }
+      for (const k of ['pharmacy-drugs', 'pharmacy-drugs-active', 'pharmacy-batches', 'pharmacy-alerts', 'pharmacy-cost-summary', 'pharmacy-profit', 'pharmacy-valuation', 'pharmacy-checks', 'pharmacy-clear-preview', CLINIC_STOCK_KEY]) {
+        qc.invalidateQueries({ queryKey: [k] });
+      }
+      setDone(r);
+      onDone();
+    },
+    onError: (e: any) => { const m = e?.message || 'Could not clear the drugs.'; setError(m); toast(m, 'error'); },
+  });
+
+  const nothing = !!p && p.drugs === 0;
+  const ready = !!p && !nothing && (everything ? typed.trim().toUpperCase() === 'START FRESH' : (p.units === 0 || sure));
+
+  if (done) {
+    return (
+      <Modal open onClose={onClose} title={done.mode === 'all' ? 'Started fresh' : 'Drugs deleted'} size="lg">
+        <div className="space-y-3 text-[13px] text-gray-700 dark:text-slate-300">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 p-3 space-y-1 text-emerald-900 dark:text-emerald-100">
+            <div className="font-semibold">Done.</div>
+            {done.drugs_deleted > 0 && <div>{plural(done.drugs_deleted, 'drug')} erased from the Drug List.</div>}
+            {done.drugs_kept_inactive > 0 && (
+              <div>{plural(done.drugs_kept_inactive, 'drug')} marked <b>Inactive</b> because past bills, purchases or prescriptions mention {done.drugs_kept_inactive === 1 ? 'it' : 'them'} — {done.drugs_kept_inactive === 1 ? 'it is' : 'they are'} still in the Drug List, marked Inactive.</div>
+            )}
+            <div>{plural(done.units_removed, 'unit')} of stock cleared — {plural(done.batches_deleted, 'batch', 'batches')} erased{done.batches_zeroed > 0 && <>, {plural(done.batches_zeroed, 'batch', 'batches')} set to zero (something was already sold from {done.batches_zeroed === 1 ? 'it' : 'them'})</>}.</div>
+          </div>
+          {done.backup_path && (
+            <div className="text-[12px]">
+              A complete copy of your data from just before was saved here:
+              <div className="mt-1 font-mono text-[11px] break-all rounded bg-gray-100 dark:bg-slate-800 p-2 select-all">{done.backup_path}</div>
+              If you ever need things back, this file holds them as they were.
+            </div>
+          )}
+          <div className="flex justify-end"><button className="btn-primary" onClick={onClose}>Close</button></div>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal open onClose={() => { if (!run.isPending) onClose(); }} title={everything ? 'Start fresh — clear every drug, all stock and batches?' : `Delete ${plural(ids!.length, 'drug')}?`} size="lg">
+      <div className="space-y-3 text-[13px] text-gray-700 dark:text-slate-300">
+        <p>
+          {everything
+            ? <>This clears <b>every drug</b> from your Drug List together with <b>all stock and batches</b>, so <b>Drugs in my clinic</b> becomes empty and you can begin again from a clean list.</>
+            : <>These drugs will be removed from your <b>Drug List</b>, together with their <b>stock and batches</b>.</>}
+        </p>
+        {!everything && names.length > 0 && (
+          <div className="text-[12px] rounded-lg border border-gray-200 dark:border-slate-700 p-2 max-h-24 overflow-auto">
+            {names.slice(0, 12).join(', ')}{names.length > 12 ? ` and ${names.length - 12} more` : ''}
+          </div>
+        )}
+
+        {isLoading || !p ? <div className="text-xs text-gray-500">Checking what this would remove…</div>
+          : nothing ? (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 p-3 text-emerald-800 dark:text-emerald-200">
+              There is nothing left to clear.
+            </div>
+          ) : (
+            <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-800 p-3 space-y-1.5 text-[12.5px]">
+              {p.delete_drugs > 0 && <div><b>{plural(p.delete_drugs, 'drug')}</b> will be erased from the Drug List.</div>}
+              <div>
+                <b>{plural(p.units, 'unit')}</b> of stock in <b>{plural(p.batches, 'batch', 'batches')}</b> will be removed
+                {p.units_from_purchases > 0 && <> ({p.units_from_purchases} of those came in on supplier bills — the bills and what you owe stay exactly as they are)</>}.
+              </div>
+              {p.keep_drugs > 0 && (
+                <div>
+                  <b>{plural(p.keep_drugs, 'drug')}</b> cannot be erased because past {andList([p.kept_with_sales && 'sales', p.kept_with_purchases && 'purchases', p.kept_with_prescriptions && 'prescriptions'].filter(Boolean) as string[])} mention {p.keep_drugs === 1 ? 'it' : 'them'}.
+                  {' '}{p.keep_drugs === 1 ? 'It is' : 'They are'} marked <b>Inactive</b> instead: gone from Drugs in my clinic and from the counter, still named on old bills.
+                </div>
+              )}
+              {p.batches_zeroed > 0 && (
+                <div>
+                  {plural(p.batches_zeroed, 'batch', 'batches')} had units sold or given from {p.batches_zeroed === 1 ? 'it' : 'them'}, so {p.batches_zeroed === 1 ? 'it stays' : 'they stay'} on record for the Schedule H register — set to zero and switched off, not erased.
+                </div>
+              )}
+            </div>
+          )}
+
+        <div className="text-[12px]">
+          <b>Not touched:</b> patients, appointments and bills · past pharmacy sales and the Schedule H register · supplier purchase bills and what you owe each supplier · your suppliers.
+        </div>
+        <div className="text-[12px]">A complete copy of your data is saved first. If that copy cannot be saved, nothing is cleared.</div>
+
+        {everything ? (
+          !nothing && (
+            <Field label="Type START FRESH to confirm">
+              <input className="input font-mono uppercase" autoFocus placeholder="START FRESH" value={typed} onChange={(e) => setTyped(e.target.value)} />
+            </Field>
+          )
+        ) : p && p.units > 0 ? (
+          <label className="flex items-start gap-2 text-[12px]">
+            <input type="checkbox" className="mt-0.5" checked={sure} onChange={(e) => setSure(e.target.checked)} />
+            <span>I understand the {plural(p.units, 'unit')} of stock on {ids!.length === 1 ? 'this drug' : 'these drugs'} will be removed.</span>
+          </label>
+        ) : null}
+
+        {error && <div className="text-[12px] text-red-600 dark:text-red-400" role="alert">{error}</div>}
+        <div className="flex justify-end gap-2 pt-2">
+          <button className="btn-secondary" disabled={run.isPending} onClick={onClose}>{nothing ? 'Close' : 'Cancel'}</button>
+          {!nothing && (
+            <button className="btn-danger" disabled={!ready || run.isPending} onClick={() => { setError(''); run.mutate(); }}>
+              <Trash2 className="w-4 h-4" /> {run.isPending ? 'Clearing…' : everything ? 'Clear everything' : `Delete ${plural(ids!.length, 'drug')}`}
+            </button>
+          )}
+        </div>
+      </div>
+    </Modal>
   );
 }
