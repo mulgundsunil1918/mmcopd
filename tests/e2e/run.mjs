@@ -28,6 +28,7 @@ const ZONES = {
   'supplier-pay': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   booking: ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   'counter-discount': ['Asia/Kolkata', 'America/Los_Angeles'],
+  'ward-price': ['Asia/Kolkata', 'America/Los_Angeles'],
 };
 // Suites that run once per fixture file (a database as an earlier release left it) — see tools/make-legacy-fixture.mjs.
 const FIXTURES = {

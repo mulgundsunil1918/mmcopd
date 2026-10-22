@@ -152,7 +152,8 @@ const today = localISO();
   const sale = await call('pharmacy:sell', { patient_id: p5.id, ipd_admission_id: adm3.id, items: [{ drug_master_id: drug.id, drug_name: 'Rules Syrup', qty: 1, rate: 112 }], client_ref: 'r-ipd-1' });
   const l2 = one("SELECT * FROM bill_items WHERE source='pharmacy_ipd' AND source_ref_id=?", sale.id);
   eq(l2.is_taxable, 1, 'a medicine charged to the bill from the counter carries its GST too');
-  near(l2.cgst + l2.sgst, 12, '…₹12 of it inside the ₹112');
+  eq(l2.rate, 100, '…priced at the batch selling price (₹100), not the ₹112 that was typed — a ward medicine\'s price is fixed');
+  near(l2.cgst + l2.sgst, 10.71, '…with ₹10.71 of GST inside that ₹100');
   // GST payable includes the pharmacy counter sales
   const cs = await call('pharmacy:sell', { patient_id: p5.id, items: [{ drug_master_id: drug.id, drug_name: 'Rules Syrup', qty: 1, rate: 112 }], payment_mode: 'Cash', client_ref: 'r-cs-1' });
   const bi = await call('analytics:billing', today, today);

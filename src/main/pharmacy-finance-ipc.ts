@@ -108,7 +108,7 @@ export function registerPharmacyFinanceIpc() {
       // Medicines charged on an admitted patient's bill: the sale and the bill lines are made together or not at all.
       sale = chargeMedicinesToAdmission(getDb(), payload, soldBy ?? null);
       if (!repeat) {
-        audit('pharmacy.ipd_charge', 'pharmacy_sales', sale.id, { admission: payload.ipd_admission_id, total: sale.total });
+        audit('pharmacy.ipd_charge', 'pharmacy_sales', sale.id, { admission: payload.ipd_admission_id, total: sale.total, ...(sale.repriced_lines ? { repriced_lines: sale.repriced_lines } : {}) });
         try { broadcastEvent('bill:updated', { billId: null }); } catch { /* ignore */ }
       }
     } else {

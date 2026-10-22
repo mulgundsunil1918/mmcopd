@@ -5541,7 +5541,7 @@ function BillingIpdTab() {
             value={draft.pharmacy_credit_enabled ?? false} onChange={(v) => set('pharmacy_credit_enabled', v)} />
           {has('ipd') && (
             <AccrualToggle label="Allow charging medicines to an admitted patient's bill"
-              help="At the pharmacy counter, medicines for an in-patient can be put on that stay's running bill instead of being paid for there and then. They are priced like any other sale — at the selling price of the batch they come from (its MRP when no selling price was set) — and are collected with the rest of the bill at discharge."
+              help="At the pharmacy counter, medicines for an in-patient can be put on that stay's running bill instead of being paid for there and then. They are priced at the selling price of the batch they come from (its MRP when no selling price was set) — the price is fixed by the system and cannot be typed over — and are collected with the rest of the bill at discharge."
               value={draft.pharmacy_ipd_charge_enabled ?? false} onChange={(v) => set('pharmacy_ipd_charge_enabled', v)} />
           )}
         </div>

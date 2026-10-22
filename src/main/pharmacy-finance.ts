@@ -621,6 +621,46 @@ export interface SellIn {
 }
 
 /**
+ * Medicines charged to an in-patient are priced at the SELLING price of the batch each unit comes out of — that batch's own selling price,
+ * else its MRP — and nothing a screen sends can change it (the rate it sends is ignored). A line whose units span batches with different
+ * prices becomes one line per price, in the same earliest-expiry-first order sellItems draws stock in, so every unit is priced as it is
+ * taken. (If stock is short, the remainder is left for sellItems to refuse in its usual words.) `changed` counts the lines whose rate was
+ * not the one the screen sent — worth knowing in the audit log.
+ */
+export function priceAtBatchSellingPrice(db: Database.Database, items: SellItemIn[]): { items: SellItemIn[]; changed: number } {
+  const free = new Map<number, number>();                 // units of each batch still free as this sale draws on it
+  const fetch = db.prepare(`
+    SELECT b.id, b.qty_remaining, COALESCE(b.selling_price, b.mrp) AS price
+      FROM drug_stock_batches b
+     WHERE b.drug_master_id = ? AND b.is_active = 1 AND b.qty_remaining > 0
+     ORDER BY date(b.expiry) ASC, b.received_at ASC`);
+  const out: SellItemIn[] = [];
+  let changed = 0;
+  for (const it of Array.isArray(items) ? items : []) {
+    const masterId = it.drug_master_id ?? it.drug_id ?? null;
+    const qty = Number(it.qty);
+    if (!masterId || !(qty > 0)) { out.push(it); continue; }          // sellItems reports a bad line in its own words
+    let need = qty;
+    const groups: { price: number; qty: number }[] = [];
+    for (const b of fetch.all(masterId) as { id: number; qty_remaining: number; price: number }[]) {
+      if (need <= 0) break;
+      const left = free.has(b.id) ? (free.get(b.id) as number) : b.qty_remaining;
+      const take = Math.min(need, left);
+      if (take <= 0) continue;
+      free.set(b.id, left - take);
+      const price = r2(Number(b.price) || 0);
+      const last = groups[groups.length - 1];
+      if (last && last.price === price) last.qty += take; else groups.push({ price, qty: take });
+      need -= take;
+    }
+    if (need > 0) groups.push({ price: groups.length ? groups[groups.length - 1].price : r2(Number(it.rate) || 0), qty: need });
+    if (groups.length !== 1 || Math.abs(groups[0].price - Number(it.rate)) > 0.004) changed++;
+    for (const g of groups) out.push({ ...it, qty: g.qty, rate: g.price, gst_amount: undefined });
+  }
+  return { items: out, changed };
+}
+
+/**
  * Sell the lines, drawing stock earliest-expiry-first. One line may span several batches; each slice
  * gets its own dispensing-register row carrying the batch's unit cost at that moment. Everything runs
  * in one transaction: a shortage anywhere rolls the whole sale back.

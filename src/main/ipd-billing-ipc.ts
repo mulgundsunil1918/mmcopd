@@ -23,7 +23,7 @@ import { requireModule } from './licensing/enforce';
 import { collections, outstandingTotal } from './billing-portal';
 import { addLine, recalcBill, billGstEnabled } from './bill-totals';
 import { gstContext, splitInclusive } from './gst';
-import { sellItems, type SellIn } from './pharmacy-finance';
+import { priceAtBatchSellingPrice, sellItems, type SellIn } from './pharmacy-finance';
 
 type Ok<T> = { ok: true } & T;
 type Err = { ok: false; error: string };
@@ -327,6 +327,12 @@ export function chargeMedicinesToAdmission(db: Database.Database, payload: SellI
   if (payload.credit) {
     throw new Error('A medicine charged to the in-patient bill is not a sale on credit — choose one or the other.');
   }
+  // Ward medicines are priced from the batch they come out of, so every line has to be a medicine in stock — a typed-in name has no batch to price from.
+  for (const it of Array.isArray(payload.items) ? payload.items : []) {
+    if (!(it.drug_master_id ?? it.drug_id)) {
+      throw new Error(`"${it.drug_name || 'That item'}" is not picked from your medicine list, so it cannot be priced at a batch selling price. Pick it from the list (add it to the Drug List and stock first if it is new), or take the payment now.`);
+    }
+  }
   if (adm.bill_id) {
     const b = db.prepare('SELECT status FROM bills WHERE id=?').get(adm.bill_id) as { status: string } | undefined;
     if (b?.status === 'cancelled') {
@@ -335,9 +341,14 @@ export function chargeMedicinesToAdmission(db: Database.Database, payload: SellI
   }
 
   const head = db.prepare("SELECT id FROM charge_heads WHERE category='pharmacy' AND COALESCE(is_active, 1)=1 ORDER BY id LIMIT 1").get() as { id: number } | undefined;
+  let repriced = 0;
   const tx = db.transaction(() => {
+    // The price is the batch's selling price, decided here — the rate the screen sent is not used (it cannot be typed over).
+    const priced = priceAtBatchSellingPrice(db, payload.items);
+    repriced = priced.changed;
     const sale = sellItems(db, {
       ...payload,
+      items: priced.items,
       patient_id: adm.patient_id,
       customer_name: null,
       payment_mode: 'IPD-bill',
@@ -364,7 +375,8 @@ export function chargeMedicinesToAdmission(db: Database.Database, payload: SellI
     recalcBill(db, billId, { force: true });
     return sale;
   });
-  return tx() as any;
+  const done = tx() as any;
+  return repriced ? { ...done, repriced_lines: repriced } : done;
 }
 
 // =====================================================================

@@ -584,7 +584,7 @@ function PharmacyStep({ settings, register, ipd }: { settings: any; register: Re
         help="At the counter a registered patient can take medicines and pay part now, or nothing, and the rest later. A walk-in guest can never take credit — it must be clear who owes the money." />
       {ipd && (
         <ToggleBox label="Allow charging medicines to an admitted patient's bill" checked={f.ipdCharge} onChange={(v) => setF((p: any) => ({ ...p, ipdCharge: v }))}
-          help="Medicines for an in-patient can go onto that stay's running bill and are collected with the rest of it at discharge, priced like any other sale (the batch's selling price, or its MRP when none was set)." />
+          help="Medicines for an in-patient can go onto that stay's running bill and are collected with the rest of it at discharge, priced at the batch's selling price (its MRP when none was set), a price that cannot be typed over." />
       )}
       <p className="text-[11px] text-gray-500 dark:text-slate-400">Both are off unless you tick them, and you can change them any time in Settings → Billing &amp; IPD.</p>
     </div>

@@ -217,7 +217,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
     queryFn: () => window.electronAPI.pharmacy.listDrugs({ activeOnly: true }),
   });
 
-  type Row = { drug_master_id?: number; drug_name: string; qty: number; rate: number; nextBatch?: string; nextExpiry?: string; stock?: number };
+  type Row = { drug_master_id?: number; drug_name: string; qty: number; rate: number; /** the batch's selling price the screen offered */ listRate?: number; nextBatch?: string; nextExpiry?: string; stock?: number };
   const [rows, setRows] = useState<Row[]>([]);
   const [discount, setDiscount] = useState(0);
   const [pay, setPay] = useState<PayChoice>(initialPayChoice);       // paid now / on credit / charged to the in-patient bill
@@ -242,7 +242,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
         drug_master_id: exact.id,
         drug_name: exact.name,
         qty: 1,
-        rate: defaultRate(exact),
+        rate: defaultRate(exact), listRate: defaultRate(exact),
         nextBatch: exact.batch || undefined,
         nextExpiry: exact.expiry || undefined,
         stock: exact.stock_qty ?? 0,
@@ -266,7 +266,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
             drug_master_id: match.id,
             drug_name: match.name,
             qty: 1,
-            rate: defaultRate(match),
+            rate: defaultRate(match), listRate: defaultRate(match),
             nextBatch: match.batch || undefined,
             nextExpiry: match.expiry || undefined,
             stock: match.stock_qty ?? 0,
@@ -276,7 +276,11 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
     setRows(pre);
   }, [appointment.id, rx.length, drugs.length]);
 
-  const subtotal = useMemo(() => rows.reduce((s, r) => s + r.qty * r.rate, 0), [rows]);
+  // Medicines charged to an in-patient's bill are priced at the batch's selling price: the rate is shown, not editable (the main process
+  // re-prices them anyway). A line that uses two batches is priced per batch on the bill.
+  const wardLocked = pay.how === 'ipd';
+  const priceOf = (r: Row) => (wardLocked ? (r.listRate ?? r.rate) : r.rate);
+  const subtotal = useMemo(() => rows.reduce((s, r) => s + r.qty * priceOf(r), 0), [rows, wardLocked]);
   const total = Math.max(0, subtotal - discount);
   const payBlocked = payProblem(pay, payOpts, total, discount);
   const lim = useCounterDiscountLimit(subtotal, discount);     // the signed-in role's limit on a counter discount, if the clinic set one
@@ -290,7 +294,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
           drug_master_id: r.drug_master_id,
           drug_name: r.drug_name,
           qty: r.qty,
-          rate: r.rate,
+          rate: priceOf(r),
         })),
         discount,
         ...payFields(pay, payOpts),
@@ -353,7 +357,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
                       ? {
                           drug_master_id: match.id,
                           drug_name: match.name,
-                          rate: defaultRate(match),
+                          rate: defaultRate(match), listRate: defaultRate(match),
                           nextBatch: match.batch || undefined,
                           nextExpiry: match.expiry || undefined,
                           stock: match.stock_qty ?? 0,
@@ -379,9 +383,10 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
                 <input type="number" className="input text-right" value={r.qty} onChange={(e) => setRow(idx, { qty: Number(e.target.value) })} />
               </td>
               <td className="py-1.5 px-1">
-                <input type="number" className="input text-right" value={r.rate} onChange={(e) => setRow(idx, { rate: Number(e.target.value) })} />
+                <input type="number" className={cn('input text-right', wardLocked && 'bg-gray-100 dark:bg-slate-800 cursor-not-allowed')} value={priceOf(r)} readOnly={wardLocked}
+                  title={wardLocked ? "Medicines charged to an in-patient are priced at the batch's selling price" : undefined} onChange={(e) => setRow(idx, { rate: Number(e.target.value) })} />
               </td>
-              <td className="py-1.5 px-1 text-right font-medium">{formatINR(r.qty * r.rate)}</td>
+              <td className="py-1.5 px-1 text-right font-medium">{formatINR(r.qty * priceOf(r))}</td>
               <td>
                 <button className="text-red-500 hover:text-red-700 p-1" onClick={() => setRows(rows.filter((_, i) => i !== idx))}>
                   <Trash2 className="w-4 h-4" />
@@ -404,6 +409,11 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
         </button>
       </div>
 
+      {wardLocked && (
+        <div className="mt-2 text-[11px] text-sky-700 dark:text-sky-300">
+          Charged to the in-patient bill at each batch&rsquo;s selling price — the rate can&rsquo;t be changed here. Pick every medicine from the list so it can be priced from its stock.
+        </div>
+      )}
       <div className="mt-4 grid grid-cols-2 gap-4">
         <SalePaymentChoice value={pay} onChange={setPay} options={payOpts} total={total} discount={discount} />
         <div className="card p-3 bg-gray-50 dark:bg-slate-900">
@@ -460,7 +470,7 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
     queryFn: () => window.electronAPI.pharmacy.listDrugs({ activeOnly: true }),
   });
 
-  type Row = { drug_master_id?: number; drug_name: string; qty: number; rate: number; nextBatch?: string; nextExpiry?: string; stock?: number; schedule?: DrugSchedule };
+  type Row = { drug_master_id?: number; drug_name: string; qty: number; rate: number; /** the batch's selling price the screen offered */ listRate?: number; nextBatch?: string; nextExpiry?: string; stock?: number; schedule?: DrugSchedule };
   const [rows, setRows] = useState<Row[]>([]);
   const [discount, setDiscount] = useState(0);
   const [pay, setPay] = useState<PayChoice>(initialPayChoice);       // paid now / on credit / charged to the in-patient bill
@@ -478,7 +488,11 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
     enabled: !patient && patientQuery.trim().length > 0,
   });
 
-  const subtotal = useMemo(() => rows.reduce((s, r) => s + r.qty * r.rate, 0), [rows]);
+  // Medicines charged to an in-patient's bill are priced at the batch's selling price: the rate is shown, not editable (the main process
+  // re-prices them anyway). A line that uses two batches is priced per batch on the bill.
+  const wardLocked = pay.how === 'ipd';
+  const priceOf = (r: Row) => (wardLocked ? (r.listRate ?? r.rate) : r.rate);
+  const subtotal = useMemo(() => rows.reduce((s, r) => s + r.qty * priceOf(r), 0), [rows, wardLocked]);
   const total = Math.max(0, subtotal - discount);
   const payOpts = usePayOptions(patient?.id);
   const payBlocked = payProblem(pay, payOpts, total, discount);
@@ -501,7 +515,7 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
         drug_master_id: exact.id,
         drug_name: exact.name,
         qty: 1,
-        rate: defaultRate(exact),
+        rate: defaultRate(exact), listRate: defaultRate(exact),
         nextBatch: exact.batch || undefined,
         nextExpiry: exact.expiry || undefined,
         stock: exact.stock_qty ?? 0,
@@ -521,7 +535,7 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
           drug_master_id: r.drug_master_id,
           drug_name: r.drug_name,
           qty: r.qty,
-          rate: r.rate,
+          rate: priceOf(r),
         })),
         discount,
         ...payFields(pay, payOpts),
@@ -660,7 +674,7 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
                       ? {
                           drug_master_id: match.id,
                           drug_name: match.name,
-                          rate: defaultRate(match),
+                          rate: defaultRate(match), listRate: defaultRate(match),
                           nextBatch: match.batch || undefined,
                           nextExpiry: match.expiry || undefined,
                           stock: match.stock_qty ?? 0,
@@ -682,8 +696,9 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
                 )}
               </td>
               <td className="py-1.5 px-1"><input type="number" className="input text-right" value={r.qty} onChange={(e) => setRow(idx, { qty: Number(e.target.value) })} /></td>
-              <td className="py-1.5 px-1"><input type="number" className="input text-right" value={r.rate} onChange={(e) => setRow(idx, { rate: Number(e.target.value) })} /></td>
-              <td className="py-1.5 px-1 text-right font-medium">{formatINR(r.qty * r.rate)}</td>
+              <td className="py-1.5 px-1"><input type="number" className={cn('input text-right', wardLocked && 'bg-gray-100 dark:bg-slate-800 cursor-not-allowed')} value={priceOf(r)} readOnly={wardLocked}
+                  title={wardLocked ? "Medicines charged to an in-patient are priced at the batch's selling price" : undefined} onChange={(e) => setRow(idx, { rate: Number(e.target.value) })} /></td>
+              <td className="py-1.5 px-1 text-right font-medium">{formatINR(r.qty * priceOf(r))}</td>
               <td>
                 <button className="text-red-500 hover:text-red-700 p-1" onClick={() => setRows(rows.filter((_, i) => i !== idx))}>
                   <Trash2 className="w-4 h-4" />
@@ -706,6 +721,11 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
         </button>
       </div>
 
+      {wardLocked && (
+        <div className="mt-2 text-[11px] text-sky-700 dark:text-sky-300">
+          Charged to the in-patient bill at each batch&rsquo;s selling price — the rate can&rsquo;t be changed here. Pick every medicine from the list so it can be priced from its stock.
+        </div>
+      )}
       <div className="mt-4 grid grid-cols-2 gap-4">
         <SalePaymentChoice value={pay} onChange={setPay} options={payOpts} total={total} discount={discount} />
         <div className="card p-3 bg-gray-50 dark:bg-slate-900">

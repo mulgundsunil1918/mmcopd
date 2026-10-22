@@ -167,6 +167,7 @@ old.close();
   // ---- 6. an updated clinic is not shown the first-run guide ----
   const guide = await call('setup:status');
   ok(guide.show === false, 'the first-run setup guide is NOT shown to a clinic that already has data');
+  eq(st.pharmacy_discount_caps_json, '', 'an updated clinic is NOT given counter-discount limits it never had (new installs are; an update never starts refusing a discount)');
 
   // ---- 7. day-to-day work carries on from the old data ----
   section('work carries on from where the old data left off');

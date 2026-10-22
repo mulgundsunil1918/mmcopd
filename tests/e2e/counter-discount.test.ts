@@ -25,8 +25,17 @@ const db = getDb();
   const refused = (r: any) => r.ok === false && /may give up to|Settings → Billing → Discounts/.test(r.error);
 
   // ============================================================================================================
-  section('1 · nobody has set a limit: nothing changes');
+  section('0 · a NEW install starts with sensible limits');
+  eq((await call('settings:get')).pharmacy_discount_caps_json, JSON.stringify({ pharmacist: 10, receptionist: 5 }), 'a fresh database is given pharmacist 10% and receptionist 5%');
   await call('settings:save', { require_login: true });
+  await call('auth:login', 'phil', 'pass1234');
+  ok(refused(await sell(40)), 'so on day one a pharmacist cannot give 20% (₹40 on a ₹200 sale)…');
+  ok((await sell(20)).ok, '…but 10% is fine');
+  await call('auth:logout');
+
+  // ============================================================================================================
+  section('1 · an UPDATED clinic that never set a limit keeps its freedom');
+  await call('settings:save', { pharmacy_discount_caps_json: '' });     // what an updated clinic has: the key was never written (see upgrade-legacy)
   await call('auth:login', 'phil', 'pass1234');
   ok((await sell(100)).ok, 'a pharmacist can still give 50% — no limit was ever set, so an update changes nothing');
   await call('auth:logout');
