@@ -112,9 +112,9 @@ let radItems: any[] = [];
       created_at: new Date(Date.now() - minsAgo * 60_000).toISOString(), patient_name: `${p.first_name} ${p.last_name}`, patient_uhid: p.uhid, doctor_name: d.name,
     } as any];
   };
-  mk(1, 1, 'ordered', 25, ['X-Ray Chest PA View', 'X-Ray Knee Joint'], { referred_by: 'Ramesh Kumar', clinical_info: 'Fall from stairs, right knee pain, ? fracture', paid: true });
+  mk(1, 1, 'ordered', 25, ['X-Ray Chest PA View', 'X-Ray Knee Joint'], { referred_by: 'Dr. Ramesh Kumar', clinical_info: 'Fall from stairs, right knee pain, ? fracture', paid: true });
   mk(2, 2, 'done', 90, ['USG Whole Abdomen'], { clinical_info: 'Upper abdominal pain for 3 days' });
-  mk(3, 3, 'reported', 240, ['X-Ray Chest PA View', 'USG Abdomen & Pelvis'], { referred_by: 'Meena Shetty', paid: true });
+  mk(3, 3, 'reported', 240, ['X-Ray Chest PA View', 'USG Abdomen & Pelvis'], { referred_by: 'Dr. Meena Shetty', paid: true });
   mk(4, 0, 'ordered', 10, ['CT Brain (Plain)'], { clinical_info: 'Head injury, headache, vomiting' });
 })();
 const radRow = (o: any) => {

@@ -68,7 +68,7 @@ export function BookingDoneDialog({
               {appt.doctor_name}{appt.doctor_room ? ` · Room ${appt.doctor_room}` : ''}
             </div>
             {appt.referred_by && (
-              <div className="text-[12px] text-gray-600 dark:text-slate-400 mt-0.5">Referred by <b>Dr. {appt.referred_by}</b></div>
+              <div className="text-[12px] text-gray-600 dark:text-slate-400 mt-0.5">Referral <b>{appt.referred_by}</b></div>
             )}
             {appt.patient_created_at && (
               <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">Patient registered {fmtDateTime(appt.patient_created_at)}</div>

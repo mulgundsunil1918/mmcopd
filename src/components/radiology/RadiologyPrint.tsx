@@ -71,7 +71,7 @@ export function RadiologyPrint({ orderId, onClose }: { orderId: number; onClose:
             <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Order</div>
             <div className="text-slate-700 font-medium font-mono">{order.order_number}</div>
             <div className="text-slate-600">{fmtDateTime(when)}</div>
-            {order.referred_by && <div className="text-slate-600"><b>Referred by:</b> Dr. {order.referred_by}</div>}
+            {order.referred_by && <div className="text-slate-600"><b>Referral:</b> {order.referred_by}</div>}
             {order.doctor_name && <div className="text-slate-600"><b>Consultant:</b> {order.doctor_name.startsWith('Dr') ? order.doctor_name : `Dr. ${order.doctor_name}`}</div>}
           </div>
         </div>

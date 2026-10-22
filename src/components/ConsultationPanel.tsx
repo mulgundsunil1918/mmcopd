@@ -752,7 +752,7 @@ function RadiologyOrderPicker({
         appointment_id: appointment.id,
         patient_id: appointment.patient_id,
         doctor_id: appointment.doctor_id,
-        // The referring doctor on the booking carries across on its own (the server inherits it).
+        // The referral on the booking carries across on its own (the server inherits it).
         clinical_info: info.trim() || null,
         items: Object.keys(selected).map((id) => ({ test_id: Number(id) })),
       });

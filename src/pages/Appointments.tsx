@@ -571,7 +571,7 @@ function BookAppointmentModal({
 
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
 
-  // The managed "Referred by" list (Settings → Doctors & Templates → Referring Doctors).
+  // The managed "Referral" list (Settings → Doctors & Templates → Referrals): Google, Self, Family, a doctor's name…
   const { data: referringDoctors = [] } = useQuery({
     queryKey: ['referring-doctors'],
     queryFn: () => window.electronAPI.referringDoctors.list(true),
@@ -1053,19 +1053,18 @@ function BookAppointmentModal({
           <div className="text-[10px] text-gray-500 mt-0.5">Shown to the doctor and on the OPD slip.</div>
         </div>
 
-        {/* Referred by — the outside doctor who sent this patient. Managed list in
-            Settings; prints on the OPD slip under the consulting doctor. */}
+        {/* Referral — where this patient came from (Google, Self, Family, a doctor's name…). Managed list in
+            Settings; prints on the OPD slip under the consulting doctor exactly as typed. */}
         <div>
-          <label className="label">Referred by <span className="text-gray-400 font-normal">(optional)</span></label>
+          <label className="label">Referral <span className="text-gray-400 font-normal">(optional)</span></label>
           {referredByOther ? (
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-500 dark:text-slate-400 whitespace-nowrap">Dr.</span>
               <input
                 className="input"
                 autoFocus
                 value={referredBy}
                 onChange={(e) => setReferredBy(e.target.value)}
-                placeholder="Type the referring doctor's name"
+                placeholder="Type it as it should print — Google, Self, Dr. Ramesh Kumar…"
               />
               <button
                 type="button"
@@ -1086,13 +1085,13 @@ function BookAppointmentModal({
             >
               <option value="">— none —</option>
               {referringDoctors.map((r) => (
-                <option key={r.id} value={r.name}>Dr. {r.name}{r.place ? ` · ${r.place}` : ''}</option>
+                <option key={r.id} value={r.name}>{r.name}{r.place ? ` · ${r.place}` : ''}</option>
               ))}
               <option value="__other__">Other (type a name)…</option>
             </select>
           )}
           <div className="text-[10px] text-gray-500 mt-0.5">
-            Prints on the OPD slip below the consulting doctor. Manage this list in Settings → Doctors &amp; Templates → Referring Doctors.
+            Prints on the OPD slip below the consulting doctor, exactly as written. Manage this list in Settings → Doctors &amp; Templates → Referrals.
           </div>
         </div>
 

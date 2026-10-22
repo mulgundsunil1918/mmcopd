@@ -119,7 +119,7 @@ export interface Appointment {
   referred_by: string | null;
 }
 
-/** An external doctor who refers patients to this clinic. Managed in Settings. */
+/** A referral (Google, Self, Family, an outside doctor's name…) a patient can be booked under. Free text, printed as typed. Managed in Settings → Referrals. */
 export interface ReferringDoctor {
   id: number;
   name: string;

@@ -127,10 +127,10 @@ export function NewRadiologyRequest({
             </select>
           </div>
           <div>
-            <label className="label">Referred by <span className="text-gray-400 font-normal">(optional)</span></label>
+            <label className="label">Referral <span className="text-gray-400 font-normal">(optional)</span></label>
             {referredOther ? (
               <div className="flex items-center gap-2">
-                <input className="input" autoFocus value={referredBy} onChange={(e) => setReferredBy(e.target.value)} placeholder="Doctor's name" />
+                <input className="input" autoFocus value={referredBy} onChange={(e) => setReferredBy(e.target.value)} placeholder="Google, Self, Family, a doctor's name…" />
                 <button type="button" className="text-xs text-gray-500 hover:underline whitespace-nowrap" onClick={() => { setReferredOther(false); setReferredBy(''); }}>List</button>
               </div>
             ) : (
@@ -138,7 +138,7 @@ export function NewRadiologyRequest({
                 value={referrers.some((r) => r.name === referredBy) ? referredBy : ''}
                 onChange={(e) => { if (e.target.value === '__other__') { setReferredOther(true); setReferredBy(''); } else setReferredBy(e.target.value); }}>
                 <option value="">— none —</option>
-                {referrers.map((r) => <option key={r.id} value={r.name}>Dr. {r.name}{r.place ? ` · ${r.place}` : ''}</option>)}
+                {referrers.map((r) => <option key={r.id} value={r.name}>{r.name}{r.place ? ` · ${r.place}` : ''}</option>)}
                 <option value="__other__">Other (type a name)…</option>
               </select>
             )}

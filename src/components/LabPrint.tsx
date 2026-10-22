@@ -41,7 +41,7 @@ export function LabPrint({ order, items, mode, onClose }: {
             <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Patient</div>
             <div className="font-bold text-[13px] text-slate-900">{order.patient_name || '—'}</div>
             <div className="text-slate-600">{order.patient_uhid ? <>UHID: {order.patient_uhid}</> : null}{order.doctor_name ? <> · Consultant: {order.doctor_name}</> : null}</div>
-            {order.referred_by && <div className="text-slate-600">Referred by: Dr. {order.referred_by}</div>}
+            {order.referred_by && <div className="text-slate-600">Referral: {order.referred_by}</div>}
           </div>
           <div className="text-right space-y-0.5">
             <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Order</div>

@@ -240,7 +240,7 @@ export function SettingsPage() {
               <SettingsGroup title="Doctors" subtitle="Add doctors, set their fees, signature, color tag, and slip template.">
                 <DoctorsManagement />
               </SettingsGroup>
-              <SettingsGroup title="Referring Doctors" subtitle="The outside doctors who refer patients to you. Added here, they appear in the “Referred by” list while booking an appointment and print on the OPD slip.">
+              <SettingsGroup title="Referrals" subtitle="Where your patients come from — Google, Self, Family, or the name of a referring doctor. Added here, they appear in the “Referral” list while booking an appointment and print on the OPD slip exactly as you type them.">
                 <ReferringDoctorsManager />
               </SettingsGroup>
               <SettingsGroup title="OPD Slip Body Templates" subtitle="Per-specialty sections for the consultation panel and printed slip. Edit a template, then hit Preview to see exactly how it prints — right there.">
@@ -3939,9 +3939,9 @@ function dispName(name: string | undefined): string {
 }
 
 /**
- * The outside doctors who refer patients in. A plain managed list — add / edit /
- * remove, same feel as the Doctors table but far simpler (no fees, signature or
- * color). The chosen name prints on the OPD slip and populates the "Referred by"
+ * Referrals: where patients come from — Google, Self, Family, an outside doctor's name… A plain managed
+ * list (add / edit / remove). Names are free text and print exactly as typed (no "Dr." is added); type
+ * "Dr. Ramesh Kumar" when it is a doctor. The chosen one prints on the OPD slip and populates the "Referral"
  * dropdown when booking an appointment.
  */
 function ReferringDoctorsManager() {
@@ -3963,13 +3963,13 @@ function ReferringDoctorsManager() {
   const saveMut = useMutation({
     mutationFn: (d: Partial<ReferringDoctor>) =>
       d.id ? window.electronAPI.referringDoctors.update(d.id, d) : window.electronAPI.referringDoctors.create(d),
-    onSuccess: () => { refresh(); toast('Referring doctor saved'); setEditing(null); },
+    onSuccess: () => { refresh(); toast('Referral saved'); setEditing(null); },
     onError: (e: any) => toast(e?.message || 'Could not save', 'error'),
   });
 
   const delMut = useMutation({
     mutationFn: (id: number) => window.electronAPI.referringDoctors.delete(id),
-    onSuccess: () => { refresh(); toast('Referring doctor removed'); setConfirmDel(null); },
+    onSuccess: () => { refresh(); toast('Referral removed'); setConfirmDel(null); },
     onError: (e: any) => toast(e?.message || 'Could not remove', 'error'),
   });
 
@@ -3984,22 +3984,22 @@ function ReferringDoctorsManager() {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <UserIcon className="w-4 h-4 text-blue-600" />
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Referring Doctors</h2>
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Referrals</h2>
         </div>
         <button className="btn-primary" onClick={() => setEditing({ is_active: 1 })}>
-          <Plus className="w-4 h-4" /> Add Referring Doctor
+          <Plus className="w-4 h-4" /> Add Referral
         </button>
       </div>
 
       {list.length === 0 ? (
         <p className="text-[13px] text-gray-500 dark:text-slate-400 py-2">
-          No referring doctors yet. Add the outside doctors who send you patients — they’ll appear in the “Referred by” list while booking an appointment, and print on the OPD slip.
+          No referrals yet. Add where your patients come from — Google, Self, Family, a doctor who sends you patients — and they’ll appear in the “Referral” list while booking an appointment, and print on the OPD slip exactly as typed.
         </p>
       ) : (
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left border-b border-gray-200 dark:border-slate-700 text-xs uppercase text-gray-500 dark:text-slate-400">
-              <th className="py-2 px-2">Name</th>
+              <th className="py-2 px-2">Referral</th>
               <th className="py-2 px-2">Qualification</th>
               <th className="py-2 px-2">Place / Clinic</th>
               <th className="py-2 px-2 w-32">Phone</th>
@@ -4010,7 +4010,7 @@ function ReferringDoctorsManager() {
           <tbody>
             {list.map((d) => (
               <tr key={d.id} className="border-b border-gray-100 dark:border-slate-800">
-                <td className="py-2 px-2 font-medium text-gray-900 dark:text-slate-100">Dr. {d.name}</td>
+                <td className="py-2 px-2 font-medium text-gray-900 dark:text-slate-100">{d.name}</td>
                 <td className="py-2 px-2 text-gray-600 dark:text-slate-300">{d.qualification || '—'}</td>
                 <td className="py-2 px-2 text-gray-600 dark:text-slate-300">{d.place || '—'}</td>
                 <td className="py-2 px-2 text-gray-600 dark:text-slate-300">{d.phone || '—'}</td>
@@ -4026,7 +4026,7 @@ function ReferringDoctorsManager() {
                   <button
                     className="text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 inline-flex items-center gap-1 px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20"
                     onClick={() => setConfirmDel(d)}
-                    title="Remove this referring doctor"
+                    title="Remove this referral"
                   >
                     <Trash2 className="w-3.5 h-3.5" /> Remove
                   </button>
@@ -4037,15 +4037,15 @@ function ReferringDoctorsManager() {
         </table>
       )}
 
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? 'Edit Referring Doctor' : 'Add Referring Doctor'} size="md">
+      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? 'Edit Referral' : 'Add Referral'} size="md">
         {editing && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Name *">
-                <input className="input" autoFocus value={editing.name || ''} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="e.g. Ramesh Kumar" />
+              <Field label="Referral *">
+                <input className="input" autoFocus value={editing.name || ''} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="e.g. Google, Self, Family, Dr. Ramesh Kumar" />
               </Field>
               <Field label="Qualification">
-                <input className="input" value={editing.qualification || ''} onChange={(e) => setEditing({ ...editing, qualification: e.target.value })} placeholder="e.g. MBBS, MD" />
+                <input className="input" value={editing.qualification || ''} onChange={(e) => setEditing({ ...editing, qualification: e.target.value })} placeholder="Optional — for a doctor, e.g. MBBS, MD" />
               </Field>
               <Field label="Place / Clinic">
                 <input className="input" value={editing.place || ''} onChange={(e) => setEditing({ ...editing, place: e.target.value })} placeholder="e.g. City Clinic, Hubli" />
@@ -4056,7 +4056,7 @@ function ReferringDoctorsManager() {
             </div>
             <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300">
               <input type="checkbox" checked={editing.is_active !== 0} onChange={(e) => setEditing({ ...editing, is_active: e.target.checked ? 1 : 0 })} />
-              Active (show in the “Referred by” list)
+              Active (show in the “Referral” list)
             </label>
             <div className="flex justify-end gap-2 pt-1">
               <button className="btn-secondary" onClick={() => setEditing(null)}>Cancel</button>
@@ -4068,11 +4068,11 @@ function ReferringDoctorsManager() {
         )}
       </Modal>
 
-      <Modal open={!!confirmDel} onClose={() => setConfirmDel(null)} title="Remove referring doctor?" size="sm">
+      <Modal open={!!confirmDel} onClose={() => setConfirmDel(null)} title="Remove referral?" size="sm">
         {confirmDel && (
           <div className="space-y-4">
             <p className="text-[13px] text-gray-600 dark:text-slate-300">
-              Remove <b>Dr. {confirmDel.name}</b> from the referring-doctor list? Appointments already booked with this referral keep their printed “Referred by” line — only the pick-list entry is removed.
+              Remove <b>{confirmDel.name}</b> from the Referral list? Appointments already booked with this referral keep their printed “Referral” line — only the pick-list entry is removed.
             </p>
             <div className="flex justify-end gap-2">
               <button className="btn-secondary" onClick={() => setConfirmDel(null)}>Cancel</button>

@@ -518,6 +518,30 @@ function repairMojibakeSettings(db: Database.Database) {
   } catch { /* settings table absent on a very old db */ }
 }
 
+/**
+ * Referral names used to be stored WITHOUT "Dr." and shown / printed with it added in front. The Referrals list is now free text
+ * (Google, Self, Family, a doctor's name…) and prints exactly as typed, so the "Dr. " the old screens added is written into the stored
+ * names ONCE — what an existing clinic sees and prints stays word for word the same. A name that already starts with "Dr" is left alone.
+ * Guarded by a settings flag, so a referral typed later ("Google") is never touched.
+ */
+function bakeDrIntoReferrals(db: Database.Database) {
+  try {
+    if (db.prepare("SELECT 1 FROM settings WHERE key='referral_names_as_typed'").get()) return;
+    db.transaction(() => {
+      for (const [table, col] of [['referring_doctors', 'name'], ['appointments', 'referred_by'], ['radiology_orders', 'referred_by']]) {
+        try {
+          db.prepare(
+            `UPDATE ${table} SET ${col} = 'Dr. ' || TRIM(${col})
+              WHERE ${col} IS NOT NULL AND TRIM(${col}) <> ''
+                AND LOWER(TRIM(${col})) NOT LIKE 'dr %' AND LOWER(TRIM(${col})) NOT LIKE 'dr. %'`
+          ).run();
+        } catch { /* a very old file without this table or column: nothing to convert */ }
+      }
+      db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('referral_names_as_typed', '1')").run();
+    })();
+  } catch { /* settings table absent on a very old db */ }
+}
+
 /** Fill a setting only if it is currently missing OR empty. Never overwrites a user's value. */
 function setSettingIfEmpty(db: Database.Database, key: string, value: string) {
   const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key) as { value: string } | undefined;
@@ -636,6 +660,7 @@ export function runMigrations(db: Database.Database) {
   migrateBillItemsFromJson(db);
   repairZeroedBillTotals(db);   // undo totals zeroed by the preview path (see above)
   repairMojibakeSettings(db);   // drop "�"-corrupted values so clean defaults return
+  bakeDrIntoReferrals(db);      // referral names are free text now: keep what existing clinics see by writing the old "Dr. " into them once
   seedDefaultChargeHeads(db);
 
   // Free follow-up policy: every paid visit grants N free follow-up visits within X days

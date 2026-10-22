@@ -44,7 +44,7 @@ export function PatientRadiology({ patientId }: { patientId: number }) {
                 </div>
                 <div className="text-[11px] text-gray-500 dark:text-slate-400">
                   <span className="font-mono">{o.order_number}</span> · {fmtDate(o.ordered_at)}
-                  {o.referred_by ? ` · Ref. Dr. ${o.referred_by}` : ''}
+                  {o.referred_by ? ` · Referral: ${o.referred_by}` : ''}
                   {o.bill_id && Number(o.bill_total) > 0 ? ` · ${formatINR(Number(o.bill_total))}` : ''}
                 </div>
               </div>

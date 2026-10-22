@@ -780,9 +780,9 @@ export function registerIpc() {
     return db.prepare('SELECT * FROM doctors WHERE id=?').get(info.lastInsertRowid);
   });
 
-  // ===== Referring (external) doctors — the managed list behind the
-  // "Referred by" field on an appointment. Added/edited in Settings like the
-  // consulting-doctor list, but these are outside doctors referring patients in. =====
+  // ===== Referrals — the managed list behind the "Referral" field on an appointment: Google, Self, Family, an outside
+  // doctor's name… Free text that prints exactly as typed (no "Dr." is added). Added/edited in Settings. =====
+  // (The table is still called referring_doctors — it began as a list of outside doctors.)
   ipcMain.handle('referringDoctors:list', (_e, activeOnly = true) => {
     return getDb()
       .prepare(`SELECT * FROM referring_doctors ${activeOnly ? 'WHERE is_active=1' : ''} ORDER BY name COLLATE NOCASE`)
@@ -791,7 +791,7 @@ export function registerIpc() {
   ipcMain.handle('referringDoctors:create', (_e, d: { name: string; qualification?: string | null; place?: string | null; phone?: string | null }) => {
     const db = getDb();
     const name = String(d?.name || '').trim();
-    if (!name) throw new Error('Referring doctor name is required.');
+    if (!name) throw new Error('Referral name is required.');
     const info = db
       .prepare('INSERT INTO referring_doctors (name, qualification, place, phone, is_active) VALUES (?, ?, ?, ?, 1)')
       .run(name, d.qualification?.trim() || null, d.place?.trim() || null, d.phone?.trim() || null);
@@ -800,7 +800,7 @@ export function registerIpc() {
   ipcMain.handle('referringDoctors:update', (_e, id: number, d: { name?: string; qualification?: string | null; place?: string | null; phone?: string | null; is_active?: number }) => {
     const db = getDb();
     const name = d.name !== undefined ? String(d.name).trim() : undefined;
-    if (name !== undefined && !name) throw new Error('Referring doctor name is required.');
+    if (name !== undefined && !name) throw new Error('Referral name is required.');
     db.prepare(
       'UPDATE referring_doctors SET name=COALESCE(?,name), qualification=?, place=?, phone=?, is_active=COALESCE(?,is_active) WHERE id=?'
     ).run(name ?? null, d.qualification?.trim() || null, d.place?.trim() || null, d.phone?.trim() || null, d.is_active ?? null, id);

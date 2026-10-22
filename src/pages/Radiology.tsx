@@ -290,7 +290,7 @@ function OrderDetail({ orderId, onChanged }: { orderId: number; onChanged: () =>
             {o.patient_uhid}{ageSex ? ` · ${ageSex}` : ''}{o.patient_phone ? ` · ☎ ${o.patient_phone}` : ''}
           </div>
           <div className="text-[12px] text-gray-600 dark:text-slate-300 mt-0.5">
-            {o.referred_by ? <>Referred by <b>Dr. {o.referred_by}</b></> : <span className="text-gray-400">No referring doctor</span>}
+            {o.referred_by ? <>Referral <b>{o.referred_by}</b></> : <span className="text-gray-400">No referral</span>}
             {o.doctor_name ? <> · Consultant <b>{o.doctor_name}</b></> : null}
           </div>
           {o.clinical_info && <div className="text-[12px] text-gray-600 dark:text-slate-300 mt-1 italic">“{o.clinical_info}”</div>}

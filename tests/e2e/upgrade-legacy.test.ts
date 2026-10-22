@@ -19,6 +19,7 @@ import zlib from 'node:zlib';
 import Database from 'better-sqlite3';
 import { SCHEMA_VERSION } from '../../src/db/schema';
 import { cleanForWhatsApp } from '../../src/lib/messageText';
+import { legacyReferralName } from '../../src/lib/referral';
 import { ok, eq, near, section, finish, note } from './lib';
 
 const root = fs.existsSync(path.join(process.cwd(), 'tests', 'e2e')) ? process.cwd() : path.resolve(__dirname, '..');
@@ -39,6 +40,10 @@ const COMPATIBLE_CHANGES: Record<string, (before: any, after: any, row: Record<s
   // the bill's total so the bill stays "paid" instead of reading as owed (migrations.ts, "One-time repair of old counter bills").
   'bills.amount_paid': (b, a, row) => Number(b) === 0 && row.paid_at != null && Number(a) === Number(row.total),
   // New default OPD-slip templates are APPENDED; the clinic's own templates must stay exactly as they were.
+  // Referral names are free text now: the "Dr. " the old screens used to add in front of a stored name is written into it once (db/migrations bakeDrIntoReferrals).
+  'referring_doctors.name': (b, a) => typeof b === 'string' && a === legacyReferralName(b),
+  'appointments.referred_by': (b, a) => typeof b === 'string' && a === legacyReferralName(b),
+  'radiology_orders.referred_by': (b, a) => typeof b === 'string' && a === legacyReferralName(b),
   'settings.value': (b, a, row) => {
     // A saved WhatsApp message keeps its wording but loses its emoji (they reached WhatsApp as "?"; see lib/messageText).
     if (/whatsapp.*template|template.*whatsapp/i.test(row.key)) return a === cleanForWhatsApp(b);
@@ -127,7 +132,7 @@ old.close();
       }
     }
   }
-  note(`${Object.keys(before).length} tables, ${rowsChecked} rows, ${cellsChecked} values compared${tolerated ? ` — ${tolerated} changed only in the permitted ways (counters raised, default slip templates appended, old desk-paid bills marked paid in full, WhatsApp wording kept but emoji removed)` : ''}`);
+  note(`${Object.keys(before).length} tables, ${rowsChecked} rows, ${cellsChecked} values compared${tolerated ? ` — ${tolerated} changed only in the permitted ways (counters raised, default slip templates appended, old desk-paid bills marked paid in full, WhatsApp wording kept but emoji removed, referral names carrying the "Dr." the old screens added)` : ''}`);
   ok(lost.length === 0, `no table, column or row was lost${lost.length ? `: ${lost.slice(0, 8).join('; ')}` : ''}`);
   ok(changed.length === 0, `no existing value was rewritten${changed.length ? `: ${changed.slice(0, 8).join('; ')}` : ''}`);
   eq(one('PRAGMA integrity_check')['integrity_check'], 'ok', 'the database passes the integrity check');

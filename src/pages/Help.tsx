@@ -91,7 +91,10 @@ const TOPICS: Topic[] = [
           <Step n={3}>The patient appears in that doctor's queue instantly — on their cabin PC too, if you run multiple computers.</Step>
           <Step n={4}>Print the OPD slip for the patient to carry in.</Step>
         </ol>
-        <div className="mt-2"><Tip>Status colours tell you the queue at a glance: waiting, in consultation, done. The doctor updates it as they work — reception never has to ask.</Tip></div>
+        <div className="mt-2 space-y-2">
+          <Tip>Status colours tell you the queue at a glance: waiting, in consultation, done. The doctor updates it as they work — reception never has to ask.</Tip>
+          <Tip><b>Referral.</b> Say where the patient came from — <i>Google</i>, <i>Self</i>, <i>Family</i>, or a doctor's name. Build the list in <Path>Settings → Doctors &amp; Templates → Referrals</Path>; it prints on the OPD slip exactly as you typed it (type <i>Dr. Ramesh Kumar</i> when it is a doctor — no &ldquo;Dr.&rdquo; is added for you).</Tip>
+        </div>
       </>
     ),
   },
@@ -152,7 +155,7 @@ const TOPICS: Topic[] = [
   },
   {
     id: 'radiology', icon: ScanLine, title: 'Radiology — X-Ray, ultrasound, CT & MRI', tag: 'Modules',
-    keywords: 'radiology xray x-ray usg ultrasound ct mri scan report findings impression referring doctor bill',
+    keywords: 'radiology xray x-ray usg ultrasound ct mri scan report findings impression referring doctor referral bill',
     body: (
       <>
         <ol className="space-y-2">

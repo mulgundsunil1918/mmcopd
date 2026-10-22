@@ -552,8 +552,8 @@ function DoctorPatientBlocks({ appointment, doctor, regDate }: { appointment: Ap
         {doctor.registration_no && <div className="text-[13px]" style={{ color: '#64748b' }}>Reg: {doctor.registration_no}</div>}
         {appointment.referred_by && (
           <div className="text-[12px] mt-1 pt-1 border-t border-gray-200">
-            <span className="uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Referred by</span>{' '}
-            <span className="font-semibold" style={{ color: '#0f172a' }}>Dr. {appointment.referred_by}</span>
+            <span className="uppercase tracking-wider font-semibold" style={{ color: '#64748b' }}>Referral</span>{' '}
+            <span className="font-semibold" style={{ color: '#0f172a' }}>{appointment.referred_by}</span>
           </div>
         )}
       </div>
