@@ -32,6 +32,7 @@ import type {
   DrugStockBatch,
   ClinicStockRow,
   SupplierSummaryRow,
+  PaySupplierResult,
   DispensingRow,
   IpAdmission,
   LabOrder,
@@ -230,6 +231,22 @@ const api = {
       referred_by?: string | null;
       status?: AppointmentStatus;
     }) => ipcRenderer.invoke('appointments:create', payload) as Promise<AppointmentWithJoins>,
+    /**
+     * Book a visit AND raise its bill as ONE all-or-nothing step: if the bill is refused (or anything else fails), no visit is left behind
+     * and no token / visit number is used up. Replaces calling create() and then bills.create().
+     */
+    createWithBill: (payload: {
+      appointment: {
+        patient_id: number; doctor_id: number; appointment_date: string; appointment_time: string;
+        notes?: string | null; referred_by?: string | null; status?: AppointmentStatus;
+        patient_group?: string | null; procedure_tags?: string | null;
+      };
+      bill: {
+        items: BillItem[]; discount: number; discount_type: 'flat' | 'percent'; payment_mode: PaymentMode;
+        discount_reason?: string | null; is_free_followup?: number; is_relaxed_followup?: number;
+        followup_parent_appt_id?: number | null; marks_registration_fee_paid?: number;
+      };
+    }) => ipcRenderer.invoke('appointments:createWithBill', payload) as Promise<{ appointment: AppointmentWithJoins; bill: BillWithJoins }>,
     list: (filter: { date?: string; doctor_id?: number; status?: AppointmentStatus }) =>
       ipcRenderer.invoke('appointments:list', filter) as Promise<AppointmentWithJoins[]>,
     updateStatus: (id: number, status: AppointmentStatus) =>
@@ -458,6 +475,11 @@ const api = {
     /** Record money paid to the supplier against a bill. */
     addPayment: (invoiceId: number, payment: PurchasePaymentInput) =>
       ipcRenderer.invoke('purchase:addPayment', invoiceId, payment) as Promise<PurchaseResult>,
+    /** Pay a supplier once: the amount settles their unpaid bills oldest-first (or only the bills named), never more than is owed. */
+    paySupplier: (payment: {
+      wholesaler_id: number; amount: number; invoice_ids?: number[] | null; mode?: string | null; paid_on?: string | null;
+      reference?: string | null; notes?: string | null; client_ref?: string | null;
+    }) => ipcRenderer.invoke('purchase:paySupplier', payment) as Promise<PaySupplierResult>,
   },
   dispensing: {
     register: (filter: { from: string; to: string; schedule?: string }) =>

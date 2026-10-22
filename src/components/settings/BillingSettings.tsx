@@ -5,6 +5,7 @@ import { Plus, Loader2, Info } from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
 import { cn } from '../../lib/utils';
 import { NumberInput } from '../NumberInput';
+import { COUNTER_DISCOUNT_ROLES, parseCounterCaps } from '../../lib/discountLimit';
 import type { Settings } from '../../types';
 
 /**
@@ -322,6 +323,16 @@ function DiscountSettings({
     set('discount_caps_json', JSON.stringify(next));
   };
 
+  // The pharmacy counter has its own limits. Here a role with no number is NOT limited (the counter has never been limited before).
+  const counter = parseCounterCaps(draft.pharmacy_discount_caps_json) ?? {};
+  const setCounterCap = (role: string, raw: string) => {
+    const next = { ...counter };
+    const n = Number(raw);
+    if (raw.trim() === '' || !Number.isFinite(n)) delete next[role];
+    else next[role] = Math.max(0, Math.min(100, n));
+    set('pharmacy_discount_caps_json', Object.keys(next).length ? JSON.stringify(next) : '');
+  };
+
   return (
     <div className="card p-5 space-y-4">
       <div>
@@ -346,6 +357,26 @@ function DiscountSettings({
         Set a role to 0 to stop it discounting at all. Admin is usually 100 (no limit). These are percentages of the
         bill; a flat-rupee discount is checked against the same limit.
       </Explain>
+
+      <div className="pt-3 border-t border-gray-100 dark:border-slate-800 space-y-2">
+        <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">At the pharmacy counter</div>
+        <Explain>
+          The most each role may take off a <b>medicine sale</b> at the pharmacy counter, as a percent of the sale. A discount above the
+          limit is refused with a message. <b>Leave a role blank for no limit</b> (how the counter has always worked). It follows the
+          person who is signed in, so turn on <b>Require sign-in</b> in Settings → Access for it to know who is selling. Administrators
+          are never limited.
+        </Explain>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+          {COUNTER_DISCOUNT_ROLES.map((role) => (
+            <div key={role} className="flex items-center gap-3">
+              <div className="w-32 text-[13px] text-gray-900 dark:text-slate-100 capitalize">{role.replace('_', ' ')}</div>
+              <input type="number" min={0} max={100} step="0.5" className="input w-24" placeholder="no limit"
+                value={counter[role] ?? ''} onChange={(e) => setCounterCap(role, e.target.value)} />
+              <span className="text-[12px] text-gray-500">% maximum</span>
+            </div>
+          ))}
+        </div>
+      </div>
 
       <label className="flex items-start gap-3 cursor-pointer pt-2 border-t border-gray-100 dark:border-slate-800">
         <input type="checkbox" className="mt-1" checked={draft.discount_require_reason ?? true}

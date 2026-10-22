@@ -41,6 +41,7 @@ import {
   type DrugProfitRow, type IntegrityFinding, type PriceHistoryRow, type ProfitReport, type ProfitTotals,
   type StockBucket, type SupplierReport, type Valuation,
 } from '../lib/pharmacyReports';
+import { capPaise } from '../lib/discountLimit';
 export type { CounterSalesFilter, CounterSalesResult, CounterSaleRow, CostNotRecordedSummary } from '../lib/pharmacyReports';
 
 // ---------------------------------------------------------------------------------------------
@@ -353,6 +354,93 @@ export function recordPayment(db: Database.Database, invoiceId: number, p: Payme
   return { payment_id: tx(), invoice_id: inv.id, duplicate: false };
 }
 
+export interface SupplierPaymentIn {
+  wholesaler_id: number;
+  /** Rupees to pay this supplier. It is shared over their unpaid bills OLDEST FIRST (by invoice date, then the order entered). */
+  amount: number;
+  /** Optional: pay only these bills (still oldest first) instead of every unpaid bill of the supplier. */
+  invoice_ids?: number[] | null;
+  mode?: string | null;
+  paid_on?: string | null;
+  reference?: string | null;
+  notes?: string | null;
+  /** One per attempt. Each bill's payment is stored as `${client_ref}#${invoice_id}`, so a repeat of the same attempt pays nothing twice. */
+  client_ref?: string | null;
+}
+
+export interface SupplierPaymentResult {
+  duplicate: boolean;
+  wholesaler_id: number;
+  supplier: string;
+  paid: number;
+  allocations: { invoice_id: number; invoice_number: string; amount: number; cleared: boolean }[];
+  /** What is still owed to this supplier afterwards (bills whose payments are on record). */
+  owed_after: number;
+}
+
+/**
+ * Pay a supplier once and let the money settle their bills oldest-first. Every bill gets its own payment row through the SAME rule as
+ * paying one bill (recordPayment): never more than the bill still owes, one all-or-nothing step. A bill marked "part-paid" before payments
+ * were tracked has no recorded amount, so it cannot be settled from here — it is left alone and the caller says so; it is entered on the
+ * bill itself. A retried attempt (same client_ref) reports what it paid and pays nothing again.
+ */
+export function paySupplier(db: Database.Database, p: SupplierPaymentIn, by?: string | null): SupplierPaymentResult {
+  const wid = Number(p?.wholesaler_id);
+  const sup = db.prepare('SELECT id, name FROM wholesalers WHERE id=?').get(wid) as { id: number; name: string } | undefined;
+  if (!sup) throw new Error('That wholesaler was not found.');
+  const owedAfter = () => (supplierSummary(db).find((r) => r.wholesaler_id === wid)?.owed ?? 0);
+
+  const ref = clean(p?.client_ref);
+  if (ref) {
+    const esc = ref.replace(/[\\%_]/g, (c) => `\\${c}`);
+    const prior = db.prepare(
+      `SELECT pp.invoice_id, pi.invoice_number, pp.amount FROM purchase_payments pp JOIN purchase_invoices pi ON pi.id = pp.invoice_id
+        WHERE pp.client_ref LIKE ? ESCAPE '\\' ORDER BY pp.id`,
+    ).all(`${esc}#%`) as { invoice_id: number; invoice_number: string; amount: number }[];
+    if (prior.length) {
+      return {
+        duplicate: true, wholesaler_id: wid, supplier: sup.name,
+        paid: fromPaise(prior.reduce((s, x) => s + toPaise(x.amount), 0)),
+        allocations: prior.map((x) => ({ invoice_id: x.invoice_id, invoice_number: x.invoice_number, amount: x.amount, cleared: false })),
+        owed_after: owedAfter(),
+      };
+    }
+  }
+
+  const amountP = toPaise(p?.amount);
+  if (!(amountP > 0)) throw new Error('Enter the amount to pay (more than ₹0).');
+  const only = Array.isArray(p.invoice_ids) && p.invoice_ids.length ? new Set(p.invoice_ids.map(Number)) : null;
+  const bills = db.prepare(
+    'SELECT id, invoice_number, total, amount_paid FROM purchase_invoices WHERE wholesaler_id = ? ORDER BY date(invoice_date), id',
+  ).all(wid) as { id: number; invoice_number: string; total: number; amount_paid: number | null }[];
+  if (only) for (const id of only) if (!bills.some((b) => b.id === id)) throw new Error('One of the bills you chose is not a bill from this supplier.');
+  const open = bills
+    .filter((b) => b.amount_paid !== null && toPaise(b.total) - toPaise(b.amount_paid) > 0 && (!only || only.has(b.id)))
+    .map((b) => ({ ...b, owedP: toPaise(b.total) - toPaise(b.amount_paid as number) }));
+  const owedP = open.reduce((s, b) => s + b.owedP, 0);
+  if (owedP <= 0) throw new Error(`Nothing is owed to ${sup.name} on ${only ? 'the bills you chose' : 'bills whose payments are recorded'}.`);
+  if (amountP > owedP) {
+    throw new Error(`A payment of ${rupees(fromPaise(amountP))} is more than the ${rupees(fromPaise(owedP))} owed to ${sup.name} on ${only ? 'the bills you chose' : 'their unpaid bills'}.`);
+  }
+
+  const paidOn = isIsoDate(p.paid_on) ? p.paid_on : localISO();
+  const allocations: SupplierPaymentResult['allocations'] = [];
+  db.transaction(() => {
+    let left = amountP;
+    for (const b of open) {
+      if (left <= 0) break;
+      const payP = Math.min(b.owedP, left);
+      recordPayment(db, b.id, {
+        amount: fromPaise(payP), mode: p.mode ?? null, paid_on: paidOn, reference: p.reference ?? null, notes: p.notes ?? null,
+        client_ref: ref ? `${ref}#${b.id}` : null,
+      }, by);
+      allocations.push({ invoice_id: b.id, invoice_number: b.invoice_number, amount: fromPaise(payP), cleared: payP === b.owedP });
+      left -= payP;
+    }
+  })();
+  return { duplicate: false, wholesaler_id: wid, supplier: sup.name, paid: fromPaise(amountP), allocations, owed_after: owedAfter() };
+}
+
 export interface PurchaseListFilter {
   from?: string;
   to?: string;
@@ -524,6 +612,12 @@ export interface SellIn {
   /** Medicines for an admitted patient, charged on that stay's in-patient bill instead of being paid for at the counter.
    *  Handled by chargeMedicinesToAdmission (ipd-billing-ipc.ts); sellItems itself only knows the resulting 'IPD-bill' mode. */
   ipd_admission_id?: number | null;
+  /**
+   * The most, as a percent of the sale, the person making it may discount (their role's limit — Settings → Billing → Discounts
+   * → "At the pharmacy counter"). SET BY THE MAIN PROCESS from the signed-in user; whatever a screen sends here is overwritten.
+   * null / undefined = no limit applies.
+   */
+  max_discount_pct?: number | null;
 }
 
 /**
@@ -551,6 +645,16 @@ export function sellItems(db: Database.Database, payload: SellIn, now: Date = ne
   const discountP = toPaise(payload.discount ?? 0);
   if (discountP < 0) throw new Error('The discount cannot be negative.');
   if (discountP > subtotalP) throw new Error(`The discount (${rupees(fromPaise(discountP))}) is more than the bill value (${rupees(fromPaise(subtotalP))}).`);
+  if (payload.max_discount_pct !== null && payload.max_discount_pct !== undefined && Number.isFinite(Number(payload.max_discount_pct))) {
+    const pct = Math.max(0, Math.min(100, Number(payload.max_discount_pct)));
+    const limitP = capPaise(subtotalP, pct);
+    if (discountP > limitP) {
+      throw new Error(
+        `Your role may give up to ${pct}% off at the pharmacy counter — ${rupees(fromPaise(limitP))} on this ${rupees(fromPaise(subtotalP))} sale. ` +
+        `The discount here is ${rupees(fromPaise(discountP))}. Ask a manager or administrator to give the larger discount, or raise the limit in Settings → Billing → Discounts.`,
+      );
+    }
+  }
   const discountShare = allocatePaise(discountP, amountsP);
 
   // Look up the prescribing doctor + an Rx reference once, for the register.

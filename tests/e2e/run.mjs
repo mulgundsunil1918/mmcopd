@@ -25,6 +25,9 @@ const ZONES = {
   'upgrade-legacy': ['Asia/Kolkata', 'America/Los_Angeles'],
   // Expiry windows are worked out on the PC's own calendar day: a PC far behind UTC and one far ahead are the hard cases.
   'pharmacy-tabs': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
+  'supplier-pay': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
+  booking: ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
+  'counter-discount': ['Asia/Kolkata', 'America/Los_Angeles'],
 };
 // Suites that run once per fixture file (a database as an earlier release left it) — see tools/make-legacy-fixture.mjs.
 const FIXTURES = {

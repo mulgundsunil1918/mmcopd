@@ -324,6 +324,26 @@ export function createMockElectronAPI(): any {
         appointments = [...appointments, created];
         return r(buildAppointmentRow(created));
       },
+      // Book the visit AND raise its bill in one step (the real one is all-or-nothing in a single transaction).
+      createWithBill: (payload: any) => {
+        const id = nextId(appointments);
+        const appt: any = {
+          id, ...payload.appointment,
+          token_number: appointments.filter((a) => a.appointment_date === payload.appointment.appointment_date).length + 1,
+          consultation_token: null, status: 'Done', created_at: new Date().toISOString(),
+        };
+        appointments = [...appointments, appt];
+        const bid = nextId(bills);
+        const total = (payload.bill.items || []).reduce((s: number, it: any) => s + (it.amount || 0), 0);
+        const pt: any = patients.find((p: any) => p.id === appt.patient_id);
+        const bill: any = {
+          id: bid, bill_number: `BL-${String(bid).padStart(4, '0')}`, ...payload.bill, appointment_id: id, patient_id: appt.patient_id,
+          subtotal: total, total, items_json: JSON.stringify(payload.bill.items || []),
+          patient_name: pt ? `${pt.first_name} ${pt.last_name}` : undefined, patient_uhid: pt?.uhid, created_at: new Date().toISOString(),
+        };
+        bills = [...bills, bill];
+        return r({ appointment: buildAppointmentRow(appt), bill });
+      },
       get: (id: number) => {
         const a = appointments.find((x) => x.id === id);
         return r(a ? buildAppointmentRow(a) : undefined);
@@ -676,6 +696,31 @@ export function createMockElectronAPI(): any {
       get: (id: number) => r(purchaseStore.get(id) as any),
       create: (payload: any) => r(purchaseStore.create(payload) as any),
       addPayment: (id: number, p: any) => r(purchaseStore.addPayment(id, p) as any),
+      // One payment to a supplier, applied to their unpaid bills oldest-first (same split as main/pharmacy-finance.ts paySupplier).
+      paySupplier: (p: any) => {
+        const sup = wholesalers.find((w) => w.id === p.wholesaler_id);
+        if (!sup) return r({ ok: false as const, error: 'That wholesaler was not found.' });
+        const want = Math.round(Number(p.amount) * 100);
+        if (!(want > 0)) return r({ ok: false as const, error: 'Enter the amount to pay (more than ₹0).' });
+        const only: number[] | null = Array.isArray(p.invoice_ids) && p.invoice_ids.length ? p.invoice_ids : null;
+        const open = purchaseStore.all()
+          .filter((x) => x.wholesaler_id === p.wholesaler_id && (x.outstanding ?? 0) > 0.004 && (!only || only.includes(x.id)))
+          .sort((a, b) => (a.invoice_date < b.invoice_date ? -1 : a.invoice_date > b.invoice_date ? 1 : a.id - b.id));
+        const owed = open.reduce((s, x) => s + Math.round((x.outstanding ?? 0) * 100), 0);
+        if (want > owed) return r({ ok: false as const, error: `A payment of ₹${(want / 100).toFixed(2)} is more than the ₹${(owed / 100).toFixed(2)} owed to ${sup.name} on their unpaid bills.` });
+        let left = want;
+        const allocations: { invoice_id: number; invoice_number: string; amount: number; cleared: boolean }[] = [];
+        for (const inv of open) {
+          if (left <= 0) break;
+          const owe = Math.round((inv.outstanding ?? 0) * 100);
+          const pay = Math.min(owe, left);
+          purchaseStore.addPayment(inv.id, { amount: pay / 100, mode: p.mode, paid_on: p.paid_on, reference: p.reference });
+          allocations.push({ invoice_id: inv.id, invoice_number: inv.invoice_number, amount: pay / 100, cleared: pay === owe });
+          left -= pay;
+        }
+        const owedAfter = purchaseStore.all().filter((x) => x.wholesaler_id === p.wholesaler_id).reduce((s, x) => s + Math.max(0, x.outstanding ?? 0), 0);
+        return r({ ok: true as const, duplicate: false, wholesaler_id: sup.id, supplier: sup.name, paid: want / 100, allocations, owed_after: Math.round(owedAfter * 100) / 100 });
+      },
       attachScan: () => r({ ok: true }),
     },
     dispensing: { register: () => r(dispensing) },

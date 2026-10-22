@@ -19,6 +19,7 @@ import { WholesalersTab } from '../components/pharmacy/WholesalersTab';
 import { ReportsTab } from '../components/pharmacy/ReportsTab';
 import { DrugEditModal, DRUG_QUERY_KEYS } from '../components/pharmacy/DrugEditModal';
 import { ScheduleBadge, daysAgo } from '../components/pharmacy/shared';
+import { useCounterDiscountLimit } from '../components/pharmacy/useDiscountLimit';
 import { PharmacySaleReceipt } from '../components/pharmacy/PharmacySaleReceipt';
 import { CollectPaymentModal } from '../components/billing/CollectPaymentModal';
 import {
@@ -278,6 +279,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
   const subtotal = useMemo(() => rows.reduce((s, r) => s + r.qty * r.rate, 0), [rows]);
   const total = Math.max(0, subtotal - discount);
   const payBlocked = payProblem(pay, payOpts, total, discount);
+  const lim = useCounterDiscountLimit(subtotal, discount);     // the signed-in role's limit on a counter discount, if the clinic set one
 
   const sell = useMutation({
     mutationFn: () => {
@@ -407,8 +409,13 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
         <div className="card p-3 bg-gray-50 dark:bg-slate-900">
           <div className="flex justify-between text-xs"><span>Subtotal</span><span>{formatINR(subtotal)}</span></div>
           <div className="flex justify-between text-xs items-center"><span>Discount</span>
-            <input type="number" className="input w-24 text-right py-1" value={discount} onChange={(e) => setDiscount(Number(e.target.value))} />
+            <input type="number" className={cn('input w-24 text-right py-1', lim.over && 'border-red-400 focus:ring-red-300')} value={discount} onChange={(e) => setDiscount(Number(e.target.value))} />
           </div>
+          {lim.pct != null && (
+            <div className={cn('text-[10px] text-right', lim.over ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-gray-500 dark:text-slate-400')}>
+              {lim.over ? `More than your limit (${lim.pct}% = ${formatINR(lim.maxAmount as number)}) — ask a manager.` : `Your limit: ${lim.pct}% (up to ${formatINR(lim.maxAmount as number)})`}
+            </div>
+          )}
           <div className="flex justify-between text-sm font-bold pt-2 border-t border-gray-300 dark:border-slate-700 mt-1">
             <span>Total</span><span className="text-blue-700 dark:text-blue-300">{formatINR(total)}</span>
           </div>
@@ -416,7 +423,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
       </div>
 
       <div className="flex justify-end gap-2 mt-4">
-        <button className="btn-success" onClick={() => sell.mutate()} disabled={sell.isPending || rows.length === 0 || !!payBlocked}>
+        <button className="btn-success" onClick={() => sell.mutate()} disabled={sell.isPending || rows.length === 0 || !!payBlocked || lim.over}>
           {sell.isPending ? 'Dispensing…' : pay.how === 'ipd' ? 'Dispense (FEFO) & add to IPD bill' : pay.how === 'credit' ? 'Dispense (FEFO) on credit' : 'Dispense (FEFO) & Charge'}
         </button>
       </div>
@@ -475,6 +482,7 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
   const total = Math.max(0, subtotal - discount);
   const payOpts = usePayOptions(patient?.id);
   const payBlocked = payProblem(pay, payOpts, total, discount);
+  const lim = useCounterDiscountLimit(subtotal, discount);     // the signed-in role's limit on a counter discount, if the clinic set one
 
   const setRow = (idx: number, patch: Partial<Row>) =>
     setRows((r) => { const n = [...r]; n[idx] = { ...n[idx], ...patch }; return n; });
@@ -703,8 +711,13 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
         <div className="card p-3 bg-gray-50 dark:bg-slate-900">
           <div className="flex justify-between text-xs"><span>Subtotal</span><span>{formatINR(subtotal)}</span></div>
           <div className="flex justify-between text-xs items-center"><span>Discount</span>
-            <input type="number" className="input w-24 text-right py-1" value={discount} onChange={(e) => setDiscount(Number(e.target.value))} />
+            <input type="number" className={cn('input w-24 text-right py-1', lim.over && 'border-red-400 focus:ring-red-300')} value={discount} onChange={(e) => setDiscount(Number(e.target.value))} />
           </div>
+          {lim.pct != null && (
+            <div className={cn('text-[10px] text-right', lim.over ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-gray-500 dark:text-slate-400')}>
+              {lim.over ? `More than your limit (${lim.pct}% = ${formatINR(lim.maxAmount as number)}) — ask a manager.` : `Your limit: ${lim.pct}% (up to ${formatINR(lim.maxAmount as number)})`}
+            </div>
+          )}
           <div className="flex justify-between text-sm font-bold pt-2 border-t border-gray-300 dark:border-slate-700 mt-1">
             <span>Total</span><span className="text-emerald-700 dark:text-emerald-300">{formatINR(total)}</span>
           </div>
@@ -713,7 +726,7 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
 
       <div className="flex justify-end gap-2 mt-4">
         <button className="btn-secondary" onClick={onDone}>Cancel</button>
-        <button className="btn-success" onClick={() => sell.mutate()} disabled={sell.isPending || rows.length === 0 || !!payBlocked}>
+        <button className="btn-success" onClick={() => sell.mutate()} disabled={sell.isPending || rows.length === 0 || !!payBlocked || lim.over}>
           {sell.isPending ? 'Recording…' : pay.how === 'ipd' ? 'Record Sale & add to IPD bill' : pay.how === 'credit' ? 'Record Sale on credit' : 'Record Sale & Charge'}
         </button>
       </div>

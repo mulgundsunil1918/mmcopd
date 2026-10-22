@@ -195,7 +195,7 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
 
   return (
     <>
-    <Modal open onClose={() => { if (newDrugFor === null) onClose(); }} title="New Purchase Bill" size="full">
+    <Modal open onClose={() => { if (newDrugFor === null) onClose(); }} title="New Purchase Bill" size="2xl">
       <div className="space-y-4">
         {/* Header */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -220,93 +220,82 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
               <Plus className="w-3.5 h-3.5" /> Add line
             </button>
           </div>
-          <div className="overflow-x-auto">
-            {/* Wide enough that every box can show what is typed (they used to be squeezed to a few pixels); it scrolls sideways instead. */}
-            <table className="w-full text-xs min-w-[1480px]">
-              <thead>
-                <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
-                  <th className="py-2 min-w-[200px]">Drug</th>
-                  <th className="py-2 min-w-[96px]">Batch *</th>
-                  <th className="py-2 min-w-[112px]">Mfg</th>
-                  <th className="py-2 min-w-[120px]">Expiry *</th>
-                  <th className="py-2 min-w-[80px] text-right">Qty</th>
-                  <th className="py-2 min-w-[80px] text-right" title="Free / scheme units received on top">Free</th>
-                  <th className="py-2 min-w-[104px] text-right" title="Supplier's rate per paid unit, before discount and GST">Buy ₹</th>
-                  <th className="py-2 min-w-[80px] text-right" title="Trade discount on this line">Disc %</th>
-                  <th className="py-2 min-w-[104px] text-right" title="Printed on the pack">MRP ₹</th>
-                  <th className="py-2 min-w-[104px] text-right" title="What you will charge. Blank = sell at MRP">Sell ₹</th>
-                  <th className="py-2 min-w-[84px] text-right">GST%</th>
-                  <th className="py-2 min-w-[100px]">Mfg. Lic.</th>
-                  <th className="py-2 min-w-[100px] text-right" title="Value of the line after discount, before GST">Line ₹</th>
-                  <th className="py-2 min-w-[112px] text-right" title="True cost of one unit: free units, discount, freight and unclaimable GST included">Cost / unit</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {lines.map((l, idx) => {
-                  const r = lineResult.get(l);
-                  const price = l.selling_price ?? l.mrp;
-                  const net = gstCharged && l.gst_rate > 0 ? price / (1 + l.gst_rate / 100) : price;
-                  const m = r && r.unit_cost > 0 && price > 0 ? profitMetrics(net, r.unit_cost) : null;
-                  return (
-                    <tr key={idx} className="border-b border-gray-100 dark:border-slate-800 align-top">
-                      <td className="py-1 pr-1">
-                        <select className="input" value={l.drug_master_id ?? ''} onChange={(e) => {
-                          if (e.target.value === '__new__') { setNewDrugFor(idx); return; }     // not in the list: add it to the Drug List first
-                          const dm = drugs.find((d) => d.id === Number(e.target.value));
-                          setLine(idx, {
-                            drug_master_id: dm ? dm.id : null,
-                            drug_name: dm?.name,
-                            mrp: l.mrp || (dm?.default_mrp ?? 0),
-                            gst_rate: dm ? dm.gst_rate : l.gst_rate,
-                          });
-                        }}>
-                          <option value="__new__">＋ Add this drug to the Drug List…</option>
-                          <option value="">— Pick drug —</option>
-                          {drugs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                        </select>
-                      </td>
-                      <td className="py-1 px-1"><input className="input font-mono" value={l.batch_no} onChange={(e) => setLine(idx, { batch_no: e.target.value })} /></td>
-                      <td className="py-1 px-1"><input type="month" className="input" value={l.manufacture_date} onChange={(e) => setLine(idx, { manufacture_date: e.target.value })} /></td>
-                      <td className="py-1 px-1"><input type="date" className="input" value={l.expiry} onChange={(e) => setLine(idx, { expiry: e.target.value })} /></td>
-                      <td className="py-1 px-1"><input type="number" min={0} onFocus={selectAll} className="input text-right px-2 min-w-[76px]" value={l.qty_received} onChange={(e) => setLine(idx, { qty_received: Number(e.target.value) })} /></td>
-                      <td className="py-1 px-1"><input type="number" min={0} onFocus={selectAll} className="input text-right px-2 min-w-[76px]" value={l.free_qty} onChange={(e) => setLine(idx, { free_qty: Number(e.target.value) })} /></td>
-                      <td className="py-1 px-1">
-                        <input type="number" min={0} step="0.01" onFocus={selectAll} className="input text-right px-2 min-w-[104px]" value={l.purchase_price} onChange={(e) => setLine(idx, { purchase_price: Number(e.target.value) })} />
-                        <LastRateHint drugId={l.drug_master_id} rate={l.purchase_price} />
-                      </td>
-                      <td className="py-1 px-1"><input type="number" min={0} max={100} step="0.01" onFocus={selectAll} className="input text-right px-2 min-w-[76px]" value={l.disc_pct} onChange={(e) => setLine(idx, { disc_pct: Number(e.target.value) })} /></td>
-                      <td className="py-1 px-1"><input type="number" min={0} step="0.01" onFocus={selectAll} className="input text-right px-2 min-w-[104px]" value={l.mrp} onChange={(e) => setLine(idx, { mrp: Number(e.target.value) })} /></td>
-                      <td className="py-1 px-1"><input type="number" min={0} step="0.01" onFocus={selectAll} className="input text-right px-2 min-w-[104px]" placeholder="= MRP" value={l.selling_price ?? ''} onChange={(e) => setLine(idx, { selling_price: e.target.value === '' ? null : Number(e.target.value) })} /></td>
-                      <td className="py-1 px-1">
-                        <select className="input px-2 min-w-[80px]" value={l.gst_rate} onChange={(e) => setLine(idx, { gst_rate: Number(e.target.value) })}>
-                          {[0, 5, 12, 18, 28].map((g) => <option key={g} value={g}>{g}</option>)}
-                        </select>
-                      </td>
-                      <td className="py-1 px-1"><input className="input font-mono text-[10px]" value={l.manufacturer_license_no} onChange={(e) => setLine(idx, { manufacturer_license_no: e.target.value })} /></td>
-                      <td className="py-1 px-1 text-right font-semibold pt-2.5">{formatINR(r?.taxable ?? 0)}</td>
-                      <td className="py-1 px-1 text-right pt-2">
-                        {r && r.units > 0 ? (
-                          <>
-                            <div className="font-semibold">{formatINR(r.unit_cost)}</div>
-                            {m && m.marginPct !== null && (
-                              <div className={cn('text-[10px]', m.marginPct < 0 ? 'text-red-600 dark:text-red-400 font-semibold' : m.marginPct < 10 ? 'text-amber-700 dark:text-amber-300' : 'text-gray-500 dark:text-slate-400')}>
-                                margin {m.marginPct.toFixed(1)}%
-                              </div>
-                            )}
-                          </>
-                        ) : <span className="text-gray-400">—</span>}
-                      </td>
-                      <td>
-                        <button className="text-red-500 p-1" onClick={() => setLines(lines.length > 1 ? lines.filter((_, i) => i !== idx) : [blankLine()])}>
-                          <X className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          {/* One card per line — two rows that wrap on a narrow screen, so nothing ever scrolls sideways. Row 1 says WHAT arrived (and
+              shows the result: the line value and what a unit really cost); row 2 is the quantities and money, in the order they are typed. */}
+          <div className="space-y-3">
+            {lines.map((l, idx) => {
+              const r = lineResult.get(l);
+              const price = l.selling_price ?? l.mrp;
+              const net = gstCharged && l.gst_rate > 0 ? price / (1 + l.gst_rate / 100) : price;
+              const m = r && r.unit_cost > 0 && price > 0 ? profitMetrics(net, r.unit_cost) : null;
+              return (
+                <div key={idx} className="rounded-lg border border-gray-200 dark:border-slate-700 p-3 space-y-2">
+                  <div className="flex gap-3 flex-wrap items-end">
+                    <div className="w-5 pb-2.5 text-[11px] font-bold text-gray-400" title={`Line ${idx + 1}`}>{idx + 1}</div>
+                    <div className="flex-1 min-w-[220px]">
+                      <label className="label">Drug</label>
+                      <select className="input" value={l.drug_master_id ?? ''} onChange={(e) => {
+                        if (e.target.value === '__new__') { setNewDrugFor(idx); return; }     // not in the list: add it to the Drug List first
+                        const dm = drugs.find((d) => d.id === Number(e.target.value));
+                        setLine(idx, {
+                          drug_master_id: dm ? dm.id : null,
+                          drug_name: dm?.name,
+                          mrp: l.mrp || (dm?.default_mrp ?? 0),
+                          gst_rate: dm ? dm.gst_rate : l.gst_rate,
+                        });
+                      }}>
+                        <option value="__new__">＋ Add this drug to the Drug List…</option>
+                        <option value="">— Pick drug —</option>
+                        {drugs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="w-32"><label className="label">Batch *</label><input className="input font-mono" value={l.batch_no} onChange={(e) => setLine(idx, { batch_no: e.target.value })} /></div>
+                    <div className="w-40"><label className="label">Mfg</label><input type="month" className="input" value={l.manufacture_date} onChange={(e) => setLine(idx, { manufacture_date: e.target.value })} /></div>
+                    <div className="w-44"><label className="label">Expiry *</label><input type="date" className="input" value={l.expiry} onChange={(e) => setLine(idx, { expiry: e.target.value })} /></div>
+                    <div className="w-24 text-right" title="Value of the line after discount, before GST">
+                      <div className="label">Line ₹</div>
+                      <div className="font-semibold text-sm py-1.5">{formatINR(r?.taxable ?? 0)}</div>
+                    </div>
+                    <div className="w-28 text-right" title="True cost of one unit: free units, discount, freight and unclaimable GST included">
+                      <div className="label">Cost / unit</div>
+                      {r && r.units > 0 ? (
+                        <>
+                          <div className="font-semibold text-sm leading-tight pt-1.5">{formatINR(r.unit_cost)}</div>
+                          {m && m.marginPct !== null && (
+                            <div className={cn('text-[10px] leading-tight', m.marginPct < 0 ? 'text-red-600 dark:text-red-400 font-semibold' : m.marginPct < 10 ? 'text-amber-700 dark:text-amber-300' : 'text-gray-500 dark:text-slate-400')}>
+                              margin {m.marginPct.toFixed(1)}%
+                            </div>
+                          )}
+                        </>
+                      ) : <div className="text-gray-400 py-1.5">—</div>}
+                    </div>
+                    <button className="text-red-500 p-1 mb-1.5" tabIndex={-1} title="Remove this line" aria-label={`Remove line ${idx + 1}`}
+                      onClick={() => setLines(lines.length > 1 ? lines.filter((_, i) => i !== idx) : [blankLine()])}>
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="flex gap-3 flex-wrap items-start pl-8">
+                    <div className="w-24"><label className="label">Qty</label><input type="number" min={0} onFocus={selectAll} className="input text-right px-2" value={l.qty_received} onChange={(e) => setLine(idx, { qty_received: Number(e.target.value) })} /></div>
+                    <div className="w-24"><label className="label" title="Free / scheme units received on top">Free</label><input type="number" min={0} onFocus={selectAll} className="input text-right px-2" value={l.free_qty} onChange={(e) => setLine(idx, { free_qty: Number(e.target.value) })} /></div>
+                    <div className="w-32">
+                      <label className="label" title="Supplier's rate per paid unit, before discount and GST">Buy ₹</label>
+                      <input type="number" min={0} step="0.01" onFocus={selectAll} className="input text-right px-2" value={l.purchase_price} onChange={(e) => setLine(idx, { purchase_price: Number(e.target.value) })} />
+                      <LastRateHint drugId={l.drug_master_id} rate={l.purchase_price} />
+                    </div>
+                    <div className="w-24"><label className="label" title="Trade discount on this line">Disc %</label><input type="number" min={0} max={100} step="0.01" onFocus={selectAll} className="input text-right px-2" value={l.disc_pct} onChange={(e) => setLine(idx, { disc_pct: Number(e.target.value) })} /></div>
+                    <div className="w-32"><label className="label" title="Printed on the pack">MRP ₹</label><input type="number" min={0} step="0.01" onFocus={selectAll} className="input text-right px-2" value={l.mrp} onChange={(e) => setLine(idx, { mrp: Number(e.target.value) })} /></div>
+                    <div className="w-32"><label className="label" title="What you will charge. Blank = sell at MRP">Sell ₹</label><input type="number" min={0} step="0.01" onFocus={selectAll} className="input text-right px-2" placeholder="= MRP" value={l.selling_price ?? ''} onChange={(e) => setLine(idx, { selling_price: e.target.value === '' ? null : Number(e.target.value) })} /></div>
+                    <div className="w-24">
+                      <label className="label">GST %</label>
+                      <select className="input px-2" value={l.gst_rate} onChange={(e) => setLine(idx, { gst_rate: Number(e.target.value) })}>
+                        {[0, 5, 12, 18, 28].map((g) => <option key={g} value={g}>{g}</option>)}
+                      </select>
+                    </div>
+                    <div className="w-44"><label className="label">Mfg. Lic.</label><input className="input font-mono text-[11px]" value={l.manufacturer_license_no} onChange={(e) => setLine(idx, { manufacturer_license_no: e.target.value })} /></div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
           <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-1">
             Cost / unit = (value after discount + freight{claimable ? '' : ' + GST'}) ÷ all units received, free ones included.

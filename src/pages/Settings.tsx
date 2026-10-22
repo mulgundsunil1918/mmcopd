@@ -5504,7 +5504,7 @@ function BillingIpdTab() {
   const { draft, set, reset, dirty, saving, save } = useSectionDraft(settings, [
     'gst_enabled', 'gst_registration_type', 'clinic_gstin', 'clinic_legal_name', 'clinic_state_code',
     'healthcare_gst_exempt', 'invoice_prefix', 'ip_number_prefix', 'bill_round_off',
-    'discount_caps_json', 'discount_require_reason',
+    'discount_caps_json', 'discount_require_reason', 'pharmacy_discount_caps_json',
     'ipd_auto_accrue_bed', 'ipd_auto_accrue_nursing', 'ipd_auto_accrue_doctor_visit',
     'ipd_doctor_visit_mode', 'ipd_transfer_charge_rule', 'ipd_accrual_time', 'ipd_advance_enabled',
     'tpa_enabled', 'ipd_admission_requests_enabled', 'discharge_summary_enabled', 'lab_auto_bill', 'radiology_auto_bill',
@@ -5541,7 +5541,7 @@ function BillingIpdTab() {
             value={draft.pharmacy_credit_enabled ?? false} onChange={(v) => set('pharmacy_credit_enabled', v)} />
           {has('ipd') && (
             <AccrualToggle label="Allow charging medicines to an admitted patient's bill"
-              help="At the pharmacy counter, medicines for an in-patient can be put on that stay's running bill instead of being paid for there and then. They are priced at the same MRP as any other sale and are collected with the rest of the bill at discharge."
+              help="At the pharmacy counter, medicines for an in-patient can be put on that stay's running bill instead of being paid for there and then. They are priced like any other sale — at the selling price of the batch they come from (its MRP when no selling price was set) — and are collected with the rest of the bill at discharge."
               value={draft.pharmacy_ipd_charge_enabled ?? false} onChange={(v) => set('pharmacy_ipd_charge_enabled', v)} />
           )}
         </div>

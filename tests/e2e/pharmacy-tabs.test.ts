@@ -150,5 +150,23 @@ import { ok, eq, near, section, finish } from './lib';
   near(after.owed, money(before - 150), 'the supplier now shows ₹150 less owed');
   eq(after.bills, w1.bills, '…and the same number of bills');
 
+  // ============================================================================================================
+  section('3 · the price a sale starts from — and so a medicine charged to a ward — is the batch\'s SELLING price');
+  const P = await mk('Tab Price 7', { default_mrp: 100 });
+  const pp = await call('purchase:create', {
+    client_ref: 'tabs-price', invoice_number: 'T-PRICE', wholesaler_id: sup1.id, invoice_date: today,
+    items: [
+      { drug_master_id: P.id, batch_no: 'P-EARLY', expiry: day(120), qty_received: 5, purchase_price: 60, mrp: 100, selling_price: 90 },
+      { drug_master_id: P.id, batch_no: 'P-LATE', expiry: day(400), qty_received: 5, purchase_price: 60, mrp: 100 },
+    ],
+  });
+  ok(pp.ok, 'two batches: the earlier one sells at ₹90 (MRP ₹100), the later one at its MRP');
+  const offered = async () => (await call('pharmacy:listDrugs', { activeOnly: true })).find((d: any) => d.id === P.id);
+  eq((await offered()).next_selling_price, 90, "the rate a counter sale or a ward charge starts from is the next batch's selling price (₹90), not the MRP");
+  eq((await offered()).next_mrp, 100, '…while the printed MRP stays ₹100');
+  const sold = await call('pharmacy:sell', { client_ref: 'tabs-price-sale', items: [{ drug_master_id: P.id, drug_name: P.name, qty: 5, rate: 90 }], payment_mode: 'Cash' });
+  eq(sold.total, 450, 'the earlier batch is sold out at ₹90 each');
+  eq((await offered()).next_selling_price, 100, 'once it is gone, the next batch (no selling price set) offers its MRP, ₹100');
+
   finish();
 })().catch((e) => { console.error('SUITE CRASHED', e); process.exit(1); });

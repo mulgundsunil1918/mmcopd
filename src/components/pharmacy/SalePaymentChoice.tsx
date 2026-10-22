@@ -168,7 +168,7 @@ export function SalePaymentChoice({ value, onChange, options, total, discount, a
         <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/70 dark:bg-blue-900/20 p-2.5 text-[11px] text-blue-900 dark:text-blue-200">
           Goes onto the running bill of <b>{admission.admission_number}</b>
           {admission.ward ? ` · ${admission.ward}` : ''}{admission.bed_number ? ` · bed ${admission.bed_number}` : ''}. No money is taken now — it is
-          collected with the rest of the in-patient bill. Priced at the same MRP as any other sale.
+          collected with the rest of the in-patient bill. Priced like any other sale: the selling price of the batch it comes from (its MRP when none was set).
         </div>
       )}
 

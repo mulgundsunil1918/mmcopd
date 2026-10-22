@@ -898,8 +898,31 @@ export function registerIpc() {
     }
   );
 
-  ipcMain.handle('appointments:create', (_e, payload: Omit<Appointment, 'id' | 'created_at' | 'token_number' | 'consultation_token' | 'status'> & { status?: AppointmentStatus }) => {
-    const db = getDb();
+  // ===== Booking a visit — and, in ONE all-or-nothing step, its bill =====
+  type AppointmentCreateIn = Omit<Appointment, 'id' | 'created_at' | 'token_number' | 'consultation_token' | 'status'> & { status?: AppointmentStatus };
+  type BillCreateIn = {
+    appointment_id: number | null;
+    patient_id: number;
+    items: BillItem[];
+    discount: number;
+    discount_type: 'flat' | 'percent';
+    payment_mode: PaymentMode;
+    // Follow-up flags — set by the booking modal when the consultation is waived
+    // because the patient is inside their free-follow-up window or got a courtesy grant.
+    is_free_followup?: number;
+    is_relaxed_followup?: number;
+    followup_parent_appt_id?: number | null;
+    // 1 = the bill INCLUDES a registration-fee line item; flips the patient flag.
+    marks_registration_fee_paid?: number;
+    discount_reason?: string | null;
+  };
+
+  /**
+   * Everything a booking writes to the database: the guards (doctor's hours, double booking), the clinic-wide token, the visit number, the row,
+   * and the confirmation / doctor-alert log lines. Throws before writing anything if a guard refuses. Shared by appointments:create and
+   * appointments:createWithBill, so a visit and its bill can be one step. The live "queue +1" event is NOT sent from here — see announceBooking.
+   */
+  const insertAppointment = (db: Database.Database, payload: AppointmentCreateIn): AppointmentWithJoins => {
 
     // === Guard 1: doctor's daily availability window ===
     // If the doctor has available_from / available_to set (HH:MM strings),
@@ -994,9 +1017,18 @@ export function registerIpc() {
     notif.sendAppointmentConfirmation(patientRow, created, doctor, settings.clinic_name);
     notif.sendDoctorAlert(doctor, created, patientRow);
 
-    // Live event so doctor cabin "queue +1" + reception list refresh instantly.
+    return created;
+  };
+  /** After the booking is safely saved: tell the other screens (doctor cabin "queue +1", reception list). */
+  const announceBooking = (created: AppointmentWithJoins) => {
     try { broadcastNetworkEvent('appointment:new', { id: created.id, doctor_id: created.doctor_id, token_number: created.token_number, patient_name: created.patient_name }); } catch { /* ignore */ }
 
+  };
+
+  ipcMain.handle('appointments:create', (_e, payload: AppointmentCreateIn) => {
+    const db = getDb();
+    const created = db.transaction(() => insertAppointment(db, payload))();   // the visit and its log lines are saved together or not at all
+    announceBooking(created);
     return created;
   });
 
@@ -1084,131 +1116,134 @@ export function registerIpc() {
   });
 
   // ===== Bills =====
-  ipcMain.handle(
-    'bills:create',
-    (
-      _e,
-      payload: {
-        appointment_id: number | null;
-        patient_id: number;
-        items: BillItem[];
-        discount: number;
-        discount_type: 'flat' | 'percent';
-        payment_mode: PaymentMode;
-        // Follow-up flags — set by the booking modal when the consultation is waived
-        // because the patient is inside their free-follow-up window or got a courtesy grant.
-        is_free_followup?: number;
-        is_relaxed_followup?: number;
-        followup_parent_appt_id?: number | null;
-        // 1 = the bill INCLUDES a registration-fee line item; flips the patient flag.
-        marks_registration_fee_paid?: number;
-      }
-    ) => {
-      const db = getDb();
-      if (!Array.isArray(payload.items) || payload.items.length === 0) throw new Error('Add at least one line to the bill before saving.');
-      if (!payload.patient_id || !db.prepare('SELECT id FROM patients WHERE id=?').get(payload.patient_id)) {
-        throw new Error('That patient was not found — pick the patient for this bill.');
-      }
-      // Whole, sensible lines only: a negative or non-numeric amount would silently change what the patient owes.
-      const lineItems = payload.items.map((it: any, i: number) => {
-        const qty = Number(it.qty ?? 1);
-        const amt = it.amount !== undefined && it.amount !== null ? Number(it.amount) : qty * Number(it.rate ?? 0);
-        if (!Number.isFinite(qty) || qty <= 0) throw new Error(`Line ${i + 1}: the quantity must be above zero.`);
-        if (!Number.isFinite(amt) || amt < 0 || amt > 100_000_000) throw new Error(`Line ${i + 1}: the amount cannot be negative or enormous.`);
-        const rate = Number.isFinite(Number(it.rate)) ? Number(it.rate) : amt / qty;
-        return { description: String(it.description ?? '').trim() || 'Item', qty, rate: money(rate), amount: money(amt) };
-      });
-      const subtotal = money(lineItems.reduce((s2, it) => s2 + it.amount, 0));
-      const discountIn = Number(payload.discount ?? 0);
-      if (!Number.isFinite(discountIn) || discountIn < 0) throw new Error('The discount cannot be negative.');
-      if (payload.discount_type === 'percent' ? discountIn > 100 : discountIn > subtotal + 0.001) {
-        throw new Error('The discount is more than the bill.');
-      }
-      const itemsJson = JSON.stringify(lineItems);
-
-      // The same charge sent twice (a double-click, or a retry after a reply was lost) must be ONE bill.
-      // Two bills would count the consultation twice in every report and ask the patient to pay twice. Anything
-      // identical — same patient, visit, lines, discount and payment mode — within the last two minutes is the
-      // same request; a genuine second charge later (or with different lines) is unaffected.
-      const dupe = db.prepare(
-        `SELECT id FROM bills
-          WHERE patient_id = ? AND appointment_id IS ? AND items_json = ? AND discount = ? AND payment_mode = ?
-            AND COALESCE(status,'') <> 'cancelled' AND created_at >= datetime('now', '-120 seconds')
-          ORDER BY id DESC LIMIT 1`
-      ).get(payload.patient_id, payload.appointment_id ?? null, itemsJson, discountIn, payload.payment_mode) as { id: number } | undefined;
-
-      let billId = dupe ? dupe.id : 0;
-      if (!dupe) {
-        const billNumber = generateBillNumber();
-        // Bill, its lines, the registration flag and the appointment status move together or not at all.
-        db.transaction(() => {
-          const info = db
-            .prepare(
-              `INSERT INTO bills (bill_number, appointment_id, patient_id, items_json, subtotal, discount, discount_type, total, payment_mode, paid_at, amount_paid, status, is_free_followup, is_relaxed_followup, followup_parent_appt_id, discount_by, discount_reason)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0, 'paid', ?, ?, ?, ?, ?)`
-            )
-            .run(
-              billNumber,
-              payload.appointment_id,
-              payload.patient_id,
-              itemsJson,
-              subtotal,
-              discountIn,
-              payload.discount_type === 'percent' ? 'percent' : 'flat',
-              payload.payment_mode,
-              new Date().toISOString(),
-              payload.is_free_followup ? 1 : 0,
-              payload.is_relaxed_followup ? 1 : 0,
-              payload.followup_parent_appt_id ?? null,
-              discountIn > 0 ? (actor()?.username ?? null) : null,
-              discountIn > 0 ? (String((payload as any).discount_reason ?? '').trim().slice(0, 120) || null) : null
-            );
-          billId = Number(info.lastInsertRowid);
-
-          // Real line rows as well as items_json — see the note in misc:create.
-          const insLine = db.prepare(
-            `INSERT INTO bill_items (bill_id, description, qty, rate, amount, is_taxable, gst_rate, hsn_sac, source)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'opd')`
-          );
-          // Consultation and procedures follow the clinical rule (exempt unless a charge head says otherwise).
-          const opdTax = clinicalLineTax(db, null);
-          for (const it of lineItems) {
-            insLine.run(billId, it.description, it.qty, it.rate, it.amount, opdTax.is_taxable ? 1 : 0, opdTax.gst_rate, opdTax.hsn_sac);
-          }
-          // Totalled by the same engine as every other bill (discount, GST, round-off), then settled at the counter:
-          // what is received is exactly the total, so the bill can never read as owing after it is printed.
-          const t = recalcBill(db, billId, { force: true });
-          db.prepare('UPDATE bills SET amount_paid=? WHERE id=?').run(t.total, billId);
-
-          if (payload.marks_registration_fee_paid) {
-            db.prepare("UPDATE patients SET registration_fee_paid=1, registration_fee_paid_at=date('now', 'localtime') WHERE id=?")
-              .run(payload.patient_id);
-          }
-
-          if (payload.appointment_id) {
-            db.prepare("UPDATE appointments SET status='Done' WHERE id=?").run(payload.appointment_id);
-          }
-        })();
-      }
-
-      const billResult = db
-        .prepare(
-          `SELECT b.*,
-             (p.first_name || ' ' || p.last_name) as patient_name,
-             p.uhid as patient_uhid,
-             d.name as doctor_name,
-             p.phone as patient_phone
-           FROM bills b
-           JOIN patients p ON p.id=b.patient_id
-           LEFT JOIN appointments a ON a.id=b.appointment_id
-           LEFT JOIN doctors d ON d.id=a.doctor_id
-           WHERE b.id=?`
-        )
-        .get(billId) as any;
-
-      return billResult;
+  /**
+   * Everything a bill for a visit (or any patient) writes: validation, the same-charge-twice guard, the bill, its lines, the registration-fee
+   * flag and the visit's status — in one transaction. Returns the saved bill with its patient / doctor names. Shared by bills:create and
+   * appointments:createWithBill.
+   */
+  const insertBill = (db: Database.Database, payload: BillCreateIn) => {
+    if (!Array.isArray(payload.items) || payload.items.length === 0) throw new Error('Add at least one line to the bill before saving.');
+    if (!payload.patient_id || !db.prepare('SELECT id FROM patients WHERE id=?').get(payload.patient_id)) {
+      throw new Error('That patient was not found — pick the patient for this bill.');
     }
-  );
+    // Whole, sensible lines only: a negative or non-numeric amount would silently change what the patient owes.
+    const lineItems = payload.items.map((it: any, i: number) => {
+      const qty = Number(it.qty ?? 1);
+      const amt = it.amount !== undefined && it.amount !== null ? Number(it.amount) : qty * Number(it.rate ?? 0);
+      if (!Number.isFinite(qty) || qty <= 0) throw new Error(`Line ${i + 1}: the quantity must be above zero.`);
+      if (!Number.isFinite(amt) || amt < 0 || amt > 100_000_000) throw new Error(`Line ${i + 1}: the amount cannot be negative or enormous.`);
+      const rate = Number.isFinite(Number(it.rate)) ? Number(it.rate) : amt / qty;
+      return { description: String(it.description ?? '').trim() || 'Item', qty, rate: money(rate), amount: money(amt) };
+    });
+    const subtotal = money(lineItems.reduce((s2, it) => s2 + it.amount, 0));
+    const discountIn = Number(payload.discount ?? 0);
+    if (!Number.isFinite(discountIn) || discountIn < 0) throw new Error('The discount cannot be negative.');
+    if (payload.discount_type === 'percent' ? discountIn > 100 : discountIn > subtotal + 0.001) {
+      throw new Error('The discount is more than the bill.');
+    }
+    const itemsJson = JSON.stringify(lineItems);
+
+    // The same charge sent twice (a double-click, or a retry after a reply was lost) must be ONE bill.
+    // Two bills would count the consultation twice in every report and ask the patient to pay twice. Anything
+    // identical — same patient, visit, lines, discount and payment mode — within the last two minutes is the
+    // same request; a genuine second charge later (or with different lines) is unaffected.
+    const dupe = db.prepare(
+      `SELECT id FROM bills
+        WHERE patient_id = ? AND appointment_id IS ? AND items_json = ? AND discount = ? AND payment_mode = ?
+          AND COALESCE(status,'') <> 'cancelled' AND created_at >= datetime('now', '-120 seconds')
+        ORDER BY id DESC LIMIT 1`
+    ).get(payload.patient_id, payload.appointment_id ?? null, itemsJson, discountIn, payload.payment_mode) as { id: number } | undefined;
+
+    let billId = dupe ? dupe.id : 0;
+    if (!dupe) {
+      const billNumber = generateBillNumber();
+      // Bill, its lines, the registration flag and the appointment status move together or not at all.
+      db.transaction(() => {
+        const info = db
+          .prepare(
+            `INSERT INTO bills (bill_number, appointment_id, patient_id, items_json, subtotal, discount, discount_type, total, payment_mode, paid_at, amount_paid, status, is_free_followup, is_relaxed_followup, followup_parent_appt_id, discount_by, discount_reason)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0, 'paid', ?, ?, ?, ?, ?)`
+          )
+          .run(
+            billNumber,
+            payload.appointment_id,
+            payload.patient_id,
+            itemsJson,
+            subtotal,
+            discountIn,
+            payload.discount_type === 'percent' ? 'percent' : 'flat',
+            payload.payment_mode,
+            new Date().toISOString(),
+            payload.is_free_followup ? 1 : 0,
+            payload.is_relaxed_followup ? 1 : 0,
+            payload.followup_parent_appt_id ?? null,
+            discountIn > 0 ? (actor()?.username ?? null) : null,
+            discountIn > 0 ? (String((payload as any).discount_reason ?? '').trim().slice(0, 120) || null) : null
+          );
+        billId = Number(info.lastInsertRowid);
+
+        // Real line rows as well as items_json — see the note in misc:create.
+        const insLine = db.prepare(
+          `INSERT INTO bill_items (bill_id, description, qty, rate, amount, is_taxable, gst_rate, hsn_sac, source)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'opd')`
+        );
+        // Consultation and procedures follow the clinical rule (exempt unless a charge head says otherwise).
+        const opdTax = clinicalLineTax(db, null);
+        for (const it of lineItems) {
+          insLine.run(billId, it.description, it.qty, it.rate, it.amount, opdTax.is_taxable ? 1 : 0, opdTax.gst_rate, opdTax.hsn_sac);
+        }
+        // Totalled by the same engine as every other bill (discount, GST, round-off), then settled at the counter:
+        // what is received is exactly the total, so the bill can never read as owing after it is printed.
+        const t = recalcBill(db, billId, { force: true });
+        db.prepare('UPDATE bills SET amount_paid=? WHERE id=?').run(t.total, billId);
+
+        if (payload.marks_registration_fee_paid) {
+          db.prepare("UPDATE patients SET registration_fee_paid=1, registration_fee_paid_at=date('now', 'localtime') WHERE id=?")
+            .run(payload.patient_id);
+        }
+
+        if (payload.appointment_id) {
+          db.prepare("UPDATE appointments SET status='Done' WHERE id=?").run(payload.appointment_id);
+        }
+      })();
+    }
+
+    const billResult = db
+      .prepare(
+        `SELECT b.*,
+           (p.first_name || ' ' || p.last_name) as patient_name,
+           p.uhid as patient_uhid,
+           d.name as doctor_name,
+           p.phone as patient_phone
+         FROM bills b
+         JOIN patients p ON p.id=b.patient_id
+         LEFT JOIN appointments a ON a.id=b.appointment_id
+         LEFT JOIN doctors d ON d.id=a.doctor_id
+         WHERE b.id=?`
+      )
+      .get(billId) as any;
+
+    return billResult;
+  };
+
+  ipcMain.handle('bills:create', (_e, payload: BillCreateIn) => insertBill(getDb(), payload));
+
+  /**
+   * Book a visit AND raise its bill as ONE all-or-nothing step. Booking used to be two separate calls — the visit, then the bill — so a
+   * refusal (or a power cut) in between left a visit with no bill. Now if anything fails, neither is saved: no visit, no bill, no token or
+   * visit number used up. Returns { appointment, bill }.
+   */
+  ipcMain.handle('appointments:createWithBill', (_e, payload: { appointment: AppointmentCreateIn; bill: Omit<BillCreateIn, 'appointment_id' | 'patient_id'> }) => {
+    const db = getDb();
+    let created!: AppointmentWithJoins;
+    let bill: any = null;
+    db.transaction(() => {
+      created = insertAppointment(db, payload.appointment);
+      bill = insertBill(db, { ...payload.bill, appointment_id: created.id, patient_id: created.patient_id });
+    })();
+    announceBooking(created);
+    return { appointment: created, bill };
+  });
 
   ipcMain.handle('bills:list', (_e, filter: { q?: string; from?: string; to?: string }) => {
     const db = getDb();

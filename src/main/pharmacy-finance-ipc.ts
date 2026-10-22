@@ -21,6 +21,8 @@ import { requireModule } from './licensing/enforce';
 import { broadcastEvent } from './network-server';
 import * as fin from './pharmacy-finance';
 import { chargeMedicinesToAdmission } from './ipd-billing-ipc';
+import { getAllSettings } from '../db/settings';
+import { counterDiscountCap } from '../lib/discountLimit';
 import type { Role } from './auth';
 
 /** Who may pay a supplier (money leaving the business). Admin is always allowed by requireRole. */
@@ -75,6 +77,23 @@ export function registerPharmacyFinanceIpc() {
     }
   });
 
+  // One payment to a supplier, shared over their unpaid bills oldest-first (the Wholesalers tab's "Pay this supplier").
+  ipcMain.handle('purchase:paySupplier', (_e, payment: fin.SupplierPaymentIn) => {
+    requireModule('pharmacy', 'Pharmacy');
+    requireRole(PAYERS, 'record supplier payments');
+    try {
+      const r = fin.paySupplier(getDb(), payment, who());
+      if (!r.duplicate) {
+        for (const a of r.allocations) audit('purchase.payment', 'purchase_invoices', a.invoice_id, { amount: a.amount, mode: payment.mode ?? null, supplier_payment: true });
+        audit('purchase.supplier_payment', 'wholesalers', r.wholesaler_id, { amount: r.paid, bills: r.allocations.length, mode: payment.mode ?? null });
+        tell();
+      }
+      return { ok: true as const, ...r };
+    } catch (e: any) {
+      return { ok: false as const, error: e?.message || 'Could not record the payment.' };
+    }
+  });
+
   // ----- selling -----
   // Same contract as before (returns the sale row); a problem is thrown so the screens show it.
   ipcMain.handle('pharmacy:sell', (_e, payload: fin.SellIn) => {
@@ -98,7 +117,10 @@ export function registerPharmacyFinanceIpc() {
       if (payload?.payment_mode === 'IPD-bill') {
         throw new Error('To charge a medicine to an in-patient, pick the admitted patient on the sale — "IPD-bill" cannot be chosen as a payment mode.');
       }
-      sale = fin.sellItems(getDb(), { ...payload, sold_by: soldBy });
+      // The limit on the discount comes from WHO IS SIGNED IN (their role's number in Settings), never from the screen: whatever the
+      // screen sent in max_discount_pct is overwritten here. Nobody signed in (shared-PC mode) = no identity to limit.
+      const cap = counterDiscountCap(getAllSettings(getDb()).pharmacy_discount_caps_json, actor()?.role ?? null);
+      sale = fin.sellItems(getDb(), { ...payload, sold_by: soldBy, max_discount_pct: cap });
       if (sale?.on_credit && !repeat) audit('pharmacy.credit_sale', 'pharmacy_sales', sale.id, { patient: sale.patient_id, total: sale.total, paid_now: sale.amount_paid });
     }
     tell();

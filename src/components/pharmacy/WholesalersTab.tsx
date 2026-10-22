@@ -12,6 +12,7 @@ import { useToast } from '../../hooks/useToast';
 import { cn, fmtDate, formatINR } from '../../lib/utils';
 import type { SupplierSummaryRow, Wholesaler } from '../../types';
 import { Field } from './shared';
+import { PaySupplierModal } from './PaySupplierModal';
 
 const NONE: Omit<SupplierSummaryRow, 'wholesaler_id'> = { bills: 0, total_bought: 0, owed: 0, unknown_bills: 0, open_bills: 0, last_bill_date: null };
 
@@ -21,6 +22,7 @@ export function WholesalersTab({ onViewBills }: { onViewBills: (w: { id: number;
   const [q, setQ] = useState('');
   const [showInactive, setShowInactive] = useState(false);
   const [editing, setEditing] = useState<Partial<Wholesaler> | null>(null);
+  const [paying, setPaying] = useState<{ id: number; name: string } | null>(null);
 
   const { data: wholesalers = [], isLoading } = useQuery({
     queryKey: ['wholesalers-all'],
@@ -93,8 +95,7 @@ export function WholesalersTab({ onViewBills }: { onViewBills: (w: { id: number;
             <thead>
               <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
                 <th className="py-2">Wholesaler</th>
-                <th className="py-2">Drug licence / GSTIN</th>
-                <th className="py-2">Phone</th>
+                <th className="py-2">Licence · GSTIN · phone</th>
                 <th className="py-2 text-right">Bills</th>
                 <th className="py-2 text-right">Bought</th>
                 <th className="py-2 text-right">You owe</th>
@@ -115,8 +116,8 @@ export function WholesalersTab({ onViewBills }: { onViewBills: (w: { id: number;
                   <td className="py-2 text-xs">
                     <div className="font-mono">{w.drug_license_no}</div>
                     <div className="font-mono text-gray-500 dark:text-slate-400">{w.gstin || '—'}</div>
+                    <div className="text-gray-500 dark:text-slate-400">{w.phone || '—'}</div>
                   </td>
-                  <td className="py-2 text-xs">{w.phone || '—'}</td>
                   <td className="py-2 text-right tabular-nums">{s.bills}</td>
                   <td className="py-2 text-right tabular-nums">{s.bills > 0 ? formatINR(s.total_bought) : <span className="text-gray-400">—</span>}</td>
                   <td className="py-2 text-right tabular-nums">
@@ -129,10 +130,15 @@ export function WholesalersTab({ onViewBills }: { onViewBills: (w: { id: number;
                   </td>
                   <td className="py-2 pl-6 text-xs text-gray-500 dark:text-slate-400">{s.last_bill_date ? fmtDate(s.last_bill_date) : '—'}</td>
                   <td className="py-2 text-right whitespace-nowrap">
+                    <button className="btn-primary text-xs mr-1" disabled={s.owed <= 0.004}
+                      title={s.owed <= 0.004 ? 'Nothing is owed to this supplier on bills with recorded payments' : `Pay ${w.name}: one payment settles their unpaid bills, oldest first`}
+                      onClick={() => setPaying({ id: w.id, name: w.name })}>
+                      Pay supplier
+                    </button>
                     <button className="btn-ghost text-xs" disabled={s.bills === 0} title={s.bills === 0 ? 'No bills from this supplier yet' : 'See this supplier’s bills under Purchases'} onClick={() => onViewBills({ id: w.id, name: w.name })}>
                       View bills
                     </button>
-                    <button className="btn-ghost text-xs" onClick={() => setEditing(w)}><Pencil className="w-3.5 h-3.5" /> Edit</button>
+                    <button className="btn-ghost text-xs" title="Edit this wholesaler" aria-label={`Edit ${w.name}`} onClick={() => setEditing(w)}><Pencil className="w-3.5 h-3.5" /></button>
                     {w.is_active === 1 && <button className="text-xs text-red-600 hover:underline ml-2" onClick={() => deactivate.mutate(w.id)}>Deactivate</button>}
                   </td>
                 </tr>
@@ -142,8 +148,9 @@ export function WholesalersTab({ onViewBills }: { onViewBills: (w: { id: number;
         </div>
       )}
       <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-3">
-        “You owe” is the unpaid part of each bill. To pay a supplier, open the bill under <b>Purchases</b> and record the payment there.
+        “You owe” is the unpaid part of each bill. <b>Pay supplier</b> settles their bills oldest-first in one payment; to pay a single bill, open it under <b>Purchases</b>.
       </div>
+      {paying && <PaySupplierModal supplier={paying} onClose={() => setPaying(null)} />}
 
       {editing && (
         <Modal open onClose={() => setEditing(null)} title={editing.id ? 'Edit Wholesaler' : 'Add Wholesaler'} size="md">

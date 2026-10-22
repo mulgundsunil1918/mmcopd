@@ -124,6 +124,8 @@ export function getAllSettings(db: Database.Database): Settings {
     // Empty = no one may discount until the clinic sets caps deliberately.
     discount_caps_json: map.discount_caps_json || '{"admin":100}',
     discount_require_reason: map.discount_require_reason !== 'false',
+    // Pharmacy counter: blank = no limits (as before). Unlike discount_caps_json, a role with no number is NOT held at 0%.
+    pharmacy_discount_caps_json: map.pharmacy_discount_caps_json || '',
 
     // ===== TPA =====
     tpa_enabled: map.tpa_enabled === 'true',

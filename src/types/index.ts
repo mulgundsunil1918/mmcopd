@@ -421,6 +421,15 @@ export interface ClinicStockRow extends DrugMaster {
   cost_unverified: boolean;
 }
 
+/** What "Pay this supplier" did: the payment shared over the supplier's bills, oldest first. */
+export type PaySupplierResult =
+  | {
+      ok: true; duplicate: boolean; wholesaler_id: number; supplier: string; paid: number;
+      allocations: { invoice_id: number; invoice_number: string; amount: number; cleared: boolean }[];
+      owed_after: number;
+    }
+  | { ok: false; error: string };
+
 /** One row of the Wholesalers tab: what the clinic has bought from a supplier and what it owes them today. */
 export interface SupplierSummaryRow {
   wholesaler_id: number;
@@ -863,6 +872,8 @@ export interface Settings {
   /** JSON map of role -> maximum discount percent, e.g. {"receptionist":5}. */
   discount_caps_json: string;
   discount_require_reason: boolean;
+  /** JSON { role: percent }: the most each role may discount at the pharmacy counter. A role with no number is not limited. */
+  pharmacy_discount_caps_json: string;
 
   // ===== TPA / Insurance =====
   tpa_enabled: boolean;

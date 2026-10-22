@@ -124,6 +124,7 @@ export const DEMO_SETTINGS: Settings = {
   ipd_advance_enabled: true,
   discount_caps_json: '{"admin":100}',
   discount_require_reason: true,
+  pharmacy_discount_caps_json: '',
   tpa_enabled: true,
   peds_enabled: true,
   peds_growth_enabled: true,

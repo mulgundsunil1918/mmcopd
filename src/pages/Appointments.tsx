@@ -8,6 +8,7 @@ import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
 import { OpdSlipFor } from '../components/OpdSlipFor';
 import { BillPrint } from '../components/billing/BillPrint';
+import { VisitBillModal } from '../components/billing/VisitBillModal';
 import { BookingDoneDialog } from '../components/BookingDoneDialog';
 import { colorForDoctor } from '../lib/doctor-colors';
 import { useToast } from '../hooks/useToast';
@@ -45,6 +46,7 @@ export function Appointments() {
   const [bookOpen, setBookOpen] = useState(false);
   const [printAppt, setPrintAppt] = useState<AppointmentWithJoins | null>(null);
   const [printBillId, setPrintBillId] = useState<number | null>(null);   // the OPD bill of a visit, to print
+  const [billVisitId, setBillVisitId] = useState<number | null>(null);    // a visit that has no bill yet, being billed from the list
   // Just booked: offer the consultation paper AND the consultation bill (see BookingDoneDialog).
   const [booked, setBooked] = useState<{ appt: AppointmentWithJoins; bill: any | null } | null>(null);
   const [sortOrder, setSortOrder] = useState<'oldest_first' | 'newest_first' | null>(null);
@@ -418,13 +420,16 @@ export function Appointments() {
                       >
                         <FileText className="w-3.5 h-3.5" /> Consultation
                       </button>
+                      {/* With a bill: print it. Without one: raise it right here (the same form as Billing → "Bill now"), then print. */}
                       <button
-                        className="btn-ghost text-xs disabled:opacity-40 disabled:cursor-not-allowed"
-                        disabled={!a.bill_id}
-                        onClick={() => a.bill_id && setPrintBillId(a.bill_id)}
-                        title={a.bill_id ? 'Print the OPD bill' : 'No bill has been raised for this visit yet (Billing → Billing Queue)'}
+                        className={cn('btn-ghost text-xs disabled:opacity-40 disabled:cursor-not-allowed', !a.bill_id && a.status !== 'Cancelled' && 'text-amber-700 dark:text-amber-300')}
+                        disabled={!a.bill_id && a.status === 'Cancelled'}
+                        onClick={() => (a.bill_id ? setPrintBillId(a.bill_id) : setBillVisitId(a.id))}
+                        title={a.bill_id ? 'Print the OPD bill'
+                          : a.status === 'Cancelled' ? 'This visit was cancelled, so it cannot be billed'
+                          : 'No bill yet for this visit — click to raise it'}
                       >
-                        <Receipt className="w-3.5 h-3.5" /> Bill
+                        {a.bill_id ? <Receipt className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />} Bill
                       </button>
                       {queueOn && a.status !== 'Done' && a.status !== 'Cancelled' && (
                         <>
@@ -470,6 +475,13 @@ export function Appointments() {
       {booked && <BookingDoneDialog appt={booked.appt} bill={booked.bill} onClose={() => setBooked(null)} />}
       {printAppt && <OpdSlipFor appointment={printAppt} onClose={() => setPrintAppt(null)} />}
       {printBillId !== null && <BillPrint billId={printBillId} onClose={() => setPrintBillId(null)} />}
+      {billVisitId !== null && (
+        <VisitBillModal
+          appointmentId={billVisitId}
+          onClose={() => setBillVisitId(null)}
+          onGenerated={(b) => { setBillVisitId(null); qc.invalidateQueries({ queryKey: ['appointments'] }); setPrintBillId(b.id); }}
+        />
+      )}
     </div>
   );
 }
@@ -652,19 +664,6 @@ function BookAppointmentModal({
     })();
 
     try {
-      const appt = await window.electronAPI.appointments.create({
-        patient_id: patient.id,
-        doctor_id: doctorId,
-        appointment_date: apptDate,
-        appointment_time: chosenTime,
-        notes: notes || null,
-        referred_by: referredBy.trim() || null,
-        patient_group: patientGroup || null,
-        procedure_tags: procedureTags
-          ? JSON.stringify(procedureTags.split(',').map((t) => t.trim()).filter(Boolean))
-          : null,
-      } as any);
-
       const feeLabel =
         feeMode === 'free_followup' ? 'OPD Consultation (Free Follow-up)'
         : feeMode === 'relaxed_followup' ? 'OPD Consultation (Courtesy Follow-up)'
@@ -679,18 +678,30 @@ function BookAppointmentModal({
       if (includeRegFee && regFeeAmount > 0) {
         items.push({ description: 'Patient Registration Fee', qty: 1, rate: regFeeAmount, amount: regFeeAmount });
       }
-      const bill = await window.electronAPI.bills.create({
-        appointment_id: appt.id,
-        patient_id: patient.id,
-        items,
-        discount: 0,
-        discount_type: 'flat',
-        payment_mode: paymentMode,
-        is_free_followup: feeMode === 'free_followup' ? 1 : 0,
-        is_relaxed_followup: feeMode === 'relaxed_followup' ? 1 : 0,
-
-        followup_parent_appt_id: (feeMode === 'free_followup' || feeMode === 'relaxed_followup') ? (followup?.parent_appt_id ?? null) : null,
-        marks_registration_fee_paid: includeRegFee ? 1 : 0,
+      // ONE step: the visit and its bill are saved together, or — if either is refused — neither is (no visit left without a bill).
+      const { appointment: appt, bill } = await window.electronAPI.appointments.createWithBill({
+        appointment: {
+          patient_id: patient.id,
+          doctor_id: doctorId,
+          appointment_date: apptDate,
+          appointment_time: chosenTime,
+          notes: notes || null,
+          referred_by: referredBy.trim() || null,
+          patient_group: patientGroup || null,
+          procedure_tags: procedureTags
+            ? JSON.stringify(procedureTags.split(',').map((t) => t.trim()).filter(Boolean))
+            : null,
+        },
+        bill: {
+          items,
+          discount: 0,
+          discount_type: 'flat',
+          payment_mode: paymentMode,
+          is_free_followup: feeMode === 'free_followup' ? 1 : 0,
+          is_relaxed_followup: feeMode === 'relaxed_followup' ? 1 : 0,
+          followup_parent_appt_id: (feeMode === 'free_followup' || feeMode === 'relaxed_followup') ? (followup?.parent_appt_id ?? null) : null,
+          marks_registration_fee_paid: includeRegFee ? 1 : 0,
+        },
       });
 
       onCreated(appt, bill ?? null);
