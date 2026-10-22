@@ -17,7 +17,7 @@ import { app, ipcMain } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDb } from '../db/db';
-import { requireRole, actor } from './ipc';
+import { requireRole, actor, backupRoot } from './ipc';
 import { logAudit } from './auth';
 import { requireModule } from './licensing/enforce';
 import { broadcastEvent } from './network-server';
@@ -119,16 +119,20 @@ export function registerPharmacyFinanceIpc() {
       if (fin.previewClearDrugs(db, ids).drugs === 0) {
         return { ok: true as const, mode, drugs_deleted: 0, drugs_kept_inactive: 0, batches_deleted: 0, batches_zeroed: 0, units_removed: 0, backup_path: '' };
       }
-      // A complete copy of the clinic's data is saved FIRST; if that cannot be done, nothing is cleared.
-      let backup: string;
-      try {
-        const dir = path.join(app.getPath('userData'), 'backups', 'before-clear-stock');
-        fs.mkdirSync(dir, { recursive: true });
-        backup = path.join(dir, `caredesk-${new Date().toISOString().replace(/[:.]/g, '-')}-${Math.random().toString(36).slice(2, 6)}.sqlite`);
-        db.prepare('VACUUM INTO ?').run(backup);
-      } catch (e: any) {
-        return { ok: false as const, error: `Nothing was cleared: a safety copy of your data could not be saved first (${e?.message || e}).` };
+      // A complete copy of the clinic's data is saved FIRST — with the clinic's other backups (Documents → CureDesk Backups, or the folder it
+      // picked in Settings), else inside the app's own data folder; if neither works, nothing is cleared.
+      const file = `caredesk-${new Date().toISOString().replace(/[:.]/g, '-')}-${Math.random().toString(36).slice(2, 6)}.sqlite`;
+      let backup = '', why = '';
+      for (const root of [backupRoot(getAllSettings(db)), path.join(app.getPath('userData'), 'backups')]) {
+        try {
+          const dir = path.join(root, 'before-clear-stock');
+          fs.mkdirSync(dir, { recursive: true });
+          db.prepare('VACUUM INTO ?').run(path.join(dir, file));
+          backup = path.join(dir, file);
+          break;
+        } catch (e: any) { why = e?.message || String(e); }
       }
+      if (!backup) return { ok: false as const, error: `Nothing was cleared: a safety copy of your data could not be saved first (${why}).` };
 
       const { cleared, ...counts } = fin.clearDrugs(db, ids);
       audit(ids === null ? 'pharmacy.start_fresh' : 'pharmacy.clear_selected', 'drug_master', 0, {

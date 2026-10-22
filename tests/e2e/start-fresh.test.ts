@@ -21,8 +21,15 @@ const db = getDb();
 const one = (sql: string, ...p: any[]) => db.prepare(sql).get(...p) as any;
 const all = (sql: string, ...p: any[]) => db.prepare(sql).all(...p) as any[];
 const count = (t: string) => one(`SELECT COUNT(*) c FROM ${t}`).c as number;
-const backupDir = path.join(userData, 'backups', 'before-clear-stock');
-const backups = () => (fs.existsSync(backupDir) && fs.statSync(backupDir).isDirectory() ? fs.readdirSync(backupDir).filter((n) => n.endsWith('.sqlite')) : []);
+// The safety copy goes with the clinic's other backups (Documents → CureDesk Backups; the test harness maps "documents" under the temp folder),
+// else into the app's own data folder.
+const PRIMARY = path.join(userData, '_documents', 'CureDesk Backups', 'before-clear-stock');
+const FALLBACK = path.join(userData, 'backups', 'before-clear-stock');
+const copiesIn = (dir: string) => (fs.existsSync(dir) && fs.statSync(dir).isDirectory() ? fs.readdirSync(dir).filter((n) => n.endsWith('.sqlite')).map((n) => path.join(dir, n)) : []);
+const backups = () => [...copiesIn(PRIMARY), ...copiesIn(FALLBACK)];
+/** Make a folder impossible to write into: a plain file sits where it should be. */
+const block = (dir: string) => { fs.rmSync(dir, { recursive: true, force: true }); fs.mkdirSync(path.dirname(dir), { recursive: true }); fs.writeFileSync(dir, 'not a folder'); };
+const unblock = (dir: string) => fs.rmSync(dir, { force: true });
 const CAT = PHARMACY_CATALOG.length;
 
 (async () => {
@@ -58,6 +65,7 @@ const CAT = PHARMACY_CATALOG.length;
   const sup = await call('wholesalers:upsert', { name: 'Fresh Supplies', drug_license_no: 'DL-FRESH' });
   const A = await mk('SF Alpha'), B = await mk('SF Beta'), C = await mk('SF Gamma'), D = await mk('SF Delta'), E = await mk('SF Epsilon'), F = await mk('SF Zeta'), G = await mk('SF Eta');
   const H = await mk('SF Theta');
+  const SP = await mk('SF Spare');                                                                // used to prove the fallback place for the safety copy
   db.prepare('UPDATE drug_master SET is_active=0 WHERE id=?').run(H.id);                       // already switched off, no stock, no history
   const L = await mk('SF Locked');
   // something this code knows nothing about points at "SF Locked": erasing it fails, and the clear must carry on and keep it Inactive
@@ -151,7 +159,8 @@ const CAT = PHARMACY_CATALOG.length;
   ok([A, B, E, F].every((d) => !!drugRow(d.id)), 'the other drugs are untouched');
   eq((await shelf()).map((r) => r.name).join(', '), 'SF Alpha, SF Beta, SF Epsilon, SF Zeta', 'Drugs in my clinic now shows the other four');
   eq(backups().length, 1, 'a safety copy was saved first');
-  const copy = new Database(path.join(backupDir, backups()[0]), { readonly: true });
+  eq(path.dirname(picked.backup_path), PRIMARY, "…with the clinic's other backups (Documents → CureDesk Backups → before-clear-stock)");
+  const copy = new Database(picked.backup_path, { readonly: true });
   eq((copy.prepare("SELECT COUNT(*) c FROM drug_master WHERE name IN ('SF Gamma','SF Delta','SF Eta')").get() as any).c, 3, '…and it still holds the drugs that were just deleted');
   eq((copy.prepare('SELECT COUNT(*) c FROM drug_stock_batches').get() as any).c, 7, '…and all seven batches as they were');
   eq((copy.prepare('PRAGMA integrity_check').get() as any).integrity_check, 'ok', '…and is a sound database file');
@@ -170,13 +179,17 @@ const CAT = PHARMACY_CATALOG.length;
     ok(!r.ok && /type START FRESH/i.test(r.error), `${what} is refused by the main process, not just the screen`);
   }
   eq(JSON.stringify([dbCounts(), await history()]), stateBefore, '…and nothing changed');
-  // a copy that cannot be saved means no clearing at all
-  fs.rmSync(backupDir, { recursive: true, force: true });
-  fs.writeFileSync(backupDir, 'not a folder');
+  // a copy that cannot be saved ANYWHERE means no clearing at all
+  block(PRIMARY); block(FALLBACK);
   const blocked = await clear({ confirm: 'START FRESH' });
-  ok(!blocked.ok && /nothing was cleared/i.test(blocked.error) && /safety copy/i.test(blocked.error), `if the safety copy cannot be saved, nothing is cleared (${String(blocked.error).slice(0, 80)})`);
+  ok(!blocked.ok && /nothing was cleared/i.test(blocked.error) && /safety copy/i.test(blocked.error), `if the safety copy cannot be saved anywhere, nothing is cleared (${String(blocked.error).slice(0, 80)})`);
   eq(JSON.stringify([dbCounts(), await history()]), stateBefore, '…the shelf is exactly as it was');
-  fs.rmSync(backupDir, { force: true });
+  unblock(FALLBACK);
+  // …but if only the clinic's backup folder is unavailable (say an unplugged drive), the copy goes inside the app's data folder instead
+  const spare = await clear({ ids: [SP.id] });
+  ok(spare.ok && path.dirname(spare.backup_path) === FALLBACK && copiesIn(FALLBACK).length === 1, 'if the clinic\'s backup folder cannot be written, the safety copy is saved in the app\'s own data folder instead');
+  eq(!!drugRow(SP.id), false, '…and the clear then goes ahead');
+  unblock(PRIMARY);
   await call('auth:logout');
 
   // ============================================================================================================
@@ -185,6 +198,7 @@ const CAT = PHARMACY_CATALOG.length;
   eq(plan.drugs, CAT + 6, `the preview counts the whole list: the ${CAT} catalogue drugs + Alpha, Beta, Epsilon, Zeta, Theta, Locked`);
   eq(`${plan.delete_drugs}/${plan.keep_drugs}`, `${CAT + 2}/4`, '…the catalogue + Theta + Locked look erasable; the four with history are kept');
   eq(`${plan.batches}/${plan.batches_deleted}/${plan.batches_zeroed}/${plan.units}`, '4/1/3/203', '…four batches (one deleted, three zeroed), 203 units (90 + 50 + 25 + 38)');
+  const copiesBefore = backups().length;
   await call('auth:login', 'admin', 'admin123');
   const r = await clear({ confirm: ' start fresh ' });
   ok(r.ok, `the administrator starts fresh (typed in lower case with spaces — still accepted) (${r.ok ? '' : r.error})`);
@@ -203,7 +217,8 @@ const CAT = PHARMACY_CATALOG.length;
   eq((await call('pharmacy:listDrugs', { activeOnly: true })).length, 0, 'and so is the list of drugs the counter can sell');
   eq(JSON.stringify(await history()), JSON.stringify(before), 'patients, bills, sales, the Schedule H register, purchase bills, payments, suppliers and what is owed are exactly as they were');
   ok(!!one("SELECT 1 FROM audit_log WHERE action='pharmacy.start_fresh'"), 'the audit log has the start-fresh entry');
-  eq(backups().length, 1, 'a new safety copy was saved for it');
+  eq(backups().length, copiesBefore + 1, 'one more safety copy was saved for it');
+  eq(path.dirname(r.backup_path), PRIMARY, "…with the clinic's other backups again, now that the folder works");
   db.exec('DROP TRIGGER sf_lock');
 
   // ============================================================================================================
