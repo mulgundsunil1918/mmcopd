@@ -5482,7 +5482,7 @@ function SubscriptionTab() {
 
           <div className={lic.onlineAvailable ? 'pt-3 border-t border-gray-100 dark:border-slate-700' : ''}>
             <label className="label">{lic.onlineAvailable ? 'Or paste a licence code' : 'Licence code'}</label>
-            <textarea className="input font-mono text-[11px] leading-tight" rows={3} value={token} placeholder="Paste the licence code you were sent…" onChange={(e) => setToken(e.target.value)} />
+            <textarea className="input font-mono text-[11px] leading-tight" rows={3} value={token} placeholder="Paste the whole licence code exactly as we sent it — nothing added, nothing missing…" onChange={(e) => setToken(e.target.value)} />
             <button className="btn-primary w-full justify-center mt-2" disabled={busy !== null || !token.trim()} onClick={applyPaste}>
               {busy === 'paste' ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />} Apply licence
             </button>

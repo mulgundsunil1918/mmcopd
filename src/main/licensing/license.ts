@@ -16,6 +16,7 @@ import { execSync } from 'node:child_process';
 import { app } from 'electron';
 import { LICENSE_PUBLIC_KEY_PEM } from './publicKey';
 import { ACTIVATION_SERVER_URL } from './activationConfig';
+import { readSignedCodeStrict, signatureIsGenuine } from './envelope';
 
 export const GRACE_DAYS = 7;
 export const DEFAULT_CONTACT = { phone: '8073935006', email: 'mulgundsunil@gmail.com' };
@@ -78,16 +79,34 @@ export function machineFingerprint(): string {
   return crypto.createHash('sha256').update('curedesk-hw|' + raw).digest('hex').slice(0, 32);
 }
 
-/** Verify a licence token → payload, or null if the signature/format is bad. */
-export function verifyToken(token: string): LicensePayload | null {
+/**
+ * Verify a licence ALREADY STORED on this computer → payload, or null if the signature/format is bad. Deliberately tolerant of stray
+ * characters around the code: earlier versions accepted a pasted key with extra characters and saved it as pasted, and a paying
+ * clinic must never be locked out at start-up over that. The signature still proves the content, so nothing can be forged this way.
+ * A code someone is typing or pasting NOW is checked with verifyTokenStrict() instead.
+ */
+export function verifyToken(token: string, publicKeyPem: string = LICENSE_PUBLIC_KEY_PEM): LicensePayload | null {
   try {
     const env = JSON.parse(Buffer.from(token.trim(), 'base64').toString('utf8'));
     if (!env || typeof env.p !== 'string' || typeof env.s !== 'string') return null;
-    const ok = crypto.verify(null, Buffer.from(env.p, 'utf8'), LICENSE_PUBLIC_KEY_PEM, Buffer.from(env.s, 'base64'));
+    const ok = crypto.verify(null, Buffer.from(env.p, 'utf8'), publicKeyPem, Buffer.from(env.s, 'base64'));
     if (!ok) return null;
     const payload = JSON.parse(env.p) as LicensePayload;
     if (!payload || !payload.expires_at || !Array.isArray(payload.modules)) return null;
     return payload;
+  } catch { return null; }
+}
+
+/**
+ * Verify a code being ACTIVATED right now: it must be exactly what the keygen issued — nothing added, nothing missing (see
+ * envelope.ts) — and carry a genuine signature. `publicKeyPem` is only ever passed by tests; the app always uses the embedded key.
+ */
+export function verifyTokenStrict(raw: string, publicKeyPem: string = LICENSE_PUBLIC_KEY_PEM): LicensePayload | null {
+  const code = readSignedCodeStrict(raw);
+  if (!code || !signatureIsGenuine(code.payloadText, code.signature, publicKeyPem)) return null;
+  try {
+    const payload = JSON.parse(code.payloadText) as LicensePayload;
+    return payload && payload.expires_at && Array.isArray(payload.modules) ? payload : null;
   } catch { return null; }
 }
 
@@ -189,9 +208,9 @@ export function getLicenseStatus(): LicenseStatus {
 }
 
 /** Install/replace the licence after verifying it belongs to this machine. */
-export function activateLicense(token: string): { ok: boolean; error?: string; status?: LicenseStatus } {
-  const payload = verifyToken(token);
-  if (!payload) return { ok: false, error: 'Invalid licence — check you pasted the whole code.' };
+export function activateLicense(token: string, publicKeyPem: string = LICENSE_PUBLIC_KEY_PEM): { ok: boolean; error?: string; status?: LicenseStatus } {
+  const payload = verifyTokenStrict(token, publicKeyPem);
+  if (!payload) return { ok: false, error: 'Invalid licence code. It must be exactly the code we sent — nothing added, nothing missing. Copy the whole code again and paste it as it is.' };
   const hw = machineFingerprint();
   if (payload.hardware_id && payload.hardware_id !== hw) {
     return { ok: false, error: 'This licence is for a different computer. Send us your Machine ID for a matching licence.' };

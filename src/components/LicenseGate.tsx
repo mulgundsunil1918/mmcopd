@@ -157,7 +157,7 @@ function ActivationScreen({ status, onActivated }: { status: any; onActivated: (
         {showPaste && (
           <div className={online ? 'mt-2 pt-3 border-t border-gray-100 dark:border-slate-700' : ''}>
             <label className="label">Licence code</label>
-            <textarea className="input font-mono text-[11px] leading-tight" rows={4} value={token} placeholder="Paste the licence code you were sent…"
+            <textarea className="input font-mono text-[11px] leading-tight" rows={4} value={token} placeholder="Paste the whole licence code exactly as we sent it — nothing added, nothing missing…"
               onChange={(e) => setToken(e.target.value)} />
             {err && !online && <div className="text-[12px] text-red-600 dark:text-red-400 mt-2">{err}</div>}
             <button className="btn-primary w-full justify-center mt-3" disabled={busy !== null || !token.trim()} onClick={activatePaste}>

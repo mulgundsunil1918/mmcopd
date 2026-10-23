@@ -15,9 +15,9 @@
  * other. On success the caller resets BOTH the admin user's login password and
  * the admin-gate password to a value the clinic chooses on the spot.
  */
-import crypto from 'crypto';
 import { LICENSE_PUBLIC_KEY_PEM } from './publicKey';
 import { machineFingerprint } from './license';
+import { readSignedCodeStrict, signatureIsGenuine } from './envelope';
 
 export interface ResetPayload {
   t: 'pwreset';
@@ -30,29 +30,17 @@ export type ResetCheck =
   | { ok: true; payload: ResetPayload }
   | { ok: false; error: string };
 
-/** Verify a support reset code against THIS machine. Never throws. */
-export function verifyResetCode(code: string): ResetCheck {
+/** Verify a support reset code against THIS machine. Never throws. (`publicKeyPem` is only ever passed by tests.) */
+export function verifyResetCode(code: string, publicKeyPem: string = LICENSE_PUBLIC_KEY_PEM): ResetCheck {
   const raw = String(code || '').trim();
   if (!raw) return { ok: false, error: 'Enter the reset code you got from support.' };
-  let env: any;
-  try {
-    env = JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
-  } catch {
-    return { ok: false, error: 'This reset code is not valid — check you copied all of it, with no spaces.' };
-  }
-  if (!env || typeof env.p !== 'string' || typeof env.s !== 'string') {
-    return { ok: false, error: 'This reset code is not valid — check you copied all of it.' };
-  }
-  let good = false;
-  try {
-    good = crypto.verify(null, Buffer.from(env.p, 'utf8'), LICENSE_PUBLIC_KEY_PEM, Buffer.from(env.s, 'base64'));
-  } catch {
-    good = false;
-  }
-  if (!good) return { ok: false, error: 'This reset code failed the security check (wrong or edited code).' };
+  // Exactly the code support issued — nothing added, nothing missing (see envelope.ts).
+  const signed = readSignedCodeStrict(raw);
+  if (!signed) return { ok: false, error: 'This reset code is not exactly the one support gave you — it has extra, missing or changed characters. Copy all of it again and paste it as it is.' };
+  if (!signatureIsGenuine(signed.payloadText, signed.signature, publicKeyPem)) return { ok: false, error: 'This reset code failed the security check (wrong or edited code).' };
 
   let payload: ResetPayload;
-  try { payload = JSON.parse(env.p) as ResetPayload; }
+  try { payload = JSON.parse(signed.payloadText) as ResetPayload; }
   catch { return { ok: false, error: 'This reset code is not valid.' }; }
 
   if (payload.t !== 'pwreset') {
