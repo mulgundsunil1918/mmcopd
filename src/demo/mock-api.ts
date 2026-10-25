@@ -285,6 +285,12 @@ export function createMockElectronAPI(): any {
         rxItems = rxItems.filter((x: any) => x.appointment_id !== id);
         return r({ ok: true, consultation: { token_number: a?.token_number ?? 0 } });
       },
+      deletePurchase: (id: number, pw?: string) => {
+        if (pw !== '1234') return r({ ok: false, error: 'Wrong admin password.' });
+        const gone: any = purchaseStore.remove(id);
+        if (!gone) return r({ ok: false, error: 'Purchase bill not found.' });
+        return r({ ok: true, purchase: { invoice_id: id, invoice_number: gone.invoice_number, supplier: gone.wholesaler_name, total: gone.total, lines: gone.items.length, units_in: 0, units_taken_off: 0, units_gone: 0, batches_deleted: 0, batches_reduced: 0, payments_erased: gone.payments.length, paid_erased: 0 } });
+      },
       deleteSale: (_id: number, pw?: string) => r(pw === '1234' ? { ok: true, sale: { sale_number: 'DEMO' } } : { ok: false, error: 'Wrong admin password.' }),
       deleteBill: (_id: number, pw?: string) => r(pw === '1234' ? { ok: true, bill: { bill_number: 'DEMO' } } : { ok: false, error: 'Wrong admin password.' }),
     },

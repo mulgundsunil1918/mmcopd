@@ -8,7 +8,7 @@ import type { DiscountsGiven, ManualPharmacy, OrderBillResult, PatientPortal, Re
 import type { SupplierAccounts, SupplierStatementResult } from './lib/supplierStatement';
 import type { ReferralStats } from './lib/referralStats';
 import type { ImportCommit, ImportResult, ParseResult, WaitingGet, WaitingRow } from './lib/billImport/types';
-import type { AdminPatientVisits } from './types';
+import type { AdminPatientVisits, PurchaseDeletedSummary } from './types';
 
 export type LicenseStatusIPC = {
   state: 'valid' | 'grace' | 'locked' | 'invalid' | 'wrong_machine' | 'clock_tampered' | 'none' | 'dev';
@@ -123,6 +123,9 @@ const api = {
     /** The doctor's notes + prescription of one visit (the visit and its bill stay). */
     deleteConsultation: (appointmentId: number, adminPassword: string) =>
       ipcRenderer.invoke('admin:deleteConsultation', appointmentId, adminPassword) as Promise<{ ok: boolean; error?: string; consultation?: any }>,
+    /** A supplier's purchase bill — ANY purchase bill, no conditions: the bill, its lines and payments go, the stock it brought in comes off the shelf, units already sold stay sold. */
+    deletePurchase: (invoiceId: number, adminPassword: string) =>
+      ipcRenderer.invoke('admin:deletePurchase', invoiceId, adminPassword) as Promise<{ ok: boolean; error?: string; purchase?: PurchaseDeletedSummary }>,
     /** Any bill except an in-patient admission bill: the bill, its lines and its payment records. */
     deleteBill: (billId: number, adminPassword: string) =>
       ipcRenderer.invoke('admin:deleteBill', billId, adminPassword) as Promise<{ ok: boolean; error?: string; bill?: any }>,

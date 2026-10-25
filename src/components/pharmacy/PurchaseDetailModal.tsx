@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Trash2 } from 'lucide-react';
 import { Modal } from '../Modal';
+import { AdminPasswordModal } from '../AdminPasswordModal';
+import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
 import { cn, fmtDate, formatINR, newRef, refFor, todayISO } from '../../lib/utils';
 import { BillPictureLink } from './billImport/BillPictureLink';
@@ -19,6 +21,8 @@ export function PurchaseDetailModal({ id, onClose }: { id: number; onClose: () =
   const qc = useQueryClient();
   const toast = useToast();
   const { data: inv, isLoading } = useQuery({ queryKey: ['purchase', id], queryFn: () => window.electronAPI.purchases.get(id) });
+  const { adminUnlocked } = useAuth();
+  const [erasing, setErasing] = useState(false);          // administrator: delete this whole purchase bill
 
   const [base] = useState(newRef);
   const [amount, setAmount] = useState('');
@@ -192,8 +196,41 @@ export function PurchaseDetailModal({ id, onClose }: { id: number; onClose: () =
 
         {inv.notes && <div className="text-xs text-gray-600 dark:text-slate-300"><span className="label">Notes</span> {inv.notes}</div>}
         {inv.scan_path && <div><BillPictureLink path={inv.scan_path} /></div>}
-        <div className="flex justify-end"><button className="btn-secondary" onClick={onClose}>Close</button></div>
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            {adminUnlocked && (
+              <button className="btn-ghost text-xs text-red-600 hover:text-red-700" onClick={() => setErasing(true)} title="Delete this whole purchase bill (admin password)">
+                <Trash2 className="w-3.5 h-3.5" /> Delete this purchase bill
+              </button>
+            )}
+          </div>
+          <button className="btn-secondary" onClick={onClose}>Close</button>
+        </div>
       </div>
+      {erasing && (
+        <AdminPasswordModal
+          title="Delete this purchase bill?" confirmLabel="Delete this purchase bill" onClose={() => setErasing(false)}
+          onConfirm={async (pw) => {
+            const r = await window.electronAPI.admin.deletePurchase(id, pw);
+            if (r.ok) {
+              for (const k of ['purchases', 'purchase', 'pharmacy-drugs', 'pharmacy-drugs-active', 'pharmacy-alerts', 'pharmacy-clinic-stock', 'wholesalers-summary', 'pharmacy-batches', 'supplier-report', 'pharmacy-valuation', 'drug-price-history', 'supplier-statement', 'supplier-accounts']) qc.invalidateQueries({ queryKey: [k] });
+              toast(`Purchase bill ${r.purchase?.invoice_number ?? inv.invoice_number} deleted`);
+              onClose();
+            }
+            return r;
+          }}
+        >
+          <div>
+            Permanently delete purchase bill <span className="font-bold">{inv.invoice_number}</span> from <span className="font-bold">{inv.wholesaler_name}</span> ({fmtDate(inv.invoice_date)}, {formatINR(inv.total)})?
+          </div>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400">
+            This takes the {inv.items.reduce((a, x) => a + Number(x.qty_received) + Number(x.free_qty || 0), 0)} unit{inv.items.reduce((a, x) => a + Number(x.qty_received) + Number(x.free_qty || 0), 0) === 1 ? '' : 's'} it brought in
+            off the shelf — units already sold stay sold (those sales are not touched) — and removes its {inv.items.length} line{inv.items.length === 1 ? '' : 's'}
+            {inv.payments.length > 0 ? <> and its {inv.payments.length} payment record{inv.payments.length === 1 ? '' : 's'} ({formatINR(inv.payments.reduce((a, x) => a + Number(x.amount), 0))} paid to the supplier leaves the books with it)</> : null}.
+            What you owe {inv.wholesaler_name} drops by what is no longer billed. A copy of the bill is kept in the audit log. Cannot be undone.
+          </div>
+        </AdminPasswordModal>
+      )}
     </Modal>
   );
 }

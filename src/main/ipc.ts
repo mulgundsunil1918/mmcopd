@@ -215,6 +215,25 @@ export function requireRole(allowed: Role[], action: string): void {
   }
 }
 
+/**
+ * Deleting a consultation, a visit, a bill or a purchase needs the ADMIN PASSWORD typed again for that one deletion — checked here in the
+ * main process (the "admin unlocked" lock on a screen is never trusted for this), with the same wrong-password slow-down as the
+ * unlock screen. Returns null when the password is right, else the message to show.
+ */
+export function adminPasswordProblem(password: unknown): string | null {
+  if (!checkRateLimit('admin_unlock')) return 'Too many wrong passwords — wait a little and try again.';
+  const db = getDb();
+  const stored = getAllSettings(db).admin_password || '1234';
+  if (typeof password !== 'string' || password === '') return 'Wrong admin password.';      // nothing typed is not a guess: not counted
+  if (!verifyAdminPassword(password, stored)) {
+    recordAuthFailure('admin_unlock');
+    logAudit(db, actor(), 'delete_password_wrong');
+    return 'Wrong admin password.';
+  }
+  clearAuthFailures('admin_unlock');
+  return null;
+}
+
 export function registerIpc() {
   // Ensure a default admin exists on first boot
   ensureDefaultAdmin(getDb());
@@ -532,24 +551,6 @@ export function registerIpc() {
     return { ok: true, patient: p };
   });
 
-  /**
-   * Deleting a consultation, a visit or a bill needs the ADMIN PASSWORD typed again for that one deletion — checked here in the
-   * main process (the "admin unlocked" lock on a screen is never trusted for this), with the same wrong-password slow-down as the
-   * unlock screen. Returns null when the password is right, else the message to show.
-   */
-  const adminPasswordProblem = (password: unknown): string | null => {
-    if (!checkRateLimit('admin_unlock')) return 'Too many wrong passwords — wait a little and try again.';
-    const db = getDb();
-    const stored = getAllSettings(db).admin_password || '1234';
-    if (typeof password !== 'string' || password === '') return 'Wrong admin password.';      // nothing typed is not a guess: not counted
-    if (!verifyAdminPassword(password, stored)) {
-      recordAuthFailure('admin_unlock');
-      logAudit(db, actor(), 'delete_password_wrong');
-      return 'Wrong admin password.';
-    }
-    clearAuthFailures('admin_unlock');
-    return null;
-  };
   /** A compact copy of what is being erased, kept in the audit log so a deletion can always be traced and the record rebuilt by hand. */
   const snapshotText = (o: unknown) => { try { return JSON.stringify(o).slice(0, 9000); } catch { return ''; } };
   const rowsOf = (db: any, sql: string, ...p: any[]): any[] => { try { return db.prepare(sql).all(...p); } catch { return []; } };

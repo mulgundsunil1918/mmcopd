@@ -17,7 +17,7 @@ import { app, ipcMain } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDb } from '../db/db';
-import { requireRole, actor, backupRoot } from './ipc';
+import { requireRole, actor, backupRoot, adminPasswordProblem } from './ipc';
 import { logAudit } from './auth';
 import { requireModule } from './licensing/enforce';
 import { broadcastEvent } from './network-server';
@@ -66,6 +66,28 @@ export function registerPharmacyFinanceIpc() {
       return { ok: true as const, duplicate: r.duplicate, invoice: fin.getPurchase(getDb(), r.id) };
     } catch (e: any) {
       return { ok: false as const, error: e?.message || 'Could not save the purchase bill.' };
+    }
+  });
+
+  // Delete ANY purchase bill — typed or imported, paid or not, its stock sold from or not. Administrator only, with the admin password typed again
+  // (checked here, never trusted from the screen). The stock it brought in comes off the shelf; units already sold stay sold; a copy is kept in the audit log.
+  ipcMain.handle('admin:deletePurchase', (_e, invoiceId: number, adminPassword?: string) => {
+    requireModule('pharmacy', 'Pharmacy');
+    requireRole([], 'delete a purchase bill');
+    const bad = adminPasswordProblem(adminPassword);
+    if (bad) return { ok: false as const, error: bad };
+    try {
+      const r = fin.deletePurchase(getDb(), Number(invoiceId));
+      // written as plain text with the JSON copy inside — the same shape as every other admin delete in the audit log
+      try {
+        logAudit(getDb(), actor(), 'purchase_deleted', 'purchase_invoices', r.invoice_id,
+          `${r.invoice_number} · ${r.supplier} · total ₹${r.total} · ${r.lines} line(s), ${r.payments_erased} payment record(s) (₹${r.paid_erased}) erased · ${r.units_taken_off} unit(s) taken off the shelf, ${r.units_gone} had already left · ${r.batches_deleted} batch(es) removed, ${r.batches_reduced} reduced · snapshot ${JSON.stringify(r.snapshot).slice(0, 9000)}`);
+      } catch { /* the audit must never block work */ }
+      tell();
+      const { snapshot: _drop, ...purchase } = r;
+      return { ok: true as const, purchase };
+    } catch (e: any) {
+      return { ok: false as const, error: e?.message || 'Could not delete the purchase bill.' };
     }
   });
 

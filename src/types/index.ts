@@ -1006,3 +1006,10 @@ export interface AdminVisitRow {
 export type AdminPatientVisits =
   | { ok: true; patient: { id: number; uhid: string; first_name: string; last_name: string; phone: string | null }; visits: AdminVisitRow[] }
   | { ok: false; error: string };
+
+/** What deleting a purchase bill did (shown to the administrator afterwards). */
+export interface PurchaseDeletedSummary {
+  invoice_id: number; invoice_number: string; supplier: string; total: number; lines: number;
+  units_in: number; units_taken_off: number; units_gone: number; batches_deleted: number; batches_reduced: number;
+  payments_erased: number; paid_erased: number;
+}

@@ -34,7 +34,7 @@ import { getAllSettings } from '../db/settings';
 import { gstContext, medicineLineTax, splitInclusive } from './gst';
 import {
   allocatePaise, blendUnitCost, computePurchase, fromPaise, netRevenueExGst, profitMetrics,
-  r2, toPaise, validatePurchase,
+  r2, r4, toPaise, validatePurchase,
 } from '../lib/pharmacyMath';
 import {
   rankProfit,
@@ -486,6 +486,112 @@ export function getPurchase(db: Database.Database, id: number) {
   `).all(id);
   const payments = db.prepare('SELECT * FROM purchase_payments WHERE invoice_id = ? ORDER BY date(paid_on), id').all(id);
   return { ...header, items, payments };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Deleting a purchase bill — ANY purchase bill, no conditions (the administrator's call; the password is asked by the IPC layer)
+// ---------------------------------------------------------------------------------------------
+
+export interface PurchaseDeleted {
+  invoice_id: number;
+  invoice_number: string;
+  supplier: string;
+  total: number;
+  lines: number;
+  /** Units the bill brought in (paid + free). */
+  units_in: number;
+  /** Of those, the units still on the shelf, now taken off. */
+  units_taken_off: number;
+  /** Of those, the units that had already left the shelf (sold, given on a ward, cleared): what was sold stays sold — those sales are not touched. */
+  units_gone: number;
+  /** Batches that existed only because of this bill and were removed. */
+  batches_deleted: number;
+  /** Batches that stay (bought on another bill too, or sold from) with their units reduced. */
+  batches_reduced: number;
+  payments_erased: number;
+  paid_erased: number;
+  /** What was erased, for the audit log. */
+  snapshot: unknown;
+}
+
+/**
+ * Delete a supplier's purchase bill: the bill, its lines and the payments recorded on it go, and the stock it brought in comes off the shelf.
+ *   - a batch that exists only because of this bill, and nothing was ever sold from, is removed;
+ *   - a batch bought on another bill as well keeps its other units, and goes back to the price, MRP and expiry of its newest remaining purchase;
+ *   - units that were already sold stay sold: the sales, the Schedule H register and their frozen cost are never touched (the batch stays as history);
+ *   - the supplier's balance drops by what is no longer billed; money paid on the bill leaves the books with it.
+ * One all-or-nothing step. Nothing about it is conditional on the stock being unsold or the bill being unpaid.
+ */
+export function deletePurchase(db: Database.Database, invoiceId: number): PurchaseDeleted {
+  const header = db.prepare(`
+    SELECT pi.*, w.name AS supplier FROM purchase_invoices pi JOIN wholesalers w ON w.id = pi.wholesaler_id WHERE pi.id = ?
+  `).get(Number(invoiceId)) as any;
+  if (!header) throw new Error('Purchase bill not found.');
+  const items = db.prepare(`
+    SELECT pii.*, m.name AS drug_name FROM purchase_invoice_items pii JOIN drug_master m ON m.id = pii.drug_master_id WHERE pii.invoice_id = ? ORDER BY pii.id
+  `).all(header.id) as any[];
+  const payments = db.prepare('SELECT amount, payment_mode, paid_on, reference, notes FROM purchase_payments WHERE invoice_id = ? ORDER BY id').all(header.id) as any[];
+
+  // batches something was sold or given from — their rows are history and are never deleted
+  const soldFrom = new Set<number>();
+  let historyKnown = true;
+  try {
+    for (const t of ['dispensing_register', 'pharmacy_sale_items', 'ip_medication_admin']) {
+      for (const r of db.prepare(`SELECT DISTINCT batch_id AS id FROM ${t} WHERE batch_id IS NOT NULL`).all() as { id: number }[]) soldFrom.add(r.id);
+    }
+  } catch { historyKnown = false; }                                       // if in doubt, keep the batch row
+
+  const out: PurchaseDeleted = {
+    invoice_id: header.id, invoice_number: header.invoice_number, supplier: header.supplier, total: header.total, lines: items.length,
+    units_in: 0, units_taken_off: 0, units_gone: 0, batches_deleted: 0, batches_reduced: 0,
+    payments_erased: payments.length, paid_erased: fromPaise(payments.reduce((a, x) => a + toPaise(x.amount), 0)), snapshot: null,
+  };
+  const unitsOf = (x: { qty_received: number; free_qty: number | null }) => Number(x.qty_received) + Number(x.free_qty || 0);
+
+  db.transaction(() => {
+    for (const it of items) {
+      const units = unitsOf(it);
+      out.units_in += units;
+      const b = db.prepare('SELECT * FROM drug_stock_batches WHERE drug_master_id = ? AND batch_no = ?').get(it.drug_master_id, it.batch_no) as any;
+      const onShelf = b ? Math.min(units, Math.max(0, Number(b.qty_remaining))) : 0;
+      out.units_taken_off += onShelf;
+      out.units_gone += units - onShelf;
+      if (!b) continue;                                                    // the batch was cleared earlier (Start fresh): nothing to take off
+
+      const newReceived = Math.max(0, Number(b.qty_received) - onShelf);
+      const newRemaining = Math.max(0, Number(b.qty_remaining) - onShelf);
+      const others = db.prepare('SELECT * FROM purchase_invoice_items WHERE drug_master_id = ? AND batch_no = ? AND invoice_id <> ? ORDER BY id').all(it.drug_master_id, it.batch_no, header.id) as any[];
+      const hasHistory = !historyKnown || soldFrom.has(b.id);
+      if (newReceived <= 0 && others.length === 0 && !hasHistory) {        // only this bill ever filled it, and nothing left it: gone
+        db.prepare('DELETE FROM drug_stock_batches WHERE id = ?').run(b.id);
+        out.batches_deleted++;
+        continue;
+      }
+      db.prepare('UPDATE drug_stock_batches SET qty_received = ?, qty_remaining = ? WHERE id = ?').run(newReceived, newRemaining, b.id);
+      out.batches_reduced++;
+      if (others.length > 0) {
+        // The newest purchase wrote the batch's price, MRP and expiry; hand them back to the newest one that is left, and value the batch at
+        // the average cost of the purchases still on record.
+        const last = others[others.length - 1];
+        const totalUnits = others.reduce((a, x) => a + unitsOf(x), 0);
+        const avg = totalUnits > 0 ? others.reduce((a, x) => a + unitsOf(x) * Number(x.unit_cost ?? x.purchase_price ?? 0), 0) / totalUnits : null;
+        db.prepare(`
+          UPDATE drug_stock_batches SET purchase_item_id = ?, expiry = ?, manufacture_date = ?, purchase_price = ?, unit_cost = ?, mrp = ?, selling_price = ?,
+                 manufacturer_license_no = COALESCE(?, manufacturer_license_no)
+           WHERE id = ?
+        `).run(last.id, last.expiry, last.manufacture_date ?? null, last.purchase_price, avg !== null ? r4(avg) : b.unit_cost, last.mrp, last.selling_price ?? null, last.manufacturer_license_no ?? null, b.id);
+      } else if (newRemaining <= 0) {
+        db.prepare('UPDATE drug_stock_batches SET is_active = 0 WHERE id = ?').run(b.id);     // an empty batch kept only as history
+      }
+    }
+    out.snapshot = {
+      invoice: { ...header, supplier: undefined },
+      items: items.map((x) => ({ drug: x.drug_name, batch: x.batch_no, expiry: x.expiry, qty: x.qty_received, free: x.free_qty, rate: x.purchase_price, mrp: x.mrp, gst: x.gst_rate })),
+      payments,
+    };
+    db.prepare('DELETE FROM purchase_invoices WHERE id = ?').run(header.id);       // its lines and its payments go with it (cascade)
+  })();
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------------

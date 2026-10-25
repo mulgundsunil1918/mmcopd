@@ -108,6 +108,16 @@ export function makeDemoPurchaseStore(
       return { ok: true as const, duplicate: false, invoice: d as PurchaseDetail };
     },
 
+    /** The administrator deletes a purchase bill (the demo drops the bill, its payments and the batches it brought in). */
+    remove: (invoiceId: number) => {
+      const i = store.findIndex((x) => x.id === invoiceId);
+      if (i < 0) return null;
+      const [gone] = store.splice(i, 1);
+      const itemIds = new Set(gone.items.map((x: any) => x.id));
+      setBatches(getBatches().filter((b: any) => !itemIds.has(b.purchase_item_id)));
+      return gone;
+    },
+
     addPayment: (invoiceId: number, p: any) => {
       const d = store.find((x) => x.id === invoiceId);
       if (!d) return { ok: false as const, error: 'That purchase bill was not found.' };
