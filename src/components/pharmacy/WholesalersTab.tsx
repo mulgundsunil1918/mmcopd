@@ -13,6 +13,7 @@ import { cn, fmtDate, formatINR } from '../../lib/utils';
 import type { SupplierSummaryRow, Wholesaler } from '../../types';
 import { Field } from './shared';
 import { PaySupplierModal } from './PaySupplierModal';
+import { SupplierStatementModal } from './SupplierStatementModal';
 
 const NONE: Omit<SupplierSummaryRow, 'wholesaler_id'> = { bills: 0, total_bought: 0, owed: 0, unknown_bills: 0, open_bills: 0, last_bill_date: null };
 
@@ -23,6 +24,7 @@ export function WholesalersTab({ onViewBills }: { onViewBills: (w: { id: number;
   const [showInactive, setShowInactive] = useState(false);
   const [editing, setEditing] = useState<Partial<Wholesaler> | null>(null);
   const [paying, setPaying] = useState<{ id: number; name: string } | null>(null);
+  const [statementOf, setStatementOf] = useState<{ id: number; name: string } | null>(null);
 
   const { data: wholesalers = [], isLoading } = useQuery({
     queryKey: ['wholesalers-all'],
@@ -33,7 +35,7 @@ export function WholesalersTab({ onViewBills }: { onViewBills: (w: { id: number;
     queryFn: () => window.electronAPI.wholesalers.summary(),
     refetchInterval: 60_000,
   });
-  const refresh = () => { for (const k of ['wholesalers', 'wholesalers-all', 'wholesalers-summary']) qc.invalidateQueries({ queryKey: [k] }); };
+  const refresh = () => { for (const k of ['wholesalers', 'wholesalers-all', 'wholesalers-summary', 'supplier-statement']) qc.invalidateQueries({ queryKey: [k] }); };
 
   const save = useMutation({
     mutationFn: (w: Partial<Wholesaler>) => window.electronAPI.wholesalers.upsert(w),
@@ -135,6 +137,9 @@ export function WholesalersTab({ onViewBills }: { onViewBills: (w: { id: number;
                       onClick={() => setPaying({ id: w.id, name: w.name })}>
                       Pay supplier
                     </button>
+                    <button className="btn-ghost text-xs mr-1" disabled={s.bills === 0} title={s.bills === 0 ? 'No bills from this supplier yet' : 'The whole account: what you owe, pending bills, latest bills, every bill and payment'} onClick={() => setStatementOf({ id: w.id, name: w.name })}>
+                      Statement
+                    </button>
                     <button className="btn-ghost text-xs" disabled={s.bills === 0} title={s.bills === 0 ? 'No bills from this supplier yet' : 'See this supplier’s bills under Purchases'} onClick={() => onViewBills({ id: w.id, name: w.name })}>
                       View bills
                     </button>
@@ -151,6 +156,10 @@ export function WholesalersTab({ onViewBills }: { onViewBills: (w: { id: number;
         “You owe” is the unpaid part of each bill. <b>Pay supplier</b> settles their bills oldest-first in one payment; to pay a single bill, open it under <b>Purchases</b>.
       </div>
       {paying && <PaySupplierModal supplier={paying} onClose={() => setPaying(null)} />}
+      {statementOf && (
+        <SupplierStatementModal supplier={statementOf} onClose={() => setStatementOf(null)}
+          onPay={() => { setPaying(statementOf); }} />
+      )}
 
       {editing && (
         <Modal open onClose={() => setEditing(null)} title={editing.id ? 'Edit Wholesaler' : 'Add Wholesaler'} size="md">

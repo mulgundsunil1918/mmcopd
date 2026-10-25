@@ -26,6 +26,8 @@ const ZONES = {
   // Expiry windows are worked out on the PC's own calendar day: a PC far behind UTC and one far ahead are the hard cases.
   'pharmacy-tabs': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   'supplier-pay': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
+  'supplier-statement': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
+  'referral-analytics': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   booking: ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   'counter-discount': ['Asia/Kolkata', 'America/Los_Angeles'],
   'ward-price': ['Asia/Kolkata', 'America/Los_Angeles'],

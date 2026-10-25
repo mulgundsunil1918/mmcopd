@@ -47,6 +47,8 @@ export function registerPharmacyFinanceIpc() {
   // ----- read-only views for the Pharmacy tabs -----
   ipcMain.handle('pharmacy:clinicStock', () => fin.clinicStock(getDb()));
   ipcMain.handle('wholesalers:summary', () => fin.supplierSummary(getDb()));
+  // One supplier's whole account: bills (credit), payments (debit), running balance, pending bills oldest first, latest bills. Read-only.
+  ipcMain.handle('wholesalers:statement', (_e, id: number, opts: { from?: string | null; to?: string | null } = {}) => fin.supplierStatement(getDb(), Number(id), opts || {}));
 
   ipcMain.handle('purchase:create', (_e, payload: fin.PurchaseIn) => {
     requireModule('pharmacy', 'Pharmacy');

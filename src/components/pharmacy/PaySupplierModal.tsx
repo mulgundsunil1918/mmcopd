@@ -65,7 +65,7 @@ export function PaySupplierModal({ supplier, onClose }: { supplier: { id: number
     },
     onSuccess: (r) => {
       if (!r.ok) { setError(r.error); toast(r.error, 'error'); return; }
-      for (const k of ['purchases', 'wholesalers-summary', 'supplier-report', 'purchase']) qc.invalidateQueries({ queryKey: [k] });
+      for (const k of ['purchases', 'wholesalers-summary', 'supplier-report', 'purchase', 'supplier-statement']) qc.invalidateQueries({ queryKey: [k] });
       toast(r.duplicate ? 'That payment was already recorded.' : `Paid ${formatINR(r.paid)} to ${r.supplier} across ${r.allocations.length} bill${r.allocations.length === 1 ? '' : 's'}`);
       onClose();
     },

@@ -38,7 +38,7 @@ export function PurchaseDetailModal({ id, onClose }: { id: number; onClose: () =
     },
     onSuccess: (res) => {
       if (!res.ok) { setError(res.error); toast(res.error, 'error'); return; }
-      for (const k of ['purchases', 'supplier-report', 'wholesalers-summary']) qc.invalidateQueries({ queryKey: [k] });
+      for (const k of ['purchases', 'supplier-report', 'wholesalers-summary', 'supplier-statement']) qc.invalidateQueries({ queryKey: [k] });
       qc.invalidateQueries({ queryKey: ['purchase', id] });
       setAmount(''); setReference(''); setOpening(''); setError('');
       toast(res.duplicate ? 'That payment was already recorded.' : 'Payment recorded');

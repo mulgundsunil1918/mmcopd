@@ -18,6 +18,9 @@ import {
 import { LAB_CATALOG } from '../data/lab-catalog';
 import { demoPriceHistory, demoProfitReport, demoSupplierReport, demoValuation, makeDemoPurchaseStore } from './demo-pharmacy-finance';
 import { demoCounterSales, demoPortal, demoReceivables } from './demo-portal';
+import { buildSupplierStatement } from '../lib/supplierStatement';
+import { buildReferralStats } from '../lib/referralStats';
+import { localISO } from '../lib/localDate';
 import { RADIOLOGY_CATALOG, modalityOf } from '../data/radiology-catalog';
 
 /**
@@ -724,6 +727,18 @@ export function createMockElectronAPI(): any {
       list: () => r(wholesalers),
       upsert: (w: any) => { if (w.id) wholesalers = wholesalers.map((x) => x.id === w.id ? { ...x, ...w } : x); else { const id = nextId(wholesalers); w = { id, ...w }; wholesalers = [...wholesalers, w]; } return r(w); },
       delete: (id: number) => { wholesalers = wholesalers.filter((x) => x.id !== id); return r({ ok: true }); },
+      // A supplier's whole account as a passbook — the same function the real app uses (lib/supplierStatement.ts), fed from the demo's bills and payments.
+      statement: (id: number, opts: { from?: string | null; to?: string | null } = {}) => {
+        const w: any = wholesalers.find((x) => x.id === id);
+        if (!w) return r(null);
+        const mine = purchaseStore.all().filter((p) => p.wholesaler_id === id);
+        const invoices = mine.map((p) => ({ id: p.id, invoice_number: p.invoice_number, invoice_date: String(p.invoice_date).slice(0, 10), total: p.total, amount_paid: p.amount_paid ?? null, line_count: p.line_count, notes: null }));
+        const payments = mine.flatMap((p) => (p.payments || []).map((x: any) => ({ id: x.id, invoice_id: p.id, amount: x.amount, payment_mode: x.payment_mode ?? null, paid_on: String(x.paid_on).slice(0, 10), reference: x.reference ?? null, notes: x.notes ?? null })));
+        return r({
+          supplier: { id: w.id, name: w.name, contact_person: w.contact_person ?? null, phone: w.phone ?? null, email: w.email ?? null, address: w.address ?? null, drug_license_no: w.drug_license_no, gstin: w.gstin ?? null, is_active: w.is_active },
+          ...buildSupplierStatement(invoices, payments, { today: localISO(), from: opts?.from || null, to: opts?.to || null }),
+        });
+      },
       // What was bought from each supplier and what is owed today (same rule as main/pharmacy-finance.ts supplierSummary).
       summary: () => r(wholesalers.map((w) => {
         const bills = purchaseStore.all().filter((p) => p.wholesaler_id === w.id);
@@ -880,6 +895,21 @@ export function createMockElectronAPI(): any {
       }),
     },
     analytics: {
+      // Who sent the patients — the same function the real app uses (lib/referralStats.ts), fed from the demo's visits and bills.
+      referrals: (_f: { from: string; to: string }) => {
+        // The demo's visits sit in a fixed window (they do not move with today's date), so the demo shows ALL of them whatever dates are picked.
+        const dates = appointments.map((a: any) => String(a.appointment_date)).sort();
+        const f = { from: dates[0] ?? _f.from, to: dates[dates.length - 1] ?? _f.to };
+        const inRange = appointments.filter((a: any) => a.appointment_date >= f.from && a.appointment_date <= f.to && a.status !== 'Cancelled');
+        const firstVisit = new Map<number, number>();                                   // the patient's earliest visit in the demo = "new"
+        for (const a of [...appointments].sort((x: any, y: any) => String(x.appointment_date).localeCompare(String(y.appointment_date)) || x.id - y.id)) if (!firstVisit.has(a.patient_id)) firstVisit.set(a.patient_id, a.id);
+        const revenueOf = (id: number) => bills.filter((b: any) => b.appointment_id === id && b.status !== 'cancelled').reduce((n: number, b: any) => n + (b.total || 0), 0)
+          + pharmSales.filter((s: any) => s.appointment_id === id).reduce((n: number, s: any) => n + (s.total || 0), 0);
+        return r({ ok: true as const, ...buildReferralStats(inRange.map((a: any) => ({
+          id: a.id, patient_id: a.patient_id, date: a.appointment_date, visit_number: firstVisit.get(a.patient_id) === a.id ? 1 : 2, referred_by: a.referred_by ?? null,
+          patient: a.patient_name, uhid: a.patient_uhid, doctor: a.doctor_name, revenue: revenueOf(a.id),
+        })), { from: f.from, to: f.to }) });
+      },
       modules: () => r({
         ok: true,
         modules: [

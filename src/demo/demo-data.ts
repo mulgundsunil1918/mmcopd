@@ -206,6 +206,10 @@ export const DEMO_PATIENTS: DemoPatient[] = range(50).map((i) => {
 const STATUSES: Array<'Done' | 'Waiting' | 'In Progress' | 'Cancelled'> = ['Done', 'Done', 'Done', 'Done', 'Done', 'Waiting', 'In Progress', 'Cancelled'];
 const TIMES = ['09:30', '10:00', '10:30', '11:00', '11:30', '12:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00', '17:30', '18:00'];
 
+// What the front desk typed in the Referral box. Deterministic by index, never rand(): the rest of the demo data must come out exactly as before.
+// (Some are spelt differently on purpose — "google", "Dr Ramesh Kumar" — because Analytics → Referrals counts them as one source.)
+const DEMO_REFERRALS = ['Google', 'Self', 'Family', 'Dr. Ramesh Kumar', 'Google', 'Self', 'Dr. Meena Shetty', 'google', 'Old patient', 'Family', '', 'Self',
+  'Dr Ramesh Kumar', 'Google', 'Instagram', 'Self', 'Neighbour', 'Google', '', 'Family', 'Dr. Meena Shetty', 'Self', 'Google', 'Instagram'];
 export const DEMO_APPOINTMENTS: AppointmentWithJoins[] = range(100).map((i) => {
   const id = i + 1;
   const patient = DEMO_PATIENTS[Math.floor(rand() * DEMO_PATIENTS.length)];
@@ -236,6 +240,7 @@ export const DEMO_APPOINTMENTS: AppointmentWithJoins[] = range(100).map((i) => {
     doctor_name: doctor.name,
     doctor_specialty: doctor.specialty,
     doctor_room: doctor.room_number,
+    referred_by: DEMO_REFERRALS[(i * 7 + 3) % DEMO_REFERRALS.length] || null,
   } as AppointmentWithJoins;
 });
 

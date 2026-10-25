@@ -43,6 +43,7 @@ import {
   type StockBucket, type SupplierReport, type Valuation,
 } from '../lib/pharmacyReports';
 import { capPaise } from '../lib/discountLimit';
+import { buildSupplierStatement, type StatementInvoice, type StatementPayment } from '../lib/supplierStatement';
 export type { CounterSalesFilter, CounterSalesResult, CounterSaleRow, CostNotRecordedSummary } from '../lib/pharmacyReports';
 
 // ---------------------------------------------------------------------------------------------
@@ -579,6 +580,30 @@ export function supplierSummary(db: Database.Database) {
      GROUP BY w.id
   `).all() as any[];
   return rows.map((r) => ({ ...r, total_bought: r2(r.total_bought), owed: r2(r.owed) }));
+}
+
+/**
+ * One supplier's whole account as a passbook (Wholesalers → Statement): every bill (credit) and payment (debit) with a running balance, the bills
+ * still pending oldest first, the latest bills, and the totals. Read-only. The arithmetic is lib/supplierStatement.ts, shared with the demo;
+ * its "owed" is the same figure supplierSummary gives for the supplier (the two are tested to agree).
+ */
+export function supplierStatement(db: Database.Database, wholesalerId: number, opts: { from?: string | null; to?: string | null } = {}) {
+  const supplier = db.prepare(
+    'SELECT id, name, contact_person, phone, email, address, drug_license_no, gstin, is_active FROM wholesalers WHERE id=?',
+  ).get(Number(wholesalerId)) as { id: number; name: string; contact_person: string | null; phone: string | null; email: string | null; address: string | null; drug_license_no: string; gstin: string | null; is_active: number } | undefined;
+  if (!supplier) return null;
+  const invoices = db.prepare(`
+    SELECT pi.id, pi.invoice_number, date(pi.invoice_date) AS invoice_date, pi.total, pi.amount_paid, pi.notes,
+           (SELECT COUNT(*) FROM purchase_invoice_items x WHERE x.invoice_id = pi.id) AS line_count
+      FROM purchase_invoices pi WHERE pi.wholesaler_id = ? ORDER BY date(pi.invoice_date), pi.id
+  `).all(supplier.id) as StatementInvoice[];
+  const payments = db.prepare(`
+    SELECT pp.id, pp.invoice_id, pp.amount, pp.payment_mode, date(pp.paid_on) AS paid_on, pp.reference, pp.notes
+      FROM purchase_payments pp JOIN purchase_invoices pi ON pi.id = pp.invoice_id
+     WHERE pi.wholesaler_id = ? ORDER BY date(pp.paid_on), pp.id
+  `).all(supplier.id) as StatementPayment[];
+  const iso = (v: unknown) => (isIsoDate(v) ? (v as string) : null);
+  return { supplier, ...buildSupplierStatement(invoices, payments, { today: localISO(), from: iso(opts?.from), to: iso(opts?.to) }) };
 }
 
 // ---------------------------------------------------------------------------------------------

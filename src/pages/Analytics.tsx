@@ -5,7 +5,7 @@ import {
   BarChart3, Wallet, MapPin, FileText, Users as UsersIcon, Pill,
   TrendingUp, AlertTriangle, Calendar, Activity, RefreshCw,
   Download, Database, FolderOpen, Syringe,
-  BedDouble, Layers,
+  BedDouble, Layers, Megaphone,
 } from 'lucide-react';
 import { IpdAnalyticsTab } from '../components/analytics/IpdAnalyticsTab';
 import { DonutChart, VBarChart, TrendChart } from '../components/analytics/Charts';
@@ -19,7 +19,7 @@ import { colorForDoctor } from '../lib/doctor-colors';
 import type { Doctor } from '../types';
 import { localISO } from '../lib/localDate';
 
-type Tab = 'overview' | 'finance' | 'modules' | 'ipd' | 'demographics' | 'origin' | 'pharmacy' | 'services' | 'operations';
+type Tab = 'overview' | 'finance' | 'modules' | 'ipd' | 'demographics' | 'origin' | 'referrals' | 'pharmacy' | 'services' | 'operations';
 
 /**
  * Unified Analytics page — consolidates the metrics that previously lived in
@@ -69,6 +69,7 @@ export function Analytics() {
         <TabBtn active={tab === 'ipd'} onClick={() => setTab('ipd')} icon={<BedDouble className="w-3.5 h-3.5" />}>IPD</TabBtn>
         <TabBtn active={tab === 'demographics'} onClick={() => setTab('demographics')} icon={<UsersIcon className="w-3.5 h-3.5" />}>Demographics</TabBtn>
         <TabBtn active={tab === 'origin'} onClick={() => setTab('origin')} icon={<MapPin className="w-3.5 h-3.5" />}>Patient Origin</TabBtn>
+        <TabBtn active={tab === 'referrals'} onClick={() => setTab('referrals')} icon={<Megaphone className="w-3.5 h-3.5" />}>Referrals</TabBtn>
         <TabBtn active={tab === 'pharmacy'} onClick={() => setTab('pharmacy')} icon={<Pill className="w-3.5 h-3.5" />}>Pharmacy</TabBtn>
         <TabBtn active={tab === 'services'} onClick={() => setTab('services')} icon={<Syringe className="w-3.5 h-3.5" />}>Services</TabBtn>
         <TabBtn active={tab === 'operations'} onClick={() => setTab('operations')} icon={<FileText className="w-3.5 h-3.5" />}>Operational Reports</TabBtn>
@@ -79,6 +80,7 @@ export function Analytics() {
       {tab === 'ipd' && <IpdAnalyticsTab from={from} to={to} />}
       {tab === 'demographics' && <DemographicsTab />}
       {tab === 'origin' && <OriginTab from={from} to={to} />}
+      {tab === 'referrals' && <ReferralsTab from={from} to={to} />}
       {tab === 'modules' && <ModulesTab from={from} to={to} />}
       {tab === 'pharmacy' && <PharmacyTab from={from} to={to} />}
       {tab === 'services' && <ServicesTab from={from} to={to} />}
@@ -617,6 +619,145 @@ function OriginTab({ from, to }: { from: string; to: string }) {
           full
         />
       </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   REFERRALS — who sent the patients (Google, Self, Family, a doctor…): the "Referral" typed on each visit
+   ============================================================ */
+function ReferralsTab({ from, to }: { from: string; to: string }) {
+  const { data: r, isLoading } = useQuery({
+    queryKey: ['analytics-referrals', from, to],
+    queryFn: () => window.electronAPI.analytics.referrals({ from, to }),
+  });
+  if (isLoading || !r) return <div className="text-xs text-gray-500 dark:text-slate-400 p-4">Loading…</div>;
+
+  const pct = (n: number, d: number) => (d ? Math.round((n / d) * 1000) / 10 : 0);
+  const top = r.sources[0];
+  const notPct = pct(r.notRecorded, r.totalVisits);
+  const SHOWN = 15;
+  const shown = r.sources.slice(0, SHOWN);
+  const hidden = r.sources.slice(SHOWN);
+  const TH = 'py-1.5 text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 font-semibold';
+
+  return (
+    <div className="space-y-5">
+      <section>
+        <SectionTitle icon={<Megaphone className="w-4 h-4" />} title="Who sent your patients" subtitle={`${fmtDate(r.from)} — ${fmtDate(r.to)}`} />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Kpi label="Visits with a referral" value={r.withReferral} sub={`${pct(r.withReferral, r.totalVisits)}% of ${r.totalVisits} visits`} tone="blue" />
+          <Kpi label="Different sources" value={r.sources.length} sub="Google, Self, Family, doctors…" tone="indigo" />
+          <Kpi label="Top source" value={top ? top.name : '—'} sub={top ? `${top.visits} visit${top.visits === 1 ? '' : 's'} · ${top.share}%` : 'nothing recorded yet'} tone="emerald" />
+          <Kpi label="Referral not recorded" value={r.notRecorded} sub={`${notPct}% of visits`} tone={notPct > 30 ? 'amber' : 'gray'} />
+        </div>
+      </section>
+
+      {r.withReferral === 0 ? (
+        <div className="card p-6 text-center">
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">No referral was recorded in this period</div>
+          <p className="text-xs text-gray-500 dark:text-slate-400 mt-1 max-w-xl mx-auto">
+            When a visit is booked, type where the patient came from in the <b>Referral</b> box — Google, Self, Family, a doctor’s name, anything.
+            It is counted here: which sources bring the most patients, how many are new, and what those visits were billed.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <DonutChart title="Share of visits by referral" subtitle="Only visits that have a referral" rows={r.sources.map((x) => ({ label: x.name, value: x.visits }))} />
+            <div className="card p-4">
+              <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-2">By referral</div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left border-b border-gray-200 dark:border-slate-700">
+                      <th className={TH}>Referral</th>
+                      <th className={`${TH} text-right`}>Visits</th>
+                      <th className={`${TH} text-right`}>Share</th>
+                      <th className={`${TH} text-right`}>New</th>
+                      <th className={`${TH} text-right`}>Returning</th>
+                      <th className={`${TH} text-right`}>Billed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shown.map((x) => (
+                      <tr key={x.name} className="border-b border-gray-100 dark:border-slate-800">
+                        <td className="py-1.5 font-medium text-gray-900 dark:text-slate-100">{x.name}</td>
+                        <td className="py-1.5 text-right tabular-nums">{x.visits}</td>
+                        <td className="py-1.5 text-right tabular-nums text-gray-600 dark:text-slate-300">{x.share}%</td>
+                        <td className="py-1.5 text-right tabular-nums">{x.newPatients}</td>
+                        <td className="py-1.5 text-right tabular-nums">{x.returning}</td>
+                        <td className="py-1.5 text-right tabular-nums">{formatINR(x.revenue)}</td>
+                      </tr>
+                    ))}
+                    {hidden.length > 0 && (
+                      <tr className="border-b border-gray-100 dark:border-slate-800 text-gray-600 dark:text-slate-300">
+                        <td className="py-1.5 italic">{hidden.length} more source{hidden.length === 1 ? '' : 's'}</td>
+                        <td className="py-1.5 text-right tabular-nums">{hidden.reduce((n, x) => n + x.visits, 0)}</td>
+                        <td className="py-1.5 text-right tabular-nums">{Math.round(hidden.reduce((n, x) => n + x.share, 0) * 10) / 10}%</td>
+                        <td className="py-1.5 text-right tabular-nums">{hidden.reduce((n, x) => n + x.newPatients, 0)}</td>
+                        <td className="py-1.5 text-right tabular-nums">{hidden.reduce((n, x) => n + x.returning, 0)}</td>
+                        <td className="py-1.5 text-right tabular-nums">{formatINR(hidden.reduce((n, x) => n + x.revenue, 0))}</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-2">
+                “New” is the patient’s first visit ever; “Returning” is any later visit. “Billed” is what those visits were billed (bills and pharmacy sales).
+                The same source typed in different ways — “Google”, “google”, “Dr. Ramesh” and “Ramesh” — is counted once.
+              </p>
+            </div>
+          </div>
+
+          <div className="card p-4">
+            <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-2">Month by month <span className="text-[11px] font-normal text-gray-500 dark:text-slate-400">· visits from the {r.topNames.length} busiest sources</span></div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left border-b border-gray-200 dark:border-slate-700">
+                    <th className={TH}>Month</th>
+                    {r.topNames.map((n) => <th key={n} className={`${TH} text-right`}>{n}</th>)}
+                    <th className={`${TH} text-right`}>All referrals</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.months.map((m) => (
+                    <tr key={m.month} className="border-b border-gray-100 dark:border-slate-800">
+                      <td className="py-1.5 text-gray-900 dark:text-slate-100">{format(new Date(`${m.month}-01T00:00:00`), 'MMM yyyy')}</td>
+                      {r.topNames.map((n) => <td key={n} className="py-1.5 text-right tabular-nums">{m.counts[n] || <span className="text-gray-300 dark:text-slate-600">0</span>}</td>)}
+                      <td className="py-1.5 text-right tabular-nums font-semibold">{m.total}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="card p-4">
+            <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-2">Latest referrals</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left border-b border-gray-200 dark:border-slate-700">
+                    <th className={TH}>Date</th><th className={TH}>Patient</th><th className={TH}>Referral</th><th className={TH}>Doctor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.recent.map((x, i) => (
+                    <tr key={i} className="border-b border-gray-100 dark:border-slate-800">
+                      <td className="py-1.5 text-xs text-gray-600 dark:text-slate-300 whitespace-nowrap">{fmtDate(x.date)}</td>
+                      <td className="py-1.5 text-gray-900 dark:text-slate-100">{x.patient}<span className="ml-1.5 text-[11px] text-gray-500 dark:text-slate-400">{x.uhid}</span></td>
+                      <td className="py-1.5 font-medium">{x.referral}</td>
+                      <td className="py-1.5 text-gray-600 dark:text-slate-300">{x.doctor || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

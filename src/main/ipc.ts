@@ -17,6 +17,7 @@ import { localISO, addDaysISO } from '../lib/localDate';
 import { LAB_CATALOG } from '../data/lab-catalog';
 import { PHARMACY_CATALOG } from '../data/pharmacy-catalog';
 import { refreshCatalogue } from '../db/catalogue';
+import { buildReferralStats, type ReferralVisit } from '../lib/referralStats';
 import { seedSampleData } from '../db/sample-data';
 
 /**
@@ -4744,6 +4745,23 @@ export function registerIpc() {
       byDistrict: serialize(byDistrict),
       byState: serialize(byState),
     };
+  });
+
+  // ===== Referrals — who sent the patients (Analytics → Referrals) =====
+  // The "Referral" typed on a visit (Google, Self, Family, a doctor's name…) counted over the period: visits, patients, new vs returning, and what the
+  // visits were billed. Grouping and wording rules are in lib/referralStats.ts (shared with the demo). Visit dates are the clinic's own calendar days.
+  ipcMain.handle('analytics:referrals', (_e, filter: { from: string; to: string }) => {
+    const rows = getDb().prepare(
+      `SELECT a.id, a.patient_id, a.appointment_date AS date, a.visit_number, a.referred_by,
+              TRIM(COALESCE(p.first_name, '') || ' ' || COALESCE(p.last_name, '')) AS patient, COALESCE(p.uhid, '') AS uhid, COALESCE(d.name, '') AS doctor,
+              COALESCE((SELECT SUM(b.total) FROM bills b WHERE b.appointment_id = a.id AND COALESCE(b.status, '') <> 'cancelled'), 0)
+              + COALESCE((SELECT SUM(s.total) FROM pharmacy_sales s WHERE s.appointment_id = a.id), 0) AS revenue
+         FROM appointments a
+         JOIN patients p ON p.id = a.patient_id
+         LEFT JOIN doctors d ON d.id = a.doctor_id
+        WHERE a.appointment_date >= ? AND a.appointment_date <= ? AND a.status <> 'Cancelled'`
+    ).all(filter.from, filter.to) as ReferralVisit[];
+    return { ok: true as const, ...buildReferralStats(rows, { from: filter.from, to: filter.to }) };
   });
 
   // ===== Finance =====

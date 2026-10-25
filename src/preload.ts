@@ -5,6 +5,8 @@ import type {
   SupplierReport, Valuation,
 } from './lib/pharmacyReports';
 import type { DiscountsGiven, ManualPharmacy, OrderBillResult, PatientPortal, Receivables, SetupStatus, UnbilledWork } from './lib/billingPortal';
+import type { SupplierStatementResult } from './lib/supplierStatement';
+import type { ReferralStats } from './lib/referralStats';
 
 export type LicenseStatusIPC = {
   state: 'valid' | 'grace' | 'locked' | 'invalid' | 'wrong_machine' | 'clock_tampered' | 'none' | 'dev';
@@ -487,6 +489,9 @@ const api = {
       ipcRenderer.invoke('wholesalers:delete', id) as Promise<{ ok: boolean }>,
     /** Bills, amount bought and amount owed per supplier (same "owed" rule as the Analytics supplier report). */
     summary: () => ipcRenderer.invoke('wholesalers:summary') as Promise<SupplierSummaryRow[]>,
+    /** The supplier's whole account as a passbook: bills (credit), payments (debit), running balance, pending bills, latest bills. */
+    statement: (id: number, opts?: { from?: string | null; to?: string | null }) =>
+      ipcRenderer.invoke('wholesalers:statement', id, opts || {}) as Promise<SupplierStatementResult | null>,
   },
   purchases: {
     list: (filter?: { from?: string; to?: string; wholesaler_id?: number; status?: 'paid' | 'unpaid' | 'partial' | 'outstanding' }) =>
@@ -727,6 +732,8 @@ const api = {
       ipcRenderer.invoke('finance:summary', filter) as Promise<any>,
   },
   analytics: {
+    /** Who sent the patients: the Referral typed on each visit, grouped (Google, Self, Family, a doctor…) with visits, new vs returning and revenue. */
+    referrals: (filter: { from: string; to: string }) => ipcRenderer.invoke('analytics:referrals', filter) as Promise<{ ok: true } & ReferralStats>,
     modules: (from: string, to: string) => ipcRenderer.invoke('analytics:modules', from, to) as Promise<{
       ok: boolean;
       modules: { key: string; label: string; count: number; revenue: number; collected: number; outstanding: number }[];

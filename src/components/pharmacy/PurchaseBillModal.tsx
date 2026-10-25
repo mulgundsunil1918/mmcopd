@@ -180,7 +180,7 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
     },
     onSuccess: (res) => {
       if (!res.ok) { setServerError(res.error); toast(res.error, 'error'); return; }
-      for (const k of ['purchases', 'pharmacy-drugs', 'pharmacy-drugs-active', 'pharmacy-alerts', 'pharmacy-clinic-stock', 'wholesalers-summary', 'pharmacy-batches', 'supplier-report', 'pharmacy-valuation', 'drug-price-history']) {
+      for (const k of ['purchases', 'pharmacy-drugs', 'pharmacy-drugs-active', 'pharmacy-alerts', 'pharmacy-clinic-stock', 'wholesalers-summary', 'pharmacy-batches', 'supplier-report', 'pharmacy-valuation', 'drug-price-history', 'supplier-statement']) {
         qc.invalidateQueries({ queryKey: [k] });
       }
       toast(res.duplicate
