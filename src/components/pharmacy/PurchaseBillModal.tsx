@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Plus, X } from 'lucide-react';
 import { Modal } from '../Modal';
+import { HelpTip } from '../HelpTip';
 import { QuickDrugModal } from './QuickDrugModal';
 import { useToast } from '../../hooks/useToast';
 import { cn, fmtDate, formatINR, newRef, todayISO } from '../../lib/utils';
@@ -48,6 +49,11 @@ const isBlank = (l: Line) => !l.drug_master_id && !l.batch_no && !l.expiry && !l
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div><label className="label">{label}</label>{children}</div>;
+}
+
+/** A field label with a little "?" that explains the word in plain language — what it means, where to find it on the bill. */
+function Tip({ label, title, children }: { label: string; title?: string; children: React.ReactNode }) {
+  return <label className="label inline-flex items-center gap-1">{label}<HelpTip title={title ?? label}>{children}</HelpTip></label>;
 }
 
 /** What this drug last cost, and how the rate being typed compares — a price creeping up is easy to miss on paper. */
@@ -249,21 +255,23 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
                         {drugs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                       </select>
                     </div>
-                    <div className="w-32"><label className="label">Batch *</label><input className="input font-mono" value={l.batch_no} onChange={(e) => setLine(idx, { batch_no: e.target.value })} /></div>
+                    <div className="w-32"><Tip label="Batch *" title="Batch number"><p>The batch number printed on the strip or bottle (look for “B.No.” or “Batch”). Type the real one — stock is tracked, sold and recalled by batch.</p></Tip><input className="input font-mono" value={l.batch_no} onChange={(e) => setLine(idx, { batch_no: e.target.value })} /></div>
                     <div className="w-40"><label className="label">Mfg</label><input type="month" className="input" value={l.manufacture_date} onChange={(e) => setLine(idx, { manufacture_date: e.target.value })} /></div>
-                    <div className="w-44"><label className="label">Expiry *</label><input type="date" className="input" value={l.expiry} onChange={(e) => setLine(idx, { expiry: e.target.value })} /></div>
+                    <div className="w-44"><Tip label="Expiry *" title="Expiry date"><p>The date printed as “Exp” on the pack. The earliest-expiring stock is sold first, and the pharmacy warns you before it expires.</p></Tip><input type="date" className="input" value={l.expiry} onChange={(e) => setLine(idx, { expiry: e.target.value })} /></div>
                     <div className="w-24 text-right" title="Value of the line after discount, before GST">
                       <div className="label">Line ₹</div>
                       <div className="font-semibold text-sm py-1.5">{formatINR(r?.taxable ?? 0)}</div>
                     </div>
-                    <div className="w-28 text-right" title="True cost of one unit: free units, discount, freight and unclaimable GST included">
-                      <div className="label">Cost / unit</div>
+                    <div className="w-32 text-right">
+                      <div className="label inline-flex items-center justify-end gap-1">You pay / unit
+                        <HelpTip title="What one unit really costs you" align="right"><p>The true cost of ONE unit: the dealer’s rate, less discounts, with the free units spread in, plus freight — and GST too, if you cannot claim it back.</p><p>This is the figure your profit is worked out from.</p></HelpTip>
+                      </div>
                       {r && r.units > 0 ? (
                         <>
                           <div className="font-semibold text-sm leading-tight pt-1.5">{formatINR(r.unit_cost)}</div>
                           {m && m.marginPct !== null && (
                             <div className={cn('text-[10px] leading-tight', m.marginPct < 0 ? 'text-red-600 dark:text-red-400 font-semibold' : m.marginPct < 10 ? 'text-amber-700 dark:text-amber-300' : 'text-gray-500 dark:text-slate-400')}>
-                              margin {m.marginPct.toFixed(1)}%
+                              profit {formatINR(m.profit)} / unit · {m.marginPct.toFixed(1)}%
                             </div>
                           )}
                         </>
@@ -275,18 +283,18 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
                     </button>
                   </div>
                   <div className="flex gap-3 flex-wrap items-start pl-8">
-                    <div className="w-24"><label className="label">Qty</label><input type="number" min={0} onFocus={selectAll} className="input text-right px-2" value={l.qty_received} onChange={(e) => setLine(idx, { qty_received: Number(e.target.value) })} /></div>
-                    <div className="w-24"><label className="label" title="Free / scheme units received on top">Free</label><input type="number" min={0} onFocus={selectAll} className="input text-right px-2" value={l.free_qty} onChange={(e) => setLine(idx, { free_qty: Number(e.target.value) })} /></div>
+                    <div className="w-24"><Tip label="Qty" title="Quantity you paid for"><p>How many units the dealer billed you for — the “Qty” column of the bill. Count in the same unit you sell in: strips if you sell by the strip, tablets if you sell loose.</p><p>Free units are NOT counted here — they go in “Free”.</p></Tip><input type="number" min={0} onFocus={selectAll} className="input text-right px-2" value={l.qty_received} onChange={(e) => setLine(idx, { qty_received: Number(e.target.value) })} /></div>
+                    <div className="w-24"><Tip label="Free" title="Free quantity"><p>Extra units the dealer gives you free on top of what you buy — a “scheme”, like <b>10 + 2</b>: you pay for 10 and receive 12.</p><p>You do not pay for the free ones, but they are on your shelf, so CureDesk spreads what you paid over ALL the units — that makes each unit’s true cost lower. Leave 0 if the bill has none.</p></Tip><input type="number" min={0} onFocus={selectAll} className="input text-right px-2" value={l.free_qty} onChange={(e) => setLine(idx, { free_qty: Number(e.target.value) })} /></div>
                     <div className="w-32">
-                      <label className="label" title="Supplier's rate per paid unit, before discount and GST">Buy ₹</label>
+                      <Tip label="Dealer's rate ₹" title="Dealer's rate (what you pay for one unit)"><p>What the dealer charges for ONE unit, before any discount and before GST — the “Rate” column on the bill. It is not the MRP; it is what YOU pay.</p></Tip>
                       <input type="number" min={0} step="0.01" onFocus={selectAll} className="input text-right px-2" value={l.purchase_price} onChange={(e) => setLine(idx, { purchase_price: Number(e.target.value) })} />
                       <LastRateHint drugId={l.drug_master_id} rate={l.purchase_price} />
                     </div>
-                    <div className="w-24"><label className="label" title="Trade discount on this line">Disc %</label><input type="number" min={0} max={100} step="0.01" onFocus={selectAll} className="input text-right px-2" value={l.disc_pct} onChange={(e) => setLine(idx, { disc_pct: Number(e.target.value) })} /></div>
-                    <div className="w-32"><label className="label" title="Printed on the pack">MRP ₹</label><input type="number" min={0} step="0.01" onFocus={selectAll} className="input text-right px-2" value={l.mrp} onChange={(e) => setLine(idx, { mrp: Number(e.target.value) })} /></div>
-                    <div className="w-32"><label className="label" title="What you will charge. Blank = sell at MRP">Sell ₹</label><input type="number" min={0} step="0.01" onFocus={selectAll} className="input text-right px-2" placeholder="= MRP" value={l.selling_price ?? ''} onChange={(e) => setLine(idx, { selling_price: e.target.value === '' ? null : Number(e.target.value) })} /></div>
+                    <div className="w-24"><Tip label="Disc %" title="Discount on this line"><p>The dealer’s trade discount on this line (the “Disc %” column). Leave 0 if there is none. A discount on the whole bill goes in “Invoice discount” at the bottom.</p></Tip><input type="number" min={0} max={100} step="0.01" onFocus={selectAll} className="input text-right px-2" value={l.disc_pct} onChange={(e) => setLine(idx, { disc_pct: Number(e.target.value) })} /></div>
+                    <div className="w-32"><Tip label="MRP ₹" title="MRP"><p>The Maximum Retail Price printed on the pack — the most you may charge a patient for one unit. It is not what you paid.</p></Tip><input type="number" min={0} step="0.01" onFocus={selectAll} className="input text-right px-2" value={l.mrp} onChange={(e) => setLine(idx, { mrp: Number(e.target.value) })} /></div>
+                    <div className="w-32"><Tip label="Sell ₹" title="Your selling price"><p>What you will actually charge for one unit. Leave it empty to sell at the MRP. It can be lower than the MRP (a discount to your patients), never higher.</p><p>Your profit per unit is this price (without GST, if you charge GST) minus what the unit cost you.</p></Tip><input type="number" min={0} step="0.01" onFocus={selectAll} className="input text-right px-2" placeholder="= MRP" value={l.selling_price ?? ''} onChange={(e) => setLine(idx, { selling_price: e.target.value === '' ? null : Number(e.target.value) })} /></div>
                     <div className="w-24">
-                      <label className="label">GST %</label>
+                      <Tip label="GST %" title="GST rate"><p>The GST rate for this medicine, as shown on the bill. Most medicines are taxed at 5%.</p></Tip>
                       <select className="input px-2" value={l.gst_rate} onChange={(e) => setLine(idx, { gst_rate: Number(e.target.value) })}>
                         {[0, 5, 12, 18, 28].map((g) => <option key={g} value={g}>{g}</option>)}
                       </select>
@@ -311,7 +319,9 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
               <div className="flex justify-between text-xs text-emerald-700 dark:text-emerald-300"><span>Line discounts</span><span>− {formatINR(calc.line_discount)}</span></div>
             )}
             <div className="flex justify-between text-xs items-center">
-              <span>Invoice discount</span>
+              <span className="inline-flex items-center gap-1">Invoice discount
+                <HelpTip title="Invoice discount"><p>A discount on the WHOLE bill — on the dealer’s bill it appears near the bottom as “Discount” or “Less”. Type it here as an amount in rupees.</p><p>It is shared over the lines in proportion to their value, so it lowers what each unit cost you.</p></HelpTip>
+              </span>
               <input type="number" min={0} step="0.01" className="input w-24 text-right py-1" value={discount} onChange={(e) => setDiscount(Number(e.target.value))} />
             </div>
             {interstate
@@ -321,11 +331,13 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
                   <div className="flex justify-between text-xs"><span>SGST</span><span>{formatINR(calc.sgst)}</span></div>
                 </>}
             <div className="flex justify-between text-xs items-center">
-              <span>Freight / other charges</span>
+              <span className="inline-flex items-center gap-1">Freight / other charges
+                <HelpTip title="Freight / other charges"><p>Transport, packing or any other charge on the bill that is not a medicine. Type the amount; it is shared over the lines and added to what each unit cost you.</p></HelpTip>
+              </span>
               <input type="number" min={0} step="0.01" className="input w-24 text-right py-1" value={otherCharges} onChange={(e) => setOtherCharges(Number(e.target.value))} />
             </div>
             <div className="flex justify-between text-xs items-center">
-              <label className="inline-flex items-center gap-1.5"><input type="checkbox" checked={roundOff} onChange={(e) => setRoundOff(e.target.checked)} /> Round off to nearest ₹</label>
+              <label className="inline-flex items-center gap-1.5"><input type="checkbox" checked={roundOff} onChange={(e) => setRoundOff(e.target.checked)} /> Round off to nearest ₹</label><HelpTip title="Round off"><p>Rounds the bill total to the nearest rupee, the way the dealer’s bill does (you will see “Round off” near the bottom of it). Untick if the bill has no round-off.</p></HelpTip>
               <span>{calc.round_off >= 0 ? '+' : '−'} {formatINR(Math.abs(calc.round_off))}</span>
             </div>
             <div className="flex justify-between text-sm font-bold pt-2 border-t border-gray-300 dark:border-slate-700 mt-1">
