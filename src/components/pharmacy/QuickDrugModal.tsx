@@ -8,8 +8,8 @@ import { Modal } from '../Modal';
 import { useToast } from '../../hooks/useToast';
 import type { DrugMaster, DrugSchedule } from '../../types';
 
-const FORMS = ['Tablet', 'Capsule', 'Syrup', 'Suspension', 'Drops', 'Injection', 'Ointment', 'Cream', 'Gel', 'Inhaler', 'Powder', 'Sachet', 'Other'];
-const SCHEDULES: { value: DrugSchedule; label: string }[] = [
+export const FORMS = ['Tablet', 'Capsule', 'Syrup', 'Suspension', 'Drops', 'Injection', 'Ointment', 'Cream', 'Gel', 'Inhaler', 'Powder', 'Sachet', 'Other'];
+export const SCHEDULES: { value: DrugSchedule; label: string }[] = [
   { value: 'OTC', label: 'OTC (over the counter)' }, { value: 'H', label: 'H (prescription needed)' }, { value: 'H1', label: 'H1 (prescription + register)' },
   { value: 'G', label: 'G (caution)' }, { value: 'X', label: 'X (narcotic)' },
 ];

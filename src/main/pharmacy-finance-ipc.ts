@@ -22,6 +22,7 @@ import { logAudit } from './auth';
 import { requireModule } from './licensing/enforce';
 import { broadcastEvent } from './network-server';
 import * as fin from './pharmacy-finance';
+import * as imp from './purchase-import';
 import { chargeMedicinesToAdmission } from './ipd-billing-ipc';
 import { getAllSettings } from '../db/settings';
 import { counterDiscountCap } from '../lib/discountLimit';
@@ -99,6 +100,33 @@ export function registerPharmacyFinanceIpc() {
       return { ok: false as const, error: e?.message || 'Could not record the payment.' };
     }
   });
+
+  // ----- import a supplier's bill from the Excel ChatGPT made (Pharmacy → Purchases → Import bill) -----
+  // Reading and checking change nothing. Only :create does — and only with the typed word IMPORT, checked again in imp.commitImport.
+  const scanDir = () => path.join(app.getPath('userData'), 'purchase-scans');
+  ipcMain.handle('purchaseImport:template', (_e, withSample: boolean) => imp.importTemplate(!!withSample));
+  ipcMain.handle('purchaseImport:parse', (_e, data: string | Uint8Array | ArrayBuffer) => { requireModule('pharmacy', 'Pharmacy'); return imp.parseBillFile(getDb(), data); });
+  ipcMain.handle('purchaseImport:checkInvoice', (_e, supplierId: number | null, invoiceNumber: string) => imp.checkInvoiceNumber(getDb(), supplierId, invoiceNumber));
+  ipcMain.handle('purchaseImport:create', (_e, payload: imp.ImportCommit) => {
+    requireModule('pharmacy', 'Pharmacy');
+    const r = imp.commitImport(getDb(), payload, { by: who(), scanDir: scanDir() });
+    if (r.ok && !r.duplicate) {
+      audit('purchase.import', 'purchase_invoices', r.invoice_id, {
+        invoice: r.invoice_number, lines: r.lines, batches: r.batches, total: r.total, new_drugs: r.new_drugs, new_supplier: r.new_supplier, aside: r.aside,
+      });
+      tell();
+    }
+    return r;
+  });
+  ipcMain.handle('purchaseImport:waiting', () => imp.listWaiting(getDb()));
+  ipcMain.handle('purchaseImport:waitingGet', (_e, id: number) => imp.getWaiting(getDb(), Number(id)));
+  ipcMain.handle('purchaseImport:deleteWaiting', (_e, id: number) => {
+    requireModule('pharmacy', 'Pharmacy');
+    const ok = imp.discardWaiting(getDb(), Number(id));
+    if (ok) { audit('purchase.import_discard', 'purchase_import_waiting', Number(id), {}); tell(); }
+    return { ok };
+  });
+  ipcMain.handle('purchaseImport:photo', (_e, file: string | null) => imp.readScan(scanDir(), file));
 
   // ----- clear drugs, stock and batches: "Start fresh" (every drug) or "Delete selected" (the ticked ones) -----
   /** Who may do it: the pharmacy in-charge (pharmacist) and the administrator (requireRole always lets admin through). */

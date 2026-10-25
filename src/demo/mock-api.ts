@@ -17,6 +17,7 @@ import {
 } from './demo-data';
 import { LAB_CATALOG } from '../data/lab-catalog';
 import { demoPriceHistory, demoProfitReport, demoSupplierReport, demoValuation, makeDemoPurchaseStore } from './demo-pharmacy-finance';
+import { makeDemoBillImport } from './demo-bill-import';
 import { demoCounterSales, demoPortal, demoReceivables } from './demo-portal';
 import { buildSupplierAccounts, buildSupplierStatement } from '../lib/supplierStatement';
 import { buildReferralStats } from '../lib/referralStats';
@@ -55,6 +56,14 @@ let purchases = [...DEMO_PURCHASES];
 let pharmSales = [...DEMO_PHARMACY_SALES];
 // Purchase bills with lines + supplier payments (the finance screens read these).
 const purchaseStore = makeDemoPurchaseStore(DEMO_PURCHASES, () => wholesalers, () => drugMaster, () => batches, (b) => { batches = b; });
+// Import a supplier's bill (photo → ChatGPT → Excel): the real reading/matching/checking libraries over the demo's own lists.
+const billImport = makeDemoBillImport({
+  drugs: () => drugMaster,
+  addDrug: (d) => { const row = { ...d, id: nextId(drugMaster) } as typeof d; drugMaster = [...drugMaster, row]; return row; },
+  wholesalers: () => wholesalers,
+  addWholesaler: (w) => { const row = { id: nextId(wholesalers), ...w } as any; wholesalers = [...wholesalers, row]; return row; },
+  store: purchaseStore,
+});
 let dispensing = [...DEMO_DISPENSING];
 let consultations = [...DEMO_CONSULTATIONS];
 let rxItems = [...DEMO_RX_ITEMS];
@@ -794,6 +803,7 @@ export function createMockElectronAPI(): any {
       },
       attachScan: () => r({ ok: true }),
     },
+    purchaseImport: billImport,
     // The printed registers carry each drug's composition (what it is, its form, its strength) — joined here from the Drug List like the real queries do.
     dispensing: { register: () => r(dispensing.map((x: any) => { const d: any = drugMaster.find((m) => m.id === x.drug_master_id); return { ...x, generic_name: d?.generic_name ?? null, form: d?.form ?? null, strength: d?.strength ?? null }; })) },
     stock: { register: () => r(batches.map((b) => {

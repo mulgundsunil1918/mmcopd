@@ -4,7 +4,7 @@ import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Pill, Plus, Search, AlertTriangle, Package, Clipboard, ShoppingCart, Trash2, Pencil,
-  Layers, Truck, FileText, X, Store,
+  Layers, Truck, FileText, X, Store, FileSpreadsheet,
 } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
@@ -13,6 +13,8 @@ import { useAuth } from '../hooks/useAuth';
 import { cn, fmtDate, fmtDateTime, formatINR, newRef, refFor, todayISO } from '../lib/utils';
 import type { Drug, DrugMaster, DrugSchedule, Wholesaler } from '../types';
 import { NewPurchaseModal } from '../components/pharmacy/PurchaseBillModal';
+import { ImportBillModal } from '../components/pharmacy/billImport/ImportBillModal';
+import { WAITING_KEY } from '../components/pharmacy/billImport/WaitingList';
 import { PurchaseDetailModal } from '../components/pharmacy/PurchaseDetailModal';
 import { ClinicStockTab, clinicCounts, useClinicStock, type ClinicFilter } from '../components/pharmacy/ClinicStockTab';
 import { WholesalersTab } from '../components/pharmacy/WholesalersTab';
@@ -1010,8 +1012,10 @@ function PurchasesTab({ supplier, onClearSupplier }: { supplier: { id: number; n
   const [from, setFrom] = useState(supplier ? '' : daysAgo(30));
   const [to, setTo] = useState(supplier ? '' : todayISO());
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState<null | 'guide' | 'waiting'>(null);   // Import bill (photo → ChatGPT → Excel)
   const [openId, setOpenId] = useState<number | null>(null);
   const [owedOnly, setOwedOnly] = useState(false);
+  const { data: waitingImports = [] } = useQuery({ queryKey: [WAITING_KEY], queryFn: () => window.electronAPI.purchaseImport.waiting() });
 
   const { data: invoices = [] } = useQuery({
     queryKey: ['purchases', from, to, owedOnly, supplier?.id ?? null],
@@ -1046,6 +1050,15 @@ function PurchasesTab({ supplier, onClearSupplier }: { supplier: { id: number; n
             <span className={cn('font-bold', owed > 0 ? 'text-red-700 dark:text-red-400' : 'text-green-700 dark:text-green-400')}>{formatINR(owed)}</span>
             {unknownPaid > 0 && <span className="text-[10px] text-amber-700 dark:text-amber-300 ml-1">+ {unknownPaid} bill{unknownPaid === 1 ? '' : 's'} with unknown payment</span>}
           </div>
+          {waitingImports.length > 0 && (
+            <button className="btn-secondary text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700" onClick={() => setImporting('waiting')}
+              title="Lines you set aside while importing a bill — not in your stock yet">
+              Waiting to finish ({waitingImports.length})
+            </button>
+          )}
+          <button className="btn-secondary" onClick={() => setImporting('guide')} title="Read a supplier's bill with ChatGPT and check it here — saves typing every line">
+            <FileSpreadsheet className="w-4 h-4" /> Import bill
+          </button>
           <button className="btn-primary" onClick={() => setCreating(true)}>
             <Plus className="w-4 h-4" /> New Purchase Bill
           </button>
@@ -1106,6 +1119,7 @@ function PurchasesTab({ supplier, onClearSupplier }: { supplier: { id: number; n
       )}
 
       {creating && <NewPurchaseModal onClose={() => setCreating(false)} />}
+      {importing && <ImportBillModal start={importing} onClose={() => setImporting(null)} onOpenBill={(id) => setOpenId(id)} />}
       {openId !== null && <PurchaseDetailModal id={openId} onClose={() => setOpenId(null)} />}
     </section>
   );

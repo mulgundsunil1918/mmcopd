@@ -1105,6 +1105,36 @@ export function runMigrations(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_purchase_payments_invoice ON purchase_payments(invoice_id);
     CREATE UNIQUE INDEX IF NOT EXISTS ux_purchase_payment_ref ON purchase_payments(client_ref) WHERE client_ref IS NOT NULL;
 
+    -- Bill import (Pharmacy → Purchases → Import bill). Additive only.
+    -- A supplier's printed name the pharmacist confirmed once ("PACETOMOL 650" → Paracetamol 650 mg), so the next bill from that supplier is matched
+    -- without asking. Per supplier: the same printed words from two suppliers can mean two medicines.
+    CREATE TABLE IF NOT EXISTS purchase_name_aliases (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      supplier_id    INTEGER NOT NULL REFERENCES wholesalers(id) ON DELETE CASCADE,
+      alias          TEXT NOT NULL,
+      drug_master_id INTEGER NOT NULL REFERENCES drug_master(id) ON DELETE CASCADE,
+      created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (supplier_id, alias)
+    );
+    -- Lines of an imported bill that were SET ASIDE (a problem the pharmacist could not settle on the spot) so the rest could be imported now.
+    -- The draft is kept whole, with the bill's photo, until it is finished (saved as "<invoice> (part 2)") or thrown away.
+    CREATE TABLE IF NOT EXISTS purchase_import_waiting (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      wholesaler_id       INTEGER REFERENCES wholesalers(id) ON DELETE SET NULL,
+      supplier_name       TEXT,
+      invoice_number      TEXT NOT NULL,
+      invoice_date        TEXT,
+      imported_invoice_id INTEGER REFERENCES purchase_invoices(id) ON DELETE SET NULL,
+      line_count          INTEGER NOT NULL DEFAULT 0,
+      payload_json        TEXT NOT NULL,
+      scan_path           TEXT,
+      status              TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting', 'done', 'discarded')),
+      created_by          TEXT,
+      created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_import_waiting_status ON purchase_import_waiting(status);
+
     CREATE INDEX IF NOT EXISTS idx_register_batch ON dispensing_register(batch_id);
     CREATE INDEX IF NOT EXISTS idx_register_sale_item ON dispensing_register(sale_item_id);
     CREATE INDEX IF NOT EXISTS idx_psi_sale ON pharmacy_sale_items(sale_id);

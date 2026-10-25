@@ -444,7 +444,8 @@ function createWindow() {
         lower.startsWith('https://curedesk.co.in/') ||
         lower.startsWith('https://www.curedesk.co.in/') ||
         lower.startsWith('https://mulgundsunil1918.github.io/mmcopd/') ||
-        lower.startsWith('https://bridgr.co.in/');
+        lower.startsWith('https://bridgr.co.in/') ||
+        lower.startsWith('https://chatgpt.com/');
       if (!ok) return { ok: false, error: 'URL not allowed' };
       await shell.openExternal(url);
       return { ok: true };

@@ -7,6 +7,7 @@ import type {
 import type { DiscountsGiven, ManualPharmacy, OrderBillResult, PatientPortal, Receivables, SetupStatus, UnbilledWork } from './lib/billingPortal';
 import type { SupplierAccounts, SupplierStatementResult } from './lib/supplierStatement';
 import type { ReferralStats } from './lib/referralStats';
+import type { ImportCommit, ImportResult, ParseResult, WaitingGet, WaitingRow } from './lib/billImport/types';
 
 export type LicenseStatusIPC = {
   state: 'valid' | 'grace' | 'locked' | 'invalid' | 'wrong_machine' | 'clock_tampered' | 'none' | 'dev';
@@ -510,6 +511,25 @@ const api = {
       wholesaler_id: number; amount: number; invoice_ids?: number[] | null; mode?: string | null; paid_on?: string | null;
       reference?: string | null; notes?: string | null; client_ref?: string | null;
     }) => ipcRenderer.invoke('purchase:paySupplier', payment) as Promise<PaySupplierResult>,
+  },
+  // ===== Import a supplier's bill from the Excel ChatGPT made (Pharmacy → Purchases → Import bill) =====
+  // Reading and checking change nothing; only `create` does, and only with the typed word IMPORT.
+  purchaseImport: {
+    /** The Excel to give ChatGPT as the form to fill (empty), or the same with a sample bill to try the screen — as base64 text. */
+    template: (withSample: boolean) => ipcRenderer.invoke('purchaseImport:template', withSample) as Promise<string>,
+    /** Read the uploaded Excel (base64 text) into a draft to review — or say plainly what is wrong with the file. */
+    parse: (base64: string) => ipcRenderer.invoke('purchaseImport:parse', base64) as Promise<ParseResult>,
+    /** Is this supplier's invoice number already recorded? */
+    checkInvoice: (supplierId: number | null, invoiceNumber: string) =>
+      ipcRenderer.invoke('purchaseImport:checkInvoice', supplierId, invoiceNumber) as Promise<{ id: number; date: string } | null>,
+    /** Save the reviewed draft as a purchase bill. Needs confirm === 'IMPORT'. */
+    create: (payload: ImportCommit) => ipcRenderer.invoke('purchaseImport:create', payload) as Promise<ImportResult>,
+    /** Bills with lines set aside, waiting to be finished. */
+    waiting: () => ipcRenderer.invoke('purchaseImport:waiting') as Promise<WaitingRow[]>,
+    waitingGet: (id: number) => ipcRenderer.invoke('purchaseImport:waitingGet', id) as Promise<WaitingGet>,
+    deleteWaiting: (id: number) => ipcRenderer.invoke('purchaseImport:deleteWaiting', id) as Promise<{ ok: boolean }>,
+    /** The photo kept with a waiting bill. */
+    photo: (file: string | null) => ipcRenderer.invoke('purchaseImport:photo', file) as Promise<{ name: string; mime: string; base64: string } | null>,
   },
   dispensing: {
     register: (filter: { from: string; to: string; schedule?: string }) =>

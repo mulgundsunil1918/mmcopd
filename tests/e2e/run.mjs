@@ -28,6 +28,8 @@ const ZONES = {
   'supplier-pay': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   'supplier-statement': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   'referral-analytics': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
+  // An imported bill is dated by the PC's own calendar day, and its expiry window is counted from it.
+  'bill-import': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   booking: ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   'counter-discount': ['Asia/Kolkata', 'America/Los_Angeles'],
   'ward-price': ['Asia/Kolkata', 'America/Los_Angeles'],

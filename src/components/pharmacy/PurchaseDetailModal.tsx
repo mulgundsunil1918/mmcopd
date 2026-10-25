@@ -4,6 +4,7 @@ import { AlertTriangle } from 'lucide-react';
 import { Modal } from '../Modal';
 import { useToast } from '../../hooks/useToast';
 import { cn, fmtDate, formatINR, newRef, refFor, todayISO } from '../../lib/utils';
+import { BillPictureLink } from './billImport/BillPictureLink';
 
 /**
  * One purchase bill: what was bought and what each unit really cost, the totals, the payments made
@@ -190,6 +191,7 @@ export function PurchaseDetailModal({ id, onClose }: { id: number; onClose: () =
         )}
 
         {inv.notes && <div className="text-xs text-gray-600 dark:text-slate-300"><span className="label">Notes</span> {inv.notes}</div>}
+        {inv.scan_path && <div><BillPictureLink path={inv.scan_path} /></div>}
         <div className="flex justify-end"><button className="btn-secondary" onClick={onClose}>Close</button></div>
       </div>
     </Modal>

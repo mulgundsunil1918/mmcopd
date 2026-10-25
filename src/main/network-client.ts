@@ -107,6 +107,8 @@ const SKIP_PROXY_CHANNELS = new Set([
   'updates:installNow',
   'app:openExternal',
   'app:getClinicName',
+  // The clipboard belongs to the PC the person is sitting at: proxied, "Copy" would fill the HOST's clipboard and leave theirs empty.
+  'app:copyText',
   // NOTE: settings:get / settings:save are deliberately NOT skipped — they get
   // a custom split-routing proxy below (see STATION_LOCAL_KEYS).
   // The admin PIN stays LOCAL on purpose: if the host is unreachable, a station
