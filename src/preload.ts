@@ -103,10 +103,13 @@ const api = {
       ipcRenderer.invoke('admin:resetAuditLog', confirmPhrase, adminPassword) as Promise<{ ok: boolean; error?: string; deleted?: number }>,
     resetNotificationLog: (confirmPhrase: string) =>
       ipcRenderer.invoke('admin:resetNotificationLog', confirmPhrase) as Promise<{ ok: boolean; error?: string; deleted?: number }>,
-    deletePatient: (patientId: number) =>
-      ipcRenderer.invoke('admin:deletePatient', patientId) as Promise<{ ok: boolean; error?: string; patient?: any }>,
-    deletePatients: (patientIds: number[]) =>
-      ipcRenderer.invoke('admin:deletePatients', patientIds) as Promise<{ ok: boolean; error?: string; deleted?: number }>,
+    deletePatient: (patientId: number, adminPassword: string) =>
+      ipcRenderer.invoke('admin:deletePatient', patientId, adminPassword) as Promise<{ ok: boolean; error?: string; patient?: any }>,
+    deletePatients: (patientIds: number[], adminPassword: string) =>
+      ipcRenderer.invoke('admin:deletePatients', patientIds, adminPassword) as Promise<{ ok: boolean; error?: string; deleted?: number }>,
+    /** A pharmacy counter sale: the sale, its lines, payments and register rows; the medicines go back on the shelf. Not for sales charged to an in-patient bill. */
+    deleteSale: (saleId: number, adminPassword: string) =>
+      ipcRenderer.invoke('admin:deleteSale', saleId, adminPassword) as Promise<{ ok: boolean; error?: string; sale?: any }>,
     /** Deleting needs the admin password typed again for that one deletion — checked in the main process. */
     deleteAppointment: (appointmentId: number, adminPassword: string) =>
       ipcRenderer.invoke('admin:deleteAppointment', appointmentId, adminPassword) as Promise<{ ok: boolean; error?: string; appointment?: any }>,

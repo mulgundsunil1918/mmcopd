@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users as UsersIcon, Plus, Key, Shield, KeyRound, AlertTriangle, Trash2, Search } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { AdminGate } from '../components/AdminGate';
+import { AdminPasswordModal as ConfirmWithAdminPassword } from '../components/AdminPasswordModal';
 import { useToast } from '../hooks/useToast';
 import { cn, fmtDateTime } from '../lib/utils';
 import type { Role } from '../hooks/useAuth';
@@ -613,44 +614,18 @@ function DeletePatientBlock() {
     else setSelected(new Set(results.map((p: any) => p.id)));
   };
 
-  const doDelete = async (p: any) => {
-    setBusy(true);
-    try {
-      const r = await withTimeout(window.electronAPI.admin.deletePatient(p.id), 15_000, 'Delete patient');
-      if (r.ok) {
-        toast(`Deleted patient ${r.patient.uhid}`);
-        refreshAll();
-        setConfirming(null);
-      } else if (r.error === 'Confirmation phrase required') {
-        toast('Old main process — close the app and run npm start to load the new delete handler.', 'error');
-      } else {
-        toast(r.error || 'Failed', 'error');
-      }
-    } catch (e: any) {
-      toast(e.message || 'Failed', 'error');
-    } finally {
-      setBusy(false);
-    }
+  // Both deletes need the admin password typed again (checked in the main process): see AdminPasswordModal.
+  const doDelete = async (p: any, pw: string) => {
+    const r = await withTimeout(window.electronAPI.admin.deletePatient(p.id, pw), 15_000, 'Delete patient');
+    if (r.ok) { toast(`Deleted patient ${r.patient?.uhid ?? p.uhid}`); refreshAll(); }
+    return r;
   };
 
-  const doBulkDelete = async () => {
-    setBusy(true);
-    try {
-      const ids = Array.from(selected);
-      const r = await withTimeout(window.electronAPI.admin.deletePatients(ids), 30_000, 'Bulk delete');
-      if (r.ok) {
-        toast(`Deleted ${r.deleted} patient${r.deleted === 1 ? '' : 's'}`);
-        refreshAll();
-        setBulkConfirm(false);
-        setSelected(new Set());
-      } else {
-        toast(r.error || 'Bulk delete failed', 'error');
-      }
-    } catch (e: any) {
-      toast(e.message || 'Failed', 'error');
-    } finally {
-      setBusy(false);
-    }
+  const doBulkDelete = async (pw: string) => {
+    const ids = Array.from(selected);
+    const r = await withTimeout(window.electronAPI.admin.deletePatients(ids, pw), 30_000, 'Bulk delete');
+    if (r.ok) { toast(`Deleted ${r.deleted} patient${r.deleted === 1 ? '' : 's'}`); refreshAll(); setSelected(new Set()); }
+    return r;
   };
 
   return (
@@ -708,38 +683,26 @@ function DeletePatientBlock() {
       </ul>
 
       {confirming && (
-        <Modal open onClose={() => setConfirming(null)} title="Delete patient?">
-          <div className="space-y-3">
-            <div className="text-sm text-gray-900 dark:text-slate-100">
-              Permanently delete <span className="font-bold">{confirming.first_name} {confirming.last_name}</span> ({confirming.uhid}) and all their linked history?
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button className="btn-secondary" onClick={() => setConfirming(null)} disabled={busy}>Cancel</button>
-              <button className="btn-danger" onClick={() => doDelete(confirming)} disabled={busy}>
-                {busy ? 'Deleting…' : 'Yes, delete permanently'}
-              </button>
-            </div>
+        <ConfirmWithAdminPassword title="Delete patient?" confirmLabel="Delete permanently" onClose={() => setConfirming(null)} onConfirm={(pw) => doDelete(confirming, pw)}>
+          <div>
+            Permanently delete <span className="font-bold">{confirming.first_name} {confirming.last_name}</span> ({confirming.uhid}) and all their linked history?
           </div>
-        </Modal>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400">
+            Erases their visits, consultations, prescriptions, bills and payments, lab and radiology orders, pharmacy sales (the medicines go back on the shelf) and any admission.
+            A copy of the patient's details is kept in the audit log. Cannot be undone.
+          </div>
+        </ConfirmWithAdminPassword>
       )}
 
       {bulkConfirm && (
-        <Modal open onClose={() => setBulkConfirm(false)} title={`Delete ${selected.size} patients?`}>
-          <div className="space-y-3">
-            <div className="text-sm text-gray-900 dark:text-slate-100">
-              Permanently delete <span className="font-bold">{selected.size} patient{selected.size === 1 ? '' : 's'}</span> and all their linked history?
-            </div>
-            <div className="text-[11px] text-gray-500 dark:text-slate-400">
-              This is a single transaction — all-or-nothing. Cannot be undone.
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button className="btn-secondary" onClick={() => setBulkConfirm(false)} disabled={busy}>Cancel</button>
-              <button className="btn-danger" onClick={doBulkDelete} disabled={busy}>
-                {busy ? 'Deleting…' : `Yes, delete all ${selected.size}`}
-              </button>
-            </div>
+        <ConfirmWithAdminPassword title={`Delete ${selected.size} patients?`} confirmLabel={`Delete all ${selected.size}`} onClose={() => setBulkConfirm(false)} onConfirm={(pw) => doBulkDelete(pw)}>
+          <div>
+            Permanently delete <span className="font-bold">{selected.size} patient{selected.size === 1 ? '' : 's'}</span> and all their linked history?
           </div>
-        </Modal>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400">
+            This is a single transaction — all-or-nothing. Cannot be undone.
+          </div>
+        </ConfirmWithAdminPassword>
       )}
     </div>
   );

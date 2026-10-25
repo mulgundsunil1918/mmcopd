@@ -235,6 +235,7 @@ export function createMockElectronAPI(): any {
       deletePatients: () => r({ ok: true }),
       deleteAppointment: (_id: number, pw?: string) => r(pw === '1234' ? { ok: true, appointment: { token_number: 0 } } : { ok: false, error: 'Wrong admin password.' }),
       deleteConsultation: (_id: number, pw?: string) => r(pw === '1234' ? { ok: true, consultation: { token_number: 0 } } : { ok: false, error: 'Wrong admin password.' }),
+      deleteSale: (_id: number, pw?: string) => r(pw === '1234' ? { ok: true, sale: { sale_number: 'DEMO' } } : { ok: false, error: 'Wrong admin password.' }),
       deleteBill: (_id: number, pw?: string) => r(pw === '1234' ? { ok: true, bill: { bill_number: 'DEMO' } } : { ok: false, error: 'Wrong admin password.' }),
     },
     audit: {

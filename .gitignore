@@ -30,3 +30,6 @@ keygen 2.0/
 **/keygen-vault.json
 .cache/
 .vite-test/
+# The keygen (its code is kept out of the repo on purpose), its customer records and any renamed copy of the folder:
+**/.keygen-data/
+keygen*/

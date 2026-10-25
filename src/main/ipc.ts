@@ -515,15 +515,18 @@ export function registerIpc() {
     }
   });
 
-  ipcMain.handle('admin:deletePatient', (_e, patientId: number) => {
+  ipcMain.handle('admin:deletePatient', (_e, patientId: number, adminPassword?: string) => {
     requireRole([], 'delete a patient');
+    const bad = adminPasswordProblem(adminPassword);
+    if (bad) return { ok: false, error: bad };
     const db = getDb();
     const p = db.prepare('SELECT uhid, first_name, last_name FROM patients WHERE id=?').get(patientId) as any;
     if (!p) return { ok: false, error: 'Patient not found' };
     const held = moneyOf(db, patientId);
+    const whole = db.prepare('SELECT * FROM patients WHERE id=?').get(patientId);
     const tx = db.transaction(() => purgePatient(db, patientId));
     try { tx(); } catch (err: any) { return { ok: false, error: err?.message || 'Delete failed' }; }
-    logAudit(db, actor(), 'patient_deleted', 'patients', patientId, `${p.uhid} ${p.first_name} ${p.last_name} · erased with ${held}`);
+    logAudit(db, actor(), 'patient_deleted', 'patients', patientId, `${p.uhid} ${p.first_name} ${p.last_name} · erased with ${held} · snapshot ${snapshotText({ patient: whole })}`);
     return { ok: true, patient: p };
   });
 
@@ -623,6 +626,40 @@ export function registerIpc() {
     return { ok: true, consultation: { id: c.id, token_number: c.token_number, uhid: c.uhid, patient_name: c.patient_name, appointment_date: c.appointment_date, prescription_lines: rx.length } };
   });
 
+  // Delete a PHARMACY counter sale: the sale, its lines and payments, and its dispensing-register rows — the medicines go back on the shelf.
+  // (Erasing a register row of a Schedule H medicine removes a legal record, which is why this asks for the admin password.)
+  // A sale charged to an in-patient's bill is not deletable here: it is a line on that bill.
+  ipcMain.handle('admin:deleteSale', (_e, saleId: number, adminPassword?: string) => {
+    requireRole([], 'delete a pharmacy sale');
+    const bad = adminPasswordProblem(adminPassword);
+    if (bad) return { ok: false, error: bad };
+    const db = getDb();
+    const s = db.prepare(
+      `SELECT s.*, COALESCE(p.uhid, '') AS uhid, COALESCE(p.first_name || ' ' || p.last_name, s.customer_name, '') AS who
+         FROM pharmacy_sales s LEFT JOIN patients p ON p.id = s.patient_id WHERE s.id = ?`
+    ).get(saleId) as any;
+    if (!s) return { ok: false, error: 'Sale not found' };
+    if (s.payment_mode === 'IPD-bill') {
+      return { ok: false, error: `${s.sale_number} was charged to an in-patient's bill. It is a line on that bill — remove the line there instead.` };
+    }
+    const items = rowsOf(db, 'SELECT drug_name, qty, rate, amount FROM pharmacy_sale_items WHERE sale_id=? ORDER BY id', saleId);
+    const payments = rowsOf(db, 'SELECT * FROM pharmacy_sale_payments WHERE sale_id=? ORDER BY id', saleId);
+    const register = rowsOf(db, 'SELECT batch_no, qty, rate, schedule FROM dispensing_register WHERE sale_id=? ORDER BY id', saleId);
+    try {
+      db.transaction(() => {
+        restoreDispensedStock(db, 'dr.sale_id = ?', saleId);
+        db.prepare('DELETE FROM dispensing_register WHERE sale_id = ?').run(saleId);
+        db.prepare('DELETE FROM pharmacy_sale_payments WHERE sale_id = ?').run(saleId);
+        db.prepare('DELETE FROM pharmacy_sale_items WHERE sale_id = ?').run(saleId);
+        db.prepare('DELETE FROM pharmacy_sales WHERE id = ?').run(saleId);
+      })();
+    } catch (err: any) { return { ok: false, error: err?.message || 'Delete failed' }; }
+    logAudit(db, actor(), 'pharmacy_sale_deleted', 'pharmacy_sales', saleId,
+      `${s.sale_number} · ${s.uhid} ${s.who} · total ₹${money(s.total)} · ${items.length} line(s), ${register.length} register row(s), ${payments.length} payment record(s) erased; stock returned to the shelf · snapshot ${snapshotText({ sale: s, items, payments, register })}`);
+    broadcastNetworkEvent('bill:updated', { saleId });
+    return { ok: true, sale: { id: saleId, sale_number: s.sale_number, total: s.total, who: s.who } };
+  });
+
   // Delete ANY bill (consultation, lab, radiology, services…) — the bill, its lines and its payment records. Money that was received on it
   // disappears from the books with it; "Cancel bill" is the way to keep a refund on record. In-patient admission bills are not deletable.
   ipcMain.handle('admin:deleteBill', (_e, billId: number, adminPassword?: string) => {
@@ -650,8 +687,10 @@ export function registerIpc() {
     return { ok: true, bill: { id: billId, bill_number: b.bill_number, total: b.total, amount_paid: b.amount_paid, patient_name: b.patient_name } };
   });
 
-  ipcMain.handle('admin:deletePatients', (_e, patientIds: number[]) => {
+  ipcMain.handle('admin:deletePatients', (_e, patientIds: number[], adminPassword?: string) => {
     requireRole([], 'delete patients');
+    const bad = adminPasswordProblem(adminPassword);
+    if (bad) return { ok: false, error: bad };
     const db = getDb();
     if (!Array.isArray(patientIds) || patientIds.length === 0) return { ok: true, deleted: 0 };
     const sel = db.prepare('SELECT uhid, first_name, last_name FROM patients WHERE id=?');

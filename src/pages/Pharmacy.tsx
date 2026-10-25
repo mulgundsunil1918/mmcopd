@@ -21,6 +21,7 @@ import { DrugEditModal, DRUG_QUERY_KEYS } from '../components/pharmacy/DrugEditM
 import { ScheduleBadge, daysAgo } from '../components/pharmacy/shared';
 import { useCounterDiscountLimit } from '../components/pharmacy/useDiscountLimit';
 import { PharmacySaleReceipt } from '../components/pharmacy/PharmacySaleReceipt';
+import { AdminPasswordModal } from '../components/AdminPasswordModal';
 import { CollectPaymentModal } from '../components/billing/CollectPaymentModal';
 import {
   SalePaymentChoice, initialPayChoice, payDoneText, payFields, payProblem, usePayOptions, type PayChoice,
@@ -1121,7 +1122,10 @@ function SalesTab() {
   // mid-print, must be able to get the same bill again days later.
   const [receiptId, setReceiptId] = useState<number | null>(null);
   const [collect, setCollect] = useState<{ saleId: number; label: string; due: number } | null>(null);   // taking the rest of a credit sale
+  const [erasing, setErasing] = useState<{ id: number; number: string; who: string; total: number } | null>(null);   // admin: delete a counter sale
   const qc = useQueryClient();
+  const toast = useToast();
+  const { adminUnlocked } = useAuth();
   const { data: sales = [] } = useQuery({
     queryKey: ['pharmacy-sales', from, to],
     queryFn: () => window.electronAPI.pharmacy.listSales({ from, to }),
@@ -1204,11 +1208,38 @@ function SalesTab() {
                   >
                     <Printer className="w-3 h-3" /> Print
                   </button>
+                  {adminUnlocked && !isWard(s) && (
+                    <button className="btn-ghost text-[11px] py-1 px-2 ml-1 text-red-600 hover:text-red-700"
+                      title="Delete this sale (admin password) — the medicines go back on the shelf"
+                      onClick={() => setErasing({ id: Number(s.id), number: String(s.sale_number), who: String(s.patient_name || 'walk-in'), total: Number(s.total) || 0 })}>
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+      )}
+
+      {erasing && (
+        <AdminPasswordModal
+          title="Delete this pharmacy sale?" confirmLabel="Delete this sale" onClose={() => setErasing(null)}
+          onConfirm={async (pw) => {
+            const r = await window.electronAPI.admin.deleteSale(erasing.id, pw);
+            if (r.ok) {
+              toast(`Sale ${erasing.number} deleted`);
+              for (const k of ['pharmacy-sales', 'billing-portal', 'bills', 'bills-pharmacy', 'finance', 'finance-summary', 'receivables', 'portal-walkins', 'pharmacy-clinic-stock', 'pharmacy-batches', 'pharmacy-drugs', 'pharmacy-alerts']) qc.invalidateQueries({ queryKey: [k] });
+            }
+            return r;
+          }}
+        >
+          <div>Permanently delete sale <span className="font-bold">{erasing.number}</span> for <span className="font-bold">{erasing.who}</span> — {formatINR(erasing.total)}?</div>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400">
+            Erases the sale, its lines, its payments and its dispensing-register rows (for a Schedule H medicine that is a legal record). The medicines go back on the shelf.
+            A copy of what was erased is kept in the audit log. Sales charged to an in-patient's bill cannot be deleted here.
+          </div>
+        </AdminPasswordModal>
       )}
 
       {receiptId !== null && (

@@ -12,6 +12,7 @@ import { PedsVaccineInline } from './peds/PedsVaccineInline';
 import { ageInDays } from '../lib/peds/growth';
 import type { AppointmentWithJoins, Consultation, Doctor, PrescriptionItem, Vitals } from '../types';
 import { localISO } from '../lib/localDate';
+import { DEFAULT_VITALS, DEFAULTED_KEYS, vitalsGroupFor, withDefaultVitals, type DefaultedKey } from '../lib/defaultVitals';
 
 type RxRow = {
   /** When the receptionist later dispenses this Rx, knowing which inventory
@@ -79,6 +80,8 @@ export function ConsultationPanel({
   const [advice, setAdvice] = useState('');
   const [followUp, setFollowUp] = useState('');
   const [vitals, setVitals] = useState<Vitals>({});
+  // Vitals that were filled by "Load default vitals" and not changed since — shown amber, and asked about before saving.
+  const [defaulted, setDefaulted] = useState<Set<DefaultedKey>>(new Set());
   const [rxRows, setRxRows] = useState<RxRow[]>([{ ...EMPTY_RX }]);
   const [extraFields, setExtraFields] = useState<Record<string, string>>({});
 
@@ -129,8 +132,28 @@ export function ConsultationPanel({
     setAdvice(existing?.advice || '');
     setFollowUp(existing?.follow_up_date || '');
     setVitals(existing?.vitals || {});
+    setDefaulted(new Set());
     setExtraFields(existing?.extra_fields || {});
   }, [existing?.id, appointment.id]);
+
+  // The patient's group for default vitals: the visit's Patient Group (ANC / Geriatric / Paediatric) or simply their age.
+  const vitalsGroup = useMemo(
+    () => vitalsGroupFor(appointment.patient_dob ? ageInDays(appointment.patient_dob) : null, appointment.patient_group),
+    [appointment.patient_dob, appointment.patient_group],
+  );
+  const loadDefaultVitals = () => {
+    const { vitals: next, filled } = withDefaultVitals(vitals, vitalsGroup);
+    setVitals(next);
+    setDefaulted((d) => new Set([...d, ...filled]));
+    toast(filled.length
+      ? `Default vitals for ${vitalsGroup} loaded into the empty boxes — change them to the actual readings`
+      : 'Every one of those boxes already has a value — nothing was replaced', 'info');
+  };
+  /** Typing in a box makes it a real reading again. */
+  const setVital = (k: keyof Vitals, v: string) => {
+    setVitals((cur) => ({ ...cur, [k]: v }));
+    if ((DEFAULTED_KEYS as readonly string[]).includes(k)) setDefaulted((d) => { if (!d.has(k as DefaultedKey)) return d; const n = new Set(d); n.delete(k as DefaultedKey); return n; });
+  };
 
   useEffect(() => {
     if (rxItems.length > 0) {
@@ -157,6 +180,14 @@ export function ConsultationPanel({
 
   const save = useMutation({
     mutationFn: async () => {
+      // A default left untouched would be saved and printed as if it had been measured — ask first.
+      if (defaulted.size > 0) {
+        const names: Record<DefaultedKey, string> = { temp: 'Temp', pulse: 'Pulse', rr: 'RR', spo2: 'SpO₂', bp: 'BP' };
+        const list = [...defaulted].map((k) => `${names[k]} ${vitals[k]}`).join(', ');
+        if (!window.confirm(`These vitals are still the DEFAULT values, not readings:\n\n${list}\n\nSave and print them as the patient's vitals anyway?\n(Cancel to go back and type the real readings.)`)) {
+          throw new Error('Not saved — replace the default vitals with the real readings.');
+        }
+      }
       await window.electronAPI.consultations.save({
         appointment_id: appointment.id,
         patient_id: appointment.patient_id,
@@ -302,17 +333,28 @@ export function ConsultationPanel({
 
       {/* Vitals */}
       <div>
-        <div className="label">Vitals</div>
+        <div className="flex items-center justify-between">
+          <div className="label">Vitals</div>
+          <button type="button" className="btn-ghost text-[11px] py-0.5 px-2" onClick={loadDefaultVitals}
+            title={`Fill the empty boxes with typical normal readings for ${vitalsGroup} (${DEFAULT_VITALS[vitalsGroup].age}). Weight and height are never filled.`}>
+            <Sparkles className="w-3 h-3" /> Load default vitals · {vitalsGroup}
+          </button>
+        </div>
         <div className="grid grid-cols-4 gap-2">
-          <VInput label="Temp (°F)" value={vitals.temp} placeholder="98.4" onChange={(v) => setVitals({ ...vitals, temp: v })} />
-          <VInput label="Pulse" value={vitals.pulse} placeholder="78" onChange={(v) => setVitals({ ...vitals, pulse: v })} />
-          <VInput label="RR" value={vitals.rr} placeholder="16" onChange={(v) => setVitals({ ...vitals, rr: v })} />
-          <VInput label="SpO₂ (%)" value={vitals.spo2} placeholder="98" onChange={(v) => setVitals({ ...vitals, spo2: v })} />
-          <VInput label="BP (mmHg)" value={vitals.bp} placeholder="120/80" onChange={(v) => setVitals({ ...vitals, bp: v })} />
-          <VInput label="Weight (kg)" value={vitals.weight} placeholder="65" onChange={(v) => setVitals({ ...vitals, weight: v })} />
-          <VInput label="Height (cm)" value={vitals.height} placeholder="170" onChange={(v) => setVitals({ ...vitals, height: v })} />
+          <VInput label="Temp (°F)" value={vitals.temp} placeholder="98.4" isDefault={defaulted.has('temp')} onChange={(v) => setVital('temp', v)} />
+          <VInput label="Pulse" value={vitals.pulse} placeholder="78" isDefault={defaulted.has('pulse')} onChange={(v) => setVital('pulse', v)} />
+          <VInput label="RR" value={vitals.rr} placeholder="16" isDefault={defaulted.has('rr')} onChange={(v) => setVital('rr', v)} />
+          <VInput label="SpO₂ (%)" value={vitals.spo2} placeholder="98" isDefault={defaulted.has('spo2')} onChange={(v) => setVital('spo2', v)} />
+          <VInput label="BP (mmHg)" value={vitals.bp} placeholder="120/80" isDefault={defaulted.has('bp')} onChange={(v) => setVital('bp', v)} />
+          <VInput label="Weight (kg)" value={vitals.weight} placeholder="65" onChange={(v) => setVital('weight', v)} />
+          <VInput label="Height (cm)" value={vitals.height} placeholder="170" onChange={(v) => setVital('height', v)} />
           <VInput label="Follow-up Date" value={followUp} placeholder="" type="date" onChange={setFollowUp} />
         </div>
+        {defaulted.size > 0 && (
+          <div className="text-[11px] text-amber-700 dark:text-amber-300 mt-1">
+            Amber boxes hold <b>default {vitalsGroup}</b> values, not readings — change them to what you measured. Weight and height are never filled automatically.
+          </div>
+        )}
       </div>
 
       {/* Pediatric growth (auto) — only if the template doesn't already place one. */}
@@ -798,20 +840,22 @@ function RadiologyOrderPicker({
 }
 
 function VInput({
-  label, value, onChange, placeholder, type = 'text',
+  label, value, onChange, placeholder, type = 'text', isDefault = false,
 }: {
   label: string;
   value?: string;
   onChange: (v: string) => void;
   placeholder?: string;
   type?: string;
+  /** Filled by "Load default vitals" and not yet changed. */
+  isDefault?: boolean;
 }) {
   return (
     <div>
       <label className="label" style={{ fontSize: 10 }}>{label}</label>
       <input
         type={type}
-        className="input"
+        className={isDefault ? 'input border-amber-400 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-600' : 'input'}
         value={value || ''}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}

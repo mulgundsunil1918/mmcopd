@@ -461,6 +461,7 @@ function BillingHistory() {
   const [receiptId, setReceiptId] = useState<number | null>(null);
   const [collect, setCollect] = useState<{ saleId: number; label: string; due: number } | null>(null);   // the rest of a credit sale
   const [cancelling, setCancelling] = useState<{ id: number; label: string; received: number } | null>(null);   // a wrongly raised bill
+  const [erasingSale, setErasingSale] = useState<{ id: number; number: string; who: string; total: number } | null>(null);   // admin: delete a pharmacy counter sale
   const [erasing, setErasing] = useState<{ id: number; number: string; patient: string; total: number; received: number } | null>(null);   // admin: delete a bill outright
   const qc = useQueryClient();
   const toast = useToast();
@@ -578,6 +579,13 @@ function BillingHistory() {
                   <button className="btn-ghost text-xs" onClick={() => setReceiptId(row.sale!.id)}>
                     <Printer className="w-3.5 h-3.5" /> Reprint
                   </button>
+                  {adminUnlocked && (
+                    <button className="btn-ghost text-xs text-red-600 hover:text-red-700"
+                      title="Delete this pharmacy sale (admin password) — the medicines go back on the shelf"
+                      onClick={() => setErasingSale({ id: row.sale!.id, number: String(row.sale!.sale_number), who: String(row.sale!.patient_name || 'walk-in'), total: Number(row.sale!.total) || 0 })}>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -592,6 +600,25 @@ function BillingHistory() {
             setCollect(null);
             for (const k of ['bills-pharmacy', 'pharmacy-sales', 'billing-portal', 'finance', 'receivables', 'portal-walkins']) qc.invalidateQueries({ queryKey: [k] });
           }} />
+      )}
+      {erasingSale && (
+        <AdminPasswordModal
+          title="Delete this pharmacy sale?" confirmLabel="Delete this sale" onClose={() => setErasingSale(null)}
+          onConfirm={async (pw) => {
+            const r = await window.electronAPI.admin.deleteSale(erasingSale.id, pw);
+            if (r.ok) {
+              toast(`Sale ${erasingSale.number} deleted`);
+              for (const k of ['bills-pharmacy', 'pharmacy-sales', 'billing-portal', 'bills', 'finance', 'finance-summary', 'receivables', 'portal-walkins', 'pharmacy-clinic-stock', 'pharmacy-batches', 'pharmacy-drugs']) qc.invalidateQueries({ queryKey: [k] });
+            }
+            return r;
+          }}
+        >
+          <div>Permanently delete sale <span className="font-bold">{erasingSale.number}</span> for <span className="font-bold">{erasingSale.who}</span> — {formatINR(erasingSale.total)}?</div>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400">
+            Erases the sale, its lines, its payments and its dispensing-register rows (for a Schedule H medicine that is a legal record). The medicines go back on the shelf.
+            A copy of what was erased is kept in the audit log. Sales charged to an in-patient's bill cannot be deleted here.
+          </div>
+        </AdminPasswordModal>
       )}
       {erasing && (
         <AdminPasswordModal

@@ -139,6 +139,41 @@ const count = (sql: string, ...p: any[]) => (one(sql, ...p)?.c ?? 0) as number;
   await call('settings:save', { require_login: false });
 
   // ============================================================================================================
+  section('6b · a pharmacy counter sale, and a patient');
+  const sup = await call('wholesalers:upsert', { name: 'Delete Supplies', drug_license_no: 'DL-DEL' });
+  const drug = await call('pharmacy:upsertDrug', { name: 'Del Tab', default_mrp: 50, gst_rate: 0, schedule: 'OTC', low_stock_threshold: 1 });
+  const stockOf = () => Number(one('SELECT COALESCE(SUM(qty_remaining),0) s FROM drug_stock_batches WHERE drug_master_id=?', drug.id).s);
+  await call('purchase:create', { client_ref: 'del-pur', invoice_number: 'DEL-1', wholesaler_id: sup.id, invoice_date: today, items: [{ drug_master_id: drug.id, batch_no: 'DL1', expiry: '2031-01-01', qty_received: 20, purchase_price: 30, mrp: 50 }] });
+  const sale = await call('pharmacy:sell', { client_ref: 'del-sale', items: [{ drug_master_id: drug.id, drug_name: 'Del Tab', qty: 5, rate: 50 }], payment_mode: 'Cash' });
+  eq(stockOf(), 15, 'a counter sale of 5 leaves 15 on the shelf');
+  const wrongSale = await call('admin:deleteSale', sale.id, 'nope');
+  ok(!wrongSale.ok && /wrong admin password/i.test(wrongSale.error), 'a sale cannot be deleted with a wrong password');
+  await settle();
+  eq(count('SELECT COUNT(*) c FROM pharmacy_sales WHERE id=?', sale.id), 1, '…and it is still there');
+  const delSale = await call('admin:deleteSale', sale.id, '1234');
+  ok(delSale.ok, `the sale is deleted with the right password (${delSale.ok ? '' : delSale.error})`);
+  eq(count('SELECT COUNT(*) c FROM pharmacy_sales WHERE id=?', sale.id) + count('SELECT COUNT(*) c FROM pharmacy_sale_items WHERE sale_id=?', sale.id) + count('SELECT COUNT(*) c FROM dispensing_register WHERE sale_id=?', sale.id), 0, 'the sale, its lines and its register rows are gone');
+  eq(stockOf(), 20, '…and the 5 medicines went back on the shelf');
+  ok(/pharmacy_sale_deleted/.test(one("SELECT action a FROM audit_log WHERE action='pharmacy_sale_deleted' ORDER BY id DESC LIMIT 1")?.a || '') && /Del Tab/.test(audit('pharmacy_sale_deleted') || ''), 'a copy is kept in the audit log');
+  const wardSale = await call('pharmacy:sell', { client_ref: 'del-sale-ward', items: [{ drug_master_id: drug.id, drug_name: 'Del Tab', qty: 1, rate: 50 }], payment_mode: 'Cash' });
+  db.prepare("UPDATE pharmacy_sales SET payment_mode='IPD-bill' WHERE id=?").run(wardSale.id);
+  const refused = await call('admin:deleteSale', wardSale.id, '1234');
+  ok(!refused.ok && /in-patient/i.test(refused.error), 'a sale charged to an in-patient bill is refused (it is a line on that bill)');
+
+  const gone2 = await call('patients:create', { first_name: 'Gone', last_name: 'Patient', dob: '1990-01-01', gender: 'M', phone: '9411000077' });
+  const noPw = await call('admin:deletePatient', gone2.id);
+  ok(!noPw.ok && /wrong admin password/i.test(noPw.error), 'a patient cannot be deleted without the password');
+  eq(count('SELECT COUNT(*) c FROM patients WHERE id=?', gone2.id), 1, '…and is still there');
+  const delPat = await call('admin:deletePatient', gone2.id, '1234');
+  ok(delPat.ok && count('SELECT COUNT(*) c FROM patients WHERE id=?', gone2.id) === 0, 'with the password the patient is deleted');
+  ok(/Gone/.test(audit('patient_deleted') || '') && /snapshot/.test(audit('patient_deleted') || ''), '…and their details are kept in the audit log');
+  const g3 = await call('patients:create', { first_name: 'Bulk', last_name: 'One', dob: '1990-01-01', gender: 'M', phone: '9411000078' });
+  const bulkNo = await call('admin:deletePatients', [g3.id], 'nope');
+  await settle();
+  ok(!bulkNo.ok && count('SELECT COUNT(*) c FROM patients WHERE id=?', g3.id) === 1, 'the bulk delete needs the password too');
+  ok((await call('admin:deletePatients', [g3.id], '1234')).ok && count('SELECT COUNT(*) c FROM patients WHERE id=?', g3.id) === 0, '…and works with it');
+
+  // ============================================================================================================
   section('7 · guessing the password is slowed down');
   const v5 = await visit();
   await settle();

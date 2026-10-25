@@ -226,7 +226,7 @@ const today = localISO();
 
   section('8 · deleting a patient says what money went with them');
   await call('auth:login', 'admin', 'admin123').catch(() => null);
-  const del = await attempt('admin:deletePatient', p1.id);
+  const del = await attempt('admin:deletePatient', p1.id, '1234');
   const line = one("SELECT details FROM audit_log WHERE action='patient_deleted' ORDER BY id DESC LIMIT 1");
   ok(!!line && /erased with .*bill\(s\)/.test(String(line.details)), `the audit line names the bills, deposit and credit that were erased (${line?.details ?? 'no line — ' + JSON.stringify(del)})`);
 
