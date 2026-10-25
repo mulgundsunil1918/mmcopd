@@ -43,7 +43,7 @@ export function WaitingList({ onFinish, onBack, finishing }: { onFinish: (row: W
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700">
-              <th className="py-2">Invoice</th><th className="py-2">Supplier</th><th className="py-2">Bill date</th><th className="py-2 text-right">Lines waiting</th><th className="py-2">Set aside on</th><th className="py-2" />
+              <th className="py-2">Invoice</th><th className="py-2">Supplier</th><th className="py-2">Bill date</th><th className="py-2 text-right">Lines waiting</th><th className="py-2 pl-6">Set aside on</th><th className="py-2" />
             </tr>
           </thead>
           <tbody>
@@ -53,7 +53,7 @@ export function WaitingList({ onFinish, onBack, finishing }: { onFinish: (row: W
                 <td className="py-2">{r.supplier_name || '—'}</td>
                 <td className="py-2 text-xs text-gray-500 dark:text-slate-400">{r.invoice_date ? fmtDate(r.invoice_date) : '—'}</td>
                 <td className="py-2 text-right font-semibold">{r.line_count}</td>
-                <td className="py-2 text-xs text-gray-500 dark:text-slate-400">{fmtDate(r.created_at)}</td>
+                <td className="py-2 pl-6 text-xs text-gray-500 dark:text-slate-400">{fmtDate(r.created_at)}</td>
                 <td className="py-2 text-right whitespace-nowrap">
                   {sure === r.id ? (
                     <span className="inline-flex items-center gap-2 text-xs">

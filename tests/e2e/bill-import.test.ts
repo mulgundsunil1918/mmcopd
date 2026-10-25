@@ -322,6 +322,15 @@ const all = (sql: string, ...p: any[]) => db.prepare(sql).all(...p) as any[];
   const st2 = await call('wholesalers:statement', sup.id);
   ok(st2.rows.some((r: any) => r.ref === 'PART-1 (part 2)' && /later part of PART-1/.test(r.particulars)), 'the supplier statement shows part 2 as a later part of PART-1');
 
+  // invoice numbers with SQL wildcard characters are counted as themselves
+  const decoy = await read(mini({ supplier: SUPPLIER, invoice: 'SPxy1 (part 7)', net: 210, rows: [{ name: 'Dolo 650 Tab', batch: 'W1', expiry: '06/2031', qty: 10, mrp: 30, rate: 20, gst: 5 }] }));
+  ok((await call('purchaseImport:create', { draft: decoy, confirm: 'IMPORT', client_ref: 'decoy-1' })).ok, 'an unrelated invoice "SPxy1 (part 7)" is saved');
+  const dW = fixed(); dW.bill.invoice_number = 'SP_%1'; dW.bill.wholesaler_id = sup.id; dW.lines[4].aside = true; dW.bill.totals_ack = true;
+  const pW = await call('purchaseImport:create', { draft: dW, confirm: 'IMPORT', client_ref: 'wild-1' });
+  ok(pW.ok && pW.waiting_id, 'an invoice number with _ and % in it, with a line set aside');
+  eq((await call('purchaseImport:waiting')).find((w: any) => w.id === pW.waiting_id)?.invoice_number, 'SP_%1 (part 2)', '…waits as "SP_%1 (part 2)" — the look-alike "SPxy1 (part 7)" did not count');
+  await call('purchaseImport:deleteWaiting', pW.waiting_id);
+
   // a bill with a line set aside, then thrown away
   const d6 = fixed(); d6.bill.invoice_number = 'PART-7'; d6.bill.wholesaler_id = sup.id; d6.lines[4].aside = true; d6.bill.totals_ack = true;
   const p7 = await call('purchaseImport:create', { draft: d6, confirm: 'IMPORT', client_ref: 'part-7' });
@@ -330,7 +339,7 @@ const all = (sql: string, ...p: any[]) => db.prepare(sql).all(...p) as any[];
   eq((await call('purchaseImport:waiting')).some((w: any) => w.id === p7.waiting_id), false, '…and is gone from the list');
   ok((await call('purchaseImport:waitingGet', p7.waiting_id)).ok === false, '…and cannot be opened');
   eq((await call('purchaseImport:deleteWaiting', p7.waiting_id)).ok, false, '(throwing it away twice does nothing)');
-  eq(one("SELECT COUNT(*) c FROM audit_log WHERE action='purchase.import_discard'").c, 1, 'throwing it away is in the audit log');
+  eq(one("SELECT COUNT(*) c FROM audit_log WHERE action='purchase.import_discard' AND entity_id=?", p7.waiting_id).c, 1, 'throwing it away is in the audit log');
   eq(one("SELECT COUNT(*) c FROM purchase_invoices WHERE invoice_number='PART-7'").c, 1, 'the lines that were imported stay imported');
 
   // ============================================================================================================

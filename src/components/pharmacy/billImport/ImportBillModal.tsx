@@ -88,13 +88,16 @@ export function ImportBillModal({ onClose, start = 'guide', onOpenBill }: { onCl
   return (
     <Modal open onClose={requestClose} title="Import a supplier’s bill" size={view.name === 'review' ? 'full' : 'xl'}>
       {leave && (
-        <Banner tone="amber" title={leave === 'close' ? 'Close without importing?' : 'Go back without importing?'} className="mb-3">
-          <p>Nothing has been added to your stock. What you have checked or typed on this screen will be lost.</p>
-          <div className="flex gap-2 pt-1">
-            <button className="btn-secondary text-xs px-3 py-1.5" onClick={() => setLeave(null)}>Keep working</button>
-            <button className="btn-danger text-xs px-3 py-1.5" onClick={confirmLeave}>{leave === 'close' ? 'Close' : 'Go back'}</button>
-          </div>
-        </Banner>
+        // pinned to the top of the window, so it is seen however far down the bill the person has scrolled
+        <div className="sticky top-0 z-30 -mx-5 -mt-5 mb-3 px-5 pt-3 pb-2 bg-white dark:bg-slate-800">
+          <Banner tone="amber" title={leave === 'close' ? 'Close without importing?' : 'Go back without importing?'}>
+            <p>Nothing has been added to your stock. What you have checked or typed on this screen will be lost.</p>
+            <div className="flex gap-2 pt-1">
+              <button className="btn-secondary text-xs px-3 py-1.5" onClick={() => setLeave(null)}>Keep working</button>
+              <button className="btn-danger text-xs px-3 py-1.5" onClick={confirmLeave}>{leave === 'close' ? 'Close' : 'Go back'}</button>
+            </div>
+          </Banner>
+        </div>
       )}
 
       {view.name === 'guide' && <GuideSteps waitingCount={waiting.length} onParsed={onParsed} onOpenWaiting={() => setView({ name: 'waiting' })} isDemo={isDemo} />}

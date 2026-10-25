@@ -109,7 +109,7 @@ export function commitImport(db: Database.Database, input: ImportCommit, opts: {
   const plan = planParts(draft.bill, draft.lines);
   const finishing = input.waiting_id ? (db.prepare("SELECT id, scan_path FROM purchase_import_waiting WHERE id=? AND status='waiting'").get(Number(input.waiting_id)) as { id: number; scan_path: string | null } | undefined) : undefined;
   let photoPath: string | null = finishing?.scan_path ?? null;
-  let wrotePhoto = false;
+  let wrotePhoto = false, committed = false;
   let newDrugs = 0, reactivated = 0, newSupplier = false, aliasesSaved = 0, waitingId: number | null = null;
   try {
     if (photoBytes && input.photo) { photoPath = savePhoto(opts.scanDir, { name: input.photo.name, data: photoBytes }, `${draft.bill.invoice_number}`); wrotePhoto = true; }
@@ -198,7 +198,8 @@ export function commitImport(db: Database.Database, input: ImportCommit, opts: {
       {
         if (plan.asideLines.length > 0) {
           const base = part || clean(draft.bill.invoice_number);
-          const partNo = (db.prepare("SELECT COUNT(*) AS c FROM purchase_invoices WHERE wholesaler_id=? AND (invoice_number=? OR invoice_number LIKE ?)").get(supplierId, base, `${base.replace(/[%_]/g, '')} (part %`) as { c: number }).c + 1;
+          const likeBase = base.replace(/[\\%_]/g, (c) => `\\${c}`);                     // a % or _ in an invoice number must match itself, not "anything"
+          const partNo = (db.prepare("SELECT COUNT(*) AS c FROM purchase_invoices WHERE wholesaler_id=? AND (invoice_number=? OR invoice_number LIKE ? ESCAPE '\\')").get(supplierId, base, `${likeBase} (part %`) as { c: number }).c + 1;
           const remainder: Draft = {
             bill: {
               ...draft.bill, wholesaler_id: supplierId, invoice_number: `${base} (part ${partNo})`, part_of: base,
@@ -219,11 +220,12 @@ export function commitImport(db: Database.Database, input: ImportCommit, opts: {
       }
     });
     tx();
+    committed = true;
     const inv = getPurchase(db, invoice.id) as { invoice_number: string; total: number; items: unknown[] } | null;
     const batches = (db.prepare('SELECT COUNT(DISTINCT drug_master_id || \'|\' || batch_no) AS c FROM purchase_invoice_items WHERE invoice_id=?').get(invoice.id) as { c: number }).c;
     return { ok: true, duplicate: invoice.duplicate, invoice_id: invoice.id, invoice_number: inv?.invoice_number ?? draft.bill.invoice_number, lines: plan.importLines.length, batches, total: inv?.total ?? plan.importedTotal, new_drugs: newDrugs, reactivated, new_supplier: newSupplier, aliases_saved: aliasesSaved, waiting_id: waitingId, aside: plan.asideLines.length };
   } catch (e: any) {
-    if (photoPath && wrotePhoto) { try { fs.rmSync(photoPath, { force: true }); } catch { /* nothing to clean */ } }
+    if (photoPath && wrotePhoto && !committed) { try { fs.rmSync(photoPath, { force: true }); } catch { /* nothing to clean */ } }   // never remove the picture of a bill that was saved
     return { ok: false, error: String(e?.message || e || 'Could not import the bill.') };
   }
 }
