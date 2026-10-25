@@ -10,6 +10,7 @@ import {
 import { IpdAnalyticsTab } from '../components/analytics/IpdAnalyticsTab';
 import { DonutChart, VBarChart, TrendChart } from '../components/analytics/Charts';
 import { Kpi, SectionTitle } from '../components/analytics/Kpi';
+import { useDrugDetails } from '../hooks/useDrugDetails';
 import { PharmacyChecksSection, PharmacyProfitSection, PharmacyValuationSection, SupplierSection } from '../components/analytics/PharmacyProfit';
 import { DiscountsSection, ReceivablesSection, UnbilledWorkSection } from '../components/analytics/Receivables';
 import { ManualPharmacySection } from '../components/analytics/ManualPharmacy';
@@ -849,6 +850,7 @@ function PharmacyTab({ from, to }: { from: string; to: string }) {
     queryKey: ['analytics-pharmacy-basket'],
     queryFn: () => window.electronAPI.analytics.pharmacyBasket(),
   });
+  const detail = useDrugDetails();          // composition (generic · form · strength) next to each medicine name
 
   if (isLoading || !p) return <div className="text-xs text-gray-500 dark:text-slate-400 p-4">Loading…</div>;
 
@@ -924,7 +926,7 @@ function PharmacyTab({ from, to }: { from: string; to: string }) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <BarListCard
           title="Top 20 drugs by revenue"
-          rows={p.topDrugs.map((d) => ({ label: `${d.name} · ${d.units} units · ${d.sales} sales`, value: d.revenue }))}
+          rows={p.topDrugs.map((d) => ({ label: `${d.name}${detail.short(null, d.name) ? ` (${detail.short(null, d.name)})` : ''} · ${d.units} units · ${d.sales} sales`, value: d.revenue }))}
           formatValue={formatINR}
         />
         <BarListCard
@@ -948,7 +950,7 @@ function PharmacyTab({ from, to }: { from: string; to: string }) {
             <ul className="text-xs space-y-1 max-h-72 overflow-auto">
               {p.lowStock.map((s, i) => (
                 <li key={i} className="flex items-center justify-between border-b border-gray-100 dark:border-slate-800 pb-1">
-                  <span className="text-gray-900 dark:text-slate-100">{s.name}</span>
+                  <span className="text-gray-900 dark:text-slate-100">{s.name}{detail(null, s.name) && <span className="block text-[10px] text-gray-500 dark:text-slate-400">{detail(null, s.name)}</span>}</span>
                   <span className="text-amber-700 dark:text-amber-300 font-semibold">
                     {s.stock} / threshold {s.low_stock_threshold}
                   </span>
@@ -979,7 +981,7 @@ function PharmacyTab({ from, to }: { from: string; to: string }) {
               <tbody>
                 {p.expiringSoon.map((b, i) => (
                   <tr key={i} className="border-b border-gray-100 dark:border-slate-800">
-                    <td className="py-1.5 text-gray-900 dark:text-slate-100">{b.drug_name}</td>
+                    <td className="py-1.5 text-gray-900 dark:text-slate-100">{b.drug_name}{detail(null, b.drug_name) && <div className="text-[10px] text-gray-500 dark:text-slate-400">{detail(null, b.drug_name)}</div>}</td>
                     <td className="py-1.5 font-mono text-[11px]">{b.batch_no}</td>
                     <td className="py-1.5">{(() => { try { return fmtDate(b.expiry); } catch { return b.expiry; } })()}</td>
                     <td className="py-1.5 text-right font-semibold">{b.qty_remaining}</td>

@@ -35,7 +35,7 @@ export function WholesalersTab({ onViewBills }: { onViewBills: (w: { id: number;
     queryFn: () => window.electronAPI.wholesalers.summary(),
     refetchInterval: 60_000,
   });
-  const refresh = () => { for (const k of ['wholesalers', 'wholesalers-all', 'wholesalers-summary', 'supplier-statement']) qc.invalidateQueries({ queryKey: [k] }); };
+  const refresh = () => { for (const k of ['wholesalers', 'wholesalers-all', 'wholesalers-summary', 'supplier-statement', 'supplier-accounts']) qc.invalidateQueries({ queryKey: [k] }); };
 
   const save = useMutation({
     mutationFn: (w: Partial<Wholesaler>) => window.electronAPI.wholesalers.upsert(w),

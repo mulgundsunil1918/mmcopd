@@ -43,7 +43,7 @@ import {
   type StockBucket, type SupplierReport, type Valuation,
 } from '../lib/pharmacyReports';
 import { capPaise } from '../lib/discountLimit';
-import { buildSupplierStatement, type StatementInvoice, type StatementPayment } from '../lib/supplierStatement';
+import { buildSupplierAccounts, buildSupplierStatement, type StatementInvoice, type StatementPayment, type SupplierStatement } from '../lib/supplierStatement';
 export type { CounterSalesFilter, CounterSalesResult, CounterSaleRow, CostNotRecordedSummary } from '../lib/pharmacyReports';
 
 // ---------------------------------------------------------------------------------------------
@@ -604,6 +604,14 @@ export function supplierStatement(db: Database.Database, wholesalerId: number, o
   `).all(supplier.id) as StatementPayment[];
   const iso = (v: unknown) => (isIsoDate(v) ? (v as string) : null);
   return { supplier, ...buildSupplierStatement(invoices, payments, { today: localISO(), from: iso(opts?.from), to: iso(opts?.to) }) };
+}
+
+/** Every supplier's account in one list (Pharmacy → Reports → Supplier accounts): what is owed today and how old it is. Built from each supplier's statement. */
+export function supplierAccounts(db: Database.Database) {
+  const ids = (db.prepare('SELECT id FROM wholesalers ORDER BY name COLLATE NOCASE').all() as { id: number }[]).map((r) => r.id);
+  const entries = ids.map((id) => supplierStatement(db, id)).filter((x): x is NonNullable<ReturnType<typeof supplierStatement>> => !!x)
+    .map(({ supplier, ...statement }) => ({ supplier, statement: statement as SupplierStatement }));
+  return buildSupplierAccounts(entries, localISO());
 }
 
 // ---------------------------------------------------------------------------------------------

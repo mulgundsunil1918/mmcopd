@@ -18,7 +18,7 @@ import {
 import { LAB_CATALOG } from '../data/lab-catalog';
 import { demoPriceHistory, demoProfitReport, demoSupplierReport, demoValuation, makeDemoPurchaseStore } from './demo-pharmacy-finance';
 import { demoCounterSales, demoPortal, demoReceivables } from './demo-portal';
-import { buildSupplierStatement } from '../lib/supplierStatement';
+import { buildSupplierAccounts, buildSupplierStatement } from '../lib/supplierStatement';
 import { buildReferralStats } from '../lib/referralStats';
 import { localISO } from '../lib/localDate';
 import { RADIOLOGY_CATALOG, modalityOf } from '../data/radiology-catalog';
@@ -727,6 +727,16 @@ export function createMockElectronAPI(): any {
       list: () => r(wholesalers),
       upsert: (w: any) => { if (w.id) wholesalers = wholesalers.map((x) => x.id === w.id ? { ...x, ...w } : x); else { const id = nextId(wholesalers); w = { id, ...w }; wholesalers = [...wholesalers, w]; } return r(w); },
       delete: (id: number) => { wholesalers = wholesalers.filter((x) => x.id !== id); return r({ ok: true }); },
+      // Every supplier's account in one list — the same builders the real app uses, fed from the demo's bills and payments.
+      accounts: () => {
+        const entries = wholesalers.map((w: any) => {
+          const mine = purchaseStore.all().filter((p) => p.wholesaler_id === w.id);
+          const invoices = mine.map((p) => ({ id: p.id, invoice_number: p.invoice_number, invoice_date: String(p.invoice_date).slice(0, 10), total: p.total, amount_paid: p.amount_paid ?? null, line_count: p.line_count, notes: null }));
+          const payments = mine.flatMap((p) => (p.payments || []).map((x: any) => ({ id: x.id, invoice_id: p.id, amount: x.amount, payment_mode: x.payment_mode ?? null, paid_on: String(x.paid_on).slice(0, 10), reference: x.reference ?? null, notes: x.notes ?? null })));
+          return { supplier: { id: w.id, name: w.name, contact_person: w.contact_person ?? null, phone: w.phone ?? null, email: w.email ?? null, address: w.address ?? null, drug_license_no: w.drug_license_no, gstin: w.gstin ?? null, is_active: w.is_active }, statement: buildSupplierStatement(invoices, payments, { today: localISO() }) };
+        });
+        return r(buildSupplierAccounts(entries, localISO()));
+      },
       // A supplier's whole account as a passbook — the same function the real app uses (lib/supplierStatement.ts), fed from the demo's bills and payments.
       statement: (id: number, opts: { from?: string | null; to?: string | null } = {}) => {
         const w: any = wholesalers.find((x) => x.id === id);
@@ -784,8 +794,13 @@ export function createMockElectronAPI(): any {
       },
       attachScan: () => r({ ok: true }),
     },
-    dispensing: { register: () => r(dispensing) },
-    stock: { register: () => r(batches.map((b) => ({ ...b, days_to_expiry: Math.round((new Date(b.expiry).getTime() - Date.now()) / 86400000) }))) },
+    // The printed registers carry each drug's composition (what it is, its form, its strength) — joined here from the Drug List like the real queries do.
+    dispensing: { register: () => r(dispensing.map((x: any) => { const d: any = drugMaster.find((m) => m.id === x.drug_master_id); return { ...x, generic_name: d?.generic_name ?? null, form: d?.form ?? null, strength: d?.strength ?? null }; })) },
+    stock: { register: () => r(batches.map((b) => {
+      const d: any = drugMaster.find((m) => m.id === b.drug_master_id);
+      return { ...b, drug_name: b.drug_name ?? d?.name, generic_name: d?.generic_name ?? null, manufacturer: d?.manufacturer ?? null, form: d?.form ?? null, strength: d?.strength ?? null,
+        hsn_code: d?.hsn_code ?? null, gst_rate: d?.gst_rate ?? 5, days_to_expiry: Math.round((new Date(b.expiry).getTime() - Date.now()) / 86400000) };
+    })) },
     purchasesReport: { register: () => r(purchaseStore.all().map((p) => ({ ...p, wholesaler_gstin: null, line_count: p.items.length })) as any) },
     notifications: { list: () => r([]) },
     ip: { list: () => r([]), admit: () => r({} as any), discharge: () => r({} as any) },

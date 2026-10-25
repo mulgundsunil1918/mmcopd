@@ -128,5 +128,36 @@ const db = getDb();
     [{ id: 1, invoice_id: 1, amount: 0.1, payment_mode: null, paid_on: '2026-01-03' }, { id: 2, invoice_id: 1, amount: 0.1, payment_mode: null, paid_on: '2026-01-04' }], { today: '2026-01-10' });
   eq(tenth.totals.owed, 0.2, '0.1 + 0.2 style sums come out exact (₹0.30 − ₹0.20 + ₹0.10 = ₹0.20)');
 
+  // ============================================================================================================
+  section('8 · owed by age (0–30, 31–60, 61–90, over 90 days)');
+  near(st.ageing.d0_30, 400 + 300 + 100, 'ST-3 (30 days), "12" and "12 (part 2)" (10 days) are in the first band: ₹800');
+  near(st.ageing.d31_60, 350, 'ST-2 (45 days) is in the second band: ₹350');
+  ok(st.ageing.d61_90 === 0 && st.ageing.d90_plus === 0, 'nothing is older than 60 days');
+  near(st.ageing.d0_30 + st.ageing.d31_60 + st.ageing.d61_90 + st.ageing.d90_plus, st.totals.owed, 'the four bands add up to what is owed now');
+  const old = buildSupplierStatement([
+    { id: 1, invoice_number: 'A', invoice_date: '2026-01-01', total: 100, amount_paid: 0 }, { id: 2, invoice_number: 'B', invoice_date: '2026-02-15', total: 200, amount_paid: 0 },
+    { id: 3, invoice_number: 'C', invoice_date: '2026-03-20', total: 300, amount_paid: 0 }, { id: 4, invoice_number: 'D', invoice_date: '2026-04-20', total: 400, amount_paid: 0 },
+  ], [], { today: '2026-05-01' });
+  eq(`${old.ageing.d0_30}/${old.ageing.d31_60}/${old.ageing.d61_90}/${old.ageing.d90_plus}`, '400/300/200/100', 'D 11 days → 0–30; C 42 → 31–60; B 75 → 61–90; A 120 → over 90');
+  eq(buildSupplierStatement([{ id: 1, invoice_number: 'E', invoice_date: '2026-03-31', total: 50, amount_paid: 0 }], [], { today: '2026-05-01' }).ageing.d31_60, 50, 'a bill exactly 31 days old is in the 31–60 band');
+  eq(buildSupplierStatement([{ id: 1, invoice_number: 'F', invoice_date: '2026-04-01', total: 50, amount_paid: 0 }], [], { today: '2026-05-01' }).ageing.d0_30, 50, '…and exactly 30 days old is still in 0–30');
+
+  section('9 · every supplier on one list (Reports → Supplier accounts)');
+  const acc = await call('wholesalers:accounts');
+  eq(acc.as_of, day(0), 'as of today');
+  eq(acc.suppliers.map((x: any) => x.name).join(' | '), 'Statement Supplier One | Statement Supplier Two', 'suppliers with bills, most owed first (the one with no bills is left out)');
+  const a1 = acc.suppliers[0];
+  near(a1.owed, st.totals.owed, "supplier one's owed is exactly what its own statement says");
+  near(a1.billed, st.totals.billed, '…and billed');
+  eq(a1.open_bills, 4, '…and pending bills');
+  eq(a1.oldest_pending_days, 45, '…and the oldest bill');
+  eq(a1.unknown_bills, 1, 'one bill with payment unknown is counted apart');
+  near(a1.unknown_total, 200, '…worth ₹200, in no other figure');
+  near(acc.totals.owed, 1150 + 300, 'the grand total owed = supplier one ₹1,150 + supplier two ₹300');
+  near(acc.totals.ageing.d0_30, 800 + 300, 'the grand total in the first band adds the two suppliers');
+  near(acc.totals.ageing.d0_30 + acc.totals.ageing.d31_60 + acc.totals.ageing.d61_90 + acc.totals.ageing.d90_plus, acc.totals.owed, 'the grand bands add up to the grand total owed');
+  const sumRows = (await call('wholesalers:summary')).filter((r: any) => [s1.id, s2.id].includes(r.wholesaler_id)).reduce((n: number, r: any) => n + r.owed, 0);
+  near(acc.totals.owed, sumRows, 'and it equals the supplier list’s owed for the same suppliers');
+
   finish();
 })().catch((e) => { console.error('SUITE CRASHED', e); process.exit(1); });

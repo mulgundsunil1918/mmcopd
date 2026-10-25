@@ -105,7 +105,7 @@ export function DispensingRegisterPrint({
                   <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '6%', textAlign: 'left' }}>Sl</th>
                   <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '14%', textAlign: 'left' }}>Date / Time</th>
                   <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '18%', textAlign: 'left' }}>Patient (UHID)</th>
-                  <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '20%', textAlign: 'left' }}>Drug</th>
+                  <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '20%', textAlign: 'left' }}>Drug (composition)</th>
                   <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '10%', textAlign: 'left' }}>Batch</th>
                   <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '8%', textAlign: 'left' }}>Expiry</th>
                   <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '6%', textAlign: 'right' }}>Qty</th>
@@ -129,7 +129,13 @@ export function DispensingRegisterPrint({
                         {r.patient_name || '—'}
                         <div style={{ fontSize: 9, color: '#64748b' }}>{(r as any).patient_uhid || ''}</div>
                       </td>
-                      <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px' }}>{r.drug_name || `#${r.drug_master_id}`}</td>
+                      <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px' }}>
+                        {r.drug_name || `#${r.drug_master_id}`}
+                        {(() => {
+                          const what = [r.generic_name, r.form, r.strength].filter((x) => x && x !== '—').join(' · ');
+                          return what ? <div style={{ fontSize: 8, color: '#64748b' }}>{what}</div> : null;
+                        })()}
+                      </td>
                       <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px', fontFamily: 'monospace', fontSize: 9 }}>{r.batch_no}</td>
                       <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px', fontSize: 9 }}>
                         {(() => { try { return format(parseISO(r.expiry), 'MMM yy'); } catch { return r.expiry; } })()}

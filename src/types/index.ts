@@ -666,6 +666,10 @@ export interface DispensingRow {
   /** Joined for display only. */
   patient_name?: string | null;
   drug_name?: string | null;
+  /** The drug's composition, joined for the printed register: what it is, in what form, how strong. */
+  generic_name?: string | null;
+  form?: string | null;
+  strength?: string | null;
   doctor_name?: string | null;
 }
 

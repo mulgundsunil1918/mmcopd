@@ -2756,7 +2756,7 @@ export function registerIpc() {
       SELECT b.id, b.batch_no, b.expiry, b.qty_received, b.qty_remaining,
              b.purchase_price, b.unit_cost, b.selling_price, b.mrp, b.manufacturer_license_no, b.received_at,
              m.id as drug_master_id, m.name as drug_name, m.generic_name,
-             m.manufacturer, m.form, m.strength, m.schedule, m.hsn_code,
+             m.manufacturer, m.form, m.strength, m.schedule, m.hsn_code, m.gst_rate,
              CAST((julianday(b.expiry) - julianday('now')) AS INTEGER) as days_to_expiry
       FROM drug_stock_batches b
       JOIN drug_master m ON m.id=b.drug_master_id
@@ -2802,7 +2802,7 @@ export function registerIpc() {
       SELECT dr.*,
         (p.first_name || ' ' || p.last_name) as patient_name,
         p.uhid as patient_uhid,
-        m.name as drug_name,
+        m.name as drug_name, m.generic_name, m.form, m.strength,
         d.name as doctor_name
       FROM dispensing_register dr
       LEFT JOIN patients p ON p.id=dr.patient_id

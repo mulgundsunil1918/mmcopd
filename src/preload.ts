@@ -5,7 +5,7 @@ import type {
   SupplierReport, Valuation,
 } from './lib/pharmacyReports';
 import type { DiscountsGiven, ManualPharmacy, OrderBillResult, PatientPortal, Receivables, SetupStatus, UnbilledWork } from './lib/billingPortal';
-import type { SupplierStatementResult } from './lib/supplierStatement';
+import type { SupplierAccounts, SupplierStatementResult } from './lib/supplierStatement';
 import type { ReferralStats } from './lib/referralStats';
 
 export type LicenseStatusIPC = {
@@ -489,6 +489,8 @@ const api = {
       ipcRenderer.invoke('wholesalers:delete', id) as Promise<{ ok: boolean }>,
     /** Bills, amount bought and amount owed per supplier (same "owed" rule as the Analytics supplier report). */
     summary: () => ipcRenderer.invoke('wholesalers:summary') as Promise<SupplierSummaryRow[]>,
+    /** Every supplier's account in one list: billed, paid, owed now, ageing of the unpaid bills. */
+    accounts: () => ipcRenderer.invoke('wholesalers:accounts') as Promise<SupplierAccounts>,
     /** The supplier's whole account as a passbook: bills (credit), payments (debit), running balance, pending bills, latest bills. */
     statement: (id: number, opts?: { from?: string | null; to?: string | null }) =>
       ipcRenderer.invoke('wholesalers:statement', id, opts || {}) as Promise<SupplierStatementResult | null>,
@@ -518,7 +520,7 @@ const api = {
       ipcRenderer.invoke('stock:register', filter || {}) as Promise<Array<DrugStockBatch & {
         drug_name: string; generic_name: string | null; manufacturer: string | null;
         form: string | null; strength: string | null; schedule: string;
-        hsn_code: string | null; days_to_expiry: number;
+        hsn_code: string | null; gst_rate: number; days_to_expiry: number;
       }>>,
   },
   purchasesReport: {

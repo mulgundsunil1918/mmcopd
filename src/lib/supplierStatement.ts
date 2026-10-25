@@ -58,6 +58,7 @@ export interface StatementRow {
   /** Credit − debit, running. */
   balance: number;
 }
+export interface Ageing { d0_30: number; d31_60: number; d61_90: number; d90_plus: number }
 export interface SupplierStatement {
   as_of: string;
   from: string | null;
@@ -76,6 +77,8 @@ export interface SupplierStatement {
   brought_forward: number;
   /** What the rows shown add up to. */
   period: { credit: number; debit: number; closing: number };
+  /** What is owed, by how old the bill is (days since the supplier's bill date). Adds up to totals.owed. */
+  ageing: Ageing;
   /** Bills still owing, OLDEST first. */
   pending: StatementBill[];
   /** The newest bills first, whatever their state. */
@@ -178,6 +181,8 @@ export function buildSupplierStatement(
   const billedP = sum(known.map((b) => b.totalP));
   const paidP = sum(known.map((b) => b.paidP));
   const pending = known.filter((b) => b.outstanding > 0).map(strip).sort(billOrder);
+  const bucket = (lo: number, hi: number) => rupees(sum(known.filter((b) => b.owedP > 0 && b.days_old >= lo && b.days_old <= hi).map((b) => b.owedP)));
+  const ageing: Ageing = { d0_30: bucket(0, 30), d31_60: bucket(31, 60), d61_90: bucket(61, 90), d90_plus: bucket(91, Infinity) };
   const lastPay = payments.filter((p) => numberOf.has(p.invoice_id)).map((p) => p.paid_on.slice(0, 10)).sort().pop() ?? null;
   const lastBill = known.map((b) => b.invoice_date).sort().pop() ?? null;
   return {
@@ -187,11 +192,58 @@ export function buildSupplierStatement(
       open_bills: pending.length, oldest_pending_days: pending.length ? pending[0].days_old : null,
       last_bill_date: lastBill, last_payment_date: lastPay,
     },
+    ageing,
     brought_forward: rupees(broughtForwardP),
     period: { credit: rupees(creditP), debit: rupees(debitP), closing: rupees(closingP) },
     pending,
     latest: bills.map(strip).sort((a, b) => billOrder(b, a)).slice(0, Math.max(1, opts.latest ?? 10)),
     rows,
     unknown: bills.filter((b) => b.state === 'unknown').map(strip).sort(billOrder),
+  };
+}
+
+/** One line of the "Supplier accounts" report: what is owed to a supplier today, and how old it is. */
+export interface SupplierAccountRow {
+  id: number;
+  name: string;
+  drug_license_no: string;
+  gstin: string | null;
+  phone: string | null;
+  is_active: number;
+  bills: number;
+  billed: number;
+  paid: number;
+  owed: number;
+  open_bills: number;
+  oldest_pending_days: number | null;
+  last_bill_date: string | null;
+  last_payment_date: string | null;
+  /** Bills whose paid amount was never recorded: not in any figure here. */
+  unknown_bills: number;
+  unknown_total: number;
+  ageing: Ageing;
+}
+export interface SupplierAccounts {
+  as_of: string;
+  suppliers: SupplierAccountRow[];
+  totals: { suppliers: number; bills: number; billed: number; paid: number; owed: number; open_bills: number; unknown_bills: number; ageing: Ageing };
+}
+/** The accounts report from each supplier's statement — the same numbers the single statement shows. Suppliers with no bills are left out; most owed first. */
+export function buildSupplierAccounts(entries: { supplier: StatementSupplier; statement: SupplierStatement }[], today: string): SupplierAccounts {
+  const rows: SupplierAccountRow[] = entries.filter((e) => e.statement.totals.bills > 0).map(({ supplier, statement: st }) => ({
+    id: supplier.id, name: supplier.name, drug_license_no: supplier.drug_license_no, gstin: supplier.gstin, phone: supplier.phone, is_active: supplier.is_active,
+    bills: st.totals.bills, billed: st.totals.billed, paid: st.totals.paid, owed: st.totals.owed, open_bills: st.totals.open_bills,
+    oldest_pending_days: st.totals.oldest_pending_days, last_bill_date: st.totals.last_bill_date, last_payment_date: st.totals.last_payment_date,
+    unknown_bills: st.unknown.length, unknown_total: rupees(sum(st.unknown.map((b) => toPaise(b.total)))), ageing: st.ageing,
+  })).sort((a, b) => b.owed - a.owed || a.name.localeCompare(b.name));
+  const add = (f: (r: SupplierAccountRow) => number) => rupees(sum(rows.map((r) => toPaise(f(r)))));
+  return {
+    as_of: today.slice(0, 10),
+    suppliers: rows,
+    totals: {
+      suppliers: rows.length, bills: rows.reduce((n, r) => n + r.bills, 0), billed: add((r) => r.billed), paid: add((r) => r.paid), owed: add((r) => r.owed),
+      open_bills: rows.reduce((n, r) => n + r.open_bills, 0), unknown_bills: rows.reduce((n, r) => n + r.unknown_bills, 0),
+      ageing: { d0_30: add((r) => r.ageing.d0_30), d31_60: add((r) => r.ageing.d31_60), d61_90: add((r) => r.ageing.d61_90), d90_plus: add((r) => r.ageing.d90_plus) },
+    },
   };
 }

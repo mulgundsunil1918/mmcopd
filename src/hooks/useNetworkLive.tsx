@@ -26,7 +26,7 @@ const EVENT_TO_KEYS: Record<string, string[][]> = {
   'consultation:saved': [['consultation'], ['rx']],
   'bill:created':       [['bills'], ['analytics-overview'], ['finance-summary']],
   'pharmacy:dispensed': [['pharmacy-sales'], ['pharmacy-alerts'], ['pharmacy-clinic-stock']],
-  'pharmacy:changed':   [['pharmacy-clinic-stock'], ['wholesalers-summary'], ['purchases'], ['supplier-statement']],
+  'pharmacy:changed':   [['pharmacy-clinic-stock'], ['wholesalers-summary'], ['purchases'], ['supplier-statement'], ['supplier-accounts']],
   'pharmacy:sale':      [['pharmacy-sales-month'], ['analytics-overview']],
   // IPD — keep the ward map and admission lists live across stations.
   'ip:admitted':        [['beds-map'], ['ip-admissions'], ['wards']],

@@ -9,9 +9,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, ChevronDown, ChevronRight, Layers, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { Modal } from '../Modal';
 import { EmptyState } from '../EmptyState';
+import { HelpTip } from '../HelpTip';
 import { useToast } from '../../hooks/useToast';
 import { canAnyRole, useAuth } from '../../hooks/useAuth';
 import { cn, fmtDate, formatINR } from '../../lib/utils';
+import { profitMetrics } from '../../lib/pharmacyMath';
 import type { ClinicStockRow, DrugMaster, DrugStockBatch } from '../../types';
 import { DrugEditModal } from './DrugEditModal';
 import { QuickDrugModal } from './QuickDrugModal';
@@ -67,6 +69,15 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
 
   const { data: rows = [], isLoading } = useClinicStock();
   const counts = useMemo(() => clinicCounts(rows), [rows]);
+  // A clinic that charges GST earns the price WITHOUT the GST, so profit per unit is worked out on that (same rule as the purchase bill and Analytics).
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const gstCharged = !!settings?.gst_enabled && settings?.gst_registration_type !== 'unregistered' && settings?.gst_registration_type !== 'composition';
+  /** What one unit earns: the price (a range when batches differ) minus what a unit really cost. Null when the cost is not on record. */
+  const unitMoney = (d: ClinicStockRow) => {
+    if (d.avg_cost == null || !(d.avg_cost > 0) || d.price_min == null) return null;
+    const net = (p: number) => (gstCharged && d.gst_rate > 0 ? p / (1 + d.gst_rate / 100) : p);
+    return { lo: profitMetrics(net(d.price_min), d.avg_cost), hi: profitMetrics(net(d.price_max ?? d.price_min), d.avg_cost) };
+  };
 
   const shown = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -82,11 +93,11 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
   const toggleOne = (id: number) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleAll = () => setSel((s) => { const n = new Set(s); for (const r of shown) { if (allPicked) n.delete(r.id); else n.add(r.id); } return n; });
   const gridHead = canClear
-    ? 'md:grid-cols-[1.25rem_1.25rem_minmax(0,1fr)_3.5rem_6rem_9rem_7rem_9rem_8rem]'
-    : 'md:grid-cols-[1.25rem_minmax(0,1fr)_3.5rem_6rem_9rem_7rem_9rem_8rem]';
+    ? 'md:grid-cols-[1.25rem_1.25rem_minmax(0,1fr)_3.5rem_6rem_9rem_7rem_9rem_8rem_8rem]'
+    : 'md:grid-cols-[1.25rem_minmax(0,1fr)_3.5rem_6rem_9rem_7rem_9rem_8rem_8rem]';
   const gridRow = canClear
-    ? 'grid-cols-[1.25rem_1.25rem_minmax(0,1fr)_auto] md:grid-cols-[1.25rem_1.25rem_minmax(0,1fr)_3.5rem_6rem_9rem_7rem_9rem_8rem]'
-    : 'grid-cols-[1.25rem_minmax(0,1fr)_auto] md:grid-cols-[1.25rem_minmax(0,1fr)_3.5rem_6rem_9rem_7rem_9rem_8rem]';
+    ? 'grid-cols-[1.25rem_1.25rem_minmax(0,1fr)_auto] md:grid-cols-[1.25rem_1.25rem_minmax(0,1fr)_3.5rem_6rem_9rem_7rem_9rem_8rem_8rem]'
+    : 'grid-cols-[1.25rem_minmax(0,1fr)_auto] md:grid-cols-[1.25rem_minmax(0,1fr)_3.5rem_6rem_9rem_7rem_9rem_8rem_8rem]';
 
   const save = useMutation({
     mutationFn: (b: Partial<DrugStockBatch>) => window.electronAPI.pharmacy.upsertBatch(b),
@@ -196,8 +207,12 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
             <span>Sched.</span>
             <span className="text-right">In stock</span>
             <span>Next expiry</span>
-            <span className="text-right" title="What one unit really cost: free units, discount, freight and unclaimable GST included">Cost / unit</span>
-            <span className="text-right" title="What it sells for (a range when batches differ)">Price</span>
+            <span className="text-right inline-flex items-center justify-end gap-1">You paid / unit
+              <HelpTip title="You paid, per unit" align="right"><p>What ONE unit (tablet, bottle, vial…) really cost you: the dealer’s rate, less discount, with the free units spread over everything you received, plus freight and any GST you cannot claim back.</p><p>A dash means the stock was typed in by hand, so the cost is not known.</p></HelpTip></span>
+            <span className="text-right inline-flex items-center justify-end gap-1">Sells at
+              <HelpTip title="Sells at" align="right"><p>The price you charge for one unit — the MRP printed on the pack, or your own selling price if you set a lower one. A range means the batches on the shelf have different prices.</p></HelpTip></span>
+            <span className="text-right inline-flex items-center justify-end gap-1">Profit / unit
+              <HelpTip title="Profit per unit" align="right"><p>What one unit earns you: the selling price (without GST, if you charge GST) minus what you paid. The % under it is the margin: profit ÷ selling price.</p><p>Red means the margin is under 10% — or a loss.</p></HelpTip></span>
             <span />
           </div>
           <ul className="divide-y divide-gray-100 dark:divide-slate-800">
@@ -226,7 +241,7 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
                         {Number(d.is_active) === 0 && <span className="badge bg-gray-200 text-gray-600 ml-2 align-middle" title="Removed from the Drug List, but units are still on the shelf">Inactive</span>}
                       </div>
                       <div className="text-[11px] text-gray-500 dark:text-slate-400 truncate">
-                        {[d.form, d.strength, d.manufacturer].filter(Boolean).join(' · ') || '—'}
+                        {[d.generic_name, d.form, d.strength, d.manufacturer].filter((x) => x && x !== '—').join(' · ') || '—'}
                       </div>
                     </div>
                     <div className="hidden md:block"><ScheduleBadge schedule={d.schedule} /></div>
@@ -254,6 +269,24 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
                       {d.price_min == null ? <span className="text-gray-400">—</span>
                         : d.price_min === d.price_max ? formatINR(d.price_min) : <>{formatINR(d.price_min)}<span className="text-gray-400"> – </span>{formatINR(d.price_max as number)}</>}
                     </div>
+                    <div className="hidden md:block text-right text-sm tabular-nums">
+                      {(() => {
+                        const m = unitMoney(d);
+                        if (!m) return <span className="text-gray-400" title={d.avg_cost == null ? 'No cost on record for this stock' : ''}>—</span>;
+                        const same = Math.abs(m.lo.profit - m.hi.profit) < 0.005;
+                        const bad = m.lo.profit < 0 || (m.lo.marginPct !== null && m.lo.marginPct < 10);
+                        return (
+                          <>
+                            <div className={cn('font-semibold', bad && 'text-red-600 dark:text-red-400')}>{same ? formatINR(m.lo.profit) : <>{formatINR(m.lo.profit)}<span className="text-gray-400"> – </span>{formatINR(m.hi.profit)}</>}</div>
+                            {m.lo.marginPct !== null && (
+                              <div className={cn('text-[10px] leading-tight', bad ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-slate-400')}>
+                                {same || m.hi.marginPct === null ? `${m.lo.marginPct.toFixed(1)}% margin` : `${m.lo.marginPct.toFixed(0)}–${m.hi.marginPct.toFixed(0)}% margin`}
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
                     <div className="flex items-center justify-end gap-1">
                       <span className="md:hidden text-sm font-bold tabular-nums mr-2">{d.stock_qty}</span>
                       <button type="button" className="btn-ghost text-xs" title="Add a batch of this drug by hand" onClick={(e) => { e.stopPropagation(); startBatch(d); }}>
@@ -264,7 +297,7 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
                       </button>
                     </div>
                   </div>
-                  {isOpen && <BatchList drugMasterId={d.id} drugName={d.name} drugDefaultMrp={d.default_mrp} onEdit={(b) => setEditing({ ...b, drug_master_id: d.id, drug_name: d.name })} />}
+                  {isOpen && <BatchList drugMasterId={d.id} drugName={d.name} drugDefaultMrp={d.default_mrp} gstRate={d.gst_rate} gstCharged={gstCharged} onEdit={(b) => setEditing({ ...b, drug_master_id: d.id, drug_name: d.name })} />}
                 </li>
               );
             })}
@@ -427,7 +460,7 @@ function CostNotRecordedModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function BatchList({ drugMasterId, drugName: _drugName, drugDefaultMrp: _drugDefaultMrp, onEdit }: { drugMasterId: number; drugName: string; drugDefaultMrp: number; onEdit: (b: DrugStockBatch) => void }) {
+function BatchList({ drugMasterId, drugName: _drugName, drugDefaultMrp: _drugDefaultMrp, gstRate, gstCharged, onEdit }: { drugMasterId: number; drugName: string; drugDefaultMrp: number; gstRate: number; gstCharged: boolean; onEdit: (b: DrugStockBatch) => void }) {
   const { data: batches = [], isLoading } = useQuery({
     queryKey: ['pharmacy-batches', drugMasterId],
     queryFn: () => window.electronAPI.pharmacy.listBatches(drugMasterId),
@@ -446,6 +479,7 @@ function BatchList({ drugMasterId, drugName: _drugName, drugDefaultMrp: _drugDef
             <th className="py-1.5 text-right" title="True cost of one unit: free units, discount, freight and unclaimable GST included">Cost / unit</th>
             <th className="py-1.5 text-right">MRP</th>
             <th className="py-1.5 text-right" title="Blank = sold at MRP">Sell ₹</th>
+            <th className="py-1.5 text-right" title="What one unit earns: the selling price (without GST if you charge GST) minus what it cost you">Profit / unit</th>
             <th className="py-1.5">Mfg. Lic.</th>
             <th></th>
           </tr>
@@ -466,6 +500,16 @@ function BatchList({ drugMasterId, drugName: _drugName, drugDefaultMrp: _drugDef
                 <td className="py-1.5 text-right">{(b.unit_cost ?? b.purchase_price) != null ? formatINR((b.unit_cost ?? b.purchase_price) as number) : <span className="text-gray-400" title="No cost recorded — left out of profit figures">—</span>}</td>
                 <td className="py-1.5 text-right">{formatINR(b.mrp)}</td>
                 <td className="py-1.5 text-right">{b.selling_price != null ? formatINR(b.selling_price) : <span className="text-gray-400">= MRP</span>}</td>
+                <td className="py-1.5 text-right">
+                  {(() => {
+                    const cost = b.unit_cost ?? b.purchase_price;
+                    const price = b.selling_price ?? b.mrp;
+                    if (cost == null || !(cost > 0) || !(price > 0)) return <span className="text-gray-400">—</span>;
+                    const m = profitMetrics(gstCharged && gstRate > 0 ? price / (1 + gstRate / 100) : price, cost);
+                    const bad = m.profit < 0 || (m.marginPct !== null && m.marginPct < 10);
+                    return <span className={cn('font-semibold', bad && 'text-red-600 dark:text-red-400')}>{formatINR(m.profit)}{m.marginPct !== null && <span className="font-normal text-[10px] ml-1">({m.marginPct.toFixed(1)}%)</span>}</span>;
+                  })()}
+                </td>
                 <td className="py-1.5 text-[10px] font-mono text-gray-500">{b.manufacturer_license_no || '—'}</td>
                 <td className="py-1.5 text-right">
                   <button className="text-xs text-blue-600 hover:underline" onClick={() => onEdit(b)}>Edit</button>

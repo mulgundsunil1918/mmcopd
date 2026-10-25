@@ -101,6 +101,11 @@ export function SupplierStatementPrint({ statement: st, onClose }: { statement: 
                     </tr>
                   </tbody>
                 </table>
+                {t.owed > 0.004 && (
+                  <div className="mb-3 text-[10px]" style={{ color: '#475569' }}>
+                    Owed by age — 0–30 days: <b>{formatINR(st.ageing.d0_30)}</b> · 31–60: <b>{formatINR(st.ageing.d31_60)}</b> · 61–90: <b>{formatINR(st.ageing.d61_90)}</b> · over 90: <b style={{ color: st.ageing.d90_plus > 0.004 ? '#b91c1c' : undefined }}>{formatINR(st.ageing.d90_plus)}</b>
+                  </div>
+                )}
                 {st.unknown.length > 0 && (
                   <div className="mb-3 text-[10px]" style={{ border: '1px solid #f59e0b', background: '#fffbeb', padding: '4px 8px' }}>
                     Not in the figures above — payment amount unknown ({st.unknown.map((b) => `${b.invoice_number} ${formatINR(b.total)}`).join(', ')}): marked part-paid before payments were tracked.
@@ -164,4 +169,17 @@ export function SupplierStatementPrint({ statement: st, onClose }: { statement: 
       </div>
     </div>
   );
+}
+
+/** Opens one supplier's statement for printing straight from the Reports tab (loads it first). */
+export function SupplierStatementPrintFor({ supplierId, onClose }: { supplierId: number; onClose: () => void }) {
+  const { data } = useQuery({ queryKey: ['supplier-statement', supplierId, '', ''], queryFn: () => window.electronAPI.wholesalers.statement(supplierId, {}) });
+  if (!data) {
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center print-overlay no-print" style={{ backgroundColor: '#94a3b8' }}>
+        <div className="bg-white p-12 rounded text-sm text-gray-600">Loading…</div>
+      </div>
+    );
+  }
+  return <SupplierStatementPrint statement={data} onClose={onClose} />;
 }

@@ -37,7 +37,11 @@ export function PurchaseRegisterPrint({
   const totalSpend = rows.reduce((s, r) => s + (r.total || 0), 0);
   const totalGst = rows.reduce((s, r) => s + (r.cgst || 0) + (r.sgst || 0) + (r.igst || 0), 0);
   const paidCount = rows.filter((r) => r.payment_status === 'paid').length;
-  const unpaidCount = rows.filter((r) => r.payment_status === 'unpaid').length;
+  // What is still owed on each bill = total − paid; a bill marked part-paid before payments were tracked has no recorded amount (shown as "?").
+  const balanceOf = (r: { total: number; amount_paid?: number | null }) => (r.amount_paid == null ? null : Math.max(0, Math.round((r.total - r.amount_paid) * 100) / 100));
+  const totalPaid = rows.reduce((s, r) => s + (r.amount_paid ?? 0), 0);
+  const totalBalance = rows.reduce((s, r) => s + (balanceOf(r) ?? 0), 0);
+  const totalDiscount = rows.reduce((s, r) => s + (r.discount || 0), 0);
 
   return (
     <div className="fixed inset-0 z-[100] overflow-auto print-overlay" style={{ backgroundColor: '#94a3b8' }}>
@@ -94,12 +98,12 @@ export function PurchaseRegisterPrint({
                   <div style={{ color: '#475569' }}>Total spend</div>
                 </div>
                 <div style={tile('#dcfce7', '#86efac', '#14532d')}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{paidCount}</div>
-                  <div style={{ color: '#166534' }}>Paid</div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{formatINR(totalPaid)}</div>
+                  <div style={{ color: '#166534' }}>Paid ({paidCount} bill{paidCount === 1 ? '' : 's'} settled)</div>
                 </div>
                 <div style={tile('#fee2e2', '#fca5a5', '#991b1b')}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{unpaidCount}</div>
-                  <div style={{ color: '#7f1d1d' }}>Unpaid</div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{formatINR(totalBalance)}</div>
+                  <div style={{ color: '#7f1d1d' }}>Still owed ({rows.length - paidCount} bill{rows.length - paidCount === 1 ? '' : 's'})</div>
                 </div>
               </div>
             )}
@@ -107,39 +111,43 @@ export function PurchaseRegisterPrint({
             <table className="w-full text-[10px]" style={{ borderCollapse: 'collapse', flex: 1 }}>
               <thead>
                 <tr style={{ background: '#eff6ff', color: '#1e3a8a' }}>
-                  <th style={cellHead(5, 'left')}>Sl</th>
-                  <th style={cellHead(11, 'left')}>Inv. Date</th>
-                  <th style={cellHead(13, 'left')}>Invoice #</th>
-                  <th style={cellHead(20, 'left')}>Wholesaler (Drug License)</th>
-                  <th style={cellHead(7, 'right')}>Lines</th>
-                  <th style={cellHead(11, 'right')}>Subtotal ₹</th>
-                  <th style={cellHead(8, 'right')}>GST ₹</th>
-                  <th style={cellHead(11, 'right')}>Total ₹</th>
-                  <th style={cellHead(8, 'left')}>Pay</th>
+                  <th style={cellHead(4, 'left')}>Sl</th>
+                  <th style={cellHead(9, 'left')}>Inv. Date</th>
+                  <th style={cellHead(11, 'left')}>Invoice #</th>
+                  <th style={cellHead(18, 'left')}>Wholesaler (Drug License)</th>
+                  <th style={cellHead(5, 'right')}>Lines</th>
+                  <th style={cellHead(9, 'right')}>Subtotal ₹</th>
+                  <th style={cellHead(7, 'right')}>Disc. ₹</th>
+                  <th style={cellHead(7, 'right')}>GST ₹</th>
+                  <th style={cellHead(10, 'right')}>Total ₹</th>
+                  <th style={cellHead(9, 'right')}>Paid ₹</th>
+                  <th style={cellHead(11, 'right')}>Still owed ₹</th>
                 </tr>
               </thead>
               <tbody>
                 {pageRows.length === 0 ? (
-                  <tr><td colSpan={9} style={{ border: '1px solid #cbd5e1', padding: '20px', textAlign: 'center', color: '#94a3b8' }}>No purchase invoices in this period.</td></tr>
+                  <tr><td colSpan={11} style={{ border: '1px solid #cbd5e1', padding: '20px', textAlign: 'center', color: '#94a3b8' }}>No purchase invoices in this period.</td></tr>
                 ) : pageRows.map((r, idx) => (
                   <tr key={r.id}>
-                    <td style={cellBody(5, 'left')}>{pIdx * PAGE_ROWS + idx + 1}</td>
-                    <td style={cellBody(11, 'left', { fontSize: 9 })}>{fmtDate(r.invoice_date)}</td>
-                    <td style={cellBody(13, 'left', { fontFamily: 'monospace', fontSize: 9 })}>{r.invoice_number}</td>
-                    <td style={cellBody(20, 'left')}>
+                    <td style={cellBody(4, 'left')}>{pIdx * PAGE_ROWS + idx + 1}</td>
+                    <td style={cellBody(9, 'left', { fontSize: 9 })}>{fmtDate(r.invoice_date)}</td>
+                    <td style={cellBody(11, 'left', { fontFamily: 'monospace', fontSize: 9 })}>{r.invoice_number}</td>
+                    <td style={cellBody(18, 'left')}>
                       <div style={{ fontWeight: 600 }}>{r.wholesaler_name}</div>
                       <div style={{ fontSize: 9, color: '#64748b', fontFamily: 'monospace' }}>{r.wholesaler_license_no}</div>
                     </td>
-                    <td style={cellBody(7, 'right')}>{r.line_count}</td>
-                    <td style={cellBody(11, 'right')}>{formatINR(r.subtotal)}</td>
-                    <td style={cellBody(8, 'right', { fontSize: 9 })}>{formatINR((r.cgst || 0) + (r.sgst || 0) + (r.igst || 0))}</td>
-                    <td style={cellBody(11, 'right', { fontWeight: 700 })}>{formatINR(r.total)}</td>
-                    <td style={cellBody(8, 'left', { fontSize: 9 })}>
-                      <span style={{
-                        padding: '1px 6px', borderRadius: 4, fontWeight: 600, fontSize: 9,
-                        background: r.payment_status === 'paid' ? '#dcfce7' : r.payment_status === 'partial' ? '#fef3c7' : '#fee2e2',
-                        color: r.payment_status === 'paid' ? '#166534' : r.payment_status === 'partial' ? '#92400e' : '#991b1b',
-                      }}>{r.payment_status}</span>
+                    <td style={cellBody(5, 'right')}>{r.line_count}</td>
+                    <td style={cellBody(9, 'right')}>{formatINR(r.subtotal)}</td>
+                    <td style={cellBody(7, 'right', { fontSize: 9 })}>{(r.discount || 0) > 0 ? formatINR(r.discount) : '—'}</td>
+                    <td style={cellBody(7, 'right', { fontSize: 9 })}>{formatINR((r.cgst || 0) + (r.sgst || 0) + (r.igst || 0))}</td>
+                    <td style={cellBody(10, 'right', { fontWeight: 700 })}>{formatINR(r.total)}</td>
+                    <td style={cellBody(9, 'right')}>{r.amount_paid == null ? '?' : formatINR(r.amount_paid)}</td>
+                    <td style={cellBody(11, 'right', { fontWeight: 700 })}>
+                      {(() => {
+                        const b = balanceOf(r);
+                        if (b === null) return <span style={{ color: '#92400e' }} title="Marked part-paid before payments were tracked">unknown</span>;
+                        return b > 0.004 ? <span style={{ color: '#991b1b' }}>{formatINR(b)}</span> : <span style={{ color: '#166534', fontWeight: 600, fontSize: 9 }}>Paid</span>;
+                      })()}
                     </td>
                   </tr>
                 ))}
@@ -148,9 +156,11 @@ export function PurchaseRegisterPrint({
                 <tfoot>
                   <tr style={{ background: '#f8fafc', fontWeight: 700 }}>
                     <td colSpan={6} style={{ ...cellBody(0, 'right'), padding: '6px' }}>Totals</td>
+                    <td style={{ ...cellBody(0, 'right'), padding: '6px' }}>{formatINR(totalDiscount)}</td>
                     <td style={{ ...cellBody(0, 'right'), padding: '6px' }}>{formatINR(totalGst)}</td>
                     <td style={{ ...cellBody(0, 'right', { fontSize: 11 }), padding: '6px' }}>{formatINR(totalSpend)}</td>
-                    <td style={cellBody(0, 'left')} />
+                    <td style={{ ...cellBody(0, 'right'), padding: '6px' }}>{formatINR(totalPaid)}</td>
+                    <td style={{ ...cellBody(0, 'right', { fontSize: 11 }), padding: '6px' }}>{formatINR(totalBalance)}</td>
                   </tr>
                 </tfoot>
               )}

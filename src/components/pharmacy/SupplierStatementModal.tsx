@@ -121,6 +121,18 @@ export function SupplierStatementModal({ supplier, onClose, onPay }: { supplier:
           </div>
         </div>
 
+        {owing && (
+          <div className="mb-4 flex items-center gap-x-5 gap-y-1 flex-wrap text-xs text-gray-600 dark:text-slate-300">
+            <span className="font-semibold text-gray-900 dark:text-slate-100 inline-flex items-center gap-1">Owed by age
+              <HelpTip title="Owed by age"><p>What you owe, split by how old the supplier’s bill is (days since the bill date). The four amounts add up to “You owe now”.</p></HelpTip>
+            </span>
+            <span>0–30 days <b className="tabular-nums">{formatINR(st.ageing.d0_30)}</b></span>
+            <span>31–60 <b className="tabular-nums">{formatINR(st.ageing.d31_60)}</b></span>
+            <span>61–90 <b className="tabular-nums">{formatINR(st.ageing.d61_90)}</b></span>
+            <span className={cn(st.ageing.d90_plus > 0.004 && 'text-red-700 dark:text-red-400')}>over 90 <b className="tabular-nums">{formatINR(st.ageing.d90_plus)}</b></span>
+          </div>
+        )}
+
         {st.unknown.length > 0 && (
           <div className="mb-4 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 text-[12px] text-amber-900 dark:text-amber-100">
             <b>{st.unknown.length} bill{st.unknown.length === 1 ? '' : 's'} ({formatINR(st.unknown.reduce((n, b) => n + b.total, 0))}) {st.unknown.length === 1 ? 'was' : 'were'} marked “part-paid” before payments were tracked</b>, so how much was paid is not known and

@@ -3,6 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, ArrowDown, ArrowUp, PackageCheck, ShieldCheck, TrendingUp, Truck } from 'lucide-react';
 import { cn, fmtDate, formatINR } from '../../lib/utils';
 import { Kpi, SectionTitle } from './Kpi';
+import { useDrugDetails } from '../../hooks/useDrugDetails';
+import { SupplierStatementModal } from '../pharmacy/SupplierStatementModal';
+import { PaySupplierModal } from '../pharmacy/PaySupplierModal';
 import type { DrugProfitRow } from '../../lib/pharmacyReports';
 
 /**
@@ -26,7 +29,7 @@ function Loading({ children = 'Loading…' }: { children?: string }) {
 }
 
 /** A compact ranked list: name on the left, the figure that earned its place on the right. */
-function RankCard({ title, hint, rows, empty }: { title: string; hint?: string; rows: { name: string; value: string; sub?: string; bad?: boolean }[]; empty?: string }) {
+function RankCard({ title, hint, rows, empty }: { title: string; hint?: string; rows: { name: string; detail?: string; value: string; sub?: string; bad?: boolean }[]; empty?: string }) {
   return (
     <div className="card p-3">
       <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">{title}</div>
@@ -38,7 +41,10 @@ function RankCard({ title, hint, rows, empty }: { title: string; hint?: string; 
           {rows.map((r, i) => (
             <li key={`${r.name}-${i}`} className="flex items-baseline gap-2 border-b border-gray-100 dark:border-slate-800 pb-1">
               <span className="w-4 text-right text-[10px] text-gray-400">{i + 1}</span>
-              <span className="flex-1 min-w-0 truncate text-gray-900 dark:text-slate-100" title={r.name}>{r.name}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block truncate text-gray-900 dark:text-slate-100" title={r.name}>{r.name}</span>
+                {r.detail && <span className="block truncate text-[10px] text-gray-500 dark:text-slate-400" title={r.detail}>{r.detail}</span>}
+              </span>
               {r.sub && <span className="text-[10px] text-gray-500 dark:text-slate-400">{r.sub}</span>}
               <span className={cn('font-semibold tabular-nums', r.bad ? 'text-red-700 dark:text-red-400' : 'text-gray-900 dark:text-slate-100')}>{r.value}</span>
             </li>
@@ -75,6 +81,7 @@ export function PharmacyProfitSection({ from, to }: { from: string; to: string }
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'profit', dir: -1 });
   const [q, setQ] = useState('');
   const [showAll, setShowAll] = useState(false);
+  const detail = useDrugDetails();            // generic · form · strength under each medicine name
 
   const report = data && data.ok ? data.report : null;
   const rows = useMemo(() => {
@@ -99,7 +106,7 @@ export function PharmacyProfitSection({ from, to }: { from: string; to: string }
   const k = r.rankings;
   const shown = showAll ? rows : rows.slice(0, 25);
   const rank = (xs: DrugProfitRow[], f: (d: DrugProfitRow) => string, sub?: (d: DrugProfitRow) => string, bad?: (d: DrugProfitRow) => boolean) =>
-    xs.map((d) => ({ name: d.name, value: f(d), sub: sub?.(d), bad: bad?.(d) }));
+    xs.map((d) => ({ name: d.name, detail: detail(d.drug_master_id, d.name), value: f(d), sub: sub?.(d), bad: bad?.(d) }));
 
   const setSortKey = (key: SortKey) => setSort((s) => (s.key === key ? { key, dir: (s.dir * -1) as 1 | -1 } : { key, dir: key === 'name' ? 1 : -1 }));
 
@@ -169,7 +176,7 @@ export function PharmacyProfitSection({ from, to }: { from: string; to: string }
               <tbody>
                 {shown.map((d) => (
                   <tr key={d.key} className="border-b border-gray-100 dark:border-slate-800 tabular-nums">
-                    <td className="py-1.5 px-1.5 text-gray-900 dark:text-slate-100">{d.name}{d.uncosted_units > 0 && <span className="ml-1 text-[9px] text-amber-700 dark:text-amber-300" title="Some units sold have no cost on record">⚠ {d.uncosted_units} uncosted</span>}</td>
+                    <td className="py-1.5 px-1.5 text-gray-900 dark:text-slate-100">{d.name}{d.uncosted_units > 0 && <span className="ml-1 text-[9px] text-amber-700 dark:text-amber-300" title="Some units sold have no cost on record">⚠ {d.uncosted_units} uncosted</span>}{detail(d.drug_master_id, d.name) && <div className="text-[10px] text-gray-500 dark:text-slate-400">{detail(d.drug_master_id, d.name)}</div>}</td>
                     <td className="py-1.5 px-1.5 text-right">{d.units || '—'}</td>
                     <td className="py-1.5 px-1.5 text-right">{d.sales || '—'}</td>
                     <td className="py-1.5 px-1.5 text-right">{money(d.avg_price)}</td>
@@ -234,6 +241,7 @@ export function PharmacyProfitSection({ from, to }: { from: string; to: string }
    ====================================================================================== */
 export function PharmacyValuationSection() {
   const { data: v, isLoading } = useQuery({ queryKey: ['pharmacy-valuation'], queryFn: () => window.electronAPI.analytics.pharmacyValuation() });
+  const detail = useDrugDetails();
   if (isLoading || !v) return <Loading />;
   const s = v.sellable;
   return (
@@ -275,7 +283,7 @@ export function PharmacyValuationSection() {
             <tbody>
               {[...v.expired_list, ...v.near_expiry_list].map((b, i) => (
                 <tr key={i} className="border-b border-gray-100 dark:border-slate-800">
-                  <td className="py-1.5">{b.drug}</td><td className="font-mono text-[11px]">{b.batch_no}</td><td>{fmtDate(b.expiry)}</td>
+                  <td className="py-1.5">{b.drug}{detail(null, b.drug) && <div className="text-[10px] text-gray-500 dark:text-slate-400">{detail(null, b.drug)}</div>}</td><td className="font-mono text-[11px]">{b.batch_no}</td><td>{fmtDate(b.expiry)}</td>
                   <td className={cn('text-right font-semibold', b.days < 0 ? 'text-red-700 dark:text-red-400' : b.days <= 30 ? 'text-red-700 dark:text-red-400' : 'text-amber-700 dark:text-amber-300')}>{b.days < 0 ? `expired ${-b.days}d ago` : b.days}</td>
                   <td className="text-right">{b.qty}</td><td className="text-right">{money(b.at_cost)}</td>
                 </tr>
@@ -307,6 +315,10 @@ export function SupplierSection({ from, to }: { from: string; to: string }) {
     queryKey: ['supplier-report', from, to],
     queryFn: () => window.electronAPI.analytics.supplierReport({ from, to }),
   });
+  // What is owed TODAY and how old it is, per supplier — the same figures as each supplier's Statement (Pharmacy → Wholesalers).
+  const { data: acc } = useQuery({ queryKey: ['supplier-accounts'], queryFn: () => window.electronAPI.wholesalers.accounts() });
+  const [statementOf, setStatementOf] = useState<{ id: number; name: string } | null>(null);
+  const [paying, setPaying] = useState<{ id: number; name: string } | null>(null);
   if (isLoading) return <Loading />;
   if (!data) return null;
   if (!data.ok) return <div className="card p-3 text-xs text-red-700 dark:text-red-400">{data.error}</div>;
@@ -320,6 +332,42 @@ export function SupplierSection({ from, to }: { from: string; to: string }) {
         <Kpi label="Paid (these bills)" value={money(r.totals.paid)} tone="indigo" />
         <Kpi label="Owed to suppliers today" value={money(r.totals.owed_now)} sub="all unpaid bills, any date" tone={r.totals.owed_now > 0 ? 'red' : 'gray'} />
       </div>
+      {acc && acc.suppliers.some((x) => x.owed > 0.004) && (
+        <div className="card p-3 space-y-3">
+          <div>
+            <div className="text-sm font-semibold">Owed to suppliers today, by how old the bill is</div>
+            <div className="text-[10px] text-gray-500 dark:text-slate-400">All unpaid bills, any date. The older a bill, the sooner it should be cleared.</div>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Kpi label="0–30 days" value={money(acc.totals.ageing.d0_30)} tone="emerald" />
+            <Kpi label="31–60 days" value={money(acc.totals.ageing.d31_60)} tone="blue" />
+            <Kpi label="61–90 days" value={money(acc.totals.ageing.d61_90)} tone="amber" />
+            <Kpi label="Over 90 days" value={money(acc.totals.ageing.d90_plus)} tone={acc.totals.ageing.d90_plus > 0.004 ? 'red' : 'gray'} />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs tabular-nums">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-slate-700 text-right">
+                  <th className="py-1.5 text-left">Supplier</th><th>Owed now</th><th>Pending bills</th><th>Oldest bill</th><th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {acc.suppliers.filter((x) => x.owed > 0.004).map((x) => (
+                  <tr key={x.id} className="border-b border-gray-100 dark:border-slate-800 text-right">
+                    <td className="py-1.5 text-left">{x.name}</td>
+                    <td className="font-semibold text-red-700 dark:text-red-400">{money(x.owed)}</td>
+                    <td>{x.open_bills}</td>
+                    <td className={cn(x.oldest_pending_days != null && x.oldest_pending_days > 90 && 'text-red-700 dark:text-red-400 font-semibold')}>{x.oldest_pending_days != null ? `${x.oldest_pending_days} days` : '—'}</td>
+                    <td><button className="btn-ghost text-xs" onClick={() => setStatementOf({ id: x.id, name: x.name })}>Statement</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      {statementOf && <SupplierStatementModal supplier={statementOf} onClose={() => setStatementOf(null)} onPay={() => setPaying(statementOf)} />}
+      {paying && <PaySupplierModal supplier={paying} onClose={() => setPaying(null)} />}
       <div className="card p-3 overflow-x-auto">
         <div className="text-sm font-semibold mb-1">By supplier</div>
         {r.suppliers.length === 0 ? <div className="text-xs italic text-gray-500 py-2">No purchase bills in this range.</div> : (

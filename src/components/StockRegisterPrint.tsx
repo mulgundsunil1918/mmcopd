@@ -3,6 +3,7 @@ import { Printer, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { fmtDate, formatINR } from '../lib/utils';
 import { localISO } from '../lib/localDate';
+import { profitMetrics } from '../lib/pharmacyMath';
 
 /**
  * Stock register — every batch grouped by drug, sorted by drug name then expiry.
@@ -31,6 +32,19 @@ export function StockRegisterPrint({
     pages.push(rows.slice(i, i + PAGE_ROWS));
   }
   const totalPages = pages.length;
+
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  // A clinic that charges GST on its sales earns the price WITHOUT the GST, so profit is worked out on that (same rule as the purchase bill and Analytics).
+  const gstCharged = !!settings?.gst_enabled && settings?.gst_registration_type !== 'unregistered' && settings?.gst_registration_type !== 'composition';
+  const unitCostOf = (r: { unit_cost?: number | null; purchase_price?: number | null }) => r.unit_cost ?? r.purchase_price ?? null;
+  const moneyPerUnit = (r: { unit_cost?: number | null; purchase_price?: number | null; selling_price?: number | null; mrp: number; gst_rate: number }) => {
+    const cost = unitCostOf(r);
+    const price = r.selling_price ?? r.mrp;
+    if (cost == null || !(cost > 0) || !(price > 0)) return null;
+    return profitMetrics(gstCharged && r.gst_rate > 0 ? price / (1 + r.gst_rate / 100) : price, cost);
+  };
+  const totalAtCost = rows.reduce((s, r) => s + (r.qty_remaining || 0) * (unitCostOf(r) ?? 0), 0);
+  const noCostUnits = rows.reduce((s, r) => s + (unitCostOf(r) == null ? (r.qty_remaining || 0) : 0), 0);
 
   // Aggregate header stats (shown on first page only).
   const totalBatches = rows.length;
@@ -112,47 +126,61 @@ export function StockRegisterPrint({
             <table className="w-full text-[10px]" style={{ borderCollapse: 'collapse', flex: 1 }}>
               <thead>
                 <tr style={{ background: '#eff6ff', color: '#1e3a8a' }}>
-                  <th style={cellHead(5, 'left')}>Sl</th>
-                  <th style={cellHead(22, 'left')}>Drug (Generic · Mfg)</th>
-                  <th style={cellHead(8, 'center')}>Sch</th>
-                  <th style={cellHead(7, 'left')}>Form</th>
-                  <th style={cellHead(7, 'left')}>Str.</th>
-                  <th style={cellHead(11, 'left')}>Batch</th>
-                  <th style={cellHead(8, 'left')}>Expiry</th>
-                  <th style={cellHead(7, 'right')}>Qty</th>
-                  <th style={cellHead(8, 'right')}>MRP ₹</th>
-                  <th style={cellHead(9, 'right')}>Value ₹</th>
+                  <th style={cellHead(4, 'left')}>Sl</th>
+                  <th style={cellHead(25, 'left')}>Medicine (composition · maker)</th>
+                  <th style={cellHead(4, 'center')}>Sch</th>
+                  <th style={cellHead(9, 'left')}>Batch</th>
+                  <th style={cellHead(7, 'left')}>Expiry</th>
+                  <th style={cellHead(5, 'right')}>Qty</th>
+                  <th style={cellHead(7, 'right')} title="What one unit cost you">Paid ₹</th>
+                  <th style={cellHead(7, 'right')}>MRP ₹</th>
+                  <th style={cellHead(7, 'right')}>Sell ₹</th>
+                  <th style={cellHead(9, 'right')}>Profit / unit</th>
+                  <th style={cellHead(8, 'right')}>Value ₹</th>
                   <th style={cellHead(8, 'left')}>Mfg.Lic</th>
                 </tr>
               </thead>
               <tbody>
                 {pageRows.length === 0 ? (
-                  <tr><td colSpan={11} style={{ border: '1px solid #cbd5e1', padding: '20px', textAlign: 'center', color: '#94a3b8' }}>No batches in stock.</td></tr>
+                  <tr><td colSpan={12} style={{ border: '1px solid #cbd5e1', padding: '20px', textAlign: 'center', color: '#94a3b8' }}>No batches in stock.</td></tr>
                 ) : pageRows.map((r, idx) => {
                   const expired = r.days_to_expiry < 0;
                   const expiringSoon = r.days_to_expiry >= 0 && r.days_to_expiry <= 90;
                   const tone = expired ? '#fee2e2' : expiringSoon ? '#fef3c7' : undefined;
                   return (
                     <tr key={r.id} style={{ background: tone }}>
-                      <td style={cellBody(5, 'left')}>{pIdx * PAGE_ROWS + idx + 1}</td>
-                      <td style={cellBody(22, 'left')}>
+                      <td style={cellBody(4, 'left')}>{pIdx * PAGE_ROWS + idx + 1}</td>
+                      <td style={cellBody(25, 'left')}>
                         <div style={{ fontWeight: 600 }}>{r.drug_name}</div>
-                        <div style={{ fontSize: 9, color: '#64748b' }}>
-                          {[r.generic_name, r.manufacturer].filter(Boolean).join(' · ') || '—'}
+                        <div style={{ fontSize: 9, color: '#475569' }}>
+                          {[r.generic_name, r.form, r.strength].filter((x) => x && x !== '—').join(' · ') || '—'}
                         </div>
+                        {r.manufacturer && <div style={{ fontSize: 8, color: '#64748b' }}>{r.manufacturer}</div>}
                       </td>
-                      <td style={cellBody(8, 'center', { fontWeight: 700 })}>{r.schedule}</td>
-                      <td style={cellBody(7, 'left')}>{r.form || '—'}</td>
-                      <td style={cellBody(7, 'left')}>{r.strength || '—'}</td>
-                      <td style={cellBody(11, 'left', { fontFamily: 'monospace' })}>{r.batch_no}</td>
-                      <td style={cellBody(8, 'left', { fontSize: 9 })}>
+                      <td style={cellBody(4, 'center', { fontWeight: 700 })}>{r.schedule}</td>
+                      <td style={cellBody(9, 'left', { fontFamily: 'monospace' })}>{r.batch_no}</td>
+                      <td style={cellBody(7, 'left', { fontSize: 9 })}>
                         {(() => { try { return format(new Date(r.expiry), 'MMM yy'); } catch { return r.expiry; } })()}
                         {expired && <div style={{ fontSize: 8, fontWeight: 700, color: '#991b1b' }}>EXPIRED</div>}
                         {expiringSoon && <div style={{ fontSize: 8, color: '#92400e' }}>in {r.days_to_expiry}d</div>}
                       </td>
-                      <td style={cellBody(7, 'right', { fontWeight: 600 })}>{r.qty_remaining}</td>
-                      <td style={cellBody(8, 'right')}>{formatINR(r.mrp)}</td>
-                      <td style={cellBody(9, 'right', { fontWeight: 600 })}>{formatINR((r.qty_remaining || 0) * (r.mrp || 0))}</td>
+                      <td style={cellBody(5, 'right', { fontWeight: 600 })}>{r.qty_remaining}</td>
+                      <td style={cellBody(7, 'right')}>{unitCostOf(r) != null ? formatINR(unitCostOf(r) as number) : <span style={{ color: '#94a3b8' }} title="Typed in by hand: no cost on record">—</span>}</td>
+                      <td style={cellBody(7, 'right')}>{formatINR(r.mrp)}</td>
+                      <td style={cellBody(7, 'right')}>{formatINR(r.selling_price ?? r.mrp)}</td>
+                      <td style={cellBody(9, 'right', { fontWeight: 600 })}>
+                        {(() => {
+                          const m = moneyPerUnit(r);
+                          if (!m) return <span style={{ color: '#94a3b8' }}>—</span>;
+                          return (
+                            <>
+                              <div style={{ color: m.profit < 0 ? '#991b1b' : undefined }}>{formatINR(m.profit)}</div>
+                              {m.marginPct !== null && <div style={{ fontSize: 8, fontWeight: 400, color: m.marginPct < 10 ? '#991b1b' : '#64748b' }}>{m.marginPct.toFixed(1)}%</div>}
+                            </>
+                          );
+                        })()}
+                      </td>
+                      <td style={cellBody(8, 'right', { fontWeight: 600 })}>{formatINR((r.qty_remaining || 0) * (r.mrp || 0))}</td>
                       <td style={cellBody(8, 'left', { fontSize: 8, fontFamily: 'monospace', color: '#64748b' })}>
                         {r.manufacturer_license_no || '—'}
                       </td>
@@ -163,7 +191,12 @@ export function StockRegisterPrint({
               {pIdx === totalPages - 1 && (
                 <tfoot>
                   <tr style={{ background: '#f8fafc', fontWeight: 700 }}>
-                    <td colSpan={9} style={{ ...cellBody(0, 'right'), padding: '6px' }}>Total stock value</td>
+                    <td colSpan={10} style={{ ...cellBody(0, 'right'), padding: '6px' }}>
+                      Total stock value at MRP
+                      <div style={{ fontSize: 9, fontWeight: 400, color: '#64748b' }}>
+                        at what you paid: {formatINR(totalAtCost)}{noCostUnits > 0 ? ` (${noCostUnits.toLocaleString('en-IN')} unit${noCostUnits === 1 ? '' : 's'} with no cost on record are not in this)` : ''}
+                      </div>
+                    </td>
                     <td style={{ ...cellBody(0, 'right', { fontSize: 11 }), padding: '6px' }}>{formatINR(totalValue)}</td>
                     <td style={cellBody(0, 'left')} />
                   </tr>
