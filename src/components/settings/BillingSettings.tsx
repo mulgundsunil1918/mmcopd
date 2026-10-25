@@ -59,6 +59,18 @@ export function BillingSettings({
           </div>
         </label>
 
+        <div className="pt-1">
+          <label className="label inline-flex items-center gap-1">GST % a NEW medicine starts with
+            <HelpTip title="GST % for a new medicine"><><p>When you add a medicine to the Drug List, this is the GST % the form starts with.</p><p>The software does not pick one for you — GST depends on the medicine and on your registration. Leave it on <b>Ask me every time</b> and the form makes you choose; or choose one here and every new medicine starts with it (you can still change it on each medicine).</p></></HelpTip>
+          </label>
+          <select className="input w-auto" value={draft.default_drug_gst_rate === null || draft.default_drug_gst_rate === undefined ? '' : String(draft.default_drug_gst_rate)}
+            onChange={(e) => set('default_drug_gst_rate', (e.target.value === '' ? null : Number(e.target.value)) as any)}>
+            <option value="">Ask me every time</option>
+            {[0, 5, 12, 18, 28].map((r) => <option key={r} value={r}>{r}%</option>)}
+          </select>
+          <Explain>You decide. Existing medicines are never changed by the software — to change many at once use Pharmacy → Drug List → <b>Set GST %</b>.</Explain>
+        </div>
+
         {gstOn && (
           <div className="pl-6 space-y-4 border-l-2 border-blue-200 dark:border-blue-900">
             <div>

@@ -151,6 +151,21 @@ export function registerPharmacyFinanceIpc() {
   });
   ipcMain.handle('purchaseImport:photo', (_e, file: string | null) => imp.readScan(scanDir(), file));
 
+  // ----- GST rates on the Drug List: how many medicines sit at each rate, and set many at once (the clinic's own decision) -----
+  ipcMain.handle('pharmacy:gstSummary', () => fin.gstSummary(getDb()));
+  ipcMain.handle('pharmacy:setDrugGst', (_e, p: fin.SetGstIn) => {
+    requireModule('pharmacy', 'Pharmacy');
+    requireRole(['pharmacist', 'manager'], 'change GST rates');
+    try {
+      const r = fin.setDrugGst(getDb(), p);
+      audit('drug.gst_set', 'drug_master', 0, { rate: p.rate, from_rate: p.from_rate ?? null, selected: Array.isArray(p.ids) ? p.ids.length : 'all', changed: r.changed });
+      tell();
+      return { ok: true as const, ...r };
+    } catch (e: any) {
+      return { ok: false as const, error: e?.message || 'Could not change the GST rate.' };
+    }
+  });
+
   // ----- clear drugs, stock and batches: "Start fresh" (every drug) or "Delete selected" (the ticked ones) -----
   /** Who may do it: the pharmacy in-charge (pharmacist) and the administrator (requireRole always lets admin through). */
   const CLEARERS: Role[] = ['pharmacist'];

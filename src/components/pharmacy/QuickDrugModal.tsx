@@ -2,8 +2,8 @@
  * Add a drug to the Drug List without leaving the screen that needs it (the purchase bill). Only what is needed to stock and sell
  * it — name, form, strength, schedule, GST, MRP — everything else can be filled in later in Pharmacy → Drug List.
  */
-import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Modal } from '../Modal';
 import { useToast } from '../../hooks/useToast';
 import type { DrugMaster, DrugSchedule } from '../../types';
@@ -19,7 +19,14 @@ export function QuickDrugModal({ initialName = '', onClose, onCreated }: {
 }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const [f, setF] = useState({ name: initialName, generic: '', form: 'Tablet', strength: '', schedule: 'OTC' as DrugSchedule, hsn: '', gst: 12, mrp: '' });
+  // GST is the clinic's decision: it starts with the clinic's own default if it set one, else the form asks (nothing is assumed).
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const [f, setF] = useState<{ name: string; generic: string; form: string; strength: string; schedule: DrugSchedule; hsn: string; gst: number | ''; mrp: string }>(
+    { name: initialName, generic: '', form: 'Tablet', strength: '', schedule: 'OTC', hsn: '', gst: '', mrp: '' });
+  useEffect(() => {
+    const d = settings?.default_drug_gst_rate;
+    if (d !== null && d !== undefined) setF((p) => (p.gst === '' ? { ...p, gst: d } : p));
+  }, [settings]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const set = (k: keyof typeof f, v: any) => setF((p) => ({ ...p, [k]: v }));
@@ -63,8 +70,11 @@ export function QuickDrugModal({ initialName = '', onClose, onCreated }: {
             </select>
           </div>
           <div>
-            <label className="label">GST %</label>
-            <select className="input" value={f.gst} onChange={(e) => set('gst', Number(e.target.value))}>{[0, 5, 12, 18, 28].map((g) => <option key={g} value={g}>{g}</option>)}</select>
+            <label className="label">GST % *</label>
+            <select className={`input ${f.gst === '' ? 'border-red-500 bg-red-50 dark:bg-red-900/20' : ''}`} value={f.gst} onChange={(e) => set('gst', e.target.value === '' ? '' : Number(e.target.value))}>
+              {f.gst === '' && <option value="">— choose —</option>}
+              {[0, 5, 12, 18, 28].map((g) => <option key={g} value={g}>{g}</option>)}
+            </select>
           </div>
           <div><label className="label">HSN code</label><input className="input" value={f.hsn} maxLength={12} onChange={(e) => set('hsn', e.target.value)} /></div>
           <div><label className="label">MRP per unit (₹)</label><input className="input" type="number" min={0} step="0.01" value={f.mrp} onChange={(e) => set('mrp', e.target.value)} /></div>
@@ -72,7 +82,7 @@ export function QuickDrugModal({ initialName = '', onClose, onCreated }: {
         {err && <div className="text-[12px] text-red-600" role="alert">{err}</div>}
         <div className="flex justify-end gap-2 pt-1">
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" disabled={busy || !name} onClick={save}>{busy ? 'Saving…' : 'Add to Drug List'}</button>
+          <button className="btn-primary" disabled={busy || !name || f.gst === ''} onClick={save} title={f.gst === '' ? 'Choose the GST % first — you decide it' : undefined}>{busy ? 'Saving…' : 'Add to Drug List'}</button>
         </div>
       </div>
     </Modal>

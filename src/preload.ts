@@ -412,6 +412,11 @@ const api = {
     // Returns shape stays Drug-compatible for legacy callers (mrp/batch/expiry/stock_qty aliased).
     listDrugs: (filter?: { q?: string; activeOnly?: boolean }) =>
       ipcRenderer.invoke('pharmacy:listDrugs', filter || {}) as Promise<(DrugMaster & Drug)[]>,
+    /** How many active medicines sit at each GST rate. */
+    gstSummary: () => ipcRenderer.invoke('pharmacy:gstSummary') as Promise<{ total: number; by_rate: { rate: number; count: number }[] }>,
+    /** Set the GST rate of many medicines at once (the ticked ones, or every medicine now at `from_rate`, or the whole list). The clinic's own decision. */
+    setDrugGst: (p: { rate: number; ids?: number[] | null; from_rate?: number | null }) =>
+      ipcRenderer.invoke('pharmacy:setDrugGst', p) as Promise<{ ok: boolean; error?: string; changed?: number; unchanged?: number }>,
     loadStandardCatalog: () =>
       ipcRenderer.invoke('pharmacy:loadStandardCatalog') as Promise<{ ok: boolean; added: number; corrected: number; kept: number; rescheduled: number; total: number }>,
     /** One sale + its lines (with batch/expiry) — used by the printed receipt. */

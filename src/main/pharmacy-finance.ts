@@ -489,6 +489,55 @@ export function getPurchase(db: Database.Database, id: number) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// GST rates on the Drug List — the clinic decides them (nothing is changed for it)
+// ---------------------------------------------------------------------------------------------
+
+export const GST_RATES = [0, 5, 12, 18, 28];
+
+/** How many medicines sit at each GST rate (active ones). */
+export function gstSummary(db: Database.Database): { total: number; by_rate: { rate: number; count: number }[] } {
+  const rows = db.prepare('SELECT gst_rate AS rate, COUNT(*) AS count FROM drug_master WHERE is_active = 1 GROUP BY gst_rate ORDER BY gst_rate').all() as { rate: number; count: number }[];
+  return { total: rows.reduce((a, r) => a + r.count, 0), by_rate: rows };
+}
+
+export interface SetGstIn {
+  /** The new GST %: one of 0, 5, 12, 18, 28. */
+  rate: number;
+  /** Only these medicines (a selection); omit for the whole list. */
+  ids?: number[] | null;
+  /** Only the medicines that are at this rate now (e.g. "everything at 12%"); omit for any rate. */
+  from_rate?: number | null;
+}
+
+/**
+ * Set the GST rate of many medicines at once — the clinic's own decision (the app never moves a rate by itself). Only the rate changes:
+ * bills already made keep the tax they were made with; new sales and purchase lines use the new rate.
+ */
+export function setDrugGst(db: Database.Database, p: SetGstIn): { changed: number; unchanged: number } {
+  const rate = Number(p?.rate);
+  if (!GST_RATES.includes(rate)) throw new Error(`Choose a GST rate: ${GST_RATES.join('%, ')}%.`);
+  const from = p?.from_rate === null || p?.from_rate === undefined ? null : Number(p.from_rate);
+  if (from !== null && !GST_RATES.includes(from)) throw new Error('The rate to change from is not one of the usual GST rates.');
+  const ids = Array.isArray(p?.ids) ? Array.from(new Set(p.ids.map(Number).filter((x) => Number.isInteger(x) && x > 0))) : null;
+  if (ids !== null && ids.length === 0) throw new Error('Tick at least one medicine.');
+
+  // a selection goes in chunks (SQLite limits the number of ? in one statement); no selection = the whole list
+  const chunks: (number[] | null)[] = ids ? Array.from({ length: Math.ceil(ids.length / 500) }, (_, i) => ids.slice(i * 500, i * 500 + 500)) : [null];
+  let total = 0, changed = 0;
+  db.transaction(() => {
+    for (const chunk of chunks) {
+      const conds: string[] = []; const args: any[] = [];
+      if (chunk) { conds.push(`id IN (${chunk.map(() => '?').join(',')})`); args.push(...chunk); }
+      if (from !== null) { conds.push('gst_rate = ?'); args.push(from); }
+      const where = conds.length ? ` WHERE ${conds.join(' AND ')}` : '';
+      total += (db.prepare(`SELECT COUNT(*) AS c FROM drug_master${where}`).get(...args) as { c: number }).c;
+      changed += db.prepare(`UPDATE drug_master SET gst_rate = ?, updated_at = datetime('now')${where ? `${where} AND` : ' WHERE'} gst_rate <> ?`).run(rate, ...args, rate).changes;
+    }
+  })();
+  return { changed, unchanged: total - changed };
+}
+
+// ---------------------------------------------------------------------------------------------
 // Deleting a purchase bill — ANY purchase bill, no conditions (the administrator's call; the password is asked by the IPC layer)
 // ---------------------------------------------------------------------------------------------
 

@@ -4,7 +4,7 @@ import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Pill, Plus, Search, AlertTriangle, Package, Clipboard, ShoppingCart, Trash2, Pencil,
-  Layers, Truck, FileText, X, Store, FileSpreadsheet,
+  Layers, Truck, FileText, X, Store, FileSpreadsheet, Percent,
 } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
@@ -14,6 +14,8 @@ import { cn, fmtDate, fmtDateTime, formatINR, newRef, refFor, todayISO } from '.
 import type { Drug, DrugMaster, DrugSchedule, Wholesaler } from '../types';
 import { NewPurchaseModal } from '../components/pharmacy/PurchaseBillModal';
 import { ImportBillModal } from '../components/pharmacy/billImport/ImportBillModal';
+import { GstSwitch } from '../components/pharmacy/GstSwitch';
+import { SetGstModal } from '../components/pharmacy/SetGstModal';
 import { WAITING_KEY } from '../components/pharmacy/billImport/WaitingList';
 import { PurchaseDetailModal } from '../components/pharmacy/PurchaseDetailModal';
 import { ClinicStockTab, clinicCounts, useClinicStock, type ClinicFilter } from '../components/pharmacy/ClinicStockTab';
@@ -56,11 +58,14 @@ export function Pharmacy() {
 
   return (
     <div className="p-6 space-y-5">
-      <div>
-        <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5">Pharmacy<PageHelp page="pharmacy" /></h1>
-        <p className="text-xs text-gray-500 dark:text-slate-400">
-          Batch-tracked stock · FEFO dispensing · Schedule H register · Purchase invoices
-        </p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5">Pharmacy<PageHelp page="pharmacy" /></h1>
+          <p className="text-xs text-gray-500 dark:text-slate-400">
+            Batch-tracked stock · FEFO dispensing · Schedule H register · Purchase invoices
+          </p>
+        </div>
+        <GstSwitch />
       </div>
 
       <div className="flex gap-1 bg-gray-100 dark:bg-slate-700 p-1 rounded-lg flex-wrap w-fit max-w-full" role="tablist" aria-label="Pharmacy">
@@ -782,6 +787,7 @@ function DrugListTab() {
   const [scanOpen, setScanOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [settingGst, setSettingGst] = useState(false);          // the "Set GST %" dialog
 
   const { data: drugs = [] } = useQuery({
     queryKey: ['pharmacy-drugs', q, false],
@@ -832,7 +838,7 @@ function DrugListTab() {
       setEditing(exact);
       toast(`Matched: ${exact.name}`);
     } else {
-      setEditing({ is_active: 1, low_stock_threshold: 10, default_mrp: 0, schedule: 'OTC', gst_rate: 12, barcode: code });
+      setEditing({ is_active: 1, low_stock_threshold: 10, default_mrp: 0, schedule: 'OTC', barcode: code });
       toast(`No match — pre-filling new drug with barcode ${code}`, 'info');
     }
   };
@@ -847,7 +853,10 @@ function DrugListTab() {
         <button className="btn-secondary" onClick={() => setScanOpen(true)} title="Scan barcode (USB scanner or camera)">
           <Scan className="w-4 h-4" /> Scan
         </button>
-        <button className="btn-primary" onClick={() => setEditing({ is_active: 1, low_stock_threshold: 10, default_mrp: 0, schedule: 'OTC', gst_rate: 12 })}>
+        <button className="btn-secondary" onClick={() => setSettingGst(true)} title="You decide the GST % of your medicines — change many at once">
+          <Percent className="w-4 h-4" /> Set GST %
+        </button>
+        <button className="btn-primary" onClick={() => setEditing({ is_active: 1, low_stock_threshold: 10, default_mrp: 0, schedule: 'OTC' })}>
           <Plus className="w-4 h-4" /> Add Drug
         </button>
       </div>
@@ -868,6 +877,12 @@ function DrugListTab() {
               onClick={() => setSelectedIds(new Set())}
             >
               Clear selection
+            </button>
+            <button
+              className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-md font-semibold border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-800 text-blue-800 dark:text-blue-200 hover:bg-blue-50"
+              onClick={() => setSettingGst(true)}
+            >
+              <Percent className="w-3.5 h-3.5" /> Set GST % for selected
             </button>
             <button
               className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-md font-semibold bg-red-600 hover:bg-red-700 text-white"
@@ -993,6 +1008,7 @@ function DrugListTab() {
       </Modal>
 
       {editing && <DrugEditModal drug={editing} onClose={() => setEditing(null)} />}
+      {settingGst && <SetGstModal selectedIds={[...selectedIds]} onClose={() => setSettingGst(false)} onDone={() => setSelectedIds(new Set())} />}
 
       <BarcodeScanModal
         open={scanOpen}

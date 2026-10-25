@@ -108,6 +108,7 @@ export const DEMO_SETTINGS: Settings = {
   network_bind_ip: '',
   station_name: '',
   gst_enabled: false,
+  default_drug_gst_rate: null,
   gst_registration_type: 'unregistered',
   clinic_gstin: '',
   clinic_legal_name: '',

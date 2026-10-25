@@ -866,6 +866,8 @@ export interface Settings {
   // ===== GST & Invoicing =====
   /** Master switch. Off = plain receipts with no tax columns anywhere. */
   gst_enabled: boolean;
+  /** The GST % a NEW medicine starts with. null = the clinic has not decided: the form asks every time (nothing is assumed). */
+  default_drug_gst_rate: number | null;
   /** unregistered | regular | composition — drives which document is printed. */
   gst_registration_type: 'unregistered' | 'regular' | 'composition';
   clinic_gstin: string;

@@ -2,8 +2,8 @@
  * Add or edit a drug in the Drug List. One form, opened from the Drug List tab and from "Drugs in my clinic" (Edit on a row),
  * so a drug's facts — name, schedule, GST, MRP, the low-stock level — are edited in exactly one way.
  */
-import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Modal } from '../Modal';
 import { useToast } from '../../hooks/useToast';
 import { Field } from './shared';
@@ -24,6 +24,13 @@ export function DrugEditModal({ drug, onClose }: { drug: Partial<DrugMaster>; on
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState<Partial<DrugMaster>>(drug);
+  // GST is the clinic's decision: a NEW medicine starts with the clinic's own default if it set one, else the form asks (nothing is assumed).
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  useEffect(() => {
+    if (!drug.id && drug.gst_rate === undefined && settings && settings.default_drug_gst_rate !== null && settings.default_drug_gst_rate !== undefined) {
+      setEditing((e) => (e.gst_rate === undefined ? { ...e, gst_rate: settings.default_drug_gst_rate as number } : e));
+    }
+  }, [settings]);   // eslint-disable-line react-hooks/exhaustive-deps
   const save = useMutation({
     mutationFn: (d: Partial<DrugMaster>) => window.electronAPI.pharmacy.upsertDrug(d),
     onSuccess: () => {
@@ -54,10 +61,13 @@ export function DrugEditModal({ drug, onClose }: { drug: Partial<DrugMaster>; on
           <Field label="Pack Size"><input type="number" className="input" placeholder="10 (tabs/strip)" value={editing.pack_size ?? ''} onChange={(e) => setEditing({ ...editing, pack_size: e.target.value === '' ? null : Number(e.target.value) })} /></Field>
           <Field label="Default MRP (₹)"><input type="number" className="input" value={editing.default_mrp ?? 0} onChange={(e) => setEditing({ ...editing, default_mrp: Number(e.target.value) })} /></Field>
           <Field label="HSN Code"><input className="input" placeholder="30049099" value={editing.hsn_code || ''} onChange={(e) => setEditing({ ...editing, hsn_code: e.target.value })} /></Field>
-          <Field label="GST Rate (%)">
-            <select className="input" value={editing.gst_rate ?? 12} onChange={(e) => setEditing({ ...editing, gst_rate: Number(e.target.value) })}>
+          <Field label="GST Rate (%) *">
+            <select className={`input ${editing.gst_rate === undefined ? 'border-red-500 bg-red-50 dark:bg-red-900/20' : ''}`} value={editing.gst_rate ?? ''}
+              onChange={(e) => setEditing({ ...editing, gst_rate: e.target.value === '' ? undefined : Number(e.target.value) })}>
+              {editing.gst_rate === undefined && <option value="">— choose the GST % —</option>}
               {[0, 5, 12, 18, 28].map((r) => <option key={r} value={r}>{r}%</option>)}
             </select>
+            {editing.gst_rate === undefined && <div className="text-[10px] text-red-600 dark:text-red-400 mt-0.5">You decide the GST % — nothing is assumed. (Pharmacy → Settings → Billing can set a starting rate.)</div>}
           </Field>
           <Field label="Barcode (EAN/UPC)"><input className="input" placeholder="optional" value={editing.barcode || ''} onChange={(e) => setEditing({ ...editing, barcode: e.target.value })} /></Field>
           <Field label="Low-stock Threshold"><input type="number" className="input" value={editing.low_stock_threshold ?? 10} onChange={(e) => setEditing({ ...editing, low_stock_threshold: Number(e.target.value) })} /></Field>
@@ -71,7 +81,7 @@ export function DrugEditModal({ drug, onClose }: { drug: Partial<DrugMaster>; on
         </label>
         <div className="flex justify-end gap-2 pt-3">
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={() => save.mutate(editing)} disabled={save.isPending || !editing.name}>
+          <button className="btn-primary" onClick={() => save.mutate(editing)} disabled={save.isPending || !editing.name || editing.gst_rate === undefined}>
             {save.isPending ? 'Saving…' : 'Save Drug'}
           </button>
         </div>

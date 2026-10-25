@@ -642,6 +642,27 @@ export function createMockElectronAPI(): any {
       listBatches: (id: number) => r(batches.filter((b) => b.drug_master_id === id)),
       // The catalogue is already in this demo's Drug List (every drug of src/data/pharmacy-catalog.ts), so there is nothing to add or correct.
       loadStandardCatalog: () => r({ ok: true, added: 0, corrected: 0, kept: 0, rescheduled: 0, total: drugMaster.length }),
+      // The clinic decides GST rates: how many medicines sit at each, and set many at once (the demo really changes them until the page is reloaded).
+      gstSummary: () => {
+        const by = new Map<number, number>();
+        for (const d of drugMaster) if (d.is_active === 1) by.set(Number(d.gst_rate), (by.get(Number(d.gst_rate)) ?? 0) + 1);
+        const by_rate = [...by.entries()].sort((a, b) => a[0] - b[0]).map(([rate, count]) => ({ rate, count }));
+        return r({ total: by_rate.reduce((a, x) => a + x.count, 0), by_rate });
+      },
+      setDrugGst: (p: any) => {
+        if (![0, 5, 12, 18, 28].includes(Number(p?.rate))) return r({ ok: false, error: 'Choose a GST rate: 0%, 5%, 12%, 18%, 28%.' });
+        const ids = Array.isArray(p?.ids) ? new Set(p.ids.map(Number)) : null;
+        const from = p?.from_rate === null || p?.from_rate === undefined ? null : Number(p.from_rate);
+        let changed = 0, total = 0;
+        drugMaster = drugMaster.map((d) => {
+          if ((ids && !ids.has(d.id)) || (from !== null && Number(d.gst_rate) !== from)) return d;
+          total++;
+          if (Number(d.gst_rate) === Number(p.rate)) return d;
+          changed++;
+          return { ...d, gst_rate: Number(p.rate) };
+        });
+        return r({ ok: true, changed, unchanged: total - changed });
+      },
       upsertDrug: (d: any) => {
         if (d.id) drugMaster = drugMaster.map((x) => x.id === d.id ? { ...x, ...d } : x);
         else { const id = nextId(drugMaster); d = { is_active: 1, default_mrp: 0, gst_rate: 12, ...d, id }; drugMaster = [...drugMaster, d]; }   // like the real table: a new drug is active

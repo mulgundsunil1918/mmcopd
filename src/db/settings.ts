@@ -98,6 +98,8 @@ export function getAllSettings(db: Database.Database): Settings {
     // Default OFF. A clinic below the registration threshold must not have tax
     // columns on its bills, and switching this on is a deliberate act.
     gst_enabled: map.gst_enabled === 'true',
+    // The clinic decides the GST % a new medicine starts with; until it does, nothing is assumed and the form asks.
+    default_drug_gst_rate: map.default_drug_gst_rate === undefined || map.default_drug_gst_rate === '' || !Number.isFinite(Number(map.default_drug_gst_rate)) ? null : Number(map.default_drug_gst_rate),
     gst_registration_type: (map.gst_registration_type as any) || 'unregistered',
     clinic_gstin: map.clinic_gstin || '',
     clinic_legal_name: map.clinic_legal_name || '',
