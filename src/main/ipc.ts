@@ -554,6 +554,40 @@ export function registerIpc() {
   const snapshotText = (o: unknown) => { try { return JSON.stringify(o).slice(0, 9000); } catch { return ''; } };
   const rowsOf = (db: any, sql: string, ...p: any[]): any[] => { try { return db.prepare(sql).all(...p); } catch { return []; } };
 
+  // The visits of ONE patient and what each carries — so the administrator can pick the single visit (a consultation with a doctor) to erase
+  // instead of deleting the whole patient. Read-only; the deletes below still ask for the admin password.
+  ipcMain.handle('admin:patientVisits', (_e, patientId: number) => {
+    requireRole([], "look up a patient's visits to delete one");
+    try {
+      const db = getDb();
+      const patient = db.prepare('SELECT id, uhid, first_name, last_name, phone FROM patients WHERE id=?').get(Number(patientId)) as any;
+      if (!patient) return { ok: false as const, error: 'Patient not found' };
+      const rows = db.prepare(
+        `SELECT a.id, a.token_number, a.appointment_date, a.appointment_time, a.status,
+                d.name AS doctor_name, d.specialty AS doctor_specialty,
+                c.id AS consultation_id, substr(COALESCE(c.impression, ''), 1, 140) AS impression,
+                (SELECT COUNT(*) FROM prescription_items r WHERE r.appointment_id = a.id) AS rx_lines,
+                (SELECT COUNT(*) FROM bills b WHERE b.appointment_id = a.id) AS bills,
+                (SELECT COALESCE(SUM(b.total), 0) FROM bills b WHERE b.appointment_id = a.id) AS bill_total,
+                (SELECT COALESCE(SUM(b.amount_paid), 0) FROM bills b WHERE b.appointment_id = a.id) AS bill_paid,
+                (SELECT COUNT(*) FROM lab_orders l WHERE l.appointment_id = a.id) AS lab_orders,
+                (SELECT COUNT(*) FROM radiology_orders ro WHERE ro.appointment_id = a.id) AS radiology_orders,
+                (SELECT COUNT(*) FROM pharmacy_sales s WHERE s.appointment_id = a.id) AS pharmacy_sales
+           FROM appointments a
+           JOIN doctors d ON d.id = a.doctor_id
+           LEFT JOIN consultations c ON c.appointment_id = a.id
+          WHERE a.patient_id = ?
+          ORDER BY a.appointment_date DESC, a.appointment_time DESC, a.id DESC`
+      ).all(patient.id) as any[];
+      return {
+        ok: true as const, patient,
+        visits: rows.map(({ consultation_id, impression, ...v }) => ({ ...v, has_consultation: consultation_id !== null && consultation_id !== undefined, impression: impression || null })),
+      };
+    } catch (e: any) {
+      return { ok: false as const, error: e?.message || "Could not read this patient's visits." };
+    }
+  });
+
   ipcMain.handle('admin:deleteAppointment', (_e, appointmentId: number, adminPassword?: string) => {
     requireRole([], 'delete an appointment');
     const bad = adminPasswordProblem(adminPassword);

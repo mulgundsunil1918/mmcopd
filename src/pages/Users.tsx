@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Users as UsersIcon, Plus, Key, Shield, KeyRound, AlertTriangle, Trash2, Search } from 'lucide-react';
+import { Users as UsersIcon, Plus, Key, Shield, KeyRound, AlertTriangle, Trash2, Search, FileX, ArrowLeft } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { AdminGate } from '../components/AdminGate';
 import { AdminPasswordModal as ConfirmWithAdminPassword } from '../components/AdminPasswordModal';
 import { useToast } from '../hooks/useToast';
-import { cn, fmtDateTime } from '../lib/utils';
+import { StatusBadge } from '../components/StatusBadge';
+import { cn, fmt12h, fmtDate, fmtDateTime, formatINR } from '../lib/utils';
+import type { AdminVisitRow } from '../types';
 import type { Role } from '../hooks/useAuth';
 
 const ROLE_LABELS: Record<Role, string> = {
@@ -240,7 +242,8 @@ function UsersInner() {
           <button className="btn-danger" onClick={() => setDangerOpen(true)}>Open Danger Zone</button>
         </div>
         <p className="text-[11px] text-gray-500 dark:text-slate-400">
-          Irreversible actions — reset audit log, reset notification log, delete patient and their history. Each requires typing <code className="font-mono bg-gray-100 dark:bg-slate-700 px-1 rounded">iknowwhatiamdoing</code> to confirm.
+          Irreversible actions — reset the audit log or the notification log (type <code className="font-mono bg-gray-100 dark:bg-slate-700 px-1 rounded">iknowwhatiamdoing</code> to confirm), delete <b>one visit</b> (a consultation with a doctor) while the patient stays,
+          or delete a patient with all their history. Deleting a visit or a patient needs the admin password.
         </p>
       </section>
 
@@ -499,6 +502,7 @@ function DangerZoneModal({ onClose }: { onClose: () => void }) {
             toast(r.error || 'Failed', 'error'); return false;
           }}
         />
+        <DeleteVisitBlock />
         <DeletePatientBlock />
       </div>
     </Modal>
@@ -577,6 +581,160 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
     const t = setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s — main process may be stale. Close the app and run npm start again.`)), ms);
     p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
   });
+}
+
+/**
+ * Delete ONE visit (a consultation with a doctor) instead of the whole patient. Pick the patient, then the visit: the doctor's consultation notes
+ * alone (the visit and its bill stay), or the whole visit with its bill, lab and pharmacy records. The patient and every other visit are left alone.
+ * Both ask for the admin password again, checked in the main process, and keep a copy of what was erased in the audit log.
+ */
+function DeleteVisitBlock() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [q, setQ] = useState('');
+  const [patient, setPatient] = useState<any | null>(null);
+  const [target, setTarget] = useState<{ kind: 'visit' | 'notes'; v: AdminVisitRow } | null>(null);
+
+  const { data: results = [] } = useQuery({
+    queryKey: ['patients-delete-search', q],
+    queryFn: () => window.electronAPI.patients.search(q),
+    enabled: !patient,
+  });
+  const { data: found, isLoading } = useQuery({
+    queryKey: ['admin-patient-visits', patient?.id],
+    queryFn: () => window.electronAPI.admin.patientVisits(patient.id),
+    enabled: !!patient,
+  });
+  const visits: AdminVisitRow[] = found && found.ok ? found.visits : [];
+
+  const refresh = () => {
+    for (const k of ['admin-patient-visits', 'patient-log', 'appointments', 'stats', 'finance-summary', 'consultation', 'patients']) qc.invalidateQueries({ queryKey: [k] });
+  };
+  const when = (v: AdminVisitRow) => `${fmtDate(v.appointment_date)}, ${fmt12h(v.appointment_time)}`;
+  const name = patient ? `${patient.first_name} ${patient.last_name}`.trim() : '';
+  const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+  /** Everything a whole-visit delete takes with it, in words (only what is actually there). */
+  const erases = (v: AdminVisitRow) => [
+    v.has_consultation ? 'the consultation notes' : '',
+    v.rx_lines > 0 ? plural(v.rx_lines, 'prescription line') : '',
+    v.bills > 0 ? `${plural(v.bills, 'bill')} of ${formatINR(v.bill_total)}${v.bill_paid > 0 ? `, of which ${formatINR(v.bill_paid)} was received — that money leaves the books with it` : ''}` : '',
+    v.lab_orders > 0 ? plural(v.lab_orders, 'lab order') : '',
+    v.radiology_orders > 0 ? plural(v.radiology_orders, 'radiology order') : '',
+    v.pharmacy_sales > 0 ? `${plural(v.pharmacy_sales, 'pharmacy sale')} (the medicines go back on the shelf)` : '',
+  ].filter(Boolean);
+
+  return (
+    <div className="rounded-lg border-2 border-red-300 dark:border-red-800 p-4 bg-red-50/50 dark:bg-red-900/20">
+      <div className="text-sm font-semibold text-red-800 dark:text-red-200 flex items-center gap-2">
+        <FileX className="w-4 h-4" /> Delete one visit (a consultation with a doctor) — the patient stays
+      </div>
+      <div className="text-[11px] text-red-700 dark:text-red-300 mt-0.5 mb-3">
+        Choose the patient, then the one visit. You can erase just the doctor&rsquo;s consultation notes, or the whole visit with its bill. The patient and all their other visits are not touched.
+      </div>
+
+      {!patient ? (
+        <>
+          <div className="relative mb-2">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input className="input pl-9" placeholder="Search patient by name / UHID / phone (blank = show recent)" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
+          <ul className="max-h-[300px] overflow-auto border border-gray-200 dark:border-slate-700 rounded-lg divide-y divide-gray-100 dark:divide-slate-700 bg-white dark:bg-slate-900/40">
+            {results.map((p: any) => (
+              <li key={p.id} className="px-3 py-2 flex items-center justify-between gap-2 hover:bg-gray-50 dark:hover:bg-slate-700">
+                <div className="min-w-0">
+                  <div className="text-sm text-gray-900 dark:text-slate-100">{p.first_name} {p.last_name}</div>
+                  <div className="text-[11px] text-gray-500 dark:text-slate-400">{p.uhid} · {p.phone}</div>
+                </div>
+                <button className="btn-secondary text-xs" onClick={() => setPatient(p)}>Choose</button>
+              </li>
+            ))}
+            {results.length === 0 && <li className="px-3 py-6 text-xs text-gray-400 text-center">No patients</li>}
+          </ul>
+        </>
+      ) : (
+        <>
+          <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+            <div className="text-sm text-gray-900 dark:text-slate-100">
+              Visits of <span className="font-bold">{name}</span> <span className="text-[11px] text-gray-500 dark:text-slate-400">({patient.uhid})</span>
+            </div>
+            <button className="btn-ghost text-xs" onClick={() => { setPatient(null); setTarget(null); }}><ArrowLeft className="w-3.5 h-3.5" /> Choose another patient</button>
+          </div>
+          <ul className="max-h-[360px] overflow-auto border border-gray-200 dark:border-slate-700 rounded-lg divide-y divide-gray-100 dark:divide-slate-700 bg-white dark:bg-slate-900/40">
+            {visits.map((v) => (
+              <li key={v.id} className="px-3 py-2.5 space-y-1.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="min-w-0">
+                    <div className="text-sm text-gray-900 dark:text-slate-100 flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold">{when(v)}</span>
+                      <span className="text-gray-500 dark:text-slate-400">Token #{v.token_number}</span>
+                      <span>with <b>{v.doctor_name}</b>{v.doctor_specialty ? <span className="text-[11px] text-gray-500 dark:text-slate-400"> ({v.doctor_specialty})</span> : null}</span>
+                      <StatusBadge status={v.status} />
+                    </div>
+                    <div className="text-[11px] text-gray-500 dark:text-slate-400">
+                      {v.has_consultation ? <>Consultation notes{v.impression ? <>: <i>{v.impression}</i></> : ' recorded'}{v.rx_lines > 0 ? ` · ${plural(v.rx_lines, 'prescription line')}` : ''}</> : 'No consultation notes'}
+                      {v.bills > 0 && <> · {plural(v.bills, 'bill')} {formatINR(v.bill_total)}</>}
+                      {v.lab_orders > 0 && <> · {plural(v.lab_orders, 'lab order')}</>}
+                      {v.radiology_orders > 0 && <> · {plural(v.radiology_orders, 'radiology order')}</>}
+                      {v.pharmacy_sales > 0 && <> · {plural(v.pharmacy_sales, 'pharmacy sale')}</>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button className="btn-secondary text-xs" disabled={!v.has_consultation} onClick={() => setTarget({ kind: 'notes', v })}
+                      title={v.has_consultation ? 'Delete only the doctor’s notes and prescription of this visit' : 'This visit has no consultation notes'}>
+                      <FileX className="w-3.5 h-3.5" /> Delete notes only
+                    </button>
+                    <button className="btn-danger text-xs" onClick={() => setTarget({ kind: 'visit', v })} title="Delete this whole visit">
+                      <Trash2 className="w-3.5 h-3.5" /> Delete this visit
+                    </button>
+                  </div>
+                </div>
+              </li>
+            ))}
+            {isLoading && <li className="px-3 py-6 text-xs text-gray-400 text-center">Loading…</li>}
+            {!isLoading && found && !found.ok && <li className="px-3 py-6 text-xs text-red-600 text-center">{found.error}</li>}
+            {!isLoading && found?.ok && visits.length === 0 && <li className="px-3 py-6 text-xs text-gray-400 text-center">This patient has no visits (nothing to delete here).</li>}
+          </ul>
+        </>
+      )}
+
+      {target?.kind === 'visit' && (
+        <ConfirmWithAdminPassword
+          title="Delete this visit?" confirmLabel="Delete this visit" onClose={() => setTarget(null)}
+          onConfirm={async (pw) => {
+            const r = await withTimeout(window.electronAPI.admin.deleteAppointment(target.v.id, pw), 15_000, 'Delete visit');
+            if (r.ok) { toast(`Visit deleted (Token #${target.v.token_number})`); refresh(); }
+            return r;
+          }}
+        >
+          <div>
+            Permanently delete the visit of <span className="font-bold">{name}</span> with <span className="font-bold">{target.v.doctor_name}</span> on {when(target.v)} (Token #{target.v.token_number})?
+          </div>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400">
+            {erases(target.v).length ? <>This erases: {erases(target.v).join('; ')}. </> : 'Nothing else is attached to this visit. '}
+            The patient and all their other visits stay. A copy of what was erased is kept in the audit log. Cannot be undone.
+          </div>
+        </ConfirmWithAdminPassword>
+      )}
+      {target?.kind === 'notes' && (
+        <ConfirmWithAdminPassword
+          title="Delete these consultation notes?" confirmLabel="Delete the notes" onClose={() => setTarget(null)}
+          onConfirm={async (pw) => {
+            const r = await withTimeout(window.electronAPI.admin.deleteConsultation(target.v.id, pw), 15_000, 'Delete consultation');
+            if (r.ok) { toast(`Consultation notes deleted (Token #${target.v.token_number})`); refresh(); }
+            return r;
+          }}
+        >
+          <div>
+            Delete the doctor&rsquo;s consultation notes of <span className="font-bold">{name}</span> with <span className="font-bold">{target.v.doctor_name}</span> on {when(target.v)}?
+          </div>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400">
+            Removes the notes (history, vitals, examination, impression, advice, follow-up date){target.v.rx_lines > 0 ? ` and the ${plural(target.v.rx_lines, 'prescription line')} written for this visit` : ''}.
+            The visit itself, its bill and any lab or radiology orders stay. A copy is kept in the audit log. Cannot be undone.
+          </div>
+        </ConfirmWithAdminPassword>
+      )}
+    </div>
+  );
 }
 
 function DeletePatientBlock() {

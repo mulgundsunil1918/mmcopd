@@ -981,3 +981,28 @@ export interface FollowupSummary {
   /** Date by which they must be used (cycle anchor + window_days). */
   valid_till: string;
 }
+
+/** One visit of a patient as the administrator sees it when choosing a single visit to erase (Users & Access → Danger Zone). */
+export interface AdminVisitRow {
+  id: number;
+  token_number: number;
+  appointment_date: string;
+  appointment_time: string;
+  status: AppointmentStatus;
+  doctor_name: string;
+  doctor_specialty: string | null;
+  /** The doctor's consultation notes exist for this visit. */
+  has_consultation: boolean;
+  /** The doctor's impression, shortened (so the right visit is recognised). */
+  impression: string | null;
+  rx_lines: number;
+  bills: number;
+  bill_total: number;
+  bill_paid: number;
+  lab_orders: number;
+  radiology_orders: number;
+  pharmacy_sales: number;
+}
+export type AdminPatientVisits =
+  | { ok: true; patient: { id: number; uhid: string; first_name: string; last_name: string; phone: string | null }; visits: AdminVisitRow[] }
+  | { ok: false; error: string };

@@ -8,6 +8,7 @@ import type { DiscountsGiven, ManualPharmacy, OrderBillResult, PatientPortal, Re
 import type { SupplierAccounts, SupplierStatementResult } from './lib/supplierStatement';
 import type { ReferralStats } from './lib/referralStats';
 import type { ImportCommit, ImportResult, ParseResult, WaitingGet, WaitingRow } from './lib/billImport/types';
+import type { AdminPatientVisits } from './types';
 
 export type LicenseStatusIPC = {
   state: 'valid' | 'grace' | 'locked' | 'invalid' | 'wrong_machine' | 'clock_tampered' | 'none' | 'dev';
@@ -113,6 +114,9 @@ const api = {
     /** A pharmacy counter sale: the sale, its lines, payments and register rows; the medicines go back on the shelf. Not for sales charged to an in-patient bill. */
     deleteSale: (saleId: number, adminPassword: string) =>
       ipcRenderer.invoke('admin:deleteSale', saleId, adminPassword) as Promise<{ ok: boolean; error?: string; sale?: any }>,
+    /** One patient's visits (each with its doctor, and what the visit carries) — to pick the single visit to erase instead of the whole patient. */
+    patientVisits: (patientId: number) =>
+      ipcRenderer.invoke('admin:patientVisits', patientId) as Promise<AdminPatientVisits>,
     /** Deleting needs the admin password typed again for that one deletion — checked in the main process. */
     deleteAppointment: (appointmentId: number, adminPassword: string) =>
       ipcRenderer.invoke('admin:deleteAppointment', appointmentId, adminPassword) as Promise<{ ok: boolean; error?: string; appointment?: any }>,

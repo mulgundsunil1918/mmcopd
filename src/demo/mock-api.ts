@@ -245,8 +245,46 @@ export function createMockElectronAPI(): any {
       resetNotificationLog: () => r({ ok: true }),
       deletePatient: () => r({ ok: true }),
       deletePatients: () => r({ ok: true }),
-      deleteAppointment: (_id: number, pw?: string) => r(pw === '1234' ? { ok: true, appointment: { token_number: 0 } } : { ok: false, error: 'Wrong admin password.' }),
-      deleteConsultation: (_id: number, pw?: string) => r(pw === '1234' ? { ok: true, consultation: { token_number: 0 } } : { ok: false, error: 'Wrong admin password.' }),
+      // One patient's visits with what each carries (the same shape as main/ipc.ts admin:patientVisits) — to pick ONE visit to erase.
+      patientVisits: (patientId: number) => {
+        const p: any = patients.find((x: any) => x.id === patientId);
+        if (!p) return r({ ok: false as const, error: 'Patient not found' });
+        const visits = appointments.filter((a: any) => a.patient_id === patientId)
+          .sort((a: any, b: any) => (`${b.appointment_date} ${b.appointment_time}` < `${a.appointment_date} ${a.appointment_time}` ? -1 : 1))
+          .map((a: any) => {
+            const d: any = doctors.find((x: any) => x.id === a.doctor_id);
+            const c: any = consultations.find((x: any) => x.appointment_id === a.id);
+            const bs = bills.filter((b: any) => b.appointment_id === a.id);
+            return {
+              id: a.id, token_number: a.token_number, appointment_date: a.appointment_date, appointment_time: a.appointment_time, status: a.status,
+              doctor_name: d?.name ?? 'Doctor', doctor_specialty: d?.specialty ?? null, has_consultation: !!c, impression: c?.impression ? String(c.impression).slice(0, 140) : null,
+              rx_lines: rxItems.filter((x: any) => x.appointment_id === a.id).length, bills: bs.length,
+              bill_total: bs.reduce((s: number, b: any) => s + Number(b.total || 0), 0), bill_paid: bs.reduce((s: number, b: any) => s + Number(b.amount_paid ?? b.total ?? 0), 0),
+              lab_orders: labOrders.filter((o: any) => o.appointment_id === a.id).length, radiology_orders: radOrders.filter((o: any) => o.appointment_id === a.id).length,
+              pharmacy_sales: pharmSales.filter((x: any) => x.appointment_id === a.id).length,
+            };
+          });
+        return r({ ok: true as const, patient: { id: p.id, uhid: p.uhid, first_name: p.first_name, last_name: p.last_name, phone: p.phone ?? null }, visits: visits as any });
+      },
+      // The demo really removes them (until the page is reloaded), so the showcase behaves like the app.
+      deleteAppointment: (id: number, pw?: string) => {
+        if (pw !== '1234') return r({ ok: false, error: 'Wrong admin password.' });
+        const a: any = appointments.find((x: any) => x.id === id);
+        if (!a) return r({ ok: false, error: 'Appointment not found' });
+        appointments = appointments.filter((x: any) => x.id !== id);
+        consultations = consultations.filter((x: any) => x.appointment_id !== id);
+        rxItems = rxItems.filter((x: any) => x.appointment_id !== id);
+        bills = bills.filter((x: any) => x.appointment_id !== id);
+        return r({ ok: true, appointment: { token_number: a.token_number } });
+      },
+      deleteConsultation: (id: number, pw?: string) => {
+        if (pw !== '1234') return r({ ok: false, error: 'Wrong admin password.' });
+        const a: any = appointments.find((x: any) => x.id === id);
+        if (!consultations.some((x: any) => x.appointment_id === id)) return r({ ok: false, error: 'This visit has no consultation recorded.' });
+        consultations = consultations.filter((x: any) => x.appointment_id !== id);
+        rxItems = rxItems.filter((x: any) => x.appointment_id !== id);
+        return r({ ok: true, consultation: { token_number: a?.token_number ?? 0 } });
+      },
       deleteSale: (_id: number, pw?: string) => r(pw === '1234' ? { ok: true, sale: { sale_number: 'DEMO' } } : { ok: false, error: 'Wrong admin password.' }),
       deleteBill: (_id: number, pw?: string) => r(pw === '1234' ? { ok: true, bill: { bill_number: 'DEMO' } } : { ok: false, error: 'Wrong admin password.' }),
     },

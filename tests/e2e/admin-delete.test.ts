@@ -174,6 +174,75 @@ const count = (sql: string, ...p: any[]) => (one(sql, ...p)?.c ?? 0) as number;
   ok((await call('admin:deletePatients', [g3.id], '1234')).ok && count('SELECT COUNT(*) c FROM patients WHERE id=?', g3.id) === 0, '…and works with it');
 
   // ============================================================================================================
+  section('6c · Users & Access → Danger Zone: delete ONE visit (a consultation with a doctor) — the patient stays');
+  const docB = await call('doctors:create', { name: 'Dr. Second', specialty: 'Paediatrics', default_fee: 400 });
+  const pat2 = await call('patients:create', { first_name: 'Vera', last_name: 'Visits', dob: '2010-02-02', gender: 'F', phone: '9411000090' });
+  const mk = async (doctor: any, time: string, impression: string, fee: number) => {
+    const r = await call('appointments:createWithBill', {
+      appointment: { patient_id: pat2.id, doctor_id: doctor.id, appointment_date: today, appointment_time: time },
+      bill: { items: [line(fee)], discount: 0, discount_type: 'flat', payment_mode: 'Cash' },
+    });
+    await call('consultations:save', { appointment_id: r.appointment.id, patient_id: pat2.id, doctor_id: doctor.id, history: 'h', impression, advice: 'a' });
+    await call('rx:saveAll', r.appointment.id, [{ drug_name: 'Syrup X', dosage: '5 ml', frequency: 'BD', duration: '5 days', instructions: '' }]);
+    return { appt: r.appointment, bill: r.bill };
+  };
+  const first = await mk(doc, '15:00', 'Cough', 300);
+  const second = await mk(docB, '16:00', 'Fever', 400);
+  const listed = await call('admin:patientVisits', pat2.id);
+  ok(listed.ok && listed.patient.uhid === pat2.uhid && listed.visits.length === 2, 'the patient\'s visits are listed (two)');
+  eq(listed.visits.map((v: any) => v.doctor_name).join(' | '), 'Dr. Second | Dr. Delete', 'newest first, each with the doctor it was with');
+  const l0 = listed.visits[0];
+  ok(l0.has_consultation === true && l0.impression === 'Fever' && l0.rx_lines === 1 && l0.bills === 1 && l0.bill_total === 400 && l0.bill_paid > 0 && l0.lab_orders === 0 && l0.pharmacy_sales === 0 && l0.token_number > 0, 'each visit says what it carries: the consultation (with the impression), its prescription lines, its bill and money received');
+  const none = await call('admin:patientVisits', 987654);
+  ok(!none.ok && /not found/i.test(none.error), 'a patient who does not exist says so');
+  const nobody = await call('patients:create', { first_name: 'No', last_name: 'Visits', dob: '1991-01-01', gender: 'M', phone: '9411000091' });
+  const empty = await call('admin:patientVisits', nobody.id);
+  ok(empty.ok && empty.visits.length === 0, 'a patient with no visits has an empty list');
+  const lab2 = await call('lab:upsertTest', { name: 'CBC (visit test)', price: 250, sample_type: 'Blood', category: 'haematology' });
+  await call('lab:createOrder', { appointment_id: second.appt.id, patient_id: pat2.id, doctor_id: docB.id, notes: '', items: [{ lab_test_id: lab2.id, test_name: lab2.name }] });
+  eq((await call('admin:patientVisits', pat2.id)).visits[0].lab_orders, 1, 'a lab order of the visit is counted, so the confirmation can name it');
+
+  // one wrong password changes nothing
+  await settle();
+  const wrongOne = await call('admin:deleteAppointment', second.appt.id, 'nope');
+  await settle();
+  ok(!wrongOne.ok && count('SELECT COUNT(*) c FROM appointments WHERE patient_id=?', pat2.id) === 2, 'a wrong password deletes nothing');
+
+  // only the doctor's notes of the OLDER visit
+  const notesOnly = await call('admin:deleteConsultation', first.appt.id, '1234');
+  ok(notesOnly.ok, 'the notes of one visit are deleted with the password');
+  const afterNotes = (await call('admin:patientVisits', pat2.id)).visits;
+  ok(afterNotes.length === 2 && afterNotes.find((v: any) => v.id === first.appt.id).has_consultation === false && afterNotes.find((v: any) => v.id === first.appt.id).bills === 1, '…that visit and its bill stay, only its notes and prescription are gone');
+  ok(afterNotes.find((v: any) => v.id === second.appt.id).has_consultation === true, '…and the other visit still has its notes');
+
+  // the whole NEWER visit, with its bill and lab order
+  const wholeVisit = await call('admin:deleteAppointment', second.appt.id, '1234');
+  ok(wholeVisit.ok, 'the whole visit is deleted with the password');
+  const left = (await call('admin:patientVisits', pat2.id)).visits;
+  ok(left.length === 1 && left[0].id === first.appt.id, '…one visit is left: the other doctor\'s');
+  eq(count('SELECT COUNT(*) c FROM bills WHERE id=?', second.bill.id) + count('SELECT COUNT(*) c FROM lab_orders WHERE appointment_id=?', second.appt.id), 0, '…its bill and its lab order went with it');
+  eq(count('SELECT COUNT(*) c FROM bills WHERE id=?', first.bill.id), 1, '…the bill of the other visit is untouched');
+  eq(count('SELECT COUNT(*) c FROM patients WHERE id=?', pat2.id), 1, '…and the patient is still there');
+  ok(/Token #/.test(audit('appointment_deleted') || '') && /Vera/.test(audit('appointment_deleted') || ''), '…a copy is kept in the audit log');
+
+  // who may look: the administrator only (when sign-in is on); reading still works on an expired licence
+  await call('auth:createUser', { username: 'rita2', password: 'pass1234', role: 'receptionist', display_name: 'Rita Two' });
+  await call('settings:save', { require_login: true });
+  await call('auth:login', 'rita2', 'pass1234');
+  const peek = await attempt('admin:patientVisits', pat2.id);
+  ok(!peek.ok && /not allowed/i.test((peek as any).error), 'a receptionist cannot open the list of a patient\'s visits for deleting');
+  await call('auth:logout');
+  await call('auth:login', 'admin', 'admin123');
+  setReadOnlyMode(true);
+  ok((await attempt('admin:patientVisits', pat2.id)).ok, 'the administrator can look even when the licence is read-only (looking changes nothing)');
+  const roDel = await attempt('admin:deleteAppointment', first.appt.id, '1234');
+  ok(!roDel.ok, '…but deleting is blocked');
+  setReadOnlyMode(false);
+  await call('auth:logout');
+  await call('settings:save', { require_login: false });
+  eq(count('SELECT COUNT(*) c FROM appointments WHERE id=?', first.appt.id), 1, '…and nothing was deleted');
+
+  // ============================================================================================================
   section('7 · guessing the password is slowed down');
   const v5 = await visit();
   await settle();
