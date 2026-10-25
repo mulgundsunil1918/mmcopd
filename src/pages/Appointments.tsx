@@ -3,7 +3,9 @@ import { usePersistedState } from '../hooks/usePersistedState';
 import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Plus, Calendar, Search, Clock4, Loader2, CheckCircle2, Printer, Receipt, FileText, ArrowDownNarrowWide, ArrowUpNarrowWide, Columns, List, X } from 'lucide-react';
+import { Plus, Calendar, Search, Clock4, Loader2, CheckCircle2, Printer, Receipt, FileText, ArrowDownNarrowWide, ArrowUpNarrowWide, Columns, List, X, Trash2, FileX } from 'lucide-react'
+import { AdminPasswordModal } from '../components/AdminPasswordModal';
+import { useAuth } from '../hooks/useAuth';;
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
@@ -47,6 +49,9 @@ export function Appointments() {
   const [bookOpen, setBookOpen] = useState(false);
   const [printAppt, setPrintAppt] = useState<AppointmentWithJoins | null>(null);
   const [printBillId, setPrintBillId] = useState<number | null>(null);   // the OPD bill of a visit, to print
+  const { adminUnlocked } = useAuth();
+  const [eraseVisit, setEraseVisit] = useState<AppointmentWithJoins | null>(null);          // admin: delete a whole visit
+  const [eraseConsult, setEraseConsult] = useState<AppointmentWithJoins | null>(null);      // admin: delete just its consultation
   const [billVisitId, setBillVisitId] = useState<number | null>(null);    // a visit that has no bill yet, being billed from the list
   // Just booked: offer the consultation paper AND the consultation bill (see BookingDoneDialog).
   const [booked, setBooked] = useState<{ appt: AppointmentWithJoins; bill: any | null } | null>(null);
@@ -445,6 +450,18 @@ export function Appointments() {
                           </button>
                         </>
                       )}
+                      {adminUnlocked && (
+                        <>
+                          <button className="btn-ghost text-xs text-red-600 hover:text-red-700" onClick={() => setEraseConsult(a)}
+                            title="Delete the doctor's consultation for this visit (admin password)">
+                            <FileX className="w-3.5 h-3.5" />
+                          </button>
+                          <button className="btn-ghost text-xs text-red-600 hover:text-red-700" onClick={() => setEraseVisit(a)}
+                            title="Delete this whole visit (admin password)">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </li>
                 );
@@ -453,6 +470,45 @@ export function Appointments() {
           );
         })()}
       </section>
+
+      {eraseVisit && (
+        <AdminPasswordModal
+          title="Delete this visit?" confirmLabel="Delete this visit" onClose={() => setEraseVisit(null)}
+          onConfirm={async (pw) => {
+            const r = await window.electronAPI.admin.deleteAppointment(eraseVisit.id, pw);
+            if (r.ok) {
+              toast(`Visit deleted (Token #${eraseVisit.token_number})`);
+              for (const k of ['appointments', 'patient-log', 'stats', 'bills', 'finance-summary', 'consultation']) qc.invalidateQueries({ queryKey: [k] });
+            }
+            return r;
+          }}
+        >
+          <div>Permanently delete <span className="font-bold">Token #{eraseVisit.token_number}</span> for <span className="font-bold">{eraseVisit.patient_name}</span> ({tryFmtDate(eraseVisit.appointment_date)})?</div>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400">
+            Removes the appointment, its consultation, prescription, lab orders, pharmacy sales (the medicines go back on the shelf) and the bills of this visit — including the
+            payments recorded on them. Other visits of this patient are unaffected. A copy of what was erased is kept in the audit log.
+          </div>
+        </AdminPasswordModal>
+      )}
+      {eraseConsult && (
+        <AdminPasswordModal
+          title="Delete this consultation?" confirmLabel="Delete consultation" onClose={() => setEraseConsult(null)}
+          onConfirm={async (pw) => {
+            const r = await window.electronAPI.admin.deleteConsultation(eraseConsult.id, pw);
+            if (r.ok) {
+              toast(`Consultation deleted (Token #${eraseConsult.token_number})`);
+              for (const k of ['appointments', 'patient-log', 'consultation']) qc.invalidateQueries({ queryKey: [k] });
+            }
+            return r;
+          }}
+        >
+          <div>Delete the doctor's consultation for <span className="font-bold">Token #{eraseConsult.token_number}</span> — <span className="font-bold">{eraseConsult.patient_name}</span>?</div>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400">
+            Removes the notes (history, vitals, examination, impression, advice, follow-up date) and the prescription written for this visit. The visit, its bill and any lab or
+            radiology orders stay. A copy is kept in the audit log.
+          </div>
+        </AdminPasswordModal>
+      )}
 
       <BookAppointmentModal
         open={bookOpen}

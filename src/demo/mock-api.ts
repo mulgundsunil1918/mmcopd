@@ -233,7 +233,9 @@ export function createMockElectronAPI(): any {
       resetNotificationLog: () => r({ ok: true }),
       deletePatient: () => r({ ok: true }),
       deletePatients: () => r({ ok: true }),
-      deleteAppointment: () => r({ ok: true }),
+      deleteAppointment: (_id: number, pw?: string) => r(pw === '1234' ? { ok: true, appointment: { token_number: 0 } } : { ok: false, error: 'Wrong admin password.' }),
+      deleteConsultation: (_id: number, pw?: string) => r(pw === '1234' ? { ok: true, consultation: { token_number: 0 } } : { ok: false, error: 'Wrong admin password.' }),
+      deleteBill: (_id: number, pw?: string) => r(pw === '1234' ? { ok: true, bill: { bill_number: 'DEMO' } } : { ok: false, error: 'Wrong admin password.' }),
     },
     audit: {
       list: () => r([]),
@@ -505,6 +507,7 @@ export function createMockElectronAPI(): any {
       },
     },
     lab: {
+      billOf: () => r({ id: 1, bill_number: 'DEMO-LAB-001', total: 500, amount_paid: 500, status: 'paid' }),
       listTests: (activeOnly = true) => r(activeOnly ? labTests.filter((t) => t.is_active === 1) : labTests),
       loadStandardCatalog: () => r({ ok: true, added: 0, total: labTests.length }),
       listOrders: () => r(labOrders),

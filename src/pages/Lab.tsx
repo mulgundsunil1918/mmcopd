@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FlaskConical, Plus, Pencil, FileText, Beaker, Clipboard, CheckCircle2, Loader2, Printer, Search, X, Receipt } from 'lucide-react';
+import { FlaskConical, Plus, Pencil, FileText, Beaker, Clipboard, CheckCircle2, Loader2, Printer, Search, X, Receipt, Trash2 } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
 import { LabPrint } from '../components/LabPrint';
+import { AdminPasswordModal } from '../components/AdminPasswordModal';
+import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import { cn, fmtDateTime, formatINR } from '../lib/utils';
 import type { LabTest } from '../types';
@@ -239,6 +241,9 @@ function OrderDetail({
   const qc = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
   const [busyItem, setBusyItem] = useState<number | null>(null);
+  const { adminUnlocked } = useAuth();
+  const [eraseBill, setEraseBill] = useState(false);
+  const { data: labBill } = useQuery({ queryKey: ['lab-bill-of', orderId], queryFn: () => window.electronAPI.lab.billOf(orderId), enabled: adminUnlocked });
 
   /** Both edits re-price the bill in the backend; surface exactly what happened. */
   const afterEdit = (r: any) => {
@@ -260,6 +265,25 @@ function OrderDetail({
 
   return (
     <div className="card p-5">
+      {eraseBill && labBill && (
+        <AdminPasswordModal
+          title="Delete this lab bill?" confirmLabel="Delete lab bill" onClose={() => setEraseBill(false)}
+          onConfirm={async (pw) => {
+            const r = await window.electronAPI.admin.deleteBill(labBill.id, pw);
+            if (r.ok) {
+              toast(`Lab bill ${labBill.bill_number} deleted`);
+              for (const k of ['lab-bill-of', 'lab-orders', 'bills', 'billing-portal', 'finance', 'finance-summary', 'receivables', 'billing-queue']) qc.invalidateQueries({ queryKey: [k] });
+            }
+            return r;
+          }}
+        >
+          <div>Permanently delete lab bill <span className="font-bold">{labBill.bill_number}</span> — {formatINR(labBill.total)}?</div>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400">
+            The bill, its lines and its payment records are erased{Number(labBill.amount_paid) > 0.004 ? <> — including <b>{formatINR(Number(labBill.amount_paid))} received</b>, which will disappear from your accounts</> : null}.
+            The lab order and its results stay. If money has to go back to the patient, use <b>Cancel</b> in Billing instead: it keeps the bill and records the refund.
+          </div>
+        </AdminPasswordModal>
+      )}
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">
           {order?.order_number || `Order #${orderId}`}{order?.patient_name ? <span className="text-gray-400 font-normal"> · {order.patient_name}</span> : null}
@@ -271,6 +295,11 @@ function OrderDetail({
           <button className="btn-ghost text-xs" onClick={() => onPrint('bill')} title="Print the lab bill on letterhead">
             <Receipt className="w-3.5 h-3.5" /> Print Bill
           </button>
+          {adminUnlocked && labBill && (
+            <button className="btn-ghost text-xs text-red-600 hover:text-red-700" onClick={() => setEraseBill(true)} title="Delete this lab bill (admin password)">
+              <Trash2 className="w-3.5 h-3.5" /> Delete bill
+            </button>
+          )}
           <button className="btn-ghost text-xs" onClick={() => onPrint('report')} title="Print the results report on letterhead">
             <Printer className="w-3.5 h-3.5" /> Print Report
           </button>

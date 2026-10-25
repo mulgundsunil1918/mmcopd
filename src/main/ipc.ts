@@ -527,8 +527,32 @@ export function registerIpc() {
     return { ok: true, patient: p };
   });
 
-  ipcMain.handle('admin:deleteAppointment', (_e, appointmentId: number) => {
+  /**
+   * Deleting a consultation, a visit or a bill needs the ADMIN PASSWORD typed again for that one deletion — checked here in the
+   * main process (the "admin unlocked" lock on a screen is never trusted for this), with the same wrong-password slow-down as the
+   * unlock screen. Returns null when the password is right, else the message to show.
+   */
+  const adminPasswordProblem = (password: unknown): string | null => {
+    if (!checkRateLimit('admin_unlock')) return 'Too many wrong passwords — wait a little and try again.';
+    const db = getDb();
+    const stored = getAllSettings(db).admin_password || '1234';
+    if (typeof password !== 'string' || password === '') return 'Wrong admin password.';      // nothing typed is not a guess: not counted
+    if (!verifyAdminPassword(password, stored)) {
+      recordAuthFailure('admin_unlock');
+      logAudit(db, actor(), 'delete_password_wrong');
+      return 'Wrong admin password.';
+    }
+    clearAuthFailures('admin_unlock');
+    return null;
+  };
+  /** A compact copy of what is being erased, kept in the audit log so a deletion can always be traced and the record rebuilt by hand. */
+  const snapshotText = (o: unknown) => { try { return JSON.stringify(o).slice(0, 9000); } catch { return ''; } };
+  const rowsOf = (db: any, sql: string, ...p: any[]): any[] => { try { return db.prepare(sql).all(...p); } catch { return []; } };
+
+  ipcMain.handle('admin:deleteAppointment', (_e, appointmentId: number, adminPassword?: string) => {
     requireRole([], 'delete an appointment');
+    const bad = adminPasswordProblem(adminPassword);
+    if (bad) return { ok: false, error: bad };
     const db = getDb();
     const a = db
       .prepare(
@@ -538,7 +562,17 @@ export function registerIpc() {
       )
       .get(appointmentId) as any;
     if (!a) return { ok: false, error: 'Appointment not found' };
+    const snapshot = {
+      appointment: db.prepare('SELECT * FROM appointments WHERE id=?').get(appointmentId),
+      consultation: db.prepare('SELECT * FROM consultations WHERE appointment_id=?').get(appointmentId) ?? null,
+      prescription: rowsOf(db, 'SELECT drug_name, dosage, frequency, duration FROM prescription_items WHERE appointment_id=? ORDER BY order_idx', appointmentId),
+      bills: rowsOf(db, 'SELECT bill_number, total, amount_paid, payment_mode, status FROM bills WHERE appointment_id=?', appointmentId),
+      lab_orders: rowsOf(db, 'SELECT order_number, status FROM lab_orders WHERE appointment_id=?', appointmentId),
+      pharmacy_sales: rowsOf(db, 'SELECT sale_number, total FROM pharmacy_sales WHERE appointment_id=?', appointmentId),
+    };
     const tx = db.transaction(() => {
+      // A later visit's free-follow-up bill may name this visit as its "parent": forget that link (the follow-up bill itself stays).
+      db.prepare('UPDATE bills SET followup_parent_appt_id = NULL WHERE followup_parent_appt_id = ?').run(appointmentId);
       restoreDispensedStock(db, 'dr.sale_id IN (SELECT id FROM pharmacy_sales WHERE appointment_id = ?)', appointmentId);
       // Dispensing register has RESTRICT FKs on pharmacy_sales/_items — must clear first.
       db.prepare('DELETE FROM dispensing_register WHERE sale_id IN (SELECT id FROM pharmacy_sales WHERE appointment_id = ?)').run(appointmentId);
@@ -557,8 +591,63 @@ export function registerIpc() {
       db.prepare('DELETE FROM appointments WHERE id = ?').run(appointmentId);
     });
     try { tx(); } catch (err: any) { return { ok: false, error: err?.message || 'Delete failed' }; }
-    logAudit(db, actor(), 'appointment_deleted', 'appointments', appointmentId, `Token #${a.token_number} · ${a.uhid} ${a.patient_name} · ${a.appointment_date} ${a.appointment_time}`);
+    logAudit(db, actor(), 'appointment_deleted', 'appointments', appointmentId,
+      `Token #${a.token_number} · ${a.uhid} ${a.patient_name} · ${a.appointment_date} ${a.appointment_time} · erased with ${snapshot.consultation ? '1 consultation, ' : ''}${snapshot.bills.length} bill(s), ${snapshot.lab_orders.length} lab order(s), ${snapshot.pharmacy_sales.length} pharmacy sale(s) · snapshot ${snapshotText(snapshot)}`);
+    broadcastNetworkEvent('appointment:updated', { appointmentId });
     return { ok: true, appointment: a };
+  });
+
+  // Delete the doctor's CONSULTATION for a visit: the notes (history, vitals, examination, impression, advice, follow-up date) and the
+  // prescription lines written for it. The visit itself, its bill and any lab / radiology orders stay.
+  ipcMain.handle('admin:deleteConsultation', (_e, appointmentId: number, adminPassword?: string) => {
+    requireRole([], 'delete a consultation');
+    const bad = adminPasswordProblem(adminPassword);
+    if (bad) return { ok: false, error: bad };
+    const db = getDb();
+    const c = db.prepare(
+      `SELECT c.*, a.token_number, a.appointment_date, p.uhid, (p.first_name || ' ' || p.last_name) AS patient_name
+         FROM consultations c JOIN appointments a ON a.id = c.appointment_id JOIN patients p ON p.id = c.patient_id
+        WHERE c.appointment_id = ?`
+    ).get(appointmentId) as any;
+    if (!c) return { ok: false, error: 'This visit has no consultation recorded.' };
+    const rx = rowsOf(db, 'SELECT drug_name, dosage, frequency, duration, instructions FROM prescription_items WHERE appointment_id=? ORDER BY order_idx', appointmentId);
+    try {
+      db.transaction(() => {
+        db.prepare('DELETE FROM prescription_items WHERE appointment_id = ?').run(appointmentId);
+        db.prepare('DELETE FROM consultations WHERE id = ?').run(c.id);
+      })();
+    } catch (err: any) { return { ok: false, error: err?.message || 'Delete failed' }; }
+    logAudit(db, actor(), 'consultation_deleted', 'consultations', c.id,
+      `Token #${c.token_number} · ${c.uhid} ${c.patient_name} · ${c.appointment_date} · erased with ${rx.length} prescription line(s) · snapshot ${snapshotText({ consultation: c, prescription: rx })}`);
+    broadcastNetworkEvent('appointment:updated', { appointmentId });
+    return { ok: true, consultation: { id: c.id, token_number: c.token_number, uhid: c.uhid, patient_name: c.patient_name, appointment_date: c.appointment_date, prescription_lines: rx.length } };
+  });
+
+  // Delete ANY bill (consultation, lab, radiology, services…) — the bill, its lines and its payment records. Money that was received on it
+  // disappears from the books with it; "Cancel bill" is the way to keep a refund on record. In-patient admission bills are not deletable.
+  ipcMain.handle('admin:deleteBill', (_e, billId: number, adminPassword?: string) => {
+    requireRole([], 'delete a bill');
+    const bad = adminPasswordProblem(adminPassword);
+    if (bad) return { ok: false, error: bad };
+    const db = getDb();
+    const b = db.prepare(
+      `SELECT b.*, COALESCE(p.uhid, '') AS uhid, COALESCE(p.first_name || ' ' || p.last_name, '') AS patient_name
+         FROM bills b LEFT JOIN patients p ON p.id = b.patient_id WHERE b.id = ?`
+    ).get(billId) as any;
+    if (!b) return { ok: false, error: 'Bill not found' };
+    const admission = db.prepare('SELECT id FROM ip_admissions WHERE bill_id = ?').get(billId);
+    if (b.admission_id != null || b.bill_type === 'ipd' || admission) {
+      return { ok: false, error: `${b.bill_number} is an in-patient bill. It belongs to an admission and is closed at discharge — to take a charge off it, remove the line or give a discount.` };
+    }
+    const items = rowsOf(db, 'SELECT description, qty, rate, amount, gst_rate FROM bill_items WHERE bill_id=? ORDER BY id', billId);
+    const payments = rowsOf(db, 'SELECT amount, payment_mode, received_at, reference FROM bill_payments WHERE bill_id=? ORDER BY id', billId);
+    const { items_json: _drop, ...header } = b;
+    try { db.transaction(() => { db.prepare('DELETE FROM bills WHERE id = ?').run(billId); })(); }
+    catch (err: any) { return { ok: false, error: err?.message || 'Delete failed' }; }
+    logAudit(db, actor(), 'bill_deleted', 'bills', billId,
+      `${b.bill_number} · ${b.uhid} ${b.patient_name} · total ₹${money(b.total)} · received ₹${money(Number(b.amount_paid) || 0)} · ${items.length} line(s), ${payments.length} payment record(s) erased · snapshot ${snapshotText({ bill: header, items, payments })}`);
+    broadcastNetworkEvent('bill:updated', { billId });
+    return { ok: true, bill: { id: billId, bill_number: b.bill_number, total: b.total, amount_paid: b.amount_paid, patient_name: b.patient_name } };
   });
 
   ipcMain.handle('admin:deletePatients', (_e, patientIds: number[]) => {
@@ -2219,6 +2308,13 @@ export function registerIpc() {
   });
 
   /** Remove a test from an order — refused once its result is recorded. */
+  // The bill raised for a lab order (read-only): lets the Lab screen offer "Delete bill" to the admin.
+  ipcMain.handle('lab:billOf', (_e, orderId: number) => {
+    return getDb().prepare(
+      `SELECT id, bill_number, total, amount_paid, status FROM bills WHERE lab_order_id = ? ORDER BY id DESC LIMIT 1`
+    ).get(orderId) ?? null;
+  });
+
   ipcMain.handle('lab:removeOrderItem', (_e, orderId: number, itemId: number) => {
     requireModule('lab', 'Laboratory');
     requireRole(['lab_tech', 'receptionist', 'doctor', 'ward_incharge', 'manager'], 'remove a test from a lab order');

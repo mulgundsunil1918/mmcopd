@@ -121,7 +121,7 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
   const dsale = await call('pharmacy:sell', { appointment_id: dap.id, patient_id: dpat.id, items: [{ drug_master_id: drug.id, drug_name: 'Paracetamol 500mg', qty: 7, rate: 2 }], discount: 0, payment_mode: 'Cash' });
   ok(!!dsale.id, 'a test sale of 7 units');
   eq(stockNow(), 93, 'stock 100 → 93');
-  const delAppt = await call('admin:deleteAppointment', dap.id);
+  const delAppt = await call('admin:deleteAppointment', dap.id, '1234');
   ok(delAppt.ok, 'the visit is deleted');
   eq(stockNow(), 100, 'its 7 units are back on the shelf (they used to vanish for good)');
   const dap2 = await call('appointments:create', { patient_id: dpat.id, doctor_id: doc.id, appointment_date: today, appointment_time: '15:30' });

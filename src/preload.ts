@@ -107,8 +107,15 @@ const api = {
       ipcRenderer.invoke('admin:deletePatient', patientId) as Promise<{ ok: boolean; error?: string; patient?: any }>,
     deletePatients: (patientIds: number[]) =>
       ipcRenderer.invoke('admin:deletePatients', patientIds) as Promise<{ ok: boolean; error?: string; deleted?: number }>,
-    deleteAppointment: (appointmentId: number) =>
-      ipcRenderer.invoke('admin:deleteAppointment', appointmentId) as Promise<{ ok: boolean; error?: string; appointment?: any }>,
+    /** Deleting needs the admin password typed again for that one deletion — checked in the main process. */
+    deleteAppointment: (appointmentId: number, adminPassword: string) =>
+      ipcRenderer.invoke('admin:deleteAppointment', appointmentId, adminPassword) as Promise<{ ok: boolean; error?: string; appointment?: any }>,
+    /** The doctor's notes + prescription of one visit (the visit and its bill stay). */
+    deleteConsultation: (appointmentId: number, adminPassword: string) =>
+      ipcRenderer.invoke('admin:deleteConsultation', appointmentId, adminPassword) as Promise<{ ok: boolean; error?: string; consultation?: any }>,
+    /** Any bill except an in-patient admission bill: the bill, its lines and its payment records. */
+    deleteBill: (billId: number, adminPassword: string) =>
+      ipcRenderer.invoke('admin:deleteBill', billId, adminPassword) as Promise<{ ok: boolean; error?: string; bill?: any }>,
     /** WIPES %APPDATA%\CureDesk HMS\ entirely and restarts the app. Patient data,
      *  settings, backups, localStorage — everything. Used by the Settings →
      *  System → "Reset all clinic data" button for a true fresh-install state
@@ -379,6 +386,8 @@ const api = {
       ipcRenderer.invoke('lab:addOrderItems', orderId, items) as Promise<
         { ok: true; added: number; billChanged: boolean; note: string; total?: number } | { ok: false; error: string }
       >,
+    /** The bill raised for a lab order (read-only) — lets the Lab screen offer "Delete bill" to the admin. */
+    billOf: (orderId: number) => ipcRenderer.invoke('lab:billOf', orderId) as Promise<{ id: number; bill_number: string; total: number; amount_paid: number; status: string | null } | null>,
     /** Remove a test (refused once its result is entered); re-prices the bill. */
     removeOrderItem: (orderId: number, itemId: number) =>
       ipcRenderer.invoke('lab:removeOrderItem', orderId, itemId) as Promise<

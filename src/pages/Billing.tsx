@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { PageHelp } from '../components/PageHelp';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Printer, Receipt, FileText, ListFilter, BedDouble, ShoppingBag } from 'lucide-react';
+import { Printer, Receipt, FileText, ListFilter, BedDouble, ShoppingBag, Trash2 } from 'lucide-react';
+import { useToast } from '../hooks/useToast';
 import { PrintHeader } from '../components/print/PrintHeader';
 import { EmptyState } from '../components/EmptyState';
 import { cn, fmtDate, fmtDateTime, formatINR, todayISO } from '../lib/utils';
@@ -12,6 +13,7 @@ import { PatientPortal, PortalSearch } from '../components/billing/PatientPortal
 import { PharmacySaleReceipt } from '../components/pharmacy/PharmacySaleReceipt';
 import { CollectPaymentModal } from '../components/billing/CollectPaymentModal';
 import { CancelBillModal } from '../components/billing/CancelBillModal';
+import { AdminPasswordModal } from '../components/AdminPasswordModal';
 import { BillForm, Row, VisitBillModal } from '../components/billing/VisitBillModal';
 import { useAuth, canAnyRole } from '../hooks/useAuth';
 import { addDaysISO } from '../lib/localDate';
@@ -459,7 +461,9 @@ function BillingHistory() {
   const [receiptId, setReceiptId] = useState<number | null>(null);
   const [collect, setCollect] = useState<{ saleId: number; label: string; due: number } | null>(null);   // the rest of a credit sale
   const [cancelling, setCancelling] = useState<{ id: number; label: string; received: number } | null>(null);   // a wrongly raised bill
+  const [erasing, setErasing] = useState<{ id: number; number: string; patient: string; total: number; received: number } | null>(null);   // admin: delete a bill outright
   const qc = useQueryClient();
+  const toast = useToast();
   const { user, adminUnlocked } = useAuth();
   const canCancel = canAnyRole(user, ['manager'], adminUnlocked);
 
@@ -539,6 +543,13 @@ function BillingHistory() {
                   <button className="btn-ghost text-xs" onClick={() => setReprint(row.bill!)}>
                     <Printer className="w-3.5 h-3.5" /> Reprint
                   </button>
+                  {adminUnlocked && !(row.bill as any).admission_id && (row.bill as any).bill_type !== 'ipd' && (
+                    <button className="btn-ghost text-xs text-red-600 hover:text-red-700"
+                      title="Delete this bill completely (admin password) — unlike Cancel, nothing is kept on the books"
+                      onClick={() => setErasing({ id: row.bill!.id, number: row.bill!.bill_number, patient: row.bill!.patient_name || 'walk-in', total: Number(row.bill!.total) || 0, received: Math.max(0, Number((row.bill as any).amount_paid) || 0) })}>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </td>
               </tr>
             ) : (
@@ -581,6 +592,25 @@ function BillingHistory() {
             setCollect(null);
             for (const k of ['bills-pharmacy', 'pharmacy-sales', 'billing-portal', 'finance', 'receivables', 'portal-walkins']) qc.invalidateQueries({ queryKey: [k] });
           }} />
+      )}
+      {erasing && (
+        <AdminPasswordModal
+          title="Delete this bill?" confirmLabel="Delete this bill" onClose={() => setErasing(null)}
+          onConfirm={async (pw) => {
+            const r = await window.electronAPI.admin.deleteBill(erasing.id, pw);
+            if (r.ok) {
+              toast(`Bill ${erasing.number} deleted`);
+              for (const k of ['bills', 'billing-portal', 'finance', 'finance-summary', 'receivables', 'billing-queue', 'lab-orders', 'appointments', 'patient-log', 'stats']) qc.invalidateQueries({ queryKey: [k] });
+            }
+            return r;
+          }}
+        >
+          <div>Permanently delete bill <span className="font-bold">{erasing.number}</span> for <span className="font-bold">{erasing.patient}</span> — {formatINR(erasing.total)}?</div>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400">
+            The bill, its lines and its payment records are erased{erasing.received > 0.004 ? <> — including <b>{formatINR(erasing.received)} received</b>, which will disappear from your accounts</> : null}.
+            If money was taken and has to go back to the patient, use <b>Cancel</b> instead: it keeps the bill and records the refund. A copy of what was erased is kept in the audit log.
+          </div>
+        </AdminPasswordModal>
       )}
       {cancelling && (
         <CancelBillModal billId={cancelling.id} label={cancelling.label} received={cancelling.received}
