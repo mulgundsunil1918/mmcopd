@@ -30,7 +30,7 @@ const all = (sql: string, ...p: any[]) => db.prepare(sql).all(...p) as any[];
   const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
   const check = (d: Draft) => checkDraft(d, { today });
   const SUPPLIER = 'Manans Bio Medicals Pvt Ltd';
-  const scanDir = path.join(userData, 'purchase-scans');
+  const scanDir = path.join(userData, 'documents', 'purchase-scans');   // inside documents/, so every backup and restore carries the bill pictures
   const stockNow = () => ({ drugs: one('SELECT COUNT(*) c FROM drug_master').c, batches: one('SELECT COUNT(*) c FROM drug_stock_batches').c, bills: one('SELECT COUNT(*) c FROM purchase_invoices').c, sup: one('SELECT COUNT(*) c FROM wholesalers').c });
   const photos = () => (fs.existsSync(scanDir) ? fs.readdirSync(scanDir).length : 0);
   const asCalc = (l: DraftLine) => ({ qty: l.qty as number, free_qty: l.free_qty || 0, rate: l.rate as number, disc_pct: l.disc_pct || 0, gst_rate: l.gst_rate ?? 0 });
@@ -253,6 +253,25 @@ const all = (sql: string, ...p: any[]) => db.prepare(sql).all(...p) as any[];
   eq(one('SELECT COUNT(*) c FROM purchase_invoice_items WHERE invoice_id=?', zr.invoice_id).c, 3, '…and all three lines are on the bill');
 
   // ============================================================================================================
+  section('8b · a medicine that is switched off in the Drug List');
+  const off = await call('pharmacy:upsertDrug', { name: 'Switchoff Syrup', schedule: 'OTC', default_mrp: 40, gst_rate: 12, is_active: 0 });
+  eq(off.is_active, 0, 'a medicine switched off (as "Start fresh" leaves one that has history)');
+  const sd = await read(mini({ supplier: SUPPLIER, invoice: 'OFF-1', net: 112, rows: [{ name: 'Switchoff Syrup', batch: 'S1', expiry: '06/2031', qty: 5, mrp: 40, rate: 20, gst: 12 }] }));
+  ok(sd.lines[0].drug_id === null, 'the matcher does not offer a switched-off medicine');
+  sd.lines[0].new_drug = { ...sd.lines[0].suggested_new, schedule: 'OTC' };
+  const offGo = await call('purchaseImport:create', { draft: sd, confirm: 'IMPORT', client_ref: 'off-1' });
+  ok(offGo.ok === true && offGo.reactivated === 1 && offGo.new_drugs === 0, `adding it as new switches the SAME medicine back on, not a second one (${offGo.ok ? offGo.reactivated + ' switched on, ' + offGo.new_drugs + ' new' : offGo.error})`);
+  eq(one('SELECT is_active a FROM drug_master WHERE id=?', off.id).a, 1, '…so the stock is not hidden');
+  eq(one("SELECT COUNT(*) c FROM drug_master WHERE lower(name)='switchoff syrup'").c, 1, '…and there is one of it');
+  eq(one('SELECT qty_remaining q FROM drug_stock_batches WHERE drug_master_id=?', off.id).q, 5, '…with the five units on the shelf');
+  const off2 = await call('pharmacy:upsertDrug', { name: 'Switchoff Tablet', schedule: 'OTC', default_mrp: 30, gst_rate: 12, is_active: 0 });
+  const sd2 = await read(mini({ supplier: SUPPLIER, invoice: 'OFF-2', net: 210, rows: [{ name: 'Dolo 650 Tab', batch: 'S2', expiry: '06/2031', qty: 10, mrp: 30, rate: 20, gst: 5 }] }));
+  sd2.lines[0].drug_id = off2.id; sd2.lines[0].confirmed = true;                                                  // a stale screen that still points at a medicine switched off meanwhile
+  const offBad = await call('purchaseImport:create', { draft: sd2, confirm: 'IMPORT', client_ref: 'off-2' });
+  ok(offBad.ok === false && /switched off/.test(offBad.error), `choosing a switched-off medicine is refused ("${(offBad.error || '').slice(0, 70)}…")`);
+  eq(one('SELECT COUNT(*) c FROM purchase_invoices WHERE invoice_number=?', 'OFF-2').c, 0, '…and nothing was saved');
+
+  // ============================================================================================================
   section('9 · set aside the lines with a problem, import the rest, finish the others later');
   const d4 = fixed(); d4.bill.invoice_number = 'PART-1'; d4.bill.wholesaler_id = sup.id;
   d4.bill.discount = 100;                                                                                           // a ₹100 discount on the whole bill, typed in the discount box
@@ -276,8 +295,11 @@ const all = (sql: string, ...p: any[]) => db.prepare(sql).all(...p) as any[];
   const ph = await call('purchaseImport:photo', w1.scan_path);
   ok(ph && Buffer.from(ph.base64, 'base64').equals(Buffer.from(photoBytes)) && ph.mime === 'image/jpeg', 'the photo can be shown again, byte for byte (as base64 text)');
   ok((await call('purchaseImport:photo', '/etc/hosts')) === null, 'but only from the folder this feature writes to…');
-  ok((await call('purchaseImport:photo', path.join(scanDir, '..', 'caredesk.sqlite'))) === null, '…not from a path that climbs out of it');
+  ok((await call('purchaseImport:photo', path.join(scanDir, '..', 'caredesk.sqlite'))) === null && (await call('purchaseImport:photo', path.join(scanDir, '..', '..', 'caredesk.sqlite'))) === null, '…not from a path that climbs out of it');
+  ok((await call('purchaseImport:photo', '..')) === null && (await call('purchaseImport:photo', '.')) === null && (await call('purchaseImport:photo', scanDir)) === null, '…nor for "..", "." or the folder itself');
   ok((await call('purchaseImport:photo', null)) === null, '…and nothing for a bill with no photo');
+  const elsewhere = await call('purchaseImport:photo', `C:\\Users\\Someone Else\\AppData\\Roaming\\CureDesk\\documents\\purchase-scans\\${path.basename(w1.scan_path)}`);
+  ok(elsewhere && Buffer.from(elsewhere.base64, 'base64').equals(Buffer.from(photoBytes)), 'a picture path saved on another PC (a restored backup) still finds the file by its name');
   const p1row = one('SELECT * FROM purchase_invoices WHERE id=?', part1.invoice_id);
   ok(/set aside/.test(p1row.notes) && p1row.scan_path === w1.scan_path, 'part 1\'s note says two medicines were set aside, and it keeps the same photo');
   // finish part 2 with what the person fills in later

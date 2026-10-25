@@ -116,6 +116,7 @@ export function ImportBillModal({ onClose, start = 'guide', onOpenBill }: { onCl
             </p>
             {view.result.new_supplier && <p>The supplier was added to your Wholesalers list.</p>}
             {view.result.new_drugs > 0 && <p><b>{view.result.new_drugs}</b> new medicine{view.result.new_drugs === 1 ? ' was' : 's were'} added to your Drug List — you can add the price and other details there later.</p>}
+            {view.result.reactivated > 0 && <p><b>{view.result.reactivated}</b> medicine{view.result.reactivated === 1 ? ' that was' : 's that were'} switched off in your Drug List {view.result.reactivated === 1 ? 'was' : 'were'} switched back on, so the new stock can be sold.</p>}
             {view.result.aliases_saved > 0 && <p>CureDesk remembered {view.result.aliases_saved} name{view.result.aliases_saved === 1 ? '' : 's'} you matched, so the next bill from this supplier needs fewer clicks.</p>}
             <p>The amount is on the supplier’s account — see it under Wholesalers → Statement.</p>
           </Banner>

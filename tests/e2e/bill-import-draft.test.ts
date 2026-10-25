@@ -200,4 +200,21 @@ for (const [v, iso] of [['03-2026', '2026-03-31'], ['03/2026', '2026-03-31'], ['
 }
 eq(packUnits('1x10'), 10, 'pack "1x10" → 10 units'); eq(packUnits('(1x10)'), 10, '"(1x10)" → 10'); eq(packUnits('100 ml'), 100, '"100 ml" → 100'); eq(packUnits('15\'s'), 15, '"15\'s" → 15'); eq(packUnits('1 GROSS'), null, '"1 GROSS" → unknown');
 
+// ============================================================================================================
+section('8 · a free line (rate ₹0) is allowed — with a warning; a negative or blank rate is not');
+const freeBill = (rate: number | string) => {
+  const w = readBillRows([['Supplier name', 'Sun Pharma Hubli'], ['Invoice number', 'F-1'], ['Invoice date', '22-10-2026'], ['Printed net amount', 210]],
+    [['Name as printed', 'Batch', 'Expiry (MM/YYYY)', 'Qty', 'MRP', 'Rate', 'GST %'], ['Dolo 650 Tab', 'F0', '06/2031', 10, 30, 20, 5], ['Dolo 650 Tab', 'F1', '06/2031', 5, 30, rate, 5]]);
+  return { w, draft: w.problems.length ? null : buildDraft(w, ctx) };
+};
+const fz = freeBill(0);
+ok(fz.w.problems.length === 0, 'a literal 0 in the Rate column is accepted by the file reader');
+const fzCheck = check(fz.draft!);
+ok(codes(fzCheck, 2).includes('warn:zero_rate') && !codes(fzCheck, 2).some((c) => c.startsWith('error:') && /rate/.test(c)), 'the free line gets an amber note: it arrives free and its profit will look like 100%');
+ok(fzCheck.ready, '…and it does not block the import');
+ok(!codes(fzCheck, 1).includes('warn:zero_rate'), '(the paid line has no such note)');
+const fneg = check(freeBill(-5).draft!);
+ok(codes(fneg, 2).includes('error:bad_rate') && !fneg.ready, 'a negative rate is an error');
+ok(freeBill('').w.problems.some((p) => /Row 3.*Rate is blank/.test(p)), 'a blank rate refuses the file, naming the row');
+
 finish();

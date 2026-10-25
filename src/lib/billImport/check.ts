@@ -81,7 +81,8 @@ export function checkLine(l: DraftLine, ctx: CheckContext): Problem[] {
   if (l.qty === null || !(l.qty > 0)) add('bad_qty', 'error', 'The quantity is missing or not more than 0.', 'qty');
   else if (!isInt(l.qty)) add('bad_qty', 'error', `The quantity (${l.qty}) must be a whole number.`, 'qty');
   if (!isInt(l.free_qty) || l.free_qty < 0) add('bad_free', 'error', 'The free quantity must be a whole number (0 or more).', 'free');
-  if (l.rate === null || !(l.rate > 0)) add('bad_rate', 'error', 'The rate is missing or not more than ₹0.', 'rate');
+  if (l.rate === null || !(l.rate >= 0)) add('bad_rate', 'error', 'The rate is missing — enter what the dealer charges for one unit.', 'rate');
+  else if (l.rate === 0) add('zero_rate', 'warn', 'The rate is ₹0 — this stock arrives free, so it counts as costing nothing and the profit on it will look like 100%. If the bill did charge for it, enter the rate.', 'rate');
   if (l.mrp === null || !(l.mrp > 0)) add('no_mrp', 'error', 'Enter the MRP printed on the pack.', 'mrp');
   if (!(l.disc_pct >= 0 && l.disc_pct <= 100)) add('bad_disc', 'error', 'The discount must be between 0% and 100%.', 'disc');
   if (l.gst_rate === null) add('no_gst', 'error', 'Enter the GST % of this line.', 'gst');

@@ -34,6 +34,7 @@ function LineCardView({ line, problems, money, drugs, acts }: Props) {
   const id = line.id;
   const errs = problems.filter((p) => p.severity === 'error');
   const warns = problems.filter((p) => p.severity === 'warn');
+  const infos = problems.filter((p) => p.severity === 'info');
   const bad = (f: string) => errs.some((p) => p.field === f);
   const soft = (f: string) => warns.some((p) => p.field === f);
   const info = matchInfo(line.match.kind);
@@ -132,7 +133,7 @@ function LineCardView({ line, problems, money, drugs, acts }: Props) {
         </div>
         <div className="w-28">
           <Tip label="Dealer's rate ₹ *" title="Dealer's rate (what you pay for one unit)"><p>What the dealer charges for ONE unit, before any discount and before GST — the “Rate” column on the bill. It is not the MRP; it is what YOU pay.</p></Tip>
-          <input type="number" min={0} step="0.01" onFocus={selectAll} className={cn('input text-right px-2', errCls(bad('rate')))} value={line.rate ?? ''} onChange={(e) => acts.patch(id, { rate: numOrNull(e.target.value) })} />
+          <input type="number" min={0} step="0.01" onFocus={selectAll} className={cn('input text-right px-2', errCls(bad('rate')), warnCls(soft('rate') && !bad('rate')))} value={line.rate ?? ''} onChange={(e) => acts.patch(id, { rate: numOrNull(e.target.value) })} />
         </div>
         <div className="w-20">
           <Tip label="Disc %" title="Discount on this line"><p>The dealer’s trade discount on this line (the “Disc %” column). 0 if there is none. A discount on the whole bill goes in the bill box below.</p></Tip>
@@ -176,10 +177,11 @@ function LineCardView({ line, problems, money, drugs, acts }: Props) {
         </div>
       </div>
 
-      {(errs.length > 0 || warns.length > 0) && (
+      {(errs.length > 0 || warns.length > 0 || infos.length > 0) && (
         <ul className="space-y-0.5 text-[11.5px]">
           {errs.map((p, i) => <li key={`e${i}`} className="text-red-700 dark:text-red-300">● {p.message}</li>)}
           {warns.map((p, i) => <li key={`w${i}`} className="text-amber-800 dark:text-amber-300">▲ {p.message}</li>)}
+          {infos.map((p, i) => <li key={`i${i}`} className="text-blue-700 dark:text-blue-300">ⓘ {p.message}</li>)}
         </ul>
       )}
     </div>

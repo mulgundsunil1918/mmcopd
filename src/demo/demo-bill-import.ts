@@ -77,7 +77,7 @@ export function makeDemoBillImport(deps: {
       let newSupplier = false;
       if (supplierId === null) {
         const name = clean(draft.bill.supplier_name);
-        if (deps.wholesalers().some((w) => w.name.toLowerCase() === name.toLowerCase())) return { ok: false, error: `A supplier called "${name}" already exists — choose it from the list.` };
+        if (deps.wholesalers().some((w) => w.name.toLowerCase() === name.toLowerCase())) return { ok: false, error: `A supplier called "${name}" already exists (it may be switched off under Wholesalers) — choose it from the list, or switch it on first.` };
         supplierId = deps.addWholesaler({ name, drug_license_no: clean(draft.bill.supplier_license), gstin: clean(draft.bill.supplier_gstin) || null, is_active: 1 }).id;
         newSupplier = true;
       }
@@ -159,7 +159,7 @@ export function makeDemoBillImport(deps: {
 
       const out: ImportResult = {
         ok: true, duplicate: false, invoice_id: inv.id, invoice_number: inv.invoice_number, lines: plan.importLines.length,
-        batches: new Set(plan.importLines.map((l) => `${lineDrug.get(l.id)}|${clean(l.batch)}`)).size, total: inv.total, new_drugs: newDrugs, new_supplier: newSupplier,
+        batches: new Set(plan.importLines.map((l) => `${lineDrug.get(l.id)}|${clean(l.batch)}`)).size, total: inv.total, new_drugs: newDrugs, reactivated: 0, new_supplier: newSupplier,
         aliases_saved: aliasesSaved, waiting_id: waitingId, aside: plan.asideLines.length,
       };
       if (ref) done.set(ref, out);

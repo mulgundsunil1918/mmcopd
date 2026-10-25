@@ -92,7 +92,7 @@ export function commitImport(db: Database.Database, input: ImportCommit, opts: {
   const ref = clean(input?.client_ref);
   if (ref) {
     const hit = db.prepare('SELECT id, invoice_number, total FROM purchase_invoices WHERE client_ref=?').get(ref) as { id: number; invoice_number: string; total: number } | undefined;
-    if (hit) return { ok: true, duplicate: true, invoice_id: hit.id, invoice_number: hit.invoice_number, lines: 0, batches: 0, total: hit.total, new_drugs: 0, new_supplier: false, aliases_saved: 0, waiting_id: null, aside: 0 };
+    if (hit) return { ok: true, duplicate: true, invoice_id: hit.id, invoice_number: hit.invoice_number, lines: 0, batches: 0, total: hit.total, new_drugs: 0, reactivated: 0, new_supplier: false, aliases_saved: 0, waiting_id: null, aside: 0 };
   }
   const draft = input?.draft;
   if (!draft || !draft.bill || !Array.isArray(draft.lines)) return { ok: false, error: 'There is no bill to import.' };
@@ -110,7 +110,7 @@ export function commitImport(db: Database.Database, input: ImportCommit, opts: {
   const finishing = input.waiting_id ? (db.prepare("SELECT id, scan_path FROM purchase_import_waiting WHERE id=? AND status='waiting'").get(Number(input.waiting_id)) as { id: number; scan_path: string | null } | undefined) : undefined;
   let photoPath: string | null = finishing?.scan_path ?? null;
   let wrotePhoto = false;
-  let newDrugs = 0, newSupplier = false, aliasesSaved = 0, waitingId: number | null = null;
+  let newDrugs = 0, reactivated = 0, newSupplier = false, aliasesSaved = 0, waitingId: number | null = null;
   try {
     if (photoBytes && input.photo) { photoPath = savePhoto(opts.scanDir, { name: input.photo.name, data: photoBytes }, `${draft.bill.invoice_number}`); wrotePhoto = true; }
     let invoice!: { id: number; duplicate: boolean };
@@ -122,15 +122,16 @@ export function commitImport(db: Database.Database, input: ImportCommit, opts: {
       } else {
         const name = clean(draft.bill.supplier_name), lic = clean(draft.bill.supplier_license);
         if (!name || !lic) throw new Error('A new supplier needs a name and a drug licence number.');
-        if (db.prepare('SELECT 1 FROM wholesalers WHERE lower(name)=lower(?)').get(name)) throw new Error(`A supplier called "${name}" already exists — choose it from the list.`);
+        if (db.prepare('SELECT 1 FROM wholesalers WHERE lower(name)=lower(?)').get(name)) throw new Error(`A supplier called "${name}" already exists (it may be switched off under Wholesalers) — choose it from the list, or switch it on first.`);
         supplierId = Number(db.prepare('INSERT INTO wholesalers (name, drug_license_no, gstin, is_active) VALUES (?, ?, ?, 1)').run(name, lic, clean(draft.bill.supplier_gstin) || null).lastInsertRowid);
         newSupplier = true;
       }
 
       // ---- the medicines: existing ones are checked, new ones created once each ----
       const created = new Map<string, number>();
-      const getDrug = db.prepare('SELECT id, is_active FROM drug_master WHERE id=?');
-      const byName = db.prepare('SELECT id FROM drug_master WHERE lower(name)=lower(?) ORDER BY is_active DESC, id LIMIT 1');
+      const getDrug = db.prepare('SELECT id, name, is_active FROM drug_master WHERE id=?');
+      const byName = db.prepare('SELECT id, is_active FROM drug_master WHERE lower(name)=lower(?) ORDER BY is_active DESC, id LIMIT 1');
+      const wake = db.prepare("UPDATE drug_master SET is_active=1, updated_at=datetime('now') WHERE id=?");
       const insDrug = db.prepare(`INSERT INTO drug_master (name, generic_name, manufacturer, form, strength, pack_size, schedule, hsn_code, gst_rate, default_mrp, low_stock_threshold, is_active)
                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 10, 1)`);
       const drugFor = (l: DraftLine): number => {
@@ -138,16 +139,20 @@ export function commitImport(db: Database.Database, input: ImportCommit, opts: {
           const nd: NewDrugSpec = l.new_drug;
           const key = clean(nd.name).toLowerCase();
           if (created.has(key)) return created.get(key) as number;
-          const same = byName.get(clean(nd.name)) as { id: number } | undefined;
-          if (same) { created.set(key, same.id); return same.id; }                  // already in the Drug List by that name (added a moment ago, or by a repeat): never twice
+          const same = byName.get(clean(nd.name)) as { id: number; is_active: number } | undefined;
+          if (same) {                                                                  // already in the Drug List by that name (added a moment ago, by a repeat, or switched off): never twice
+            if (!same.is_active) { wake.run(same.id); reactivated++; }                 // a switched-off medicine the person is adding again is the same medicine: switch it back on, or its stock would be hidden
+            created.set(key, same.id); return same.id;
+          }
           if (!SCHEDULES.includes(nd.schedule)) throw new Error(`Line ${l.line_no}: choose the schedule of the new medicine.`);
           const id = Number(insDrug.run(clean(nd.name), clean(nd.generic_name) || null, clean(l.manufacturer) || null, clean(nd.form) || null, clean(nd.strength) || null,
             nd.pack_size && nd.pack_size > 0 ? Math.floor(nd.pack_size) : null, nd.schedule, clean(nd.hsn_code) || null, l.gst_rate ?? 0, l.mrp ?? 0).lastInsertRowid);
           created.set(key, id); newDrugs++;
           return id;
         }
-        const row = getDrug.get(l.drug_id as number) as { id: number; is_active: number } | undefined;
+        const row = getDrug.get(l.drug_id as number) as { id: number; name: string; is_active: number } | undefined;
         if (!row) throw new Error(`Line ${l.line_no} (${l.printed_name}): that medicine is no longer in the Drug List.`);
+        if (!row.is_active) throw new Error(`Line ${l.line_no} (${l.printed_name}): "${row.name}" is switched off in your Drug List. Switch it on again there, or choose another medicine.`);
         return row.id;
       };
       const lineDrug = new Map<number, number>();
@@ -216,7 +221,7 @@ export function commitImport(db: Database.Database, input: ImportCommit, opts: {
     tx();
     const inv = getPurchase(db, invoice.id) as { invoice_number: string; total: number; items: unknown[] } | null;
     const batches = (db.prepare('SELECT COUNT(DISTINCT drug_master_id || \'|\' || batch_no) AS c FROM purchase_invoice_items WHERE invoice_id=?').get(invoice.id) as { c: number }).c;
-    return { ok: true, duplicate: invoice.duplicate, invoice_id: invoice.id, invoice_number: inv?.invoice_number ?? draft.bill.invoice_number, lines: plan.importLines.length, batches, total: inv?.total ?? plan.importedTotal, new_drugs: newDrugs, new_supplier: newSupplier, aliases_saved: aliasesSaved, waiting_id: waitingId, aside: plan.asideLines.length };
+    return { ok: true, duplicate: invoice.duplicate, invoice_id: invoice.id, invoice_number: inv?.invoice_number ?? draft.bill.invoice_number, lines: plan.importLines.length, batches, total: inv?.total ?? plan.importedTotal, new_drugs: newDrugs, reactivated, new_supplier: newSupplier, aliases_saved: aliasesSaved, waiting_id: waitingId, aside: plan.asideLines.length };
   } catch (e: any) {
     if (photoPath && wrotePhoto) { try { fs.rmSync(photoPath, { force: true }); } catch { /* nothing to clean */ } }
     return { ok: false, error: String(e?.message || e || 'Could not import the bill.') };
@@ -247,12 +252,17 @@ export function discardWaiting(db: Database.Database, id: number): boolean {
   return db.prepare("UPDATE purchase_import_waiting SET status='discarded', updated_at=datetime('now') WHERE id=? AND status='waiting'").run(Number(id)).changes > 0;
 }
 
-/** The bill's photo, only from the folder this feature writes to. */
+/**
+ * The bill's picture, only from the folder this feature writes to. The file is found by its NAME inside that folder, so a path saved on another PC
+ * (or before a restore onto a new computer) still finds the picture, and a path that points anywhere else never leaves the folder.
+ */
 export function readScan(scanDir: string, file: string | null): { name: string; mime: string; base64: string } | null {
   if (!file) return null;
-  const abs = path.resolve(file);
-  if (path.dirname(abs) !== path.resolve(scanDir) || !fs.existsSync(abs)) return null;
+  const name = path.basename(String(file).replace(/\\/g, '/'));
+  if (!name || name === '.' || name === '..') return null;
+  const abs = path.join(path.resolve(scanDir), name);
+  try { if (!fs.statSync(abs).isFile()) return null; } catch { return null; }
   const ext = path.extname(abs).toLowerCase();
   const mime = ext === '.pdf' ? 'application/pdf' : ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : ext === '.gif' ? 'image/gif' : 'image/jpeg';
-  return { name: path.basename(abs), mime, base64: fs.readFileSync(abs).toString('base64') };
+  return { name, mime, base64: fs.readFileSync(abs).toString('base64') };
 }

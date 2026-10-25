@@ -103,7 +103,8 @@ export function registerPharmacyFinanceIpc() {
 
   // ----- import a supplier's bill from the Excel ChatGPT made (Pharmacy → Purchases → Import bill) -----
   // Reading and checking change nothing. Only :create does — and only with the typed word IMPORT, checked again in imp.commitImport.
-  const scanDir = () => path.join(app.getPath('userData'), 'purchase-scans');
+  // Under documents/, so the bill pictures ride along in every backup and restore (which copy that whole folder).
+  const scanDir = () => path.join(app.getPath('userData'), 'documents', 'purchase-scans');
   ipcMain.handle('purchaseImport:template', (_e, withSample: boolean) => imp.importTemplate(!!withSample));
   ipcMain.handle('purchaseImport:parse', (_e, data: string | Uint8Array | ArrayBuffer) => { requireModule('pharmacy', 'Pharmacy'); return imp.parseBillFile(getDb(), data); });
   ipcMain.handle('purchaseImport:checkInvoice', (_e, supplierId: number | null, invoiceNumber: string) => imp.checkInvoiceNumber(getDb(), supplierId, invoiceNumber));

@@ -83,6 +83,8 @@ export function ReviewScreen({ initial, notices, duplicate, picture, photoFile, 
   const billProblems = check.problems.filter((p) => p.line === null);
   const billErrors = billProblems.filter((p) => p.severity === 'error');
   const billBad = (f: string) => billErrors.some((p) => p.field === f);
+  /** Bill-level notes that have no box of their own (the date and the totals are shown beside the fields they are about). */
+  const worthALook = billProblems.filter((p) => p.severity === 'warn' && p.field !== 'invoice_date' && p.field !== 'totals');
   const linesWithErrors = draft.lines.filter((l) => !l.aside && (byLine.get(l.id) ?? []).some((p) => p.severity === 'error'));
 
   // ---- the things a card can do (one stable object) ----
@@ -231,6 +233,12 @@ export function ReviewScreen({ initial, notices, duplicate, picture, photoFile, 
                 </button>
               )}
             </div>
+          </Banner>
+        )}
+
+        {worthALook.length > 0 && (
+          <Banner tone="amber" title="Worth a look">
+            <ul className="list-disc pl-5 space-y-0.5">{worthALook.map((p, i) => <li key={i}>{p.message}</li>)}</ul>
           </Banner>
         )}
 
