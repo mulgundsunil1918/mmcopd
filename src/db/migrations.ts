@@ -5,7 +5,7 @@ import { allocatePaise, toPaise, fromPaise } from '../lib/pharmacyMath';
 import { createSchema, SCHEMA_VERSION } from './schema';
 import { cleanForWhatsApp, hasEmojiOrBrokenText } from '../lib/messageText';
 import { DEFAULT_SLIP_TEMPLATES } from './slip-templates';
-import { CATALOGUE_FLAG, refreshCatalogue } from './catalogue';
+import { CATALOGUE_FLAG, SCHEDULE_FLAG, correctSchedules, refreshCatalogue } from './catalogue';
 
 /** The factory password created by ensureDefaultAdmin() on a fresh install. */
 const FACTORY_PASSWORD = 'admin123';
@@ -559,6 +559,21 @@ function upgradeDrugCatalogue(db: Database.Database) {
   } catch { /* drug_master or settings absent on a very old db: the first-run seed (db/seed.ts) fills it */ }
 }
 
+/**
+ * Medicines that are Schedule H1 by law (third-generation cephalosporins, levofloxacin, tramadol, rifampicin …) were shipped as H. Once, correct the
+ * rows whose schedule is still exactly what the old list shipped (db/catalogue.ts correctSchedules); a schedule the clinic set itself is never touched.
+ * Runs on its own flag because the catalogue update may already have run on a clinic before this correction existed.
+ */
+function upgradeDrugSchedules(db: Database.Database) {
+  try {
+    if (db.prepare('SELECT 1 FROM settings WHERE key=?').get(SCHEDULE_FLAG)) return;
+    db.transaction(() => {
+      correctSchedules(db);
+      db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(SCHEDULE_FLAG, '1');
+    })();
+  } catch { /* drug_master or settings absent on a very old db: the first-run seed already carries the right schedules */ }
+}
+
 /** Fill a setting only if it is currently missing OR empty. Never overwrites a user's value. */
 function setSettingIfEmpty(db: Database.Database, key: string, value: string) {
   const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key) as { value: string } | undefined;
@@ -679,6 +694,7 @@ export function runMigrations(db: Database.Database) {
   repairMojibakeSettings(db);   // drop "�"-corrupted values so clean defaults return
   bakeDrIntoReferrals(db);      // referral names are free text now: keep what existing clinics see by writing the old "Dr. " into them once
   upgradeDrugCatalogue(db);     // the standard drug list now carries real compositions: correct unedited rows and add the new drugs, once
+  upgradeDrugSchedules(db);     // Schedule H1 medicines shipped as H: corrected once, only where the clinic never changed the schedule
   seedDefaultChargeHeads(db);
 
   // Free follow-up policy: every paid visit grants N free follow-up visits within X days

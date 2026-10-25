@@ -69,6 +69,12 @@ const compositionCorrected = (col: 'generic_name' | 'form' | 'strength' | 'pack_
   return untouched && String(a ?? '') === String(n[col] ?? '');
 };
 for (const col of ['generic_name', 'form', 'strength', 'pack_size'] as const) COMPATIBLE_CHANGES[`drug_master.${col}`] = compositionCorrected(col);
+// A medicine the old list shipped as Schedule H that the new list marks H1 (third-generation cephalosporins, levofloxacin, tramadol, rifampicin …) is corrected
+// when the clinic's row still carries the schedule the old list shipped; a schedule the clinic set itself never changes.
+COMPATIBLE_CHANGES['drug_master.schedule'] = (b: any, a: any, row: Record<string, any>) => {
+  const o = OLD_LIST.get(lowName(row.name)), n = NEW_LIST.get(lowName(row.name));
+  return !!o && !!n && b === o.schedule && a === n.schedule && o.schedule !== n.schedule;
+};
 
 type Snap = Record<string, { cols: string[]; rows: Map<number, Record<string, any>> }>;
 function snapshot(d: Database.Database): Snap {

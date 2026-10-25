@@ -5,14 +5,16 @@
 //   - a NEW install is seeded from it; an UPDATING clinic gets it once: the composition of a drug nobody edited is corrected and the new drugs
 //     are added — and nothing else changes: a drug the clinic edited, its price, GST, schedule, stock, batches and ids stay exactly as they were;
 //   - a drug the clinic deleted is not put back by an update; a clinic that cleared its list ("Start fresh") is not handed 100 drugs;
-//   - running it again changes nothing; the "Load standard drug catalogue" button adds what is missing and corrects only unedited rows.
+//   - running it again changes nothing; the "Load standard drug catalogue" button adds what is missing and corrects only unedited rows;
+//   - a medicine that is Schedule H1 by law but shipped as H (third-generation cephalosporins, levofloxacin, tramadol, rifampicin …) is corrected to H1 —
+//     once, and only where the clinic still has the schedule the old list shipped.
 import crypto from 'node:crypto';
 import { boot, call, getDb } from './harness';
 import { runMigrations } from '../../src/db/migrations';
 import { seedIfEmpty } from '../../src/db/seed';
 import { PHARMACY_CATALOG, type CatalogDrug } from '../../src/data/pharmacy-catalog';
 import { PHARMACY_CATALOG_V1 } from '../../src/data/pharmacy-catalog-v1';
-import { CATALOGUE_FLAG, STILL_USING_STANDARD_LIST } from '../../src/db/catalogue';
+import { CATALOGUE_FLAG, SCHEDULE_FLAG, STILL_USING_STANDARD_LIST, correctSchedules } from '../../src/db/catalogue';
 import { ok, eq, section, finish, note } from './lib';
 
 boot();
@@ -147,11 +149,18 @@ const everything = () => JSON.stringify(all('SELECT * FROM drug_master ORDER BY 
   ok(dolo.default_mrp === 99 && dolo.gst_rate === 12 && dolo.schedule === 'H' && dolo.low_stock_threshold === 40 && dolo.barcode === '890123' && dolo.notes === 'our best seller' && dolo.manufacturer === 'Micro Labs', 'price, GST, schedule, low-stock level, barcode, notes and manufacturer the clinic set are untouched');
   eq(JSON.stringify(after.get('My Own Syrup')), JSON.stringify(before.get('My Own Syrup')), 'the clinic\'s own drug is untouched');
   // fields no update ever changes, on EVERY old row
-  const fields = ['id', 'name', 'schedule', 'gst_rate', 'default_mrp', 'low_stock_threshold', 'is_active', 'barcode', 'notes', 'manufacturer', 'hsn_code', 'created_at', 'updated_at'];
+  const fields = ['id', 'name', 'gst_rate', 'default_mrp', 'low_stock_threshold', 'is_active', 'barcode', 'notes', 'manufacturer', 'hsn_code', 'created_at', 'updated_at'];
   const touched = [...before.values()].filter((b) => fields.some((f) => b[f] !== after.get(b.name)[f]));
-  ok(touched.length === 0, `no price, GST, schedule, level, flag or date changed on any of the ${before.size} old rows${touched.length ? ': ' + touched.slice(0, 4).map((b) => b.name).join(', ') : ''}`);
-  eq(after.get('Taxim-O 200').schedule, 'H', 'a schedule is never rewritten by an update (the new list marks it H1; the clinic decides)');
+  ok(touched.length === 0, `no price, GST, level, flag or date changed on any of the ${before.size} old rows${touched.length ? ': ' + touched.slice(0, 4).map((b) => b.name).join(', ') : ''}`);
   eq(after.get('Taxim-O 200').gst_rate, 12, 'a GST rate is never rewritten by an update');
+  // the SCHEDULE is corrected where the clinic never changed it (Schedule H1 by law: third-generation cephalosporins, levofloxacin, tramadol, rifampicin …)
+  const wasH = [...before.values()].filter((b) => { const o = V1.get(low(b.name)), n = V2.get(low(b.name)); return o && n && b.schedule === o.schedule && o.schedule !== n.schedule; });
+  ok(wasH.length >= 10 && wasH.every((b) => after.get(b.name).schedule === V2.get(low(b.name))!.schedule && V2.get(low(b.name))!.schedule === 'H1'), `${wasH.length} medicines shipped as Schedule H that are H1 by law are corrected to H1 (${wasH.slice(0, 3).map((b) => b.name).join(', ')}…)`);
+  eq(after.get('Taxim-O 200').schedule, 'H1', 'Taxim-O 200 (cefixime): H → H1');
+  eq(after.get('Tramadol 50 Injection').schedule, 'H1', 'Tramadol 50 Injection: H → H1');
+  const changedSched = [...before.values()].filter((b) => b.schedule !== after.get(b.name).schedule);
+  ok(changedSched.length === wasH.length, 'and no other row changed its schedule');
+  eq(after.get('Dolo 650').schedule, 'H', 'a schedule the clinic set itself (Dolo 650 → H) is left exactly as it set it');
   // stock
   eq(JSON.stringify(all('SELECT * FROM drug_stock_batches')), batchBefore, 'the stock batch of Augmentin Duo Syrup is exactly as it was (33 of 40 left)');
   // removed / added
@@ -213,6 +222,38 @@ const everything = () => JSON.stringify(all('SELECT * FROM drug_master ORDER BY 
   const r2 = await call('pharmacy:loadStandardCatalog');
   ok(r2.added === 0 && r2.corrected === 0, 'pressing it again finds nothing to add or correct');
   eq(one('SELECT COUNT(*) c FROM drug_stock_batches').c, 0, 'it never puts stock on the shelf');
+
+  // ============================================================================================================
+  section('7 · Schedule H → H1: corrected only where the clinic never changed it');
+  const H1_NAMES = [...V1.keys()].filter((k) => V2.has(k) && V1.get(k)!.schedule !== V2.get(k)!.schedule);
+  ok(H1_NAMES.length >= 10 && H1_NAMES.every((k) => V1.get(k)!.schedule === 'H' && V2.get(k)!.schedule === 'H1'), `${H1_NAMES.length} medicines shipped as H are H1 in the new list: ${H1_NAMES.slice(0, 4).join(', ')}…`);
+  backToOldClinic();
+  db.prepare("UPDATE drug_master SET schedule='G' WHERE name='Zifi 200'").run();                                  // the clinic chose its own schedule for this one
+  db.prepare("UPDATE drug_master SET default_mrp=77, notes='ours' WHERE name='Taxim-O 200'").run();               // edited its price — the schedule is still the shipped H
+  runMigrations(db);
+  eq(row('Taxim-O 200').schedule, 'H1', 'cefixime (Taxim-O 200): H → H1, even though the clinic changed its price');
+  eq(row('Taxim-O 200').default_mrp, 77, '…and the price it set is untouched');
+  eq(row('Zifi 200').schedule, 'G', 'a schedule the clinic set itself (G) is left exactly as it is');
+  ok(H1_NAMES.filter((k) => k !== 'zifi 200').every((k) => row(k)?.schedule === 'H1'), 'every other one of them is now H1');
+  ok(!!one('SELECT 1 x FROM settings WHERE key=?', SCHEDULE_FLAG), 'the correction is marked done');
+  const snapS = everything();
+  runMigrations(db); runMigrations(db);
+  ok(everything() === snapS, 'starting again changes nothing');
+  eq(correctSchedules(db), 0, 'and running the correction again finds nothing to do');
+
+  // a clinic whose catalogue update already ran (an earlier build) still gets the correction, once
+  backToOldClinic();
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, '1')").run(CATALOGUE_FLAG);
+  db.prepare('DELETE FROM settings WHERE key=?').run(SCHEDULE_FLAG);
+  runMigrations(db);
+  eq(row('Levoflox 500').schedule, 'H1', 'a clinic whose catalogue update ran before the correction existed still receives it: levofloxacin → H1');
+
+  // the button does it too
+  backToOldClinic();
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, '1')").run(CATALOGUE_FLAG);
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, '1')").run(SCHEDULE_FLAG);
+  const rb = await call('pharmacy:loadStandardCatalog');
+  ok(rb.ok && rb.rescheduled === H1_NAMES.length, `"Load standard drug catalogue" corrects them as well and says how many (${rb.rescheduled})`);
 
   finish();
 })().catch((e) => { console.error('SUITE CRASHED', e); process.exit(1); });

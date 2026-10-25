@@ -2063,7 +2063,7 @@ export function registerIpc() {
   ipcMain.handle('pharmacy:loadStandardCatalog', (_e) => {
     requireModule('pharmacy', 'Pharmacy');
     const r = refreshCatalogue(getDb(), 'manual');
-    return { ok: true, added: r.added, corrected: r.corrected, kept: r.kept, total: PHARMACY_CATALOG.length };
+    return { ok: true, added: r.added, corrected: r.corrected, kept: r.kept, rescheduled: r.rescheduled, total: PHARMACY_CATALOG.length };
   });
 
   // Testing/evaluation: populate the app with ~50 fictional patients + full

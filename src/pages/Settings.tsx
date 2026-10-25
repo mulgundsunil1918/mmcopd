@@ -4762,7 +4762,8 @@ function SampleDataPanel() {
     setBusy('catalog');
     try {
       const r = await window.electronAPI.pharmacy.loadStandardCatalog();
-      const bits = [r.added ? `added ${r.added} new drug${r.added === 1 ? '' : 's'}` : '', r.corrected ? `corrected the composition of ${r.corrected}` : ''].filter(Boolean);
+      const bits = [r.added ? `added ${r.added} new drug${r.added === 1 ? '' : 's'}` : '', r.corrected ? `corrected the composition of ${r.corrected}` : '',
+        r.rescheduled ? `corrected the schedule (H → H1) of ${r.rescheduled}` : ''].filter(Boolean);
       setResult(`✅ Drug catalogue (${r.total} drugs): ${bits.length ? bits.join(' and ') : 'nothing to change — your list is already up to date'}.${r.kept ? ` ${r.kept} you have edited ${r.kept === 1 ? 'was' : 'were'} left exactly as you set ${r.kept === 1 ? 'it' : 'them'}.` : ''}`);
       qc.invalidateQueries({ queryKey: ['pharmacy-drugs'] });
       toast(bits.length ? `Drug list updated (${bits.join(', ')})` : 'Drug list already up to date', 'success');
@@ -4776,7 +4777,8 @@ function SampleDataPanel() {
       <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-3">
         Adds the built-in list of about 300 commonly used medicines (paediatric and adult, with the strength of each ingredient —
         for liquids per ml, like 250 mg/5 ml) to your Drug List. Only drugs you don’t already have are added, and a drug you have
-        not edited gets its composition filled in — anything you changed is left exactly as it is, and prices and stock stay yours to set.
+        not edited gets its composition filled in, and a medicine that is Schedule H1 by law but was listed as H is corrected (only if you never changed its schedule) —
+        anything you changed is left exactly as it is, and prices and stock stay yours to set.
       </p>
       <div className="flex gap-2 flex-wrap">
         <button className="btn-secondary text-xs" onClick={loadCatalog} disabled={busy !== null}>{busy === 'catalog' ? 'Loading…' : 'Load standard drug catalogue'}</button>

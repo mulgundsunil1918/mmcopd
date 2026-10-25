@@ -641,7 +641,7 @@ export function createMockElectronAPI(): any {
       },
       listBatches: (id: number) => r(batches.filter((b) => b.drug_master_id === id)),
       // The catalogue is already in this demo's Drug List (every drug of src/data/pharmacy-catalog.ts), so there is nothing to add or correct.
-      loadStandardCatalog: () => r({ ok: true, added: 0, corrected: 0, kept: 0, total: drugMaster.length }),
+      loadStandardCatalog: () => r({ ok: true, added: 0, corrected: 0, kept: 0, rescheduled: 0, total: drugMaster.length }),
       upsertDrug: (d: any) => {
         if (d.id) drugMaster = drugMaster.map((x) => x.id === d.id ? { ...x, ...d } : x);
         else { const id = nextId(drugMaster); d = { is_active: 1, default_mrp: 0, gst_rate: 12, ...d, id }; drugMaster = [...drugMaster, d]; }   // like the real table: a new drug is active
