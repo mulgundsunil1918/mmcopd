@@ -812,8 +812,9 @@ const api = {
   license: {
     status: () => ipcRenderer.invoke('license:status') as Promise<LicenseStatusIPC>,
     machineId: () => ipcRenderer.invoke('license:machineId') as Promise<string>,
-    activate: (token: string) => ipcRenderer.invoke('license:activate', token) as Promise<{ ok: boolean; error?: string; status?: LicenseStatusIPC }>,
-    activateOnline: (code: string) => ipcRenderer.invoke('license:activateOnline', code) as Promise<{ ok: boolean; error?: string; status?: LicenseStatusIPC }>,
+    /** `needsConfirm` + `removed`: this code would switch off paid modules the clinic has today — ask, then call again with { confirmRemoval: true }. */
+    activate: (token: string, opts?: { confirmRemoval?: boolean }) => ipcRenderer.invoke('license:activate', token, opts) as Promise<{ ok: boolean; error?: string; status?: LicenseStatusIPC; needsConfirm?: boolean; removed?: string[] }>,
+    activateOnline: (code: string, opts?: { confirmRemoval?: boolean }) => ipcRenderer.invoke('license:activateOnline', code, opts) as Promise<{ ok: boolean; error?: string; status?: LicenseStatusIPC; needsConfirm?: boolean; removed?: string[] }>,
     onState: (cb: (s: LicenseStatusIPC) => void) => {
       const h = (_e: any, s: LicenseStatusIPC) => cb(s);
       ipcRenderer.on('license:state', h);

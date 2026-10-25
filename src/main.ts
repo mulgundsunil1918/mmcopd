@@ -941,13 +941,13 @@ app.whenReady().then(async () => {
   };
   ipcMain.handle('license:status', () => applyLicense());
   ipcMain.handle('license:machineId', () => machineFingerprint());
-  ipcMain.handle('license:activate', (_e, token: string) => {
-    const r = activateLicense(String(token || ''));
+  ipcMain.handle('license:activate', (_e, token: string, opts?: { confirmRemoval?: boolean }) => {
+    const r = activateLicense(String(token || ''), undefined, { confirmRemoval: !!opts?.confirmRemoval });
     if (r.ok) applyLicense();
     return r;
   });
-  ipcMain.handle('license:activateOnline', async (_e, code: string) => {
-    const r = await activateOnline(String(code || ''));
+  ipcMain.handle('license:activateOnline', async (_e, code: string, opts?: { confirmRemoval?: boolean }) => {
+    const r = await activateOnline(String(code || ''), { confirmRemoval: !!opts?.confirmRemoval });
     if (r.ok) applyLicense();
     return r;
   });

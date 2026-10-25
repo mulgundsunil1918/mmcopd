@@ -207,8 +207,27 @@ export function getLicenseStatus(): LicenseStatus {
     message: 'Your licence has expired. The app is now read-only — you can still view and back up your data. Renew to unlock.' };
 }
 
-/** Install/replace the licence after verifying it belongs to this machine. */
-export function activateLicense(token: string, publicKeyPem: string = LICENSE_PUBLIC_KEY_PEM): { ok: boolean; error?: string; status?: LicenseStatus } {
+/** The paid add-ons, with the names a clinic knows them by. Each is unlocked ONLY by its own name appearing inside the signed licence. */
+const PAID_ADDONS = ['lab', 'pharmacy', 'ipd', 'whatsapp', 'whatsapp_pro'] as const;
+const ADDON_LABEL: Record<string, string> = { lab: 'Laboratory', pharmacy: 'Pharmacy', ipd: 'In-Patient (IPD)', whatsapp: 'WhatsApp Basic', whatsapp_pro: 'WhatsApp Pro' };
+
+/** The paid add-ons in the licence installed on THIS computer right now — none when there is no valid licence or it belongs to another PC. */
+function installedAddons(publicKeyPem: string): string[] {
+  try {
+    const p = verifyToken(fs.readFileSync(licensePath(), 'utf8'), publicKeyPem);
+    if (!p || (p.hardware_id && p.hardware_id !== machineFingerprint())) return [];
+    return p.modules.filter((m) => (PAID_ADDONS as readonly string[]).includes(m));
+  } catch { return []; }
+}
+
+export interface ActivationResult { ok: boolean; error?: string; status?: LicenseStatus; needsConfirm?: boolean; removed?: string[] }
+
+/**
+ * Install/replace the licence after verifying it belongs to this machine.
+ * A new code REPLACES the old one, so one that leaves out a paid module the clinic has today would silently switch that module off.
+ * That is refused (needsConfirm + the module names) until the person confirms — the screen asks, then calls again with confirmRemoval.
+ */
+export function activateLicense(token: string, publicKeyPem: string = LICENSE_PUBLIC_KEY_PEM, opts: { confirmRemoval?: boolean } = {}): ActivationResult {
   const payload = verifyTokenStrict(token, publicKeyPem);
   if (!payload) return { ok: false, error: 'Invalid licence code. It must be exactly the code we sent — nothing added, nothing missing. Copy the whole code again and paste it as it is.' };
   const hw = machineFingerprint();
@@ -228,6 +247,14 @@ export function activateLicense(token: string, publicKeyPem: string = LICENSE_PU
   if (app.isPackaged && payload.license_id && readUsed().has(payload.license_id)) {
     return { ok: false, error: 'This key has already been used on this computer. For any change, ask us for a fresh upgrade/renewal code.' };
   }
+  if (!opts.confirmRemoval) {
+    const losing = installedAddons(publicKeyPem).filter((m) => !payload.modules.includes(m));
+    if (losing.length) {
+      const names = losing.map((m) => ADDON_LABEL[m] || m).join(', ');
+      return { ok: false, needsConfirm: true, removed: losing,
+        error: `This code does not include ${names}, which this computer has now. Applying it would switch ${losing.length > 1 ? 'them' : 'it'} off. If you only wanted to ADD a module, ask us for an upgrade code that keeps everything you already have.` };
+    }
+  }
   try {
     fs.writeFileSync(licensePath(), token.trim(), { mode: 0o600 });
     writeSeen(Date.now());
@@ -242,7 +269,7 @@ export function activateLicense(token: string, publicKeyPem: string = LICENSE_PU
  * returns it; we then install it exactly like a pasted one. Falls back cleanly
  * (clear error) when offline or unconfigured so the paste path still works.
  */
-export async function activateOnline(code: string): Promise<{ ok: boolean; error?: string; status?: LicenseStatus }> {
+export async function activateOnline(code: string, opts: { confirmRemoval?: boolean } = {}): Promise<ActivationResult> {
   const c = String(code || '').trim();
   if (!ACTIVATION_SERVER_URL) return { ok: false, error: 'Online activation isn’t set up. Paste your licence code instead.' };
   if (!c) return { ok: false, error: 'Enter the activation code you were given.' };
@@ -262,7 +289,7 @@ export async function activateOnline(code: string): Promise<{ ok: boolean; error
     const data: any = await resp.json().catch(() => ({}));
     if (!resp.ok || !data.ok) return { ok: false, error: data?.error || `Activation failed (HTTP ${resp.status}).` };
     if (!data.token) return { ok: false, error: 'The server did not return a licence. Contact support.' };
-    return activateLicense(String(data.token));
+    return activateLicense(String(data.token), undefined, opts);
   } catch (e: any) {
     const msg = e?.name === 'AbortError' ? 'timed out' : (e?.message || 'no connection');
     return { ok: false, error: `Couldn’t reach the activation server (${msg}). Check your internet, or paste your licence code instead.` };

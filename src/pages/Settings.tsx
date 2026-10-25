@@ -5339,12 +5339,27 @@ function SubscriptionTab() {
 
   const copyId = async () => { if (await copyText(machineId)) { setCopied(true); setTimeout(() => setCopied(false), 1500); } };
 
-  const done = (r: any) => {
+  // The ticks in the upgrade box are only a PRICE ESTIMATE — they are forgotten whenever the box closes, so nothing ticked earlier can
+  // look "selected" for a later upgrade. What actually unlocks is exactly what is written inside the code that is applied.
+  const closeUpgrade = () => { setOpen(false); setPicked(new Set()); setErr(null); };
+  const nameOf = (k: string) => SUB_ADDON_PRICES[k]?.name || k;
+
+  const done = async (r: any, again?: (opts: { confirmRemoval: boolean }) => Promise<any>) => {
     if (r?.ok) {
+      const now: string[] = r.status?.modules || [];
+      const unlocked = now.filter((k) => SUB_ADDON_PRICES[k] && !modules.includes(k));
+      const askedNotIncluded = [...picked].filter((k) => !now.includes(k));
       qc.invalidateQueries({ queryKey: ['license'] });
       qc.invalidateQueries({ queryKey: ['settings'] });
-      toast('Subscription updated — new modules unlocked', 'success');
-      setOpen(false); setCode(''); setToken(''); setErr(null);
+      toast(unlocked.length ? `Unlocked: ${unlocked.map(nameOf).join(', ')}` : 'Licence updated — no new modules in this code', 'success');
+      if (askedNotIncluded.length) {
+        toast(`You ticked ${askedNotIncluded.map(nameOf).join(', ')}, but this code does not include ${askedNotIncluded.length > 1 ? 'them' : 'it'} — a code unlocks only what is written inside it. Ask us for a code that includes ${askedNotIncluded.length > 1 ? 'them' : 'it'}.`, 'info');
+      }
+      closeUpgrade(); setCode(''); setToken('');
+    } else if (r?.needsConfirm && again) {
+      // The new code would switch OFF a paid module this computer has today — never silently.
+      if (window.confirm(`${r.error}\n\nApply this code anyway?`)) await done(await again({ confirmRemoval: true }));
+      else setErr('Not applied — your current modules are unchanged.');
     } else {
       setErr(r?.error || 'Activation failed.');
     }
@@ -5352,14 +5367,14 @@ function SubscriptionTab() {
   const applyOnline = async () => {
     setErr(null); if (!code.trim()) { setErr('Enter the activation code you were given.'); return; }
     setBusy('online');
-    try { done(await window.electronAPI.license.activateOnline(code.trim())); }
+    try { const go = (o?: { confirmRemoval: boolean }) => window.electronAPI.license.activateOnline(code.trim(), o); await done(await go(), go); }
     catch (e: any) { setErr(e?.message || 'Activation failed.'); }
     finally { setBusy(null); }
   };
   const applyPaste = async () => {
     setErr(null); if (!token.trim()) { setErr('Paste the licence code you were sent.'); return; }
     setBusy('paste');
-    try { done(await window.electronAPI.license.activate(token.trim())); }
+    try { const go = (o?: { confirmRemoval: boolean }) => window.electronAPI.license.activate(token.trim(), o); await done(await go(), go); }
     catch (e: any) { setErr(e?.message || 'Activation failed.'); }
     finally { setBusy(null); }
   };
@@ -5419,9 +5434,9 @@ function SubscriptionTab() {
         </div>
       </SettingsGroup>
 
-      <Modal open={open} onClose={() => busy === null && setOpen(false)} title="Upgrade / renew subscription" size="md">
+      <Modal open={open} onClose={() => busy === null && closeUpgrade()} title="Upgrade / renew subscription" size="md">
         <div className="space-y-4">
-          <p className="text-[13px] text-gray-600 dark:text-slate-300">Pick the modules you want, share the Machine ID below when you call, then enter the code we send you.</p>
+          <p className="text-[13px] text-gray-600 dark:text-slate-300">Pick the modules you want to see the price, share the Machine ID below when you call, then enter the code we send you.</p>
 
           {/* Priced module picker + live "new total" — mirrors the website. */}
           <div>
@@ -5458,7 +5473,7 @@ function SubscriptionTab() {
               <span className="text-[12px]">New annual total</span>
               <span className="text-[15px] font-extrabold">₹{newTotal.toLocaleString('en-IN')} <span className="text-[10px] font-semibold opacity-70">/ yr</span></span>
             </div>
-            <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-1.5">Prices are per year. Tell us the modules you want — we’ll send a code that unlocks exactly those.</p>
+            <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-1.5">Prices are per year. <b>This list is only a price estimate — ticking a module here never unlocks it.</b> A code unlocks exactly the modules written inside it, nothing more.</p>
           </div>
 
           <div>
