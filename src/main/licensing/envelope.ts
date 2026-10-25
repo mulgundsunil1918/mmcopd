@@ -6,7 +6,8 @@
  * spaces dropped into the middle, still decoded to the same signed content and was accepted. A code must be EXACTLY what the keygen
  * produced — nothing added, nothing missing — so it is read here only when it is canonical base64: no stray characters, correct
  * padding, and re-encoding what it decodes to gives back the very same text. Any character added, removed or changed makes it fail,
- * before the signature is even looked at. Only whitespace around the whole code is tolerated (the newline a copy often brings).
+ * before the signature is even looked at. The decoded envelope must also be exactly what the keygen writes, JSON.stringify({ p, s }), so
+ * there is only ONE text per licence. Only whitespace around the whole code is tolerated (the newline a copy often brings).
  */
 import crypto from 'node:crypto';
 
@@ -28,6 +29,9 @@ export function readSignedCodeStrict(raw: string): SignedCode | null {
   let env: any;
   try { env = JSON.parse(outer.toString('utf8')); } catch { return null; }
   if (!env || typeof env.p !== 'string' || typeof env.s !== 'string') return null;
+  // The keygen writes the envelope as exactly JSON.stringify({ p, s }). Insisting on that, byte for byte, closes the last loophole:
+  // a DIFFERENT base64 text that still decodes to the same signed content followed by blank space (a few last-character edits do).
+  if (!Buffer.from(JSON.stringify({ p: env.p, s: env.s }), 'utf8').equals(outer)) return null;
   const signature = decodeBase64Strict(env.s);
   if (!signature || signature.length !== 64) return null;        // an Ed25519 signature is exactly 64 bytes
   return { payloadText: env.p, signature };

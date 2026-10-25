@@ -49,6 +49,9 @@ const edits = (token: string): Record<string, () => string> => ({
   'the last 1-4 characters deleted': () => token.slice(0, token.length - (1 + rnd(4))),
   'the first 1-4 characters deleted': () => token.slice(1 + rnd(4)),
   'one character changed': () => { const at = rnd(token.length); let c = pick(ALNUM); while (c === token[at]) c = pick(ALNUM); return token.slice(0, at) + c + token.slice(at + 1); },
+  'the final "=" changed to another character': () => token.slice(0, -1) + pick(ALNUM + '+/.-_ !@#'),
+  'the last two characters replaced': () => token.slice(0, -2) + pick(ALNUM + '+/=.-_ !@#') + pick(ALNUM + '+/=.-_ !@#'),
+  'the same code re-written as base64 with blank space after it': () => Buffer.from(Buffer.from(token, 'base64').toString('utf8') + pick([' ', '\n', '\t', '\r', '  ', '\r\n', ' \n', '   '])).toString('base64'),
   'the code written twice': () => token + token,
   'cut in half': () => token.slice(0, Math.floor(token.length / 2)),
 });
@@ -70,6 +73,15 @@ const edits = (token: string): Record<string, () => string> => ({
     let accepted = 0, example = '';
     for (let i = 0; i < N; i++) { const t = make(); if (t.trim() !== good && verifyTokenStrict(t, PUB)) { accepted++; example = JSON.stringify(t.slice(-20)); } }
     eq(accepted, 0, `${what}: none accepted${accepted ? ` (e.g. …${example})` : ''}`);
+  }
+  // the owner's own test: change the end of the code — EVERY possible replacement of the last one and two characters
+  const END = ALNUM + '+/=.-_ !@#';
+  let endAccepted = 0, endTried = 0;
+  for (const a of END) { const t = good.slice(0, -1) + a; if (t !== good) { endTried++; if (verifyTokenStrict(t, PUB)) endAccepted++; } }
+  for (const a of END) for (const b of END) { const t = good.slice(0, -2) + a + b; if (t !== good) { endTried++; if (verifyTokenStrict(t, PUB)) endAccepted++; } }
+  eq(endAccepted, 0, `every possible replacement of the last one or two characters (${endTried} tries, including "=" changed to anything): none accepted`);
+  for (const tail of [' ', '\n', '\t', '\r', '  ', ' \n', '\r\n', '   ', '\n\n\n']) {
+    ok(!verifyTokenStrict(Buffer.from(Buffer.from(good, 'base64').toString('utf8') + tail).toString('base64'), PUB), `the same code re-written with ${JSON.stringify(tail)} after it: refused`);
   }
   for (const [what, t] of [['nothing', ''], ['spaces only', '    '], ['plain words', 'hello world'], ['a different base64 text', Buffer.from('{"hello":"world"}').toString('base64')],
     ['valid base64 with no signature', Buffer.from(JSON.stringify({ p: '{}', s: '' })).toString('base64')], ['a short Machine-ID-like text', hw]] as [string, string][]) {
