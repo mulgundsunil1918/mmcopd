@@ -5,6 +5,7 @@ import { allocatePaise, toPaise, fromPaise } from '../lib/pharmacyMath';
 import { createSchema, SCHEMA_VERSION } from './schema';
 import { cleanForWhatsApp, hasEmojiOrBrokenText } from '../lib/messageText';
 import { DEFAULT_SLIP_TEMPLATES } from './slip-templates';
+import { CATALOGUE_FLAG, refreshCatalogue } from './catalogue';
 
 /** The factory password created by ensureDefaultAdmin() on a fresh install. */
 const FACTORY_PASSWORD = 'admin123';
@@ -542,6 +543,22 @@ function bakeDrIntoReferrals(db: Database.Database) {
   } catch { /* settings table absent on a very old db */ }
 }
 
+/**
+ * The standard drug catalogue was rewritten in 0.9.8: real compositions (mg per ml for liquids, every ingredient of a combination), each
+ * brand variant as its own row, and about a hundred more paediatric and adult medicines. A clinic that is updating gets it ONCE: the
+ * composition of a drug nobody edited is corrected, and the new drugs are added (see db/catalogue.ts for exactly what is and is not touched —
+ * nothing a clinic typed, no price, no stock). Guarded by a settings flag, so a drug the clinic deletes later never comes back by itself.
+ */
+function upgradeDrugCatalogue(db: Database.Database) {
+  try {
+    if (db.prepare('SELECT 1 FROM settings WHERE key=?').get(CATALOGUE_FLAG)) return;
+    db.transaction(() => {
+      refreshCatalogue(db, 'upgrade');
+      db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(CATALOGUE_FLAG, '1');
+    })();
+  } catch { /* drug_master or settings absent on a very old db: the first-run seed (db/seed.ts) fills it */ }
+}
+
 /** Fill a setting only if it is currently missing OR empty. Never overwrites a user's value. */
 function setSettingIfEmpty(db: Database.Database, key: string, value: string) {
   const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key) as { value: string } | undefined;
@@ -661,6 +678,7 @@ export function runMigrations(db: Database.Database) {
   repairZeroedBillTotals(db);   // undo totals zeroed by the preview path (see above)
   repairMojibakeSettings(db);   // drop "�"-corrupted values so clean defaults return
   bakeDrIntoReferrals(db);      // referral names are free text now: keep what existing clinics see by writing the old "Dr. " into them once
+  upgradeDrugCatalogue(db);     // the standard drug list now carries real compositions: correct unedited rows and add the new drugs, once
   seedDefaultChargeHeads(db);
 
   // Free follow-up policy: every paid visit grants N free follow-up visits within X days

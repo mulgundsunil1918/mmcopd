@@ -584,6 +584,8 @@ export function createMockElectronAPI(): any {
         } as any)));
       },
       listBatches: (id: number) => r(batches.filter((b) => b.drug_master_id === id)),
+      // The catalogue is already in this demo's Drug List (every drug of src/data/pharmacy-catalog.ts), so there is nothing to add or correct.
+      loadStandardCatalog: () => r({ ok: true, added: 0, corrected: 0, kept: 0, total: drugMaster.length }),
       upsertDrug: (d: any) => {
         if (d.id) drugMaster = drugMaster.map((x) => x.id === d.id ? { ...x, ...d } : x);
         else { const id = nextId(drugMaster); d = { is_active: 1, default_mrp: 0, gst_rate: 12, ...d, id }; drugMaster = [...drugMaster, d]; }   // like the real table: a new drug is active
@@ -960,7 +962,7 @@ export function createMockElectronAPI(): any {
         creditSummary: { sold_count: 3, credit_value: 2200, still_owed_from_these: 1480, owed_now: 3150, sales_owing: 5, patients_owing: 4, oldest_owed_since: '2026-09-02' },
         topPatients: patients.slice(0, 6).map((p, i) => ({ patient_id: p.id, name: `${p.first_name} ${p.last_name}`, uhid: p.uhid, sales: 4 - Math.floor(i / 2), revenue: 3100 - i * 380 })),
         scheduleMix: [{ schedule: 'OTC', count: 110, units: 320 }, { schedule: 'H', count: 80, units: 220 }, { schedule: 'H1', count: 10, units: 25 }],
-        lowStock: [{ name: 'Azithromycin 500mg', stock: 8, low_stock_threshold: 10 }, { name: 'Pantoprazole 40mg', stock: 6, low_stock_threshold: 10 }],
+        lowStock: [{ name: 'Azithral 500', stock: 8, low_stock_threshold: 10 }, { name: 'Pan 40', stock: 6, low_stock_threshold: 10 }],
         expiringSoon: batches.filter((b) => {
           const d = Math.round((new Date(b.expiry).getTime() - Date.now()) / 86400000);
           return d >= 0 && d <= 90;

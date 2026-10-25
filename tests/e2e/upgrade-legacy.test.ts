@@ -20,6 +20,8 @@ import Database from 'better-sqlite3';
 import { SCHEMA_VERSION } from '../../src/db/schema';
 import { cleanForWhatsApp } from '../../src/lib/messageText';
 import { legacyReferralName } from '../../src/lib/referral';
+import { PHARMACY_CATALOG } from '../../src/data/pharmacy-catalog';
+import { PHARMACY_CATALOG_V1 } from '../../src/data/pharmacy-catalog-v1';
 import { ok, eq, near, section, finish, note } from './lib';
 
 const root = fs.existsSync(path.join(process.cwd(), 'tests', 'e2e')) ? process.cwd() : path.resolve(__dirname, '..');
@@ -54,6 +56,19 @@ const COMPATIBLE_CHANGES: Record<string, (before: any, after: any, row: Record<s
     } catch { return false; }
   },
 };
+
+// The standard drug list now carries real compositions (db/catalogue.ts). On a drug the clinic never edited — its four composition values are
+// exactly what the old catalogue shipped — the update writes the new composition; nothing else on the row (price, GST, schedule, flags, dates) changes.
+const lowName = (n: any) => String(n).trim().toLowerCase();
+const OLD_LIST = new Map(PHARMACY_CATALOG_V1.map((d) => [lowName(d.name), d]));
+const NEW_LIST = new Map(PHARMACY_CATALOG.map((d) => [lowName(d.name), d]));
+const compositionCorrected = (col: 'generic_name' | 'form' | 'strength' | 'pack_size') => (_b: any, a: any, row: Record<string, any>) => {
+  const o = OLD_LIST.get(lowName(row.name)), n = NEW_LIST.get(lowName(row.name));
+  if (!o || !n) return false;
+  const untouched = (['generic_name', 'form', 'strength', 'pack_size'] as const).every((c) => String(row[c] ?? '') === String(o[c] ?? ''));
+  return untouched && String(a ?? '') === String(n[col] ?? '');
+};
+for (const col of ['generic_name', 'form', 'strength', 'pack_size'] as const) COMPATIBLE_CHANGES[`drug_master.${col}`] = compositionCorrected(col);
 
 type Snap = Record<string, { cols: string[]; rows: Map<number, Record<string, any>> }>;
 function snapshot(d: Database.Database): Snap {

@@ -149,6 +149,7 @@ export function seedIfEmpty(db: Database.Database) {
       for (const d of PHARMACY_CATALOG) insM.run(d.name, d.generic_name, d.form, d.strength, d.pack_size ?? null, d.schedule, d.gst_rate, d.default_mrp, 10);
     }
     upsert.run('drug_catalogue_seeded', '1');
+    upsert.run('drug_catalogue_v2', '1');   // a list seeded from the current catalogue needs no upgrade (db/catalogue.ts)
   }
 
   /**

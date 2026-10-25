@@ -15,6 +15,7 @@ import type {
   PharmacySale, PurchaseInvoice, Settings, Wholesaler, Vitals, PrescriptionItem,
   DispensingRow, DrugSchedule,
 } from '../types';
+import { PHARMACY_CATALOG, type CatalogDrug } from '../data/pharmacy-catalog';
 
 // ---------- Helpers (deterministic so the demo looks the same every load) ----------
 let SEED = 42;
@@ -265,43 +266,53 @@ export const DEMO_BILLS: (Bill & { patient_name?: string; doctor_name?: string }
   });
 
 // ---------- Drug master + batches ----------
-const DRUG_SEED: { name: string; generic: string; mfg: string; form: string; strength: string; schedule: DrugSchedule; mrp: number }[] = [
-  { name: 'Paracetamol 500mg', generic: 'Paracetamol', mfg: 'GSK', form: 'Tab', strength: '500mg', schedule: 'OTC', mrp: 2 },
-  { name: 'Cetirizine 10mg', generic: 'Cetirizine', mfg: 'Cipla', form: 'Tab', strength: '10mg', schedule: 'OTC', mrp: 1.5 },
-  { name: 'Amoxicillin 500mg', generic: 'Amoxicillin', mfg: 'Cipla', form: 'Cap', strength: '500mg', schedule: 'H', mrp: 4 },
-  { name: 'Azithromycin 500mg', generic: 'Azithromycin', mfg: 'Cipla', form: 'Tab', strength: '500mg', schedule: 'H', mrp: 15 },
-  { name: 'Pantoprazole 40mg', generic: 'Pantoprazole', mfg: 'Sun', form: 'Tab', strength: '40mg', schedule: 'OTC', mrp: 3 },
-  { name: 'Ondansetron 4mg', generic: 'Ondansetron', mfg: 'Sun', form: 'Tab', strength: '4mg', schedule: 'H', mrp: 5 },
-  { name: 'Metformin 500mg', generic: 'Metformin', mfg: 'Lupin', form: 'Tab', strength: '500mg', schedule: 'H', mrp: 2 },
-  { name: 'Amlodipine 5mg', generic: 'Amlodipine', mfg: 'Lupin', form: 'Tab', strength: '5mg', schedule: 'H', mrp: 2.5 },
-  { name: 'Atorvastatin 10mg', generic: 'Atorvastatin', mfg: 'Sun', form: 'Tab', strength: '10mg', schedule: 'H', mrp: 4 },
-  { name: 'Ibuprofen 400mg', generic: 'Ibuprofen', mfg: 'GSK', form: 'Tab', strength: '400mg', schedule: 'OTC', mrp: 2 },
-  { name: 'ORS Sachet', generic: 'Oral Rehydration Salts', mfg: 'Cipla', form: 'Sachet', strength: '—', schedule: 'OTC', mrp: 15 },
-  { name: 'Crocin Syrup 60ml', generic: 'Paracetamol', mfg: 'GSK', form: 'Syrup', strength: '60ml', schedule: 'OTC', mrp: 45 },
-  { name: 'Cough Syrup 100ml', generic: 'Dextromethorphan', mfg: 'Cipla', form: 'Syrup', strength: '100ml', schedule: 'H', mrp: 60 },
-  { name: 'Levocetirizine 5mg', generic: 'Levocetirizine', mfg: 'Sun', form: 'Tab', strength: '5mg', schedule: 'OTC', mrp: 2 },
-  { name: 'Telmisartan 40mg', generic: 'Telmisartan', mfg: 'Lupin', form: 'Tab', strength: '40mg', schedule: 'H', mrp: 5 },
+// The 15 drugs this demo clinic holds on its shelf. Each is a row of the standard catalogue (src/data/pharmacy-catalog.ts), so the Drug List shows
+// real compositions and no duplicates; the manufacturer and the per-unit price are the demo's own. The REST of the catalogue follows with no stock,
+// exactly like a new install (a drug list to pick from, nothing on the shelf).
+const STOCKED: { name: string; mfg: string; mrp: number }[] = [
+  { name: 'Crocin Advance', mfg: 'GSK', mrp: 2 },
+  { name: 'Cetirizine', mfg: 'Cipla', mrp: 1.5 },
+  { name: 'Mox 500', mfg: 'Sun', mrp: 4 },
+  { name: 'Azithral 500', mfg: 'Alembic', mrp: 15 },
+  { name: 'Pan 40', mfg: 'Alkem', mrp: 3 },
+  { name: 'Emeset 4', mfg: 'Cipla', mrp: 5 },
+  { name: 'Glycomet 500', mfg: 'USV', mrp: 2 },
+  { name: 'Amlong 5', mfg: 'Micro Labs', mrp: 2.5 },
+  { name: 'Atorva 10', mfg: 'Zydus', mrp: 4 },
+  { name: 'Brufen 400', mfg: 'Abbott', mrp: 2 },
+  { name: 'Electral Powder', mfg: 'FDC', mrp: 15 },
+  { name: 'Calpol 250 Syrup', mfg: 'GSK', mrp: 45 },
+  { name: 'Ascoril LS Syrup', mfg: 'Glenmark', mrp: 60 },
+  { name: 'Levocet', mfg: 'Hetero', mrp: 2 },
+  { name: 'Telma 40', mfg: 'Glenmark', mrp: 5 },
 ];
 
-export const DEMO_DRUG_MASTER: DrugMaster[] = DRUG_SEED.map((d, i) => ({
-  id: i + 1,
-  name: d.name,
-  generic_name: d.generic,
-  manufacturer: d.mfg,
-  form: d.form,
-  strength: d.strength,
-  pack_size: 10,
-  schedule: d.schedule,
+const masterRow = (c: CatalogDrug, id: number, mfg: string | null, mrp: number): DrugMaster => ({
+  id,
+  name: c.name,
+  generic_name: c.generic_name,
+  manufacturer: mfg,
+  form: c.form,
+  strength: c.strength,
+  pack_size: c.pack_size ?? null,
+  schedule: c.schedule,
   hsn_code: '30049099',
-  gst_rate: 12,
-  default_mrp: d.mrp,
+  gst_rate: c.gst_rate,
+  default_mrp: mrp,
   low_stock_threshold: 10,
   barcode: null,
   is_active: 1,
   notes: null,
   created_at: daysAgo(180),
   updated_at: daysAgo(30),
-}));
+});
+const stockedNames = new Set(STOCKED.map((d) => d.name));
+export const DEMO_DRUG_MASTER: DrugMaster[] = [
+  ...STOCKED.map((d, i) => masterRow(PHARMACY_CATALOG.find((c) => c.name === d.name)!, i + 1, d.mfg, d.mrp)),
+  ...PHARMACY_CATALOG.filter((c) => !stockedNames.has(c.name)).map((c, i) => masterRow(c, STOCKED.length + i + 1, null, c.default_mrp)),
+];
+/** The drugs that have stock behind them (the first rows): what the demo's batches, sales, prescriptions and dispensing draw from. */
+const STOCKED_MASTER = DEMO_DRUG_MASTER.slice(0, STOCKED.length);
 
 // A deliberate spread — some expiring, one already expired, a couple low, two out — so every filter on
 // "Drugs in my clinic" has something in it. (Days to the first batch's expiry, and units left in each batch.)
@@ -310,7 +321,7 @@ const SHELF: Record<number, { exp0: number; q0?: number; q1?: number }> = {
   5: { exp0: 75 }, 6: { exp0: 60, q0: 6, q1: 0 }, 8: { exp0: 200, q0: 0, q1: 0 }, 9: { exp0: -10, q0: 8 },
 };
 
-export const DEMO_BATCHES: DrugStockBatch[] = DEMO_DRUG_MASTER.flatMap((m, i) => {
+export const DEMO_BATCHES: DrugStockBatch[] = STOCKED_MASTER.flatMap((m, i) => {
   // Two batches per drug with different expiries.
   return [0, 1].map((bi) => {
     const left = 100 - Math.floor(rand() * 50);           // one rand() per batch, as before — the rest of the demo data is unchanged
@@ -383,7 +394,7 @@ export const DEMO_PHARMACY_SALES: PharmacySale[] = range(50).map((i) => {
 // ---------- Dispensing register ----------
 export const DEMO_DISPENSING: DispensingRow[] = range(80).map((i) => {
   const sale = DEMO_PHARMACY_SALES[i % DEMO_PHARMACY_SALES.length];
-  const drug = pick(DEMO_DRUG_MASTER);
+  const drug = pick(STOCKED_MASTER);
   const batch = DEMO_BATCHES.find((b) => b.drug_master_id === drug.id)!;
   return {
     id: i + 1,
@@ -433,7 +444,7 @@ export const DEMO_CONSULTATIONS: Consultation[] = DEMO_APPOINTMENTS
 
 // ---------- Prescription items ----------
 export const DEMO_RX_ITEMS: PrescriptionItem[] = DEMO_CONSULTATIONS.flatMap((c, i) => {
-  const drugs = [pick(DEMO_DRUG_MASTER), pick(DEMO_DRUG_MASTER)];
+  const drugs = [pick(STOCKED_MASTER), pick(STOCKED_MASTER)];
   return drugs.map((d, j) => ({
     id: i * 10 + j + 1,
     appointment_id: c.appointment_id,

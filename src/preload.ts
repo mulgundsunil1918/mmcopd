@@ -403,7 +403,7 @@ const api = {
     listDrugs: (filter?: { q?: string; activeOnly?: boolean }) =>
       ipcRenderer.invoke('pharmacy:listDrugs', filter || {}) as Promise<(DrugMaster & Drug)[]>,
     loadStandardCatalog: () =>
-      ipcRenderer.invoke('pharmacy:loadStandardCatalog') as Promise<{ ok: boolean; added: number; total: number }>,
+      ipcRenderer.invoke('pharmacy:loadStandardCatalog') as Promise<{ ok: boolean; added: number; corrected: number; kept: number; total: number }>,
     /** One sale + its lines (with batch/expiry) — used by the printed receipt. */
     saleDetail: (saleId: number) =>
       ipcRenderer.invoke('pharmacy:saleDetail', saleId) as Promise<any>,

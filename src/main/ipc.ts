@@ -16,6 +16,7 @@ import { fromPaise, toPaise } from '../lib/pharmacyMath';
 import { localISO, addDaysISO } from '../lib/localDate';
 import { LAB_CATALOG } from '../data/lab-catalog';
 import { PHARMACY_CATALOG } from '../data/pharmacy-catalog';
+import { refreshCatalogue } from '../db/catalogue';
 import { seedSampleData } from '../db/sample-data';
 
 /**
@@ -2020,24 +2021,13 @@ export function registerIpc() {
     return { ok: true, added, total: LAB_CATALOG.length };
   });
 
-  // Load the standard pharmacy catalogue into drug_master (adds only drugs not already present — names, prices and GST, never stock:
-  // what the clinic holds comes from its own purchases). Mirrors lab:loadStandardCatalog.
+  // Load the standard pharmacy catalogue into drug_master: adds the drugs the list does not have (names, compositions, prices and GST — never
+  // stock: what the clinic holds comes from its own purchases) and corrects the composition of a drug nobody has edited (db/catalogue.ts).
+  // Mirrors lab:loadStandardCatalog.
   ipcMain.handle('pharmacy:loadStandardCatalog', (_e) => {
     requireModule('pharmacy', 'Pharmacy');
-    const db = getDb();
-    const existing = new Set((db.prepare('SELECT LOWER(name) AS n FROM drug_master').all() as any[]).map((r) => r.n));
-    const insM = db.prepare(`INSERT INTO drug_master (name, generic_name, form, strength, pack_size, schedule, gst_rate, default_mrp, low_stock_threshold, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 10, 1)`);
-    let added = 0;
-    const tx = db.transaction(() => {
-      for (const d of PHARMACY_CATALOG) {
-        if (existing.has(d.name.toLowerCase())) continue;
-        insM.run(d.name, d.generic_name, d.form, d.strength, d.pack_size ?? null, d.schedule, d.gst_rate, d.default_mrp);
-        added++;
-      }
-    });
-    tx();
-    return { ok: true, added, total: PHARMACY_CATALOG.length };
+    const r = refreshCatalogue(getDb(), 'manual');
+    return { ok: true, added: r.added, corrected: r.corrected, kept: r.kept, total: PHARMACY_CATALOG.length };
   });
 
   // Testing/evaluation: populate the app with ~50 fictional patients + full
