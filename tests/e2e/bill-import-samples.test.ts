@@ -80,6 +80,14 @@ const parse = async (b: SampleBill) => {
     ['ONE prompt, two phases: read first with no internet, then look every medicine up; not handed over until every row is done', /TWO PHASES, ONE FILE[\s\S]*PHASE 1[\s\S]*you do NOT search the internet[\s\S]*PHASE 2[\s\S]*Do NOT hand the file over until phase 2 has been done for EVERY row/],
     ['the lookup searches with the bill\'s own words, tries three times, gives the page address, and never gives up on a generic name', /Search with the bill's own words[\s\S]*THREE different searches[\s\S]*full web address[\s\S]*These are never NOT FOUND/],
     ['the end check includes that phase 2 is done for every row', /Make sure phase 2 is done for every row/],
+    // what the second real Samarth file (made with the one prompt) still got wrong
+    ['phase 2 writes ONLY into the lookup columns, with Python on the phase-1 file, and nothing else may change', /Phase 2 changes ONLY the six lookup columns[\s\S]*Never re-type or rebuild the other cells[\s\S]*never in Name as printed[\s\S]*they must be identical/],
+    ['brand names and codes are copied as SEEN (BIOVIL, HYOKEM)', /Brand names are not words to correct: BIOVIL stays BIOVIL[\s\S]*HYOKEM stays HYOKEM/],
+    ['batch characters easily confused are named', /character by character, twice[\s\S]*0\/O\/D, 1\/I\/L, 5\/S/],
+    ['GST and Disc % are read from each row\'s own cells (a bed sheet is 18)', /own CGST \/ SGST cells[\s\S]*bed sheet[\s\S]*18 \(9 \+ 9\)/],
+    ['a lookup cell holds only the value; remarks go to Flags', /write only the VALUE[\s\S]*never a word like AMBIGUOUS or NOT FOUND/],
+    ['lookups are row by row and checked against their own row', /Work row by row[\s\S]*never carry a lookup over to the next row/],
+    ['a "1+1" name sends the reader back to the free cell', /NAME contains a free offer like 1\+1[\s\S]*look at that row's free cell once more/],
     ['every row has its own values (no copy-down from the row above)', /Every row has its OWN values[\s\S]*never copy a quantity, rate, batch, expiry, manufacturer code or amount down from the row above/i],
     ['a wrapped name joins with one space and keeps every character (-NO DISC, 24G)', /name can run onto a second line[\s\S]*ONE space[\s\S]*24G/],
     ['a sideways photo: turn it upright, enlarge, read in strips', /sideways, upside down, tilted or small[\s\S]*Python tool to turn the picture upright[\s\S]*strips of about 8 rows/],
@@ -96,7 +104,7 @@ const parse = async (b: SampleBill) => {
     ['the self-check: add up the amount column and compare with the bill\'s own total; fix a misread row, never a number to fit', /Add up the "Line amount as printed" column[\s\S]*never change a number just to make a sum fit/],
     ['the reply lists the lines whose Free qty is not 0', /line numbers where Free qty is not 0/],
   ] as [string, RegExp][]) ok(re.test(prompt), `the prompt: ${what}`);
-  ok(prompt.length > 8000 && prompt.length < 21000, `…and is complete without being a wall of text (${prompt.length} characters)`);
+  ok(prompt.length > 8000 && prompt.length < 23000, `…and is complete without being a wall of text (${prompt.length} characters)`);
   for (const c of ITEM_COLUMNS) ok(prompt.includes(c.header), `…it names the column "${c.header}"`);
   for (const f of BILL_FIELDS) ok(prompt.includes(f.label), `…and the field "${f.label}"`);
 

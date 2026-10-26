@@ -20,7 +20,7 @@ import path from 'node:path';
 import * as XLSX from 'xlsx';
 import { boot, call, getDb } from './harness';
 import {
-  addAsNew, buildLookupPrompt, checkDraft, isNoExpiry, looksConsumable, packUnits, pagesMissing, patchLine, printedStrength, schemeInName, stripBillingNotes,
+  addAsNew, buildLookupPrompt, checkDraft, isNoExpiry, lookupCell, lookupFits, looksConsumable, packUnits, pagesMissing, patchLine, printedStrength, schemeInName, stripBillingNotes,
   NO_BATCH, NO_EXPIRY, type Draft, type DraftLine,
 } from '../../src/lib/billImport';
 import { fmtDate } from '../../src/lib/utils';
@@ -226,6 +226,56 @@ const withBill = (changes: Record<string, string>): string => {
   const lk = buildLookupPrompt(['3', '5', '8']);
   ok(/ONLY for these rows \(by "Line no"\): 3, 5, 8/.test(lk), 'the reminder names the lines');
   ok(/THREE different searches/.test(lk) && /Klotin 500mg injection 5ml/.test(lk), '…and still carries the search method (the words printed on the bill, three tries)');
+
+  // ============================================================================================================
+  section('10 · the SECOND real ChatGPT file — made with the one prompt (read first, then look up)');
+  const FILE2 = path.join(root, 'tests', 'e2e', 'fixtures', 'chatgpt-real-samarth-2.xlsx');
+  eq(lookupCell('AMBIGUOUS'), '', 'a lookup cell that says AMBIGUOUS holds no value');
+  eq(lookupCell('NOT FOUND'), '', '…nor NOT FOUND');
+  eq(lookupCell('1 mg/ml (strength not independently confirmed)'), '1 mg/ml', '…and a remark in brackets about doubt is not part of a strength');
+  eq(lookupCell('0.9% w/v'), '0.9% w/v', '…a real strength is left alone');
+  eq(lookupCell('5% + 0.9%'), '5% + 0.9%', '…also with a plus');
+  ok(lookupFits('HYKOFEM INJ', { brand: 'Novaclav 1.2 g Injection', generic: 'Amoxycillin + clavulanic acid' }) === false, 'a lookup (Novaclav) that shares no word with the row\'s own name (HYKOFEM) is spotted');
+  ok(lookupFits('ONDANAUS INJ', { brand: 'Ondansetron injection', generic: 'Ondansetron' }), 'a spelling that starts like the lookup (ONDANAUS / Ondansetron) fits');
+  ok(lookupFits('NORMAL SALINE ACULIFE', { brand: 'Aculife Normal Saline', generic: 'Sodium chloride' }), 'a generic-named product fits its lookup');
+  ok(lookupFits('ALKEMCORT-H INJ', { brand: '', generic: '' }), 'no lookup at all is nothing to doubt');
+  const real2 = await call('purchaseImport:parse', b64(fs.readFileSync(FILE2)));
+  ok(real2.ok === true, `the second file is accepted as it is (${real2.ok ? '' : (real2.problems || []).join(' | ')})`);
+  const e0 = real2.draft as Draft;
+  eq(e0.lines.length, 41, 'all 41 lines are there again');
+  eq(e0.bill.pages_seen + ' / ' + e0.bill.printed.net, '2 of 2 / 7449', 'both pages seen, the printed net ₹7,449.00');
+  const e1 = checkDraft(e0, { today: TODAY });
+  const ep = e1.reconciliation.parts ?? [];
+  const epBefore = ep.find((p) => /before discount/i.test(p.label));
+  ok(!!epBefore && Math.abs(epBefore.diff) < 0.005, `this time every quantity and rate is right: the items total before discount equals the bill's ₹7,289.47 (difference ${epBefore?.diff})`);
+  const epDisc = ep.find((p) => /^Discount/.test(p.label)), epGst = ep.find((p) => /GST/.test(p.label));
+  ok(!!epDisc && Math.abs(epDisc.diff) > 0.5 && Math.abs(epDisc.diff) < 2, `…but the discount is a little off (${epDisc?.diff}) and the GST is short by ${epGst?.diff} — the two lines ChatGPT gave the wrong GST / discount`);
+  const sheet2 = byName(e0, /BED SHEET/), sterile = byName(e0, /STERILE WATER/);
+  eq(`${sheet2.gst_rate}/${sheet2.disc_pct}`, '5/0', 'the bed sheet came back as GST 5 and no discount (the bill: 18 and 3.00)');
+  eq(sterile.disc_pct, 3, '…and the sterile water as 3% (the bill: "NO DISC", 0.00)');
+  const c2 = e1.problems.map((p) => `${p.line ?? '·'}:${p.code}`);
+  const hyok = byName(e0, /HYKOFEM/);
+  ok(hyok.lookup_suspect === true && hyok.lookup.brand === '' && hyok.suggested_new.generic_name === '' && c2.includes(`${hyok.id}:lookup_mismatch`), 'HYKOFEM INJ carries Novaclav\'s composition — the lookup slid one row: it is flagged and NOT used for the new medicine');
+  const nova = byName(e0, /NOVACLAV/);
+  eq(`${nova.suggested_new.item_type ?? 'medicine'}/${nova.suggested_new.form}`, 'medicine/Injection', 'NOVACLAV 1.2G INJ, which ChatGPT called "Consumable", is still read as an injection (its HSN is 3004)');
+  const dexa = byName(e0, /ALKEM DEXA/);
+  eq(`${dexa.lookup.strength}|${dexa.suggested_new.strength}`, '|', 'a Strength cell that says "AMBIGUOUS" is not offered as the strength');
+  const adr = byName(e0, /ADRENALINE AMP/);
+  eq(adr.lookup.strength, '1 mg/ml', '"1 mg/ml (strength not independently confirmed)" becomes 1 mg/ml');
+  const klot = byName(e0, /KLOTIN/);
+  eq(`${klot.lookup.generic}|${klot.lookup.strength}|${/1mg\.com/.test(klot.lookup.source)}`, 'Tranexamic acid|500 mg/5 ml|true', 'KLOTIN is now found: tranexamic acid 500 mg/5 ml, with the 1mg page as its source');
+  const fix2 = byName(e0, /CANNULA FIXATOR/);
+  ok(c2.includes(`${fix2.id}:scheme_in_name`), 'the "1+1" cannula fixator still came back with Free 0 — the name check catches it');
+  const looked = e0.lines.filter((l) => l.lookup.generic || l.lookup.brand).length;
+  ok(looked >= 20, `${looked} of 41 lines carry a lookup (before: 8)`);
+  // what a pharmacist corrects from the bill, and the bill reconciles
+  let f = e0;
+  f = patchLine(f, sheet2.id, { gst_rate: 18, disc_pct: 3 });
+  f = patchLine(f, sterile.id, { disc_pct: 0 });
+  f = patchLine(f, fix2.id, { free_qty: 10 });
+  const f1 = checkDraft(f, { today: TODAY });
+  ok(f1.reconciliation.ok && Math.abs(f1.reconciliation.difference as number) <= 1, `after those three corrections the lines add up to the printed ₹7,449.00 (difference ${f1.reconciliation.difference})`);
+  ok(!f1.problems.some((p) => p.code === 'totals_differ'), '…and "where the difference is" has nothing left to say');
 
   finish();
 })().catch((e) => { console.error('SUITE CRASHED', e); process.exit(1); });

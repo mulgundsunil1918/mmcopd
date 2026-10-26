@@ -4,7 +4,7 @@
  */
 import { BILL_FIELDS, FORM_FAMILIES, ITEM_COLUMNS, SHEET_BILL, SHEET_ITEMS, billFieldFor, itemColumnFor } from './template';
 import { cleanText, parseBillDate, parseExpiry, parseNumber, simplify } from './normalize';
-import { looksConsumable, pagesMissing, printedStrength, stripBillingNotes } from './items';
+import { lookupCell, lookupFits, looksConsumable, pagesMissing, printedStrength, stripBillingNotes } from './items';
 import { makeMatcher, tokenize, wordSimilarity, type AliasRef, type DrugRef } from './match';
 import type { Draft, DraftBill, DraftLine, LineLookup, NewDrugSpec, PrintedTotals } from './types';
 
@@ -211,11 +211,14 @@ export function buildDraft(read: ReadResult, ctx: BuildContext): Draft {
   const matcher = makeMatcher(ctx.drugs, ctx.aliases);
 
   const lines: DraftLine[] = read.items.map((r, i) => {
-    const lookup: LineLookup = {
-      brand: cleanText(r.brand), generic: cleanText(r.generic), strength: cleanText(r.strength), form: cleanText(r.form),
+    const shown: LineLookup = {
+      brand: lookupCell(r.brand), generic: lookupCell(r.generic), strength: lookupCell(r.strength), form: lookupCell(r.form),
       source: cleanText(r.lookup_source),
       confidence: ((): LineLookup['confidence'] => { const c = cleanText(r.lookup_confidence).toLowerCase(); return c.startsWith('h') ? 'High' : c.startsWith('m') ? 'Medium' : c.startsWith('l') ? 'Low' : ''; })(),
     };
+    // a lookup that shares no word with this line's own name belongs to another row: shown for the person, never used to suggest or match anything
+    const suspect = !lookupFits(cleanText(r.printed_name), shown);
+    const lookup: LineLookup = suspect ? { brand: '', generic: '', strength: '', form: '', source: '', confidence: '' } : shown;
     const q = qtyOf(r.qty);
     const freeCell = num(r.free_qty);
     const flags = [cleanText(r.flags), q.free !== null ? `Qty written as ${cleanText(r.qty)}: read as ${q.qty} paid + ${q.free} free — check` : ''].filter(Boolean).join('; ');
@@ -253,6 +256,7 @@ export function buildDraft(read: ReadResult, ctx: BuildContext): Draft {
       match: { kind: m.kind, candidates: m.candidates, composition: m.composition },
       suggested_new: suggested,
       ...(matchedConsumable ? { consumable: true } : {}),
+      ...(suspect ? { lookup_suspect: true, lookup_seen: shown } : {}),
     };
   });
 

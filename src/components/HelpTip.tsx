@@ -8,6 +8,9 @@
  *
  * Deliberately click-to-open rather than hover: hover tooltips are unusable on a
  * touchscreen reception PC and unreadable if the text is longer than a line.
+ *
+ * The popup sits INSIDE the label it explains, so it must reset what a label hands down (no-wrap, upper case, letter-spacing) — a label that is
+ * "one line, never wrapped" once made the explanation run out of its own box.
  */
 import { useEffect, useRef, useState } from 'react';
 import { HelpCircle, X } from 'lucide-react';
@@ -50,7 +53,8 @@ export function HelpTip({ title, children, align = 'left' }: {
       {open && (
         <div
           className={`absolute z-[300] top-6 ${align === 'right' ? 'right-0' : 'left-0'} w-[320px] max-w-[85vw]
-            rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl p-3 text-left`}
+            rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl p-3 text-left
+            whitespace-normal normal-case tracking-normal font-normal break-words`}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-start justify-between gap-2 mb-1">
@@ -60,7 +64,7 @@ export function HelpTip({ title, children, align = 'left' }: {
               <X className="w-4 h-4" />
             </button>
           </div>
-          <div className="text-[11.5px] text-gray-600 dark:text-slate-300 leading-relaxed space-y-1.5 normal-case tracking-normal font-normal">
+          <div className="text-[11.5px] text-gray-600 dark:text-slate-300 leading-relaxed space-y-1.5 normal-case tracking-normal font-normal whitespace-normal">
             {children}
           </div>
         </div>

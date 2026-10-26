@@ -52,6 +52,10 @@ export interface DraftLine {
   printed_amount: number | null;
   /** ChatGPT's own notes on the line. */
   flags: string;
+  /** What ChatGPT looked up does not look like THIS line (it shares no word with the name as printed — the lookups may have slid to another row): it is shown, but not used. */
+  lookup_suspect?: boolean;
+  /** …and what ChatGPT wrote there, so the screen can say what was left out. */
+  lookup_seen?: LineLookup;
   // ---- the person's choices ----
   drug_id: number | null;
   new_drug: NewDrugSpec | null;

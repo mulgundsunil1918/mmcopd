@@ -109,6 +109,11 @@ function LineCardView({ line, problems, money, drugs, acts }: Props) {
           })()}
         </div>
       )}
+      {line.lookup_suspect && line.lookup_seen && (
+        <div className="text-[11px] text-amber-800 dark:text-amber-300">
+          ChatGPT’s lookup on this row — {[line.lookup_seen.brand, line.lookup_seen.generic, line.lookup_seen.strength].filter(Boolean).join(' · ')} — does not look like this medicine, so it is <b>not used</b>.
+        </div>
+      )}
       {!line.new_drug && (line.lookup.brand || line.lookup.generic || line.lookup.strength) && (
         <div className="text-[11px] text-gray-500 dark:text-slate-400">
           ChatGPT’s lookup{line.lookup.source ? ` (${line.lookup.source}${line.lookup.confidence ? `, ${line.lookup.confidence.toLowerCase()}` : ''})` : ''}:{' '}

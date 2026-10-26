@@ -70,3 +70,34 @@ export function pagesMissing(text: string): { seen: number; total: number } | nu
   if (pairs.some((p) => p.seen >= p.total)) return null;
   return pairs.reduce((a, b) => (b.total > a.total ? b : a));
 }
+
+// ---------------------------------------------------------------------------------------------------------------- what ChatGPT looked up
+/** Words ChatGPT sometimes writes INTO a lookup cell instead of leaving it empty and saying so in Flags. */
+const NOT_A_VALUE = /^(ambiguous|not found|not available|n\/?a|unknown|none|nil|unconfirmed|not confirmed|not verified|\?+|—|-)$/i;
+/**
+ * A lookup cell as the VALUE it should be: "AMBIGUOUS" or "NOT FOUND" typed into Strength is not a strength, and a remark in brackets
+ * ("1 mg/ml (strength not independently confirmed)") is not part of it — both would otherwise be offered as the new medicine's strength.
+ */
+export function lookupCell(v: unknown): string {
+  const t = cleanText(v);
+  if (NOT_A_VALUE.test(t)) return '';
+  return t.replace(/\s*\((?=[^)]*\b(?:not (?:independently )?(?:confirmed|verified)|unconfirmed|unverified|uncertain|could not|not sure)\b)[^)]*\)\s*$/i, '').trim();
+}
+
+const NAME_NOISE = new Set(['inj', 'injection', 'inf', 'infusion', 'tab', 'tablet', 'tabs', 'cap', 'capsule', 'caps', 'syp', 'syrup', 'susp', 'suspension', 'drops', 'cream', 'ointment', 'gel',
+  'amp', 'ampoule', 'ampule', 'vial', 'iv', 'im', 'ml', 'mg', 'gm', 'mcg', 'ltr', 'no', 'nw', 'for', 'of', 'the', 'and', 'with', 'plus', 'kit', 'set', 'strip', 'pack', 'disc', 'new', 'sol', 'solution', 'inf.']);
+const lookWords = (s: string): string[] => (cleanText(s).toLowerCase().match(/[a-z]{3,}/g) ?? []).filter((w) => !NAME_NOISE.has(w));
+/** Two words are "the same name" if they are equal or share their first four letters (ONDANAUS / Ondansetron). */
+const sameWord = (a: string, b: string): boolean => a === b || (a.length >= 4 && b.length >= 4 && a.slice(0, 4) === b.slice(0, 4));
+
+/**
+ * Does what ChatGPT looked up look like THIS line? ChatGPT once wrote Novaclav's composition on the row of "HYOKEM INJ" (the lookups slid one row).
+ * A brand or generic that shares no word with the name as printed belongs to another line: it must not be offered as this medicine's composition.
+ * True when nothing can be told (no lookup, or a name with no usable word).
+ */
+export function lookupFits(printedName: string, lookup: { brand: string; generic: string }): boolean {
+  const printed = lookWords(printedName);
+  const found = [...lookWords(lookup.brand), ...lookWords(lookup.generic)];
+  if (!printed.length || !found.length) return true;
+  return printed.some((p) => found.some((f) => sameWord(p, f)));
+}

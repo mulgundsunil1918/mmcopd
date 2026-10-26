@@ -145,6 +145,10 @@ export function checkLine(l: DraftLine, ctx: CheckContext): Problem[] {
   if (l.mrp !== null && l.rate !== null && l.mrp > 0 && l.rate > 0 && l.gst_rate !== null && l.rate * (1 + l.gst_rate / 100) > l.mrp + 0.005) {
     add('mrp_below_cost', 'warn', `The MRP (${money(l.mrp)}) is lower than the rate with GST (${money(l.rate * (1 + l.gst_rate / 100))}) — you would sell below cost. Check the MRP and the rate.`, 'mrp');
   }
+  if (l.lookup_suspect) {
+    const seen = [l.lookup_seen?.brand, l.lookup_seen?.generic].filter(Boolean).join(' / ');
+    add('lookup_mismatch', 'warn', `ChatGPT's lookup for this line (${seen}) does not look like “${l.printed_name}” — it may belong to another row, so it was NOT used. Check the pack, and fill in the generic name and strength yourself.`, 'drug');
+  }
   if (l.flags.trim()) add('chatgpt_flags', 'warn', `ChatGPT noted: ${l.flags.trim()}`);
   return out;
 }
