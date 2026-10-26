@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Modal } from '../Modal';
 import { useToast } from '../../hooks/useToast';
 import type { DrugMaster, DrugSchedule } from '../../types';
+import { SameMedicineNote } from './SameMedicineNote';
 
 export const FORMS = ['Tablet', 'Capsule', 'Syrup', 'Suspension', 'Drops', 'Injection', 'Ointment', 'Cream', 'Gel', 'Inhaler', 'Powder', 'Sachet', 'Other'];
 export const SCHEDULES: { value: DrugSchedule; label: string }[] = [
@@ -79,6 +80,7 @@ export function QuickDrugModal({ initialName = '', onClose, onCreated }: {
           <div><label className="label">HSN code</label><input className="input" value={f.hsn} maxLength={12} onChange={(e) => set('hsn', e.target.value)} /></div>
           <div><label className="label">MRP per unit (₹)</label><input className="input" type="number" min={0} step="0.01" value={f.mrp} onChange={(e) => set('mrp', e.target.value)} /></div>
         </div>
+        <SameMedicineNote generic={f.generic} strength={f.strength} form={f.form} />
         {err && <div className="text-[12px] text-red-600" role="alert">{err}</div>}
         <div className="flex justify-end gap-2 pt-1">
           <button className="btn-secondary" onClick={onClose}>Cancel</button>

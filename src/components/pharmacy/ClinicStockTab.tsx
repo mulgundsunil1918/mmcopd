@@ -2,6 +2,9 @@
  * "Drugs in my clinic" — the drugs the clinic actually holds, one row each (this replaces the old Stock & Batches tab and the
  * stock column of Drug Master). What each shelf looks like: units in stock, the next expiry, what a unit costs, what it sells for.
  * Click a drug to see its batches. The low-stock / expiry alerts live here as filters. Which drugs exist at all is the Drug List's job.
+ * Brands of ONE medicine (Dolo 650, Crocin 650 and "Paracetamol 650 mg Tablet": same ingredient, strength and form) sit together under one
+ * heading with the medicine's total — "Out of stock" and "Low stock" are about the medicine, not about one brand running out while another is on
+ * the shelf. Each brand keeps its own row, batches, price and edit button.
  * Admin and the pharmacy in-charge can also tick drugs and delete them (with their stock and batches), or "Start fresh" to clear the lot.
  */
 import { useMemo, useState } from 'react';
@@ -14,6 +17,7 @@ import { useToast } from '../../hooks/useToast';
 import { canAnyRole, useAuth } from '../../hooks/useAuth';
 import { cn, fmtDate, formatINR } from '../../lib/utils';
 import { profitMetrics } from '../../lib/pharmacyMath';
+import { groupByMedicine, isGenericNamed, medicineStock, medicineTitle, type MedicineGroup } from '../../lib/medicineGroups';
 import type { ClinicStockRow, DrugMaster, DrugStockBatch } from '../../types';
 import { DrugEditModal } from './DrugEditModal';
 import { QuickDrugModal } from './QuickDrugModal';
@@ -33,17 +37,25 @@ const CHIPS: { key: ClinicFilter; label: string; tone: string; title: string }[]
 const matches = (r: ClinicStockRow, f: ClinicFilter) =>
   f === 'all' ? true : f === 'low' ? r.low_stock : f === 'out' ? r.out_of_stock : f === 'expiring' ? r.expiring_soon : f === 'expired' ? r.expired : r.cost_unverified;
 
-/** How many drugs fall under each filter — the Pharmacy page's slim alert line uses the same counts. */
+type Unit = MedicineGroup<ClinicStockRow>;
+/** The things the list is made of: a medicine (one or more brands). */
+const unitsOf = (rows: ClinicStockRow[]): Unit[] => groupByMedicine(rows);
+/** A medicine with several brands is low / out as a whole; a single drug follows its own flags. Expiry and cost flags: any brand. */
+const unitMatches = (u: Unit, f: ClinicFilter) => {
+  if (f === 'all') return true;
+  if (u.rows.length === 1) return matches(u.rows[0], f);
+  const st = medicineStock(u.rows);
+  return f === 'low' ? st.low : f === 'out' ? st.out : u.rows.some((r) => matches(r, f));
+};
+
+/** How many medicines fall under each filter — the Pharmacy page's slim alert line uses the same counts. */
 export function clinicCounts(rows: ClinicStockRow[]): Record<ClinicFilter, number> {
-  return {
-    all: rows.length,
-    low: rows.filter((r) => r.low_stock).length,
-    out: rows.filter((r) => r.out_of_stock).length,
-    expiring: rows.filter((r) => r.expiring_soon).length,
-    expired: rows.filter((r) => r.expired).length,
-    cost: rows.filter((r) => r.cost_unverified).length,
-  };
+  const us = unitsOf(rows);
+  const n = (f: ClinicFilter) => us.filter((u) => unitMatches(u, f)).length;
+  return { all: us.length, low: n('low'), out: n('out'), expiring: n('expiring'), expired: n('expired'), cost: n('cost') };
 }
+
+const SCHED_RANK: Record<string, number> = { X: 5, H1: 4, H: 3, G: 2, OTC: 1 };
 
 export const CLINIC_STOCK_KEY = 'pharmacy-clinic-stock';
 export const useClinicStock = () => useQuery({
@@ -66,6 +78,7 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
   const canClear = canAnyRole(user, ['pharmacist'], adminUnlocked);
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [clearing, setClearing] = useState<{ ids: number[] | null; names: string[] } | null>(null);
+  const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
 
   const { data: rows = [], isLoading } = useClinicStock();
   const counts = useMemo(() => clinicCounts(rows), [rows]);
@@ -79,12 +92,14 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
     return { lo: profitMetrics(net(d.price_min), d.avg_cost), hi: profitMetrics(net(d.price_max ?? d.price_min), d.avg_cost) };
   };
 
-  const shown = useMemo(() => {
+  // A medicine whose brand matches the search or the filter is shown WITH its other brands — that is what "together" means.
+  const shownUnits = useMemo(() => {
     const t = q.trim().toLowerCase();
-    return rows.filter((r) => matches(r, filter)
-      && (!t || r.name.toLowerCase().includes(t) || (r.generic_name || '').toLowerCase().includes(t)
-        || (r.manufacturer || '').toLowerCase().includes(t) || (r.barcode || '') === q.trim()));
+    const hit = (r: ClinicStockRow) => !t || r.name.toLowerCase().includes(t) || (r.generic_name || '').toLowerCase().includes(t)
+      || (r.manufacturer || '').toLowerCase().includes(t) || (r.barcode || '') === q.trim();
+    return unitsOf(rows).filter((u) => unitMatches(u, filter) && u.rows.some(hit));
   }, [rows, q, filter]);
+  const shown = useMemo(() => shownUnits.flatMap((u) => u.rows), [shownUnits]);
 
   // What is ticked AND still on screen: a tick hidden by a search or a filter is never deleted by surprise.
   const picked = useMemo(() => shown.filter((r) => sel.has(r.id)), [shown, sel]);
@@ -110,6 +125,163 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
 
   const startBatch = (d: { id: number; name: string; default_mrp: number }) =>
     setEditing({ drug_master_id: d.id, drug_name: d.name, batch_no: '', expiry: '', manufacture_date: '', qty_received: 0, qty_remaining: 0, mrp: d.default_mrp, is_active: 1 });
+
+  /** One drug's row: its stock, expiry, cost and price, its edit / batch buttons, and its batches when opened. `nested` = one brand under a medicine heading. */
+  const renderRow = (d: ClinicStockRow, nested: boolean) => {
+    const isOpen = openId === d.id;
+    const days = d.next_expiry ? daysUntil(d.next_expiry) : null;
+    const ticked = sel.has(d.id);
+    return (
+      <li key={d.id} className={cn(ticked && 'bg-blue-50/60 dark:bg-blue-900/20', nested && !ticked && 'bg-gray-50/60 dark:bg-slate-800/30')}>
+        {/* A div, not a <button>: it holds the "+ Batch" button, and a button inside a button is invalid HTML. */}
+        <div
+          role="button"
+          tabIndex={0}
+          className={cn('grid items-center gap-3 py-2.5 hover:bg-gray-50 dark:hover:bg-slate-800/40 text-left cursor-pointer', nested ? 'pl-7 pr-2' : 'px-2', gridRow)}
+          onClick={() => setOpenId(isOpen ? null : d.id)}
+          onKeyDown={(e) => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenId(isOpen ? null : d.id); } }}
+        >
+          {canClear && (
+            <input type="checkbox" checked={ticked} aria-label={`Select ${d.name}`}
+              onClick={(e) => e.stopPropagation()} onChange={() => toggleOne(d.id)} />
+          )}
+          {isOpen ? <ChevronDown className="w-4 h-4 text-gray-500" /> : <ChevronRight className="w-4 h-4 text-gray-500" />}
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">
+              {d.name}
+              {nested && isGenericNamed(d) && <span className="badge bg-sky-100 text-sky-700 ml-2 align-middle" title="Named by its ingredient, not by a brand — a prescription for the generic can be given from any brand of this medicine">generic</span>}
+              {Number(d.is_active) === 0 && <span className="badge bg-gray-200 text-gray-600 ml-2 align-middle" title="Removed from the Drug List, but units are still on the shelf">Inactive</span>}
+            </div>
+            <div className="text-[11px] text-gray-500 dark:text-slate-400 truncate">
+              {[d.generic_name, d.form, d.strength, d.manufacturer].filter((x) => x && x !== '—').join(' · ') || '—'}
+            </div>
+          </div>
+          <div className="hidden md:block"><ScheduleBadge schedule={d.schedule} /></div>
+          <div className="hidden md:block text-right">
+            <span className={cn('text-sm font-bold tabular-nums', d.out_of_stock ? 'text-red-600 dark:text-red-400' : d.low_stock ? 'text-amber-700 dark:text-amber-300' : '')}>{d.stock_qty}</span>
+            {d.out_of_stock && <div className="text-[10px] font-semibold text-red-600 dark:text-red-400">Out</div>}
+            {d.low_stock && <div className="text-[10px] font-semibold text-amber-700 dark:text-amber-300">Low</div>}
+          </div>
+          <div className="hidden md:block text-xs">
+            {d.next_expiry ? (
+              <>
+                <div className={cn(d.expired ? 'text-red-600 dark:text-red-400 font-semibold' : d.expiring_soon ? 'text-amber-700 dark:text-amber-300 font-semibold' : '')}>{fmtDate(d.next_expiry)}</div>
+                {d.expired ? <div className="text-[10px] font-semibold text-red-600 dark:text-red-400">EXPIRED</div>
+                  : d.expiring_soon && days != null ? <div className="text-[10px] text-amber-700 dark:text-amber-300">{days === 0 ? 'today' : `in ${days}d`}</div> : null}
+              </>
+            ) : <span className="text-gray-400">—</span>}
+          </div>
+          <div className="hidden md:block text-right text-sm tabular-nums">
+            {d.avg_cost != null ? formatINR(d.avg_cost) : <span className="text-gray-400">—</span>}
+            {d.cost_unverified && (
+              <span className="ml-1 text-amber-600" title="Some of this stock was typed in by hand or has no recorded cost — profit on it is a guess"><AlertTriangle className="w-3 h-3 inline -mt-0.5" /></span>
+            )}
+          </div>
+          <div className="hidden md:block text-right text-sm tabular-nums">
+            {d.price_min == null ? <span className="text-gray-400">—</span>
+              : d.price_min === d.price_max ? formatINR(d.price_min) : <>{formatINR(d.price_min)}<span className="text-gray-400"> – </span>{formatINR(d.price_max as number)}</>}
+          </div>
+          <div className="hidden md:block text-right text-sm tabular-nums">
+            {(() => {
+              const m = unitMoney(d);
+              if (!m) return <span className="text-gray-400" title={d.avg_cost == null ? 'No cost on record for this stock' : ''}>—</span>;
+              const same = Math.abs(m.lo.profit - m.hi.profit) < 0.005;
+              const bad = m.lo.profit < 0 || (m.lo.marginPct !== null && m.lo.marginPct < 10);
+              return (
+                <>
+                  <div className={cn('font-semibold', bad && 'text-red-600 dark:text-red-400')}>{same ? formatINR(m.lo.profit) : <>{formatINR(m.lo.profit)}<span className="text-gray-400"> – </span>{formatINR(m.hi.profit)}</>}</div>
+                  {m.lo.marginPct !== null && (
+                    <div className={cn('text-[10px] leading-tight', bad ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-slate-400')}>
+                      {same || m.hi.marginPct === null ? `${m.lo.marginPct.toFixed(1)}% margin` : `${m.lo.marginPct.toFixed(0)}–${m.hi.marginPct.toFixed(0)}% margin`}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+          <div className="flex items-center justify-end gap-1">
+            <span className="md:hidden text-sm font-bold tabular-nums mr-2">{d.stock_qty}</span>
+            <button type="button" className="btn-ghost text-xs" title="Add a batch of this drug by hand" onClick={(e) => { e.stopPropagation(); startBatch(d); }}>
+              <Plus className="w-3.5 h-3.5" /> Batch
+            </button>
+            <button type="button" className="btn-ghost text-xs" title="Edit the drug (name, schedule, GST, MRP, low-stock level)" onClick={(e) => { e.stopPropagation(); setEditDrug(d); }}>
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+        {isOpen && <BatchList drugMasterId={d.id} drugName={d.name} drugDefaultMrp={d.default_mrp} gstRate={d.gst_rate} gstCharged={gstCharged} onEdit={(b) => setEditing({ ...b, drug_master_id: d.id, drug_name: d.name })} />}
+      </li>
+    );
+  };
+
+  /** The heading of a medicine that has several brands: its own name, what is left over ALL its brands, the nearest expiry, the price range. */
+  const renderGroup = (u: Unit) => {
+    const key = u.key as string;
+    const st = medicineStock(u.rows);
+    const open = !closedGroups.has(key);
+    const title = medicineTitle(u.rows);
+    const sched = u.rows.map((r) => r.schedule).sort((a, b) => (SCHED_RANK[b] ?? 0) - (SCHED_RANK[a] ?? 0))[0];
+    const days = st.nextExpiry ? daysUntil(st.nextExpiry) : null;
+    const anyExpired = u.rows.some((r) => r.expired);
+    const anySoon = u.rows.some((r) => r.expiring_soon);
+    const lo = u.rows.map((r) => r.price_min).filter((x): x is number => x != null);
+    const hi = u.rows.map((r) => r.price_max).filter((x): x is number => x != null);
+    const allIn = u.rows.every((r) => sel.has(r.id));
+    const someIn = u.rows.some((r) => sel.has(r.id));
+    const toggle = () => setClosedGroups((c) => { const n = new Set(c); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+    const brands = u.rows.map((r) => `${r.name}${isGenericNamed(r) ? ' (generic)' : ''}: ${r.stock_qty}`).join('  ·  ');
+    return (
+      <li key={`g:${key}`} className="bg-slate-50/60 dark:bg-slate-800/20">
+        <div
+          role="button"
+          tabIndex={0}
+          aria-expanded={open}
+          className={cn('grid items-center gap-3 py-2.5 px-2 hover:bg-slate-100/70 dark:hover:bg-slate-800/50 text-left cursor-pointer', gridRow)}
+          onClick={toggle}
+          onKeyDown={(e) => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } }}
+        >
+          {canClear && (
+            <input type="checkbox" checked={allIn} aria-label={`Select every brand of ${title}`} title="Select every brand of this medicine"
+              ref={(el) => { if (el) el.indeterminate = someIn && !allIn; }}
+              onClick={(e) => e.stopPropagation()}
+              onChange={() => setSel((s) => { const n = new Set(s); for (const r of u.rows) { if (allIn) n.delete(r.id); else n.add(r.id); } return n; })} />
+          )}
+          {open ? <ChevronDown className="w-4 h-4 text-gray-500" /> : <ChevronRight className="w-4 h-4 text-gray-500" />}
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-sm font-semibold text-gray-900 dark:text-slate-100 truncate" title={title}>{title}</span>
+              <span className="badge bg-indigo-100 text-indigo-700 shrink-0" title="Same ingredient, strength and form — the brands below are one medicine">{u.rows.length} brands</span>
+            </div>
+            <div className="text-[11px] text-gray-500 dark:text-slate-400 truncate" title={brands}>{brands}</div>
+          </div>
+          <div className="hidden md:block"><ScheduleBadge schedule={sched} /></div>
+          <div className="hidden md:block text-right">
+            <span className={cn('text-sm font-bold tabular-nums', st.out ? 'text-red-600 dark:text-red-400' : st.low ? 'text-amber-700 dark:text-amber-300' : '')}>{st.stock}</span>
+            {st.out && <div className="text-[10px] font-semibold text-red-600 dark:text-red-400">Out</div>}
+            {st.low && <div className="text-[10px] font-semibold text-amber-700 dark:text-amber-300">Low</div>}
+            {!st.out && !st.low && <div className="text-[10px] text-gray-400">all brands</div>}
+          </div>
+          <div className="hidden md:block text-xs">
+            {st.nextExpiry ? (
+              <>
+                <div className={cn(anyExpired ? 'text-red-600 dark:text-red-400 font-semibold' : anySoon ? 'text-amber-700 dark:text-amber-300 font-semibold' : '')}>{fmtDate(st.nextExpiry)}</div>
+                {anyExpired ? <div className="text-[10px] font-semibold text-red-600 dark:text-red-400">EXPIRED</div>
+                  : anySoon && days != null ? <div className="text-[10px] text-amber-700 dark:text-amber-300">{days === 0 ? 'today' : `in ${days}d`}</div> : null}
+              </>
+            ) : <span className="text-gray-400">—</span>}
+          </div>
+          <div className="hidden md:block text-right text-sm text-gray-400">—</div>
+          <div className="hidden md:block text-right text-sm tabular-nums">
+            {!lo.length ? <span className="text-gray-400">—</span>
+              : Math.min(...lo) === Math.max(...hi) ? formatINR(Math.min(...lo)) : <>{formatINR(Math.min(...lo))}<span className="text-gray-400"> – </span>{formatINR(Math.max(...hi))}</>}
+          </div>
+          <div className="hidden md:block text-right text-sm text-gray-400">—</div>
+          <div className="flex items-center justify-end"><span className="md:hidden text-sm font-bold tabular-nums mr-2">{st.stock}</span></div>
+        </div>
+        {open && <ul className="divide-y divide-gray-100 dark:divide-slate-800 border-t border-gray-100 dark:border-slate-800">{u.rows.map((d) => renderRow(d, true))}</ul>}
+      </li>
+    );
+  };
 
   return (
     <section className="card p-4">
@@ -162,7 +334,7 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
         })}
       </div>
       <div className="text-[11px] text-gray-500 dark:text-slate-400 mb-2">
-        Click a drug to see its batches. Stock is sold earliest-expiry first. Record what you buy from a supplier under <b>Purchases</b>; the drugs themselves (names, prices, GST) are kept in the <b>Drug List</b>.
+        Brands of one medicine (same ingredient, strength and form — Dolo 650 and Crocin 650, say) sit together under one heading. Click a drug to see its batches. Stock is sold earliest-expiry first. Record what you buy from a supplier under <b>Purchases</b>; the drugs themselves (names, prices, GST) are kept in the <b>Drug List</b>.
         {canClear && <> Tick drugs to delete just those, or use <b>Start fresh</b> to clear everything.</>}
       </div>
       {costOpen && <CostNotRecordedModal onClose={() => setCostOpen(false)} />}
@@ -216,91 +388,7 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
             <span />
           </div>
           <ul className="divide-y divide-gray-100 dark:divide-slate-800">
-            {shown.map((d) => {
-              const isOpen = openId === d.id;
-              const days = d.next_expiry ? daysUntil(d.next_expiry) : null;
-              const ticked = sel.has(d.id);
-              return (
-                <li key={d.id} className={cn(ticked && 'bg-blue-50/60 dark:bg-blue-900/20')}>
-                  {/* A div, not a <button>: it holds the "+ Batch" button, and a button inside a button is invalid HTML. */}
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    className={cn('grid items-center gap-3 py-2.5 px-2 hover:bg-gray-50 dark:hover:bg-slate-800/40 text-left cursor-pointer', gridRow)}
-                    onClick={() => setOpenId(isOpen ? null : d.id)}
-                    onKeyDown={(e) => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenId(isOpen ? null : d.id); } }}
-                  >
-                    {canClear && (
-                      <input type="checkbox" checked={ticked} aria-label={`Select ${d.name}`}
-                        onClick={(e) => e.stopPropagation()} onChange={() => toggleOne(d.id)} />
-                    )}
-                    {isOpen ? <ChevronDown className="w-4 h-4 text-gray-500" /> : <ChevronRight className="w-4 h-4 text-gray-500" />}
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">
-                        {d.name}
-                        {Number(d.is_active) === 0 && <span className="badge bg-gray-200 text-gray-600 ml-2 align-middle" title="Removed from the Drug List, but units are still on the shelf">Inactive</span>}
-                      </div>
-                      <div className="text-[11px] text-gray-500 dark:text-slate-400 truncate">
-                        {[d.generic_name, d.form, d.strength, d.manufacturer].filter((x) => x && x !== '—').join(' · ') || '—'}
-                      </div>
-                    </div>
-                    <div className="hidden md:block"><ScheduleBadge schedule={d.schedule} /></div>
-                    <div className="hidden md:block text-right">
-                      <span className={cn('text-sm font-bold tabular-nums', d.out_of_stock ? 'text-red-600 dark:text-red-400' : d.low_stock ? 'text-amber-700 dark:text-amber-300' : '')}>{d.stock_qty}</span>
-                      {d.out_of_stock && <div className="text-[10px] font-semibold text-red-600 dark:text-red-400">Out</div>}
-                      {d.low_stock && <div className="text-[10px] font-semibold text-amber-700 dark:text-amber-300">Low</div>}
-                    </div>
-                    <div className="hidden md:block text-xs">
-                      {d.next_expiry ? (
-                        <>
-                          <div className={cn(d.expired ? 'text-red-600 dark:text-red-400 font-semibold' : d.expiring_soon ? 'text-amber-700 dark:text-amber-300 font-semibold' : '')}>{fmtDate(d.next_expiry)}</div>
-                          {d.expired ? <div className="text-[10px] font-semibold text-red-600 dark:text-red-400">EXPIRED</div>
-                            : d.expiring_soon && days != null ? <div className="text-[10px] text-amber-700 dark:text-amber-300">{days === 0 ? 'today' : `in ${days}d`}</div> : null}
-                        </>
-                      ) : <span className="text-gray-400">—</span>}
-                    </div>
-                    <div className="hidden md:block text-right text-sm tabular-nums">
-                      {d.avg_cost != null ? formatINR(d.avg_cost) : <span className="text-gray-400">—</span>}
-                      {d.cost_unverified && (
-                        <span className="ml-1 text-amber-600" title="Some of this stock was typed in by hand or has no recorded cost — profit on it is a guess"><AlertTriangle className="w-3 h-3 inline -mt-0.5" /></span>
-                      )}
-                    </div>
-                    <div className="hidden md:block text-right text-sm tabular-nums">
-                      {d.price_min == null ? <span className="text-gray-400">—</span>
-                        : d.price_min === d.price_max ? formatINR(d.price_min) : <>{formatINR(d.price_min)}<span className="text-gray-400"> – </span>{formatINR(d.price_max as number)}</>}
-                    </div>
-                    <div className="hidden md:block text-right text-sm tabular-nums">
-                      {(() => {
-                        const m = unitMoney(d);
-                        if (!m) return <span className="text-gray-400" title={d.avg_cost == null ? 'No cost on record for this stock' : ''}>—</span>;
-                        const same = Math.abs(m.lo.profit - m.hi.profit) < 0.005;
-                        const bad = m.lo.profit < 0 || (m.lo.marginPct !== null && m.lo.marginPct < 10);
-                        return (
-                          <>
-                            <div className={cn('font-semibold', bad && 'text-red-600 dark:text-red-400')}>{same ? formatINR(m.lo.profit) : <>{formatINR(m.lo.profit)}<span className="text-gray-400"> – </span>{formatINR(m.hi.profit)}</>}</div>
-                            {m.lo.marginPct !== null && (
-                              <div className={cn('text-[10px] leading-tight', bad ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-slate-400')}>
-                                {same || m.hi.marginPct === null ? `${m.lo.marginPct.toFixed(1)}% margin` : `${m.lo.marginPct.toFixed(0)}–${m.hi.marginPct.toFixed(0)}% margin`}
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()}
-                    </div>
-                    <div className="flex items-center justify-end gap-1">
-                      <span className="md:hidden text-sm font-bold tabular-nums mr-2">{d.stock_qty}</span>
-                      <button type="button" className="btn-ghost text-xs" title="Add a batch of this drug by hand" onClick={(e) => { e.stopPropagation(); startBatch(d); }}>
-                        <Plus className="w-3.5 h-3.5" /> Batch
-                      </button>
-                      <button type="button" className="btn-ghost text-xs" title="Edit the drug (name, schedule, GST, MRP, low-stock level)" onClick={(e) => { e.stopPropagation(); setEditDrug(d); }}>
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                  {isOpen && <BatchList drugMasterId={d.id} drugName={d.name} drugDefaultMrp={d.default_mrp} gstRate={d.gst_rate} gstCharged={gstCharged} onEdit={(b) => setEditing({ ...b, drug_master_id: d.id, drug_name: d.name })} />}
-                </li>
-              );
-            })}
+            {shownUnits.map((u) => (u.rows.length === 1 || !u.key ? renderRow(u.rows[0], false) : renderGroup(u)))}
           </ul>
         </>
       )}

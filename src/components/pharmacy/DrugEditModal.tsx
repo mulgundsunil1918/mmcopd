@@ -8,6 +8,7 @@ import { Modal } from '../Modal';
 import { useToast } from '../../hooks/useToast';
 import { Field } from './shared';
 import type { DrugMaster, DrugSchedule } from '../../types';
+import { SameMedicineNote } from './SameMedicineNote';
 
 export const SCHEDULES: { value: DrugSchedule; label: string }[] = [
   { value: 'OTC', label: 'OTC (over the counter)' },
@@ -72,6 +73,7 @@ export function DrugEditModal({ drug, onClose }: { drug: Partial<DrugMaster>; on
           <Field label="Barcode (EAN/UPC)"><input className="input" placeholder="optional" value={editing.barcode || ''} onChange={(e) => setEditing({ ...editing, barcode: e.target.value })} /></Field>
           <Field label="Low-stock Threshold"><input type="number" className="input" value={editing.low_stock_threshold ?? 10} onChange={(e) => setEditing({ ...editing, low_stock_threshold: Number(e.target.value) })} /></Field>
         </div>
+        <SameMedicineNote id={editing.id} generic={editing.generic_name} strength={editing.strength} form={editing.form} />
         <Field label="Notes">
           <textarea className="input" rows={2} value={editing.notes || ''} onChange={(e) => setEditing({ ...editing, notes: e.target.value })} />
         </Field>

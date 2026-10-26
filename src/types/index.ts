@@ -396,6 +396,9 @@ export interface DrugMaster {
   next_mrp?: number | null;
   next_selling_price?: number | null;
   next_unit_cost?: number | null;
+  /** Ingredient + strength + form, folded (see lib/medicineGroups.ts). Drugs with the same key are the SAME medicine under different brands;
+   *  null when the drug does not say all three. Worked out by the main process on every list, never stored. */
+  medicine_key?: string | null;
 }
 
 /** What "Start fresh" / "Delete selected" in Drugs in my clinic WOULD do, worked out without changing anything (see previewClearDrugs in main/pharmacy-finance.ts). */

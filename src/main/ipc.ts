@@ -18,6 +18,7 @@ import { LAB_CATALOG } from '../data/lab-catalog';
 import { PHARMACY_CATALOG } from '../data/pharmacy-catalog';
 import { refreshCatalogue } from '../db/catalogue';
 import { buildReferralStats, type ReferralVisit } from '../lib/referralStats';
+import { medicineKey } from '../lib/medicineGroups';
 import { seedSampleData } from '../db/sample-data';
 
 /**
@@ -2457,7 +2458,7 @@ export function registerIpc() {
       FROM drug_master m
       ${where}
       ORDER BY m.name LIMIT 500
-    `).all(...params);
+    `).all(...params).map((r: any) => ({ ...r, medicine_key: medicineKey(r) }));   // brands of one medicine share this key
   });
 
   ipcMain.handle('pharmacy:listBatches', (_e, drugMasterId: number) => {

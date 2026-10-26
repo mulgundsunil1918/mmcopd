@@ -23,6 +23,8 @@ import { WholesalersTab } from '../components/pharmacy/WholesalersTab';
 import { ReportsTab } from '../components/pharmacy/ReportsTab';
 import { DrugEditModal, DRUG_QUERY_KEYS } from '../components/pharmacy/DrugEditModal';
 import { ScheduleBadge, daysAgo } from '../components/pharmacy/shared';
+import { BrandChoice, drugForRx } from '../components/pharmacy/BrandChoice';
+import { isGenericNamed, otherBrandsInStock, siblingsOf } from '../lib/medicineGroups';
 import { useCounterDiscountLimit } from '../components/pharmacy/useDiscountLimit';
 import { PharmacySaleReceipt } from '../components/pharmacy/PharmacySaleReceipt';
 import { AdminPasswordModal } from '../components/AdminPasswordModal';
@@ -41,6 +43,18 @@ type Tab = 'dispense' | 'druglist' | 'clinic' | 'purchases' | 'sales' | 'wholesa
  * arrives with a different printed price. The rate stays editable.
  */
 const defaultRate = (d: any): number => Number(d.next_selling_price ?? d.next_mrp ?? d.mrp ?? d.default_mrp ?? 0);
+
+/** A sale line for a drug from the list: priced at the batch FEFO will hand out next, with what the shelf looks like. */
+const rowFromDrug = (d: any, qty = 1) => ({
+  drug_master_id: d.id as number,
+  drug_name: d.name as string,
+  qty,
+  rate: defaultRate(d), listRate: defaultRate(d),
+  nextBatch: (d.batch || undefined) as string | undefined,
+  nextExpiry: (d.expiry || undefined) as string | undefined,
+  stock: (d.stock_qty ?? 0) as number,
+  schedule: d.schedule as DrugSchedule | undefined,
+});
 
 export function Pharmacy() {
   const [tab, setTab] = useState<Tab>('dispense');
@@ -225,7 +239,8 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
     queryFn: () => window.electronAPI.pharmacy.listDrugs({ activeOnly: true }),
   });
 
-  type Row = { drug_master_id?: number; drug_name: string; qty: number; rate: number; /** the batch's selling price the screen offered */ listRate?: number; nextBatch?: string; nextExpiry?: string; stock?: number };
+  type Row = { drug_master_id?: number; drug_name: string; qty: number; rate: number; /** the batch's selling price the screen offered */ listRate?: number; nextBatch?: string; nextExpiry?: string; stock?: number; schedule?: DrugSchedule;
+    /** the name the doctor wrote, when the line is filled from another brand of the same medicine */ swappedFrom?: string };
   const [rows, setRows] = useState<Row[]>([]);
   const [discount, setDiscount] = useState(0);
   const [pay, setPay] = useState<PayChoice>(initialPayChoice);       // paid now / on credit / charged to the in-patient bill
@@ -259,27 +274,16 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
     toast(`Added ${exact.name}`);
   };
 
-  // When Rx items arrive, auto-fill rows from drug_master_id (preferred)
-  // or fall back to fuzzy name match.
+  // When Rx items arrive, auto-fill rows from drug_master_id (preferred) or the written name. A prescription written for the GENERIC
+  // ("Paracetamol 650 mg Tablet") that the shelf holds only under a brand (Dolo 650, Crocin 650) is filled from the brand that expires
+  // first and says so; a prescription for a BRAND is never swapped by itself — the other brands are offered under the line instead.
   useEffect(() => {
     if (rx.length === 0) { setRows([]); return; }
     const pre: Row[] = rx.map((r: any) => {
-      let match = (r.drug_master_id ? drugs.find((d) => d.id === r.drug_master_id) : null) as any;
-      if (!match) {
-        const needle = (r.drug_name || '').toLowerCase().split(' ')[0];
-        match = drugs.find((d) => d.name.toLowerCase().includes(needle));
-      }
-      return match
-        ? {
-            drug_master_id: match.id,
-            drug_name: match.name,
-            qty: 1,
-            rate: defaultRate(match), listRate: defaultRate(match),
-            nextBatch: match.batch || undefined,
-            nextExpiry: match.expiry || undefined,
-            stock: match.stock_qty ?? 0,
-          }
-        : { drug_name: r.drug_name, qty: 1, rate: 0 };
+      const match = drugForRx(drugs as any[], r) as any;
+      if (!match) return { drug_name: r.drug_name, qty: 1, rate: 0 };
+      const alt = isGenericNamed(match) && (Number(match.stock_qty) || 0) <= 0 ? otherBrandsInStock(drugs as any[], match)[0] : undefined;
+      return { ...rowFromDrug(alt || match), swappedFrom: alt ? match.name : undefined };
     });
     setRows(pre);
   }, [appointment.id, rx.length, drugs.length]);
@@ -369,8 +373,10 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
                           nextBatch: match.batch || undefined,
                           nextExpiry: match.expiry || undefined,
                           stock: match.stock_qty ?? 0,
+                          schedule: match.schedule,
+                          swappedFrom: undefined,
                         }
-                      : { drug_master_id: undefined, drug_name: e.target.value, nextBatch: undefined, nextExpiry: undefined, stock: undefined }
+                      : { drug_master_id: undefined, drug_name: e.target.value, nextBatch: undefined, nextExpiry: undefined, stock: undefined, swappedFrom: undefined }
                     );
                   }}
                 />
@@ -386,6 +392,19 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
                     ⚠ Only {r.stock} in stock
                   </div>
                 )}
+                <BrandChoice
+                  drugs={drugs as any[]} drugId={r.drug_master_id} qty={r.qty} swappedFrom={r.swappedFrom}
+                  onUse={(d: any) => {
+                    const was = drugs.find((x) => x.id === r.drug_master_id);
+                    setRow(idx, { ...rowFromDrug(d, r.qty), swappedFrom: r.swappedFrom ?? (was && isGenericNamed(was) ? was.name : undefined) });
+                  }}
+                  onTakeRest={(d: any, rest: number) => setRows((prev) => {
+                    const n = [...prev];
+                    n[idx] = { ...n[idx], qty: Math.max(0, n[idx].stock ?? 0) };
+                    n.splice(idx + 1, 0, { ...rowFromDrug(d, rest), swappedFrom: n[idx].swappedFrom });
+                    return n;
+                  })}
+                />
               </td>
               <td className="py-1.5 px-1">
                 <input type="number" className="input text-right" value={r.qty} onChange={(e) => setRow(idx, { qty: Number(e.target.value) })} />
@@ -702,6 +721,16 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
                 {r.drug_master_id != null && (r.stock ?? 0) < r.qty && (
                   <div className="text-[10px] text-red-600 dark:text-red-400 mt-0.5">⚠ Only {r.stock} in stock</div>
                 )}
+                <BrandChoice
+                  drugs={drugs as any[]} drugId={r.drug_master_id} qty={r.qty}
+                  onUse={(d: any) => setRow(idx, rowFromDrug(d, r.qty))}
+                  onTakeRest={(d: any, rest: number) => setRows((prev) => {
+                    const n = [...prev];
+                    n[idx] = { ...n[idx], qty: Math.max(0, n[idx].stock ?? 0) };
+                    n.splice(idx + 1, 0, rowFromDrug(d, rest));
+                    return n;
+                  })}
+                />
               </td>
               <td className="py-1.5 px-1"><input type="number" className="input text-right" value={r.qty} onChange={(e) => setRow(idx, { qty: Number(e.target.value) })} /></td>
               <td className="py-1.5 px-1"><input type="number" className={cn('input text-right', wardLocked && 'bg-gray-100 dark:bg-slate-800 cursor-not-allowed')} value={priceOf(r)} readOnly={wardLocked}
@@ -792,6 +821,11 @@ function DrugListTab() {
   const { data: drugs = [] } = useQuery({
     queryKey: ['pharmacy-drugs', q, false],
     queryFn: () => window.electronAPI.pharmacy.listDrugs({ q, activeOnly: false }),
+  });
+  // Every active drug, whatever is typed in the search — so a brand always shows the other brands of its medicine.
+  const { data: allActive = [] } = useQuery({
+    queryKey: ['pharmacy-drugs-active'],
+    queryFn: () => window.electronAPI.pharmacy.listDrugs({ activeOnly: true }),
   });
   const bulkDelete = useMutation({
     mutationFn: (ids: number[]) => window.electronAPI.pharmacy.bulkDeleteDrugs(ids),
@@ -936,6 +970,14 @@ function DrugListTab() {
                 <td className="py-2">
                   <div className="font-medium text-gray-900 dark:text-slate-100">{d.name}</div>
                   <div className="text-[11px] text-gray-500 dark:text-slate-400">{d.generic_name || '—'}{d.manufacturer ? ` · ${d.manufacturer}` : ''}</div>
+                  {(() => {
+                    const same = siblingsOf(allActive as any[], d as any);
+                    return same.length > 0 ? (
+                      <div className="text-[10px] text-indigo-700 dark:text-indigo-300 mt-0.5" title="Same ingredient, strength and form — shown together in Drugs in my clinic and offered when dispensing">
+                        Same medicine: {same.slice(0, 3).map((x: any) => x.name).join(' · ')}{same.length > 3 ? ` +${same.length - 3}` : ''}
+                      </div>
+                    ) : null;
+                  })()}
                 </td>
                 <td className="py-2 text-gray-600 dark:text-slate-300">{d.form || '—'} {d.strength ? `· ${d.strength}` : ''}</td>
                 <td className="py-2"><ScheduleBadge schedule={d.schedule} /></td>

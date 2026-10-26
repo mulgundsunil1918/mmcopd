@@ -43,6 +43,7 @@ import {
   type StockBucket, type SupplierReport, type Valuation,
 } from '../lib/pharmacyReports';
 import { capPaise } from '../lib/discountLimit';
+import { medicineKey } from '../lib/medicineGroups';
 import { buildSupplierAccounts, buildSupplierStatement, type StatementInvoice, type StatementPayment, type SupplierStatement } from '../lib/supplierStatement';
 export type { CounterSalesFilter, CounterSalesResult, CounterSaleRow, CostNotRecordedSummary } from '../lib/pharmacyReports';
 
@@ -705,6 +706,7 @@ export function clinicStock(db: Database.Database) {
     const stock = Number(r.stock_qty) || 0;
     return {
       ...r,
+      medicine_key: medicineKey(r),                      // brands of one medicine share it — the screen shows them together
       stock_qty: stock,
       avg_cost: r.avg_cost == null ? null : Math.round(Number(r.avg_cost) * 10000) / 10000,
       out_of_stock: active && stock <= 0,

@@ -3,6 +3,7 @@ import { HelpTip } from '../../HelpTip';
 import { FORMS, SCHEDULES } from '../QuickDrugModal';
 import type { DraftLine, NewDrugSpec } from '../../../lib/billImport';
 import { errCls, numOrNull } from './ui';
+import { SameMedicineNote } from '../SameMedicineNote';
 
 export function NewMedicineForm({ line, bad, onChange, onCancel }: {
   line: DraftLine; bad: { name?: boolean; schedule?: boolean }; onChange: (spec: NewDrugSpec) => void; onCancel: () => void;
@@ -58,6 +59,7 @@ export function NewMedicineForm({ line, bad, onChange, onCancel }: {
         </div>
         <div><label className="label">HSN code</label><input className="input" value={nd.hsn_code} maxLength={12} onChange={(e) => set({ hsn_code: e.target.value })} /></div>
       </div>
+      <SameMedicineNote generic={nd.generic_name} strength={nd.strength} form={nd.form} />
     </div>
   );
 }

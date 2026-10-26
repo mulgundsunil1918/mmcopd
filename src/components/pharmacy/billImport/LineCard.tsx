@@ -11,6 +11,7 @@ import { HelpTip } from '../../HelpTip';
 import { cn, formatINR } from '../../../lib/utils';
 import type { DraftLine, LineMoney, NewDrugSpec, Problem } from '../../../lib/billImport';
 import type { DrugMaster } from '../../../types';
+import { medicineKey, siblingsOf } from '../../../lib/medicineGroups';
 import { DrugPicker } from './DrugPicker';
 import { NewMedicineForm } from './NewMedicineForm';
 import { Pill, Tip, errCls, matchInfo, numOrNull, selectAll, warnCls } from './ui';
@@ -99,6 +100,11 @@ function LineCardView({ line, problems, money, drugs, acts }: Props) {
       {chosen && (
         <div className="text-[11px] text-gray-600 dark:text-slate-300">
           In your Drug List: <b>{chosen.name}</b>{comp(chosen) ? ` — ${comp(chosen)}` : ''}{reason ? <span className="text-gray-400"> · {reason}</span> : null}
+          {(() => {
+            // Brands of one medicine stay together: say which other names this stock will sit with.
+            const same = siblingsOf(drugs.map((d) => ({ ...d, medicine_key: d.medicine_key ?? medicineKey(d) })), { ...chosen, medicine_key: chosen.medicine_key ?? medicineKey(chosen) });
+            return same.length ? <span className="text-indigo-700 dark:text-indigo-300"> · sits with {same.slice(0, 3).map((x) => x.name).join(', ')}{same.length > 3 ? ` +${same.length - 3}` : ''} (same medicine)</span> : null;
+          })()}
         </div>
       )}
       {!line.new_drug && (line.lookup.brand || line.lookup.generic || line.lookup.strength) && (

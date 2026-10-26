@@ -21,6 +21,7 @@ import { makeDemoBillImport } from './demo-bill-import';
 import { demoCounterSales, demoPortal, demoReceivables } from './demo-portal';
 import { buildSupplierAccounts, buildSupplierStatement } from '../lib/supplierStatement';
 import { buildReferralStats } from '../lib/referralStats';
+import { medicineKey } from '../lib/medicineGroups';
 import { localISO } from '../lib/localDate';
 import { RADIOLOGY_CATALOG, modalityOf } from '../data/radiology-catalog';
 
@@ -633,8 +634,10 @@ export function createMockElectronAPI(): any {
         }
         return r(list.map((d) => ({
           ...d,
+          medicine_key: medicineKey(d),
           mrp: d.default_mrp,
           stock_qty: batches.filter((b) => b.drug_master_id === d.id && b.is_active === 1).reduce((s, b) => s + b.qty_remaining, 0),
+          next_expiry: batches.filter((b) => b.drug_master_id === d.id && b.is_active === 1 && b.qty_remaining > 0).map((b) => b.expiry).sort()[0] ?? null,
           batch: batches.find((b) => b.drug_master_id === d.id)?.batch_no,
           expiry: batches.find((b) => b.drug_master_id === d.id)?.expiry,
         } as any)));
@@ -705,7 +708,7 @@ export function createMockElectronAPI(): any {
             const price = (b: any) => b.selling_price ?? b.mrp;
             const active = d.is_active === 1;
             return {
-              ...d, mrp: d.default_mrp, stock_qty: stock, batch_count: act.length,
+              ...d, medicine_key: medicineKey(d), mrp: d.default_mrp, stock_qty: stock, batch_count: act.length,
               next_expiry: live.length ? live.map((b) => b.expiry).sort()[0] : null,
               expired_units: live.filter((b) => day(b.expiry) < 0).reduce((s, b) => s + b.qty_remaining, 0),
               expiring_units: live.filter((b) => day(b.expiry) >= 0 && day(b.expiry) <= 90).reduce((s, b) => s + b.qty_remaining, 0),

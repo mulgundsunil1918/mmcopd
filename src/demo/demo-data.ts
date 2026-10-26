@@ -313,9 +313,11 @@ const masterRow = (c: CatalogDrug, id: number, mfg: string | null, mrp: number):
   updated_at: daysAgo(30),
 });
 const stockedNames = new Set(STOCKED.map((d) => d.name));
+// The catalogue's MRP is per PACK; this demo prices a unit (a tablet). The two extra brands stocked below are written per unit as well.
+const PER_UNIT_MRP: Record<string, number> = { 'Dolo 500': 2.2, 'Dolo 650': 3.1 };
 export const DEMO_DRUG_MASTER: DrugMaster[] = [
   ...STOCKED.map((d, i) => masterRow(PHARMACY_CATALOG.find((c) => c.name === d.name)!, i + 1, d.mfg, d.mrp)),
-  ...PHARMACY_CATALOG.filter((c) => !stockedNames.has(c.name)).map((c, i) => masterRow(c, STOCKED.length + i + 1, null, c.default_mrp)),
+  ...PHARMACY_CATALOG.filter((c) => !stockedNames.has(c.name)).map((c, i) => masterRow(c, STOCKED.length + i + 1, null, PER_UNIT_MRP[c.name] ?? c.default_mrp)),
 ];
 /** The drugs that have stock behind them (the first rows): what the demo's batches, sales, prescriptions and dispensing draw from. */
 const STOCKED_MASTER = DEMO_DRUG_MASTER.slice(0, STOCKED.length);
@@ -327,7 +329,7 @@ const SHELF: Record<number, { exp0: number; q0?: number; q1?: number }> = {
   5: { exp0: 75 }, 6: { exp0: 60, q0: 6, q1: 0 }, 8: { exp0: 200, q0: 0, q1: 0 }, 9: { exp0: -10, q0: 8 },
 };
 
-export const DEMO_BATCHES: DrugStockBatch[] = STOCKED_MASTER.flatMap((m, i) => {
+const GENERATED_BATCHES: DrugStockBatch[] = STOCKED_MASTER.flatMap((m, i) => {
   // Two batches per drug with different expiries.
   return [0, 1].map((bi) => {
     const left = 100 - Math.floor(rand() * 50);           // one rand() per batch, as before — the rest of the demo data is unchanged
@@ -350,6 +352,22 @@ export const DEMO_BATCHES: DrugStockBatch[] = STOCKED_MASTER.flatMap((m, i) => {
     };
   });
 });
+
+// Brands of ONE medicine sit together (same ingredient, strength and form): Crocin Advance has Dolo 500 beside it, and "Paracetamol 650 mg
+// Tablet" — which the doctor prescribes by its generic name — is on the shelf as Dolo 650. Added after the generated batches, so nothing above moves.
+const brandBatch = (name: string, id: number, batchNo: string, expDays: number, qty: number, unitCost: number): DrugStockBatch => {
+  const m = DEMO_DRUG_MASTER.find((d) => d.name === name)!;
+  return {
+    id, drug_master_id: m.id, purchase_item_id: id, batch_no: batchNo, expiry: fromToday(expDays), qty_received: 100, qty_remaining: qty,
+    purchase_price: unitCost, mrp: m.default_mrp, manufacturer_license_no: 'KA-MFG-12345', received_at: daysAgo(40), is_active: 1, drug_name: m.name, schedule: m.schedule,
+  } as DrugStockBatch;
+};
+export const DEMO_BATCHES: DrugStockBatch[] = [
+  ...GENERATED_BATCHES,
+  brandBatch('Dolo 500', 901, 'DL5001', 95, 70, 1.6),
+  brandBatch('Dolo 650', 902, 'DL6501', 210, 60, 2.2),
+  brandBatch('Dolo 650', 903, 'DL6502', 330, 45, 2.2),
+];
 
 // ---------- Wholesalers ----------
 export const DEMO_WHOLESALERS: Wholesaler[] = [
@@ -449,7 +467,7 @@ export const DEMO_CONSULTATIONS: Consultation[] = DEMO_APPOINTMENTS
   } as Consultation));
 
 // ---------- Prescription items ----------
-export const DEMO_RX_ITEMS: PrescriptionItem[] = DEMO_CONSULTATIONS.flatMap((c, i) => {
+const GENERATED_RX_ITEMS: PrescriptionItem[] = DEMO_CONSULTATIONS.flatMap((c, i) => {
   const drugs = [pick(STOCKED_MASTER), pick(STOCKED_MASTER)];
   return drugs.map((d, j) => ({
     id: i * 10 + j + 1,
@@ -462,3 +480,9 @@ export const DEMO_RX_ITEMS: PrescriptionItem[] = DEMO_CONSULTATIONS.flatMap((c, 
     instructions: pick(['After food', 'Before food', null]),
   } as PrescriptionItem));
 });
+// One prescription is written by the GENERIC name (the doctor does not pick a brand); the pharmacy fills it from the brand on the shelf.
+const GENERIC_RX = DEMO_DRUG_MASTER.find((d) => d.name === 'Paracetamol 650 mg Tablet')!;
+export const DEMO_RX_ITEMS: PrescriptionItem[] = [
+  ...GENERATED_RX_ITEMS,
+  { id: 9001, appointment_id: DEMO_CONSULTATIONS[0].appointment_id, drug_master_id: GENERIC_RX.id, drug_name: GENERIC_RX.name, dosage: '1 tab', frequency: '1-0-1', duration: '3 days', instructions: 'After food' } as PrescriptionItem,
+];
