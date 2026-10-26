@@ -5303,6 +5303,8 @@ const SUB_ADDON_PRICES: Record<string, { name: string; price: number; note?: str
   whatsapp: { name: 'WhatsApp Basic', price: 999, note: 'click-to-send', group: 'wa' },
   whatsapp_pro: { name: 'WhatsApp Pro', price: 1999, note: 'AiSensy', group: 'wa' },
 };
+/** The names a clinic knows a set of modules by — WhatsApp Pro already carries Basic, so only the higher one is named. */
+const addonNames = (mods: string[]) => (mods.includes('whatsapp_pro') ? mods.filter((m) => m !== 'whatsapp') : mods).map((k) => SUB_ADDON_PRICES[k]?.name || k).join(' + ');
 
 function SubscriptionTab() {
   const qc = useQueryClient();
@@ -5327,6 +5329,20 @@ function SubscriptionTab() {
   const clinic = lic.payload?.clinic || '';
   const expiry = lic.payload?.expires_at ? format(parseISO(lic.payload.expires_at), 'd MMM yyyy') : '—';
   const machineId = lic.hardwareId || '';
+  // Module codes: each module bought on its own has its own code and its own end date (the main licence's date is the one above).
+  const addons = lic.addons || [];
+  type AddonRow = (typeof addons)[number];
+  const mainModules: string[] = lic.payload?.modules || [];
+  const addonFor = (k: string): AddonRow | undefined => mainModules.includes(k) ? undefined
+    : addons.filter((a) => a.modules.includes(k)).sort((a, b) => Date.parse(b.expires_at) - Date.parse(a.expires_at))[0];
+  const addonText = (a: AddonRow) => {
+    const d = format(parseISO(a.expires_at), 'd MMM yyyy');
+    return a.state === 'valid' ? (a.daysLeft <= 30 ? `valid until ${d} — ${a.daysLeft} day${a.daysLeft === 1 ? '' : 's'} left` : `valid until ${d}`)
+      : a.state === 'grace' ? `expired ${d} — ${a.graceDaysLeft} grace day${a.graceDaysLeft === 1 ? '' : 's'} left`
+      : `expired on ${d} — switched off`;
+  };
+  const addonTone = (a: AddonRow) => a.state === 'expired' ? 'text-red-600 dark:text-red-400'
+    : a.state === 'grace' || a.daysLeft <= 30 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400';
   const isActive = (k: string, base?: boolean) => isDev || base || modules.includes(k);
   // Live "new annual total" = base + owned/picked add-ons. WhatsApp Basic & Pro
   // are one mutually-exclusive line — count only the higher tier, never both.
@@ -5355,7 +5371,13 @@ function SubscriptionTab() {
       const askedNotIncluded = [...picked].filter((k) => !now.includes(k));
       qc.invalidateQueries({ queryKey: ['license'] });
       qc.invalidateQueries({ queryKey: ['settings'] });
-      toast(unlocked.length ? `Unlocked: ${unlocked.map(nameOf).join(', ')}` : 'Licence updated — no new modules in this code', 'success');
+      if (r.addon) {
+        // a module code ADDS to the plan (nothing else changes) and has its own end date
+        const until = format(parseISO(r.addon.expires_at), 'd MMM yyyy');
+        toast(unlocked.length ? `Unlocked: ${addonNames(unlocked)} — valid until ${until}` : `${addonNames(r.addon.modules)} renewed — valid until ${until}`, 'success');
+      } else {
+        toast(unlocked.length ? `Unlocked: ${addonNames(unlocked)}` : 'Licence updated — no new modules in this code', 'success');
+      }
       if (askedNotIncluded.length) {
         toast(`You ticked ${askedNotIncluded.map(nameOf).join(', ')}, but this code does not include ${askedNotIncluded.length > 1 ? 'them' : 'it'} — a code unlocks only what is written inside it. Ask us for a code that includes ${askedNotIncluded.length > 1 ? 'them' : 'it'}.`, 'info');
       }
@@ -5376,7 +5398,7 @@ function SubscriptionTab() {
     finally { setBusy(null); }
   };
   const applyPaste = async () => {
-    setErr(null); if (!token.trim()) { setErr('Paste the licence code you were sent.'); return; }
+    setErr(null); if (!token.trim()) { setErr('Paste the code you were sent.'); return; }
     setBusy('paste');
     try { const go = (o?: { confirmRemoval: boolean }) => window.electronAPI.license.activate(token.trim(), o); await done(await go(), go); }
     catch (e: any) { setErr(e?.message || 'Activation failed.'); }
@@ -5398,9 +5420,20 @@ function SubscriptionTab() {
               {machineId && <button onClick={copyId} className="text-blue-600 hover:underline inline-flex items-center gap-0.5"><Copy className="w-3 h-3" />{copied ? 'Copied' : 'Copy'}</button>}
             </div>
           </div>
+          {addons.length > 0 && (
+            <div className="rounded-lg border border-gray-200 dark:border-slate-700 divide-y divide-gray-100 dark:divide-slate-700 text-[12px]">
+              <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Module codes — each module has its own end date</div>
+              {addons.map((a) => (
+                <div key={a.license_id} className="px-3 py-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-0.5">
+                  <b className="text-gray-900 dark:text-slate-100">{addonNames(a.modules)}</b>
+                  <span className={cn('font-medium', addonTone(a))}>{addonText(a)}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {!isDev && (
             <button className="btn-primary" onClick={() => { setErr(null); setPicked(new Set()); setOpen(true); }}>
-              <KeyRound className="w-4 h-4" /> Enter upgrade / renewal code
+              <KeyRound className="w-4 h-4" /> Enter upgrade / renewal / module code
             </button>
           )}
           {isDev && <p className="text-[12px] text-gray-500 dark:text-slate-400">This is a development build — all modules are on and licensing isn’t enforced. On an installed copy, only the modules in the clinic’s licence appear active below.</p>}
@@ -5420,7 +5453,8 @@ function SubscriptionTab() {
                     {m.base && <span className="text-[10px] font-normal text-gray-400">(always included)</span>}
                   </div>
                   <div className="text-[11px] text-gray-500 dark:text-slate-400">{m.desc}</div>
-                  {!on && <button onClick={() => { setErr(null); setPicked(new Set([m.key])); setOpen(true); }} className="text-[11px] font-semibold text-blue-600 hover:underline mt-1">Upgrade to activate →</button>}
+                  {!m.base && !isDev && (() => { const a = addonFor(m.key); return a ? <div className={cn('text-[11px] font-medium mt-0.5', addonTone(a))}>Module code · {addonText(a)}</div> : null; })()}
+                  {!on && <button onClick={() => { setErr(null); setPicked(new Set([m.key])); setOpen(true); }} className="text-[11px] font-semibold text-blue-600 hover:underline mt-1">{addonFor(m.key) ? 'Renew this module →' : 'Upgrade to activate →'}</button>}
                 </div>
               </div>
             );
@@ -5431,6 +5465,7 @@ function SubscriptionTab() {
       <SettingsGroup title="Need to upgrade or renew?" subtitle="Adding a module or extending your licence takes under a minute — no reinstall, no data loss.">
         <div className="card p-5 text-[13px] text-gray-700 dark:text-slate-200 space-y-2">
           <p>Call or message us and tell us which modules you want (or that you’re renewing). We’ll generate an activation code tied to <b>this computer’s Machine ID</b> and send it over. Enter it above, and the new modules unlock instantly — your patients, bills and records stay exactly as they are.</p>
+          <p className="text-[12px] text-gray-500 dark:text-slate-400">Adding one module (Laboratory, Pharmacy, IPD or WhatsApp) gives you a separate <b>module code</b> with its own end date. Enter it the same way — it adds to your plan and changes nothing else, and you can renew each module on its own.</p>
           <div className="flex flex-wrap gap-4 pt-1 font-semibold">
             {c.phone && <span>📞 {c.phone}</span>}
             {c.email && <span>✉ {c.email}</span>}
@@ -5440,7 +5475,7 @@ function SubscriptionTab() {
 
       <Modal open={open} onClose={() => busy === null && closeUpgrade()} title="Upgrade / renew subscription" size="md">
         <div className="space-y-4">
-          <p className="text-[13px] text-gray-600 dark:text-slate-300">Pick the modules you want to see the price, share the Machine ID below when you call, then enter the code we send you.</p>
+          <p className="text-[13px] text-gray-600 dark:text-slate-300">Pick the modules you want to see the price, share the Machine ID below when you call, then enter the code we send you (a licence code, or a module code for one module).</p>
 
           {/* Priced module picker + live "new total" — mirrors the website. */}
           <div>
@@ -5451,6 +5486,7 @@ function SubscriptionTab() {
             <div className="space-y-1.5">
               {Object.entries(SUB_ADDON_PRICES).map(([key, a]) => {
                 const have = modules.includes(key);
+                const viaCode = have ? addonFor(key) : undefined;
                 const on = have || picked.has(key);
                 return (
                   <label key={key} className={cn('flex items-center justify-between rounded-lg border p-2.5 text-[13px]', have ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-900/10' : 'border-gray-200 dark:border-slate-700 cursor-pointer hover:border-indigo-300')}>
@@ -5468,7 +5504,7 @@ function SubscriptionTab() {
                       <span className="font-medium text-gray-900 dark:text-slate-100">{a.name}</span>
                       {a.note && <span className="text-[10px] text-gray-400">{a.note}</span>}
                     </span>
-                    <span className={cn('font-semibold', have ? 'text-emerald-600' : 'text-indigo-700 dark:text-indigo-300')}>{have ? '✓ Included' : `+₹${a.price.toLocaleString('en-IN')}`}</span>
+                    <span className={cn('font-semibold', have ? 'text-emerald-600' : 'text-indigo-700 dark:text-indigo-300')}>{have ? (viaCode ? `✓ Included · ${addonText(viaCode)}` : '✓ Included') : `+₹${a.price.toLocaleString('en-IN')}`}</span>
                   </label>
                 );
               })}
@@ -5500,10 +5536,10 @@ function SubscriptionTab() {
           )}
 
           <div className={lic.onlineAvailable ? 'pt-3 border-t border-gray-100 dark:border-slate-700' : ''}>
-            <label className="label">{lic.onlineAvailable ? 'Or paste a licence code' : 'Licence code'}</label>
-            <textarea className="input font-mono text-[11px] leading-tight" rows={3} value={token} placeholder="Paste the whole licence code exactly as we sent it — nothing added, nothing missing…" onChange={(e) => setToken(e.target.value)} />
+            <label className="label">{lic.onlineAvailable ? 'Or paste a licence or module code' : 'Licence or module code'}</label>
+            <textarea className="input font-mono text-[11px] leading-tight" rows={3} value={token} placeholder="Paste the whole code exactly as we sent it — nothing added, nothing missing…" onChange={(e) => setToken(e.target.value)} />
             <button className="btn-primary w-full justify-center mt-2" disabled={busy !== null || !token.trim()} onClick={applyPaste}>
-              {busy === 'paste' ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />} Apply licence
+              {busy === 'paste' ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />} Apply code
             </button>
           </div>
 

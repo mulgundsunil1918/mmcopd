@@ -20,6 +20,8 @@ export type LicenseStatusIPC = {
   contact: { phone?: string; email?: string };
   hardwareId: string; message: string;
   onlineAvailable: boolean;
+  /** Module (add-on) codes installed here; their modules are already in `modules` while valid or in grace. */
+  addons: { license_id: string; modules: string[]; issued_at: string; expires_at: string; state: 'valid' | 'grace' | 'expired'; daysLeft: number; graceDaysLeft: number }[];
 };
 
 import type {
@@ -866,8 +868,8 @@ const api = {
     status: () => ipcRenderer.invoke('license:status') as Promise<LicenseStatusIPC>,
     machineId: () => ipcRenderer.invoke('license:machineId') as Promise<string>,
     /** `needsConfirm` + `removed`: this code would switch off paid modules the clinic has today — ask, then call again with { confirmRemoval: true }. */
-    activate: (token: string, opts?: { confirmRemoval?: boolean }) => ipcRenderer.invoke('license:activate', token, opts) as Promise<{ ok: boolean; error?: string; status?: LicenseStatusIPC; needsConfirm?: boolean; removed?: string[] }>,
-    activateOnline: (code: string, opts?: { confirmRemoval?: boolean }) => ipcRenderer.invoke('license:activateOnline', code, opts) as Promise<{ ok: boolean; error?: string; status?: LicenseStatusIPC; needsConfirm?: boolean; removed?: string[] }>,
+    activate: (token: string, opts?: { confirmRemoval?: boolean }) => ipcRenderer.invoke('license:activate', token, opts) as Promise<{ ok: boolean; error?: string; status?: LicenseStatusIPC; needsConfirm?: boolean; removed?: string[]; addon?: { modules: string[]; expires_at: string } }>,
+    activateOnline: (code: string, opts?: { confirmRemoval?: boolean }) => ipcRenderer.invoke('license:activateOnline', code, opts) as Promise<{ ok: boolean; error?: string; status?: LicenseStatusIPC; needsConfirm?: boolean; removed?: string[]; addon?: { modules: string[]; expires_at: string } }>,
     onState: (cb: (s: LicenseStatusIPC) => void) => {
       const h = (_e: any, s: LicenseStatusIPC) => cb(s);
       ipcRenderer.on('license:state', h);

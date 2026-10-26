@@ -162,7 +162,7 @@ export function explainDenial(reason: DenyReason, opts: { isOwner: boolean; labe
     case 'licence':
       return {
         title: `${what} is not in your plan`,
-        body: 'This is a paid add-on. Add it to your subscription and it appears immediately — your data is untouched.',
+        body: 'This is a paid add-on. Add it to your subscription — or, if it worked before, renew its module code — and it appears immediately. Your data is untouched.',
         cta: { label: 'Open Subscription', to: '/settings' },
       };
     case 'module_off':

@@ -12,9 +12,14 @@ import { copyText } from '../lib/clipboard';
  * Dev builds and a healthy licence render nothing. Read-only itself is enforced
  * in the main process; this is the UI around it.
  */
+const ADDON_NAMES: Record<string, string> = { lab: 'Laboratory', pharmacy: 'Pharmacy', ipd: 'In-Patient (IPD)', whatsapp: 'WhatsApp Basic', whatsapp_pro: 'WhatsApp Pro' };
+/** WhatsApp Pro already carries Basic, so only the higher one is named. */
+const addonName = (mods: string[]) => (mods.includes('whatsapp_pro') ? mods.filter((m) => m !== 'whatsapp') : mods).map((m) => ADDON_NAMES[m] || m).join(' + ');
+
 export function LicenseGate() {
   const [st, setSt] = useState<any>(null);
   const [dismissed, setDismissed] = useState(false);
+  const [dismissedAddon, setDismissedAddon] = useState(false);
   // Network mode gates the activation screen. A client (cabin/pharmacy/billing) PC
   // never needs its own licence — it inherits the host's over the LAN — so it must
   // NEVER see a key prompt. `undefined` = still loading (don't flash activation yet).
@@ -53,6 +58,18 @@ export function LicenseGate() {
     return (
       <Banner tone={st.reminder === '1d' ? 'amber' : 'blue'} onClose={() => setDismissed(true)}>
         🗓️ Your licence expires in <b>{st.daysLeft} day{st.daysLeft === 1 ? '' : 's'}</b>. Renew to avoid interruption:&nbsp; {contact}
+      </Banner>
+    );
+  }
+  // A module bought on its own has its own end date: say so when one is about to end, or is in its grace days (the main licence is fine).
+  const soon = ((st.addons || []) as any[]).filter((a) => a.state === 'grace' || (a.state === 'valid' && a.daysLeft <= 30)).sort((a, b) => a.daysLeft - b.daysLeft)[0];
+  if (soon && soon.state === 'grace') {
+    return <Banner tone="amber">⚠ Your <b>{addonName(soon.modules)}</b> module code has expired — <b>{soon.graceDaysLeft} grace day{soon.graceDaysLeft === 1 ? '' : 's'} left</b> before it switches off. Renew it:&nbsp; {contact}</Banner>;
+  }
+  if (soon && !dismissedAddon) {
+    return (
+      <Banner tone={soon.daysLeft <= 1 ? 'amber' : 'blue'} onClose={() => setDismissedAddon(true)}>
+        📦 Your <b>{addonName(soon.modules)}</b> module ends in <b>{soon.daysLeft} day{soon.daysLeft === 1 ? '' : 's'}</b>. Renew it to avoid interruption:&nbsp; {contact}
       </Banner>
     );
   }
