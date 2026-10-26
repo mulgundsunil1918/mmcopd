@@ -652,7 +652,7 @@ function RxTable({ rxItems, lang }: { rxItems: PrescriptionItem[]; lang: Patient
           return (
             <Fragment key={idx}>
               <tr style={{ borderBottom: kn ? 'none' : '1px dotted #e2e8f0' }}>
-                <td style={{ padding: '3px 4px', fontWeight: 600 }}>{r.drug_name}</td>
+                <td style={{ padding: '3px 4px', fontWeight: 600 }}>{r.drug_name}{r.generic_name ? <span style={{ fontWeight: 400, color: '#475569' }}> ({r.generic_name})</span> : null}</td>
                 <td style={{ padding: '3px 4px' }}>{r.dosage || ''}</td>
                 <td style={{ padding: '3px 4px' }}>{r.frequency || ''}</td>
                 <td style={{ padding: '3px 4px' }}>{r.duration || ''}</td>

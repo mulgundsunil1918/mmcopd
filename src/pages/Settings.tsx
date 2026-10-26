@@ -3855,7 +3855,7 @@ function SlipTemplatePreview({ templateId, onClose }: { templateId: number; onCl
     created_at: today.toISOString(), updated_at: today.toISOString(),
   };
   const rx: any = [
-    { drug_name: 'Crocin Syrup 60ml', dosage: '5 ml', frequency: 'TID', duration: '3 days', instructions: 'After food' },
+    { drug_name: 'Crocin Syrup 60ml', generic_name: 'Paracetamol 120 mg/5 ml', dosage: '5 ml', frequency: 'TID', duration: '3 days', instructions: 'After food' },
     { drug_name: 'ORS Sachet', dosage: '1 sachet', frequency: 'PRN', duration: 'As needed', instructions: 'In 200 ml water' },
   ];
 
@@ -5557,7 +5557,7 @@ function SubscriptionTab() {
 function BillingIpdTab() {
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   const { draft, set, reset, dirty, saving, save } = useSectionDraft(settings, [
-    'gst_enabled', 'pharmacy_gst_enabled', 'default_drug_gst_rate', 'gst_registration_type', 'clinic_gstin', 'clinic_legal_name', 'clinic_state_code',
+    'gst_enabled', 'pharmacy_gst_enabled', 'pharmacy_gstin', 'pharmacy_legal_name', 'pharmacy_drug_license_no', 'default_drug_gst_rate', 'gst_registration_type', 'clinic_gstin', 'clinic_legal_name', 'clinic_state_code',
     'healthcare_gst_exempt', 'invoice_prefix', 'ip_number_prefix', 'bill_round_off',
     'discount_caps_json', 'discount_require_reason', 'pharmacy_discount_caps_json',
     'ipd_auto_accrue_bed', 'ipd_auto_accrue_nursing', 'ipd_auto_accrue_doctor_visit',

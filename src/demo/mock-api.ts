@@ -22,6 +22,7 @@ import { demoCounterSales, demoPortal, demoReceivables } from './demo-portal';
 import { buildSupplierAccounts, buildSupplierStatement } from '../lib/supplierStatement';
 import { buildReferralStats } from '../lib/referralStats';
 import { medicineKey } from '../lib/medicineGroups';
+import { genericLabelOf } from '../lib/rxLabel';
 import { localISO } from '../lib/localDate';
 import { RADIOLOGY_CATALOG, modalityOf } from '../data/radiology-catalog';
 
@@ -560,7 +561,7 @@ export function createMockElectronAPI(): any {
     rx: {
       getByAppointment: (apptId: number) => r(rxItems.filter((x) => x.appointment_id === apptId)),
       saveAll: (apptId: number, items: any[]) => {
-        rxItems = rxItems.filter((x) => x.appointment_id !== apptId).concat(items.map((it, i) => ({ ...it, id: 9000 + i, appointment_id: apptId } as any)));
+        rxItems = rxItems.filter((x) => x.appointment_id !== apptId).concat(items.map((it, i) => ({ ...it, generic_name: genericLabelOf(drugMaster.find((d) => d.id === it.drug_master_id)) || null, id: 9000 + i, appointment_id: apptId } as any)));
         return r(rxItems.filter((x) => x.appointment_id === apptId));
       },
     },

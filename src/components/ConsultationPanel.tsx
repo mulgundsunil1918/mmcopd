@@ -13,6 +13,7 @@ import { ageInDays } from '../lib/peds/growth';
 import type { AppointmentWithJoins, Consultation, Doctor, PrescriptionItem, Vitals } from '../types';
 import { localISO } from '../lib/localDate';
 import { DEFAULT_VITALS, DEFAULTED_KEYS, vitalsGroupFor, withDefaultVitals, type DefaultedKey } from '../lib/defaultVitals';
+import { genericLabelOf } from '../lib/rxLabel';
 
 type RxRow = {
   /** When the receptionist later dispenses this Rx, knowing which inventory
@@ -465,6 +466,11 @@ export function ConsultationPanel({
                 {row.drug_master_id != null ? (
                   <div className="text-[10px] text-emerald-700 dark:text-emerald-300 mt-0.5">
                     ✓ linked to inventory · auto-deducts on dispense
+                    {(() => {
+                      // the chemical name goes in brackets beside the brand on the prescription
+                      const g = genericLabelOf(drugCatalog.find((d) => d.id === row.drug_master_id));
+                      return g ? <> · prints as <b>{row.drug_name} ({g})</b></> : null;
+                    })()}
                   </div>
                 ) : row.drug_name.trim() ? (
                   <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">

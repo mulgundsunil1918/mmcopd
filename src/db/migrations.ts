@@ -801,6 +801,8 @@ export function runMigrations(db: Database.Database) {
   // Phase A pharmacy-compliance link columns. drug_master / drug_stock_batches
   // tables are created in createSchema(); these FK columns extend existing tables.
   addColumnIfMissing(db, 'prescription_items', 'drug_master_id', 'INTEGER REFERENCES drug_master(id)');
+  // The chemical name shown in brackets beside a brand on a prescription ("Dolo 650 (Paracetamol 650 mg)"), kept as it was when the doctor saved it.
+  addColumnIfMissing(db, 'prescription_items', 'generic_name', 'TEXT');
   addColumnIfMissing(db, 'pharmacy_sale_items', 'drug_master_id', 'INTEGER REFERENCES drug_master(id)');
   addColumnIfMissing(db, 'pharmacy_sale_items', 'batch_id', 'INTEGER REFERENCES drug_stock_batches(id)');
   addColumnIfMissing(db, 'pharmacy_sale_items', 'gst_amount', 'REAL DEFAULT 0');

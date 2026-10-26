@@ -114,7 +114,7 @@ export function SlipPreviewLauncher() {
   } as Consultation;
 
   const sampleRx = [
-    { drug_name: 'Crocin Syrup 60ml', dosage: '5 ml', frequency: 'TID', duration: '3 days', instructions: 'After food' },
+    { drug_name: 'Crocin Syrup 60ml', generic_name: 'Paracetamol 120 mg/5 ml', dosage: '5 ml', frequency: 'TID', duration: '3 days', instructions: 'After food' },
     { drug_name: 'ORS Sachet', dosage: '1 sachet', frequency: 'PRN', duration: 'As needed', instructions: 'In 200 ml water' },
     { drug_name: 'Cetirizine 10mg', dosage: '½ tab', frequency: 'HS', duration: '5 days', instructions: 'At night' },
   ] as any;

@@ -100,6 +100,9 @@ export function getAllSettings(db: Database.Database): Settings {
     gst_enabled: map.gst_enabled === 'true',
     // The pharmacy's own GST switch. Never touched (no value) = null = it follows gst_enabled, so a clinic that updates sees no change.
     pharmacy_gst_enabled: map.pharmacy_gst_enabled === undefined || map.pharmacy_gst_enabled === '' ? null : map.pharmacy_gst_enabled === 'true',
+    pharmacy_gstin: map.pharmacy_gstin || '',
+    pharmacy_legal_name: map.pharmacy_legal_name || '',
+    pharmacy_drug_license_no: map.pharmacy_drug_license_no || '',
     // The clinic decides the GST % a new medicine starts with; until it does, nothing is assumed and the form asks.
     default_drug_gst_rate: map.default_drug_gst_rate === undefined || map.default_drug_gst_rate === '' || !Number.isFinite(Number(map.default_drug_gst_rate)) ? null : Number(map.default_drug_gst_rate),
     gst_registration_type: (map.gst_registration_type as any) || 'unregistered',

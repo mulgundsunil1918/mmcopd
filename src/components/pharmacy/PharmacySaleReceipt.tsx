@@ -63,11 +63,11 @@ export function PharmacySaleReceipt({ saleId, onClose }: { saleId: number; onClo
           compact
           accent="#047857"
           legal={
-            (s as any).pharmacy_drug_license_no || (pharmacyGstOn(s) && (s.clinic_gstin || s.clinic_state_code || (s.clinic_legal_name && s.clinic_legal_name !== s.clinic_name))) ? (
+            s.pharmacy_drug_license_no || (pharmacyGstOn(s) && ((s.pharmacy_gstin || s.clinic_gstin) || s.clinic_state_code || ((s.pharmacy_legal_name || s.clinic_legal_name) && (s.pharmacy_legal_name || s.clinic_legal_name) !== s.clinic_name))) ? (
               <>
-                {(s as any).pharmacy_drug_license_no && <>D.L. No: {(s as any).pharmacy_drug_license_no}</>}
-                {pharmacyGstOn(s) && s.clinic_gstin && <>{(s as any).pharmacy_drug_license_no ? ' · ' : ''}GSTIN: {s.clinic_gstin}</>}
-                {pharmacyGstOn(s) && s.clinic_legal_name && s.clinic_legal_name !== s.clinic_name && <> · {s.clinic_legal_name}</>}
+                {s.pharmacy_drug_license_no && <>D.L. No: {s.pharmacy_drug_license_no}</>}
+                {pharmacyGstOn(s) && (s.pharmacy_gstin || s.clinic_gstin) && <>{s.pharmacy_drug_license_no ? ' · ' : ''}GSTIN: {s.pharmacy_gstin || s.clinic_gstin}</>}
+                {pharmacyGstOn(s) && (s.pharmacy_legal_name || s.clinic_legal_name) && (s.pharmacy_legal_name || s.clinic_legal_name) !== s.clinic_name && <> · {s.pharmacy_legal_name || s.clinic_legal_name}</>}
                 {pharmacyGstOn(s) && s.clinic_state_code && <> · State code: {s.clinic_state_code}</>}
               </>
             ) : undefined

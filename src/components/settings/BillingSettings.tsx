@@ -87,6 +87,25 @@ export function BillingSettings({
           </div>
         </label>
 
+        <div className="pl-6 grid grid-cols-1 md:grid-cols-3 gap-3 border-l-2 border-emerald-200 dark:border-emerald-900">
+          <div className="md:col-span-3 text-[11px] text-gray-500 dark:text-slate-400">
+            If the pharmacy has its <b>own</b> GSTIN, name or drug licence (different from the clinic's), enter them here — they are printed on pharmacy bills. Leave empty to use the clinic's.
+          </div>
+          <div>
+            <label className="label">Pharmacy GSTIN</label>
+            <input className="input font-mono uppercase" maxLength={15} placeholder="same as the clinic's"
+              value={draft.pharmacy_gstin || ''} onChange={(e) => set('pharmacy_gstin', e.target.value.toUpperCase() as any)} />
+          </div>
+          <div>
+            <label className="label">Pharmacy name on bills</label>
+            <input className="input" placeholder="as registered" value={draft.pharmacy_legal_name || ''} onChange={(e) => set('pharmacy_legal_name', e.target.value as any)} />
+          </div>
+          <div>
+            <label className="label">Pharmacy drug licence no.</label>
+            <input className="input" placeholder="D.L. No." value={draft.pharmacy_drug_license_no || ''} onChange={(e) => set('pharmacy_drug_license_no', e.target.value as any)} />
+          </div>
+        </div>
+
         {(gstOn || pharmacyOn) && (
           <div className="pl-6 space-y-4 border-l-2 border-blue-200 dark:border-blue-900">
             <div>

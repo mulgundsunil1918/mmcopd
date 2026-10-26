@@ -16,6 +16,7 @@ import type {
   DispensingRow, DrugSchedule,
 } from '../types';
 import { PHARMACY_CATALOG, type CatalogDrug } from '../data/pharmacy-catalog';
+import { genericLabelOf } from '../lib/rxLabel';
 
 // ---------- Helpers (deterministic so the demo looks the same every load) ----------
 let SEED = 42;
@@ -109,6 +110,7 @@ export const DEMO_SETTINGS: Settings = {
   station_name: '',
   gst_enabled: false,
   pharmacy_gst_enabled: null,
+  pharmacy_gstin: '', pharmacy_legal_name: '', pharmacy_drug_license_no: '',
   default_drug_gst_rate: null,
   gst_registration_type: 'unregistered',
   clinic_gstin: '',
@@ -475,6 +477,7 @@ const GENERATED_RX_ITEMS: PrescriptionItem[] = DEMO_CONSULTATIONS.flatMap((c, i)
     appointment_id: c.appointment_id,
     drug_master_id: d.id,
     drug_name: d.name,
+    generic_name: genericLabelOf(d) || null,                  // the chemical name, written in brackets beside the brand
     dosage: '1 tab',
     frequency: pick(['1-0-1', '1-1-1', '0-0-1']),
     duration: pick(['3 days', '5 days', '1 week']),

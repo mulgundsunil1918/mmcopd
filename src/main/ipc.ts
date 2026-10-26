@@ -19,6 +19,7 @@ import { PHARMACY_CATALOG } from '../data/pharmacy-catalog';
 import { refreshCatalogue } from '../db/catalogue';
 import { buildReferralStats, type ReferralVisit } from '../lib/referralStats';
 import { medicineKey } from '../lib/medicineGroups';
+import { genericLabelOf } from '../lib/rxLabel';
 import { seedSampleData } from '../db/sample-data';
 
 /**
@@ -1978,14 +1979,18 @@ export function registerIpc() {
       const tx = db.transaction(() => {
         db.prepare('DELETE FROM prescription_items WHERE appointment_id=?').run(appointmentId);
         const ins = db.prepare(
-          'INSERT INTO prescription_items (appointment_id, drug_master_id, drug_name, dosage, frequency, duration, instructions, order_idx) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+          'INSERT INTO prescription_items (appointment_id, drug_master_id, drug_name, generic_name, dosage, frequency, duration, instructions, order_idx) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
+        const drugOf = db.prepare('SELECT name, generic_name, strength, form FROM drug_master WHERE id=?');
         items.forEach((it, idx) => {
           if (!it.drug_name?.trim()) return;
+          // a brand picked from the Drug List carries its chemical name, written in brackets beside it on the prescription
+          const generic = it.drug_master_id ? genericLabelOf(drugOf.get(it.drug_master_id) as any) : '';
           ins.run(
             appointmentId,
             it.drug_master_id ?? null,
             it.drug_name.trim(),
+            generic || null,
             it.dosage ?? null, it.frequency ?? null, it.duration ?? null, it.instructions ?? null,
             idx
           );

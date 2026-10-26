@@ -307,6 +307,8 @@ export interface PrescriptionItem {
   appointment_id: number;
   drug_master_id?: number | null;
   drug_name: string;
+  /** The chemical name shown in brackets beside a brand ("Paracetamol 650 mg"), as it was when the prescription was saved. */
+  generic_name?: string | null;
   dosage?: string | null;
   frequency?: string | null;
   duration?: string | null;
@@ -871,6 +873,10 @@ export interface Settings {
   gst_enabled: boolean;
   /** The PHARMACY's own GST switch (separate from the clinic's). null = never touched: it follows `gst_enabled`. See lib/pharmacyGst.ts. */
   pharmacy_gst_enabled: boolean | null;
+  /** The pharmacy's own GSTIN / name / drug licence, when they differ from the clinic's. Printed on pharmacy bills (empty = the clinic's). */
+  pharmacy_gstin: string;
+  pharmacy_legal_name: string;
+  pharmacy_drug_license_no: string;
   /** The GST % a NEW medicine starts with. null = the clinic has not decided: the form asks every time (nothing is assumed). */
   default_drug_gst_rate: number | null;
   /** unregistered | regular | composition — drives which document is printed. */
