@@ -5557,7 +5557,7 @@ function SubscriptionTab() {
 function BillingIpdTab() {
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   const { draft, set, reset, dirty, saving, save } = useSectionDraft(settings, [
-    'gst_enabled', 'default_drug_gst_rate', 'gst_registration_type', 'clinic_gstin', 'clinic_legal_name', 'clinic_state_code',
+    'gst_enabled', 'pharmacy_gst_enabled', 'default_drug_gst_rate', 'gst_registration_type', 'clinic_gstin', 'clinic_legal_name', 'clinic_state_code',
     'healthcare_gst_exempt', 'invoice_prefix', 'ip_number_prefix', 'bill_round_off',
     'discount_caps_json', 'discount_require_reason', 'pharmacy_discount_caps_json',
     'ipd_auto_accrue_bed', 'ipd_auto_accrue_nursing', 'ipd_auto_accrue_doctor_visit',

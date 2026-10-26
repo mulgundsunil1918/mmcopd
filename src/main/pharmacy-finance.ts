@@ -31,7 +31,7 @@ import type Database from 'better-sqlite3';
 import { nextSaleNumber } from '../db/ids';
 import type { ClearPreview } from '../types';
 import { getAllSettings } from '../db/settings';
-import { gstContext, medicineLineTax, splitInclusive } from './gst';
+import { pharmacyGstEnabled, medicineLineTax, splitInclusive } from './gst';
 import {
   allocatePaise, blendUnitCost, computePurchase, fromPaise, netRevenueExGst, profitMetrics,
   r2, r4, toPaise, validatePurchase,
@@ -193,7 +193,7 @@ export function createPurchase(db: Database.Database, input: PurchaseIn, _by?: s
     disc_pct: Number(x.src.disc_pct ?? 0),
     gst_rate: Number(x.src.gst_rate ?? 0),
   }));
-  const gstInCost = input.gst_in_cost ?? !gstContext(db).enabled;
+  const gstInCost = input.gst_in_cost ?? !pharmacyGstEnabled(db);
   const opts = {
     header_discount: Number(input.discount ?? 0),
     other_charges: Number(input.other_charges ?? 0),
@@ -1139,12 +1139,12 @@ export function sellItems(db: Database.Database, payload: SellIn, now: Date = ne
 
     // Roll the per-line tax up onto the sale so the receipt (and any reprint) can show a proper
     // CGST/SGST breakdown without recomputing from stock.
-    const ctx = gstContext(db);
+    const taxOn = pharmacyGstEnabled(db);
     db.prepare(
       'UPDATE pharmacy_sales SET taxable_total=?, exempt_total=?, cgst_total=?, sgst_total=?, is_tax_invoice=? WHERE id=?',
     ).run(
       r2(saleTaxable), r2(saleExempt), r2(saleCgst), r2(saleSgst),
-      ctx.enabled && (saleCgst + saleSgst) > 0 ? 1 : 0, saleId,
+      taxOn && (saleCgst + saleSgst) > 0 ? 1 : 0, saleId,
     );
     return saleId;
   });
@@ -1349,7 +1349,7 @@ export function profitReport(db: Database.Database, filter: ProfitFilter): Profi
   if (!isIsoDate(filter?.from) || !isIsoDate(filter?.to)) throw new Error('Choose a valid start and end date for the report.');
   const from = filter.from <= filter.to ? filter.from : filter.to;
   const to = filter.from <= filter.to ? filter.to : filter.from;
-  const gst = gstContext(db);
+  const gst = { enabled: pharmacyGstEnabled(db) };          // the pharmacy's own GST switch
 
   const lines = db.prepare(`
     SELECT si.id AS item_id, si.sale_id, si.drug_master_id, COALESCE(m.name, si.drug_name) AS name,
@@ -1451,7 +1451,7 @@ export function profitReport(db: Database.Database, filter: ProfitFilter): Profi
 // ---------------------------------------------------------------------------------------------
 
 export function valuation(db: Database.Database, today: string = localISO(), nearDays = 90): Valuation {
-  const gst = gstContext(db);
+  const gst = { enabled: pharmacyGstEnabled(db) };          // the pharmacy's own GST switch
   const batches = db.prepare(`
     SELECT b.id, b.drug_master_id, m.name, m.gst_rate, b.batch_no, b.expiry, b.qty_remaining AS qty,
            b.mrp, b.selling_price, COALESCE(b.unit_cost, b.purchase_price) AS cost

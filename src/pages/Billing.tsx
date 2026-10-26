@@ -462,7 +462,7 @@ function BillingHistory() {
   const [collect, setCollect] = useState<{ saleId: number; label: string; due: number } | null>(null);   // the rest of a credit sale
   const [cancelling, setCancelling] = useState<{ id: number; label: string; received: number } | null>(null);   // a wrongly raised bill
   const [erasingSale, setErasingSale] = useState<{ id: number; number: string; who: string; total: number } | null>(null);   // admin: delete a pharmacy counter sale
-  const [erasing, setErasing] = useState<{ id: number; number: string; patient: string; total: number; received: number } | null>(null);   // admin: delete a bill outright
+  const [erasing, setErasing] = useState<{ id: number; number: string; patient: string; total: number; received: number; inpatient: boolean } | null>(null);   // admin: delete a bill outright
   const qc = useQueryClient();
   const toast = useToast();
   const { user, adminUnlocked } = useAuth();
@@ -544,10 +544,10 @@ function BillingHistory() {
                   <button className="btn-ghost text-xs" onClick={() => setReprint(row.bill!)}>
                     <Printer className="w-3.5 h-3.5" /> Reprint
                   </button>
-                  {adminUnlocked && !(row.bill as any).admission_id && (row.bill as any).bill_type !== 'ipd' && (
+                  {adminUnlocked && (
                     <button className="btn-ghost text-xs text-red-600 hover:text-red-700"
                       title="Delete this bill completely (admin password) — unlike Cancel, nothing is kept on the books"
-                      onClick={() => setErasing({ id: row.bill!.id, number: row.bill!.bill_number, patient: row.bill!.patient_name || 'walk-in', total: Number(row.bill!.total) || 0, received: Math.max(0, Number((row.bill as any).amount_paid) || 0) })}>
+                      onClick={() => setErasing({ id: row.bill!.id, number: row.bill!.bill_number, patient: row.bill!.patient_name || 'walk-in', total: Number(row.bill!.total) || 0, received: Math.max(0, Number((row.bill as any).amount_paid) || 0), inpatient: !!(row.bill as any).admission_id || (row.bill as any).bill_type === 'ipd' })}>
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   )}
@@ -637,6 +637,12 @@ function BillingHistory() {
             The bill, its lines and its payment records are erased{erasing.received > 0.004 ? <> — including <b>{formatINR(erasing.received)} received</b>, which will disappear from your accounts</> : null}.
             If money was taken and has to go back to the patient, use <b>Cancel</b> instead: it keeps the bill and records the refund. A copy of what was erased is kept in the audit log.
           </div>
+          {erasing.inpatient && (
+            <div className="text-[11px] text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded p-2">
+              <b>This is an in-patient (admission) bill.</b> The admission itself stays — only its bill is erased, and any part of the patient&rsquo;s advance deposit that the discharge used is given back.
+              Medicines and tests already given stay in the pharmacy and lab records but are no longer on any bill. If the patient is still admitted, a new running bill starts when someone opens the admission&rsquo;s billing again.
+            </div>
+          )}
         </AdminPasswordModal>
       )}
       {cancelling && (

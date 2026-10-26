@@ -11,6 +11,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Eye, EyeOff, Loader2, PackageCheck, Pause } from 'lucide-react';
 import { HelpTip } from '../../HelpTip';
 import { cn, formatINR, newRef, refFor, todayISO } from '../../../lib/utils';
+import { pharmacyGstOn } from '../../../lib/pharmacyGst';
 import { fileToBase64 } from '../../../lib/base64';
 import {
   addAsNew, billTotals, chooseDrug, checkDraft, clearChoice, confirmLine, lineMoney, patchBill, patchLine, setAside, summarize,
@@ -48,7 +49,7 @@ export function ReviewScreen({ initial, notices, duplicate, picture, photoFile, 
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   const { data: drugs = [] } = useQuery({ queryKey: ['pharmacy-drugs-active'], queryFn: () => window.electronAPI.pharmacy.listDrugs({ activeOnly: true }) });
   const { data: wholesalers = [] } = useQuery({ queryKey: ['wholesalers'], queryFn: () => window.electronAPI.wholesalers.list({ activeOnly: true }) });
-  const gstCharged = !!settings?.gst_enabled && settings?.gst_registration_type !== 'unregistered' && settings?.gst_registration_type !== 'composition';
+  const gstCharged = pharmacyGstOn(settings);
   const claimable = claimOverride ?? gstCharged;
 
   // ---- is this invoice already recorded? (asked as the supplier / number change) ----

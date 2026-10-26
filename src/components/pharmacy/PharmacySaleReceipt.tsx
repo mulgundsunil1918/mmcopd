@@ -14,6 +14,7 @@ import { Printer, X } from 'lucide-react';
 import type { Settings } from '../../types';
 import { PrintHeader } from '../print/PrintHeader';
 import { parseDbDate } from '../../lib/utils';
+import { pharmacyGstOn } from '../../lib/pharmacyGst';
 
 const inr = (n: number) =>
   (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -62,12 +63,12 @@ export function PharmacySaleReceipt({ saleId, onClose }: { saleId: number; onClo
           compact
           accent="#047857"
           legal={
-            (s as any).pharmacy_drug_license_no || (s.gst_enabled && (s.clinic_gstin || s.clinic_state_code || (s.clinic_legal_name && s.clinic_legal_name !== s.clinic_name))) ? (
+            (s as any).pharmacy_drug_license_no || (pharmacyGstOn(s) && (s.clinic_gstin || s.clinic_state_code || (s.clinic_legal_name && s.clinic_legal_name !== s.clinic_name))) ? (
               <>
                 {(s as any).pharmacy_drug_license_no && <>D.L. No: {(s as any).pharmacy_drug_license_no}</>}
-                {s.gst_enabled && s.clinic_gstin && <>{(s as any).pharmacy_drug_license_no ? ' · ' : ''}GSTIN: {s.clinic_gstin}</>}
-                {s.gst_enabled && s.clinic_legal_name && s.clinic_legal_name !== s.clinic_name && <> · {s.clinic_legal_name}</>}
-                {s.gst_enabled && s.clinic_state_code && <> · State code: {s.clinic_state_code}</>}
+                {pharmacyGstOn(s) && s.clinic_gstin && <>{(s as any).pharmacy_drug_license_no ? ' · ' : ''}GSTIN: {s.clinic_gstin}</>}
+                {pharmacyGstOn(s) && s.clinic_legal_name && s.clinic_legal_name !== s.clinic_name && <> · {s.clinic_legal_name}</>}
+                {pharmacyGstOn(s) && s.clinic_state_code && <> · State code: {s.clinic_state_code}</>}
               </>
             ) : undefined
           }
@@ -76,7 +77,7 @@ export function PharmacySaleReceipt({ saleId, onClose }: { saleId: number; onClo
         {/* ===== Title ===== */}
         <div className="text-center my-3">
           <span className="inline-block px-4 py-1 rounded font-bold tracking-wide" style={{ background: '#ecfdf5', color: '#065f46', fontSize: 14 }}>
-            PHARMACY {Number(sale?.is_tax_invoice) === 1 ? 'TAX INVOICE' : s.gst_enabled ? 'BILL OF SUPPLY' : 'RECEIPT'}
+            PHARMACY {Number(sale?.is_tax_invoice) === 1 ? 'TAX INVOICE' : pharmacyGstOn(s) ? 'BILL OF SUPPLY' : 'RECEIPT'}
           </span>
         </div>
 

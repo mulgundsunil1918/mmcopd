@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Loader2, Info } from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
 import { cn } from '../../lib/utils';
+import { pharmacyGstOn } from '../../lib/pharmacyGst';
 import { NumberInput } from '../NumberInput';
 import { COUNTER_DISCOUNT_ROLES, parseCounterCaps } from '../../lib/discountLimit';
 import type { Settings } from '../../types';
@@ -29,6 +30,7 @@ export function BillingSettings({
   set: <K extends keyof Settings>(k: K, v: Settings[K]) => void;
 }) {
   const gstOn = draft.gst_enabled ?? false;
+  const pharmacyOn = pharmacyGstOn(draft);                       // the pharmacy's own switch (follows the clinic's until it is touched)
   const regType = draft.gst_registration_type ?? 'unregistered';
 
   return (
@@ -71,7 +73,21 @@ export function BillingSettings({
           <Explain>You decide. Existing medicines are never changed by the software — to change many at once use Pharmacy → Drug List → <b>Set GST %</b>.</Explain>
         </div>
 
-        {gstOn && (
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input type="checkbox" className="mt-1" checked={pharmacyOn} disabled={regType === 'composition'}
+            onChange={(e) => set('pharmacy_gst_enabled', e.target.checked as any)} />
+          <div>
+            <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">Charge GST on pharmacy sales</div>
+            <Explain>
+              The pharmacy has its <b>own</b> GST switch — the button at the top of the Pharmacy page is the same one. On: each medicine is sold at its
+              MRP with its GST inside it, and the GST on your purchases is claimed back. Off: no GST on pharmacy bills, and the GST on a purchase becomes
+              part of what the stock cost. Consultation, lab and ward bills follow the registration box above, not this one. Until you touch it, it
+              follows the registration box.{regType === 'composition' ? ' (A composition dealer cannot collect GST, so it stays off.)' : ''}
+            </Explain>
+          </div>
+        </label>
+
+        {(gstOn || pharmacyOn) && (
           <div className="pl-6 space-y-4 border-l-2 border-blue-200 dark:border-blue-900">
             <div>
               <label className="label">Registration type</label>
@@ -111,7 +127,7 @@ export function BillingSettings({
               </div>
             </div>
 
-            {regType !== 'composition' && (
+            {gstOn && regType !== 'composition' && (
               <label className="flex items-start gap-3 cursor-pointer">
                 <input type="checkbox" className="mt-1" checked={draft.ipd_gst_enabled ?? true}
                   onChange={(e) => set('ipd_gst_enabled', e.target.checked)} />
@@ -128,7 +144,7 @@ export function BillingSettings({
               </label>
             )}
 
-            {regType === 'regular' && (
+            {gstOn && regType === 'regular' && (
               <label className="flex items-start gap-3 cursor-pointer">
                 <input type="checkbox" className="mt-1" checked={draft.healthcare_gst_exempt ?? true}
                   onChange={(e) => set('healthcare_gst_exempt', e.target.checked)} />

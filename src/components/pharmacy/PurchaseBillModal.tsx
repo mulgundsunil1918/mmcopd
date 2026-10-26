@@ -6,6 +6,7 @@ import { HelpTip } from '../HelpTip';
 import { QuickDrugModal } from './QuickDrugModal';
 import { useToast } from '../../hooks/useToast';
 import { cn, fmtDate, formatINR, newRef, todayISO } from '../../lib/utils';
+import { pharmacyGstOn } from '../../lib/pharmacyGst';
 import { computePurchase, profitMetrics, toPaise, validatePurchase } from '../../lib/pharmacyMath';
 import type { PurchaseInvoiceInput } from '../../types';
 
@@ -91,9 +92,8 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
   });
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
 
-  // Does the clinic charge GST on its sales? Then input GST is claimed back (not a cost) and sale revenue is shown without GST.
-  const gstCharged = !!settings?.gst_enabled
-    && settings?.gst_registration_type !== 'unregistered' && settings?.gst_registration_type !== 'composition';
+  // Does the PHARMACY charge GST on its sales (its own switch)? Then input GST is claimed back (not a cost) and sale revenue is shown without GST.
+  const gstCharged = pharmacyGstOn(settings);
 
   const [ref] = useState(newRef);   // one id per bill: saving the same attempt twice returns the first save
   const [header, setHeader] = useState({

@@ -1,12 +1,16 @@
-// GST is the clinic's decision — the software assumes nothing and never moves a rate by itself.
+// GST is the clinic's decision — the software assumes nothing and never moves a rate by itself. The PHARMACY has its own GST switch,
+// separate from the clinic's registration switch (it follows the clinic's until it is touched).
 // Rules proved here, on the app's real handlers and a temporary database:
 //   - there is no default GST for a new medicine until the clinic sets one ("Ask me every time" = null), and the setting round-trips;
 //   - "Set GST %" changes ONLY what was asked: the ticked medicines, or every medicine now at one rate, or the whole list — nothing else, and only the rate;
 //   - a rate that is not an Indian GST rate, an empty selection, or a role that may not do it is refused; a read-only licence blocks it;
 //   - bills already made keep the tax they were made with; new sales use the new rate;
-//   - the GST switch (the clinic's gst_enabled) turns tax on and off on pharmacy sales, and flipping it never rewrites an existing bill.
+//   - the GST switch turns tax on and off on pharmacy sales, and flipping it never rewrites an existing bill;
+//   - the pharmacy's switch is its OWN: pharmacy GST can be on while the clinic's is off and the other way round; untouched, it follows the
+//     clinic's; a composition dealer never collects GST.
 import { boot, call, attempt, getDb, setReadOnlyMode } from './harness';
 import { ok, eq, section, finish } from './lib';
+import { gstContext, pharmacyGstEnabled } from '../../src/main/gst';
 
 boot();
 const db = getDb();
@@ -111,6 +115,38 @@ const all = (sql: string, ...p: any[]) => db.prepare(sql).all(...p) as any[];
   const onPur = await call('purchase:create', { client_ref: 'gst-pur-3', invoice_number: 'GST-3', wholesaler_id: sup.id, invoice_date: today, items: [{ drug_master_id: g.id, batch_no: 'G3', expiry: '2031-01-01', qty_received: 10, purchase_price: 50, mrp: 112, gst_rate: 5 }] });
   eq(onPur.invoice.gst_in_cost, 0, 'with GST on it is claimed back, so it is not part of the cost');
   await call('settings:save', { gst_enabled: false, gst_registration_type: 'unregistered' });
+
+  // ============================================================================================================
+  section('5 · the pharmacy has its OWN GST switch');
+  const sold = async (ref: string) => {
+    const sale = await call('pharmacy:sell', { client_ref: ref, items: [{ drug_master_id: g.id, drug_name: g.name, qty: 1, rate: 105 }], payment_mode: 'Cash' });
+    const l = one('SELECT gst_rate r, cgst, sgst FROM pharmacy_sale_items WHERE sale_id=?', sale.id);
+    return { taxed: l.r > 0 && l.cgst + l.sgst > 0, tax: Math.round((l.cgst + l.sgst) * 100) / 100, invoice: one('SELECT is_tax_invoice t FROM pharmacy_sales WHERE id=?', sale.id).t === 1 };
+  };
+  const buyRef = (n: number) => call('purchase:create', { client_ref: `own-${n}`, invoice_number: `OWN-${n}`, wholesaler_id: sup.id, invoice_date: today, items: [{ drug_master_id: g.id, batch_no: `O${n}`, expiry: '2031-01-01', qty_received: 10, purchase_price: 50, mrp: 112, gst_rate: 5 }] });
+  await call('pharmacy:setDrugGst', { rate: 5, ids: [g.id] });
+  eq((await call('settings:get')).pharmacy_gst_enabled, null, 'a clinic that never pressed the pharmacy button has no choice recorded (null = follow the clinic)');
+  ok(!pharmacyGstEnabled(db), 'with the clinic switch off and the pharmacy untouched, the pharmacy charges no GST');
+  await call('settings:save', { gst_enabled: true, gst_registration_type: 'regular' });
+  ok(pharmacyGstEnabled(db), '…untouched, it follows the clinic switch ON');
+  const followed = await sold('own-sale-1');
+  ok(followed.taxed && followed.invoice, 'so a sale carries its GST (a tax invoice)');
+  await call('settings:save', { pharmacy_gst_enabled: false });
+  ok(gstContext(db).enabled, 'the clinic switch is still ON (consultations and wards are not touched)…');
+  ok(!pharmacyGstEnabled(db), '…while the pharmacy switch is OFF');
+  const off = await sold('own-sale-2');
+  ok(!off.taxed && !off.invoice, 'a pharmacy sale carries no GST at all');
+  eq((await buyRef(1)).invoice.gst_in_cost, 1, '…and the GST on a purchase becomes part of the stock cost');
+  await call('settings:save', { gst_enabled: false, pharmacy_gst_enabled: true });
+  ok(!gstContext(db).enabled && pharmacyGstEnabled(db), 'the other way round: clinic switch OFF, pharmacy switch ON');
+  const on = await sold('own-sale-3');
+  ok(on.taxed && on.invoice && Math.abs(on.tax - 105 * 5 / 105) < 0.02, `the pharmacy sale carries its 5% inside the MRP (₹${on.tax})`);
+  eq((await buyRef(2)).invoice.gst_in_cost, 0, '…and the GST on a purchase is claimed back, not part of the cost');
+  await call('settings:save', { gst_enabled: false, gst_registration_type: 'composition', pharmacy_gst_enabled: true });
+  ok(!pharmacyGstEnabled(db), 'a composition dealer never collects GST, even with the pharmacy switch ON');
+  ok(!(await sold('own-sale-4')).taxed, '…so the sale carries none');
+  await call('settings:save', { pharmacy_gst_enabled: null, gst_enabled: false, gst_registration_type: 'unregistered' });
+  eq((await call('settings:get')).pharmacy_gst_enabled, null, 'putting the switch back to "follow the clinic" is possible (null)');
 
   finish();
 })().catch((e) => { console.error('SUITE CRASHED', e); process.exit(1); });

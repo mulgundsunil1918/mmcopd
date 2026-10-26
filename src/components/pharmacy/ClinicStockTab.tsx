@@ -3,8 +3,9 @@
  * stock column of Drug Master). What each shelf looks like: units in stock, the next expiry, what a unit costs, what it sells for.
  * Click a drug to see its batches. The low-stock / expiry alerts live here as filters. Which drugs exist at all is the Drug List's job.
  * Brands of ONE medicine (Dolo 650, Crocin 650 and "Paracetamol 650 mg Tablet": same ingredient, strength and form) sit together under one
- * heading with the medicine's total — "Out of stock" and "Low stock" are about the medicine, not about one brand running out while another is on
- * the shelf. Each brand keeps its own row, batches, price and edit button.
+ * heading that shows the medicine's total. Stock is still kept BRAND BY BRAND: "Out of stock" and "Low stock" judge each brand on its own (the
+ * owner's rule — a pharmacy orders and runs out of a brand), so Crocin 650 running out is flagged even while Dolo 650 is on the shelf. Each
+ * brand keeps its own row, batches, price and edit button.
  * Admin and the pharmacy in-charge can also tick drugs and delete them (with their stock and batches), or "Start fresh" to clear the lot.
  */
 import { useMemo, useState } from 'react';
@@ -17,6 +18,7 @@ import { useToast } from '../../hooks/useToast';
 import { canAnyRole, useAuth } from '../../hooks/useAuth';
 import { cn, fmtDate, formatINR } from '../../lib/utils';
 import { profitMetrics } from '../../lib/pharmacyMath';
+import { pharmacyGstOn } from '../../lib/pharmacyGst';
 import { groupByMedicine, isGenericNamed, medicineStock, medicineTitle, type MedicineGroup } from '../../lib/medicineGroups';
 import type { ClinicStockRow, DrugMaster, DrugStockBatch } from '../../types';
 import { DrugEditModal } from './DrugEditModal';
@@ -37,22 +39,20 @@ const CHIPS: { key: ClinicFilter; label: string; tone: string; title: string }[]
 const matches = (r: ClinicStockRow, f: ClinicFilter) =>
   f === 'all' ? true : f === 'low' ? r.low_stock : f === 'out' ? r.out_of_stock : f === 'expiring' ? r.expiring_soon : f === 'expired' ? r.expired : r.cost_unverified;
 
-type Unit = MedicineGroup<ClinicStockRow>;
-/** The things the list is made of: a medicine (one or more brands). */
-const unitsOf = (rows: ClinicStockRow[]): Unit[] => groupByMedicine(rows);
-/** A medicine with several brands is low / out as a whole; a single drug follows its own flags. Expiry and cost flags: any brand. */
-const unitMatches = (u: Unit, f: ClinicFilter) => {
-  if (f === 'all') return true;
-  if (u.rows.length === 1) return matches(u.rows[0], f);
-  const st = medicineStock(u.rows);
-  return f === 'low' ? st.low : f === 'out' ? st.out : u.rows.some((r) => matches(r, f));
-};
+/** A medicine (one or more brands). `rows` = every brand held; `visible` = the ones a filter lets through (the same list when no filter). */
+type Unit = MedicineGroup<ClinicStockRow> & { visible: ClinicStockRow[] };
+const unitsOf = (rows: ClinicStockRow[]): MedicineGroup<ClinicStockRow>[] => groupByMedicine(rows);
 
-/** How many medicines fall under each filter — the Pharmacy page's slim alert line uses the same counts. */
+/** How many DRUGS (brands) fall under each filter — the Pharmacy page's slim alert line uses the same counts. */
 export function clinicCounts(rows: ClinicStockRow[]): Record<ClinicFilter, number> {
-  const us = unitsOf(rows);
-  const n = (f: ClinicFilter) => us.filter((u) => unitMatches(u, f)).length;
-  return { all: us.length, low: n('low'), out: n('out'), expiring: n('expiring'), expired: n('expired'), cost: n('cost') };
+  return {
+    all: rows.length,
+    low: rows.filter((r) => r.low_stock).length,
+    out: rows.filter((r) => r.out_of_stock).length,
+    expiring: rows.filter((r) => r.expiring_soon).length,
+    expired: rows.filter((r) => r.expired).length,
+    cost: rows.filter((r) => r.cost_unverified).length,
+  };
 }
 
 const SCHED_RANK: Record<string, number> = { X: 5, H1: 4, H: 3, G: 2, OTC: 1 };
@@ -84,7 +84,7 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
   const counts = useMemo(() => clinicCounts(rows), [rows]);
   // A clinic that charges GST earns the price WITHOUT the GST, so profit per unit is worked out on that (same rule as the purchase bill and Analytics).
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
-  const gstCharged = !!settings?.gst_enabled && settings?.gst_registration_type !== 'unregistered' && settings?.gst_registration_type !== 'composition';
+  const gstCharged = pharmacyGstOn(settings);                       // the pharmacy's own GST switch
   /** What one unit earns: the price (a range when batches differ) minus what a unit really cost. Null when the cost is not on record. */
   const unitMoney = (d: ClinicStockRow) => {
     if (d.avg_cost == null || !(d.avg_cost > 0) || d.price_min == null) return null;
@@ -92,14 +92,17 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
     return { lo: profitMetrics(net(d.price_min), d.avg_cost), hi: profitMetrics(net(d.price_max ?? d.price_min), d.avg_cost) };
   };
 
-  // A medicine whose brand matches the search or the filter is shown WITH its other brands — that is what "together" means.
-  const shownUnits = useMemo(() => {
+  // A medicine whose brand matches the SEARCH is shown with its other brands (that is what "together" means); a FILTER (low, out, expiring…)
+  // keeps only the brands that match it, under their medicine's heading.
+  const shownUnits = useMemo<Unit[]>(() => {
     const t = q.trim().toLowerCase();
     const hit = (r: ClinicStockRow) => !t || r.name.toLowerCase().includes(t) || (r.generic_name || '').toLowerCase().includes(t)
       || (r.manufacturer || '').toLowerCase().includes(t) || (r.barcode || '') === q.trim();
-    return unitsOf(rows).filter((u) => unitMatches(u, filter) && u.rows.some(hit));
+    return unitsOf(rows).filter((u) => u.rows.some(hit))
+      .map((u) => ({ ...u, visible: u.rows.filter((r) => matches(r, filter)) }))
+      .filter((u) => u.visible.length > 0);
   }, [rows, q, filter]);
-  const shown = useMemo(() => shownUnits.flatMap((u) => u.rows), [shownUnits]);
+  const shown = useMemo(() => shownUnits.flatMap((u) => u.visible), [shownUnits]);
 
   // What is ticked AND still on screen: a tick hidden by a search or a filter is never deleted by surprise.
   const picked = useMemo(() => shown.filter((r) => sel.has(r.id)), [shown, sel]);
@@ -226,8 +229,8 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
     const anySoon = u.rows.some((r) => r.expiring_soon);
     const lo = u.rows.map((r) => r.price_min).filter((x): x is number => x != null);
     const hi = u.rows.map((r) => r.price_max).filter((x): x is number => x != null);
-    const allIn = u.rows.every((r) => sel.has(r.id));
-    const someIn = u.rows.some((r) => sel.has(r.id));
+    const allIn = u.visible.every((r) => sel.has(r.id));
+    const someIn = u.visible.some((r) => sel.has(r.id));
     const toggle = () => setClosedGroups((c) => { const n = new Set(c); if (n.has(key)) n.delete(key); else n.add(key); return n; });
     const brands = u.rows.map((r) => `${r.name}${isGenericNamed(r) ? ' (generic)' : ''}: ${r.stock_qty}`).join('  ·  ');
     return (
@@ -244,22 +247,20 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
             <input type="checkbox" checked={allIn} aria-label={`Select every brand of ${title}`} title="Select every brand of this medicine"
               ref={(el) => { if (el) el.indeterminate = someIn && !allIn; }}
               onClick={(e) => e.stopPropagation()}
-              onChange={() => setSel((s) => { const n = new Set(s); for (const r of u.rows) { if (allIn) n.delete(r.id); else n.add(r.id); } return n; })} />
+              onChange={() => setSel((s) => { const n = new Set(s); for (const r of u.visible) { if (allIn) n.delete(r.id); else n.add(r.id); } return n; })} />
           )}
           {open ? <ChevronDown className="w-4 h-4 text-gray-500" /> : <ChevronRight className="w-4 h-4 text-gray-500" />}
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
               <span className="text-sm font-semibold text-gray-900 dark:text-slate-100 truncate" title={title}>{title}</span>
-              <span className="badge bg-indigo-100 text-indigo-700 shrink-0" title="Same ingredient, strength and form — the brands below are one medicine">{u.rows.length} brands</span>
+              <span className="badge bg-indigo-100 text-indigo-700 shrink-0" title="Same ingredient, strength and form — the brands below are one medicine">{u.rows.length} brands{u.visible.length < u.rows.length ? ` · ${u.visible.length} shown` : ''}</span>
             </div>
             <div className="text-[11px] text-gray-500 dark:text-slate-400 truncate" title={brands}>{brands}</div>
           </div>
           <div className="hidden md:block"><ScheduleBadge schedule={sched} /></div>
           <div className="hidden md:block text-right">
-            <span className={cn('text-sm font-bold tabular-nums', st.out ? 'text-red-600 dark:text-red-400' : st.low ? 'text-amber-700 dark:text-amber-300' : '')}>{st.stock}</span>
-            {st.out && <div className="text-[10px] font-semibold text-red-600 dark:text-red-400">Out</div>}
-            {st.low && <div className="text-[10px] font-semibold text-amber-700 dark:text-amber-300">Low</div>}
-            {!st.out && !st.low && <div className="text-[10px] text-gray-400">all brands</div>}
+            <span className="text-sm font-bold tabular-nums">{st.stock}</span>
+            <div className="text-[10px] text-gray-400">all brands</div>
           </div>
           <div className="hidden md:block text-xs">
             {st.nextExpiry ? (
@@ -278,7 +279,7 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
           <div className="hidden md:block text-right text-sm text-gray-400">—</div>
           <div className="flex items-center justify-end"><span className="md:hidden text-sm font-bold tabular-nums mr-2">{st.stock}</span></div>
         </div>
-        {open && <ul className="divide-y divide-gray-100 dark:divide-slate-800 border-t border-gray-100 dark:border-slate-800">{u.rows.map((d) => renderRow(d, true))}</ul>}
+        {open && <ul className="divide-y divide-gray-100 dark:divide-slate-800 border-t border-gray-100 dark:border-slate-800">{u.visible.map((d) => renderRow(d, true))}</ul>}
       </li>
     );
   };

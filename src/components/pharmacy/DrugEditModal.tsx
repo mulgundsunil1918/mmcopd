@@ -21,7 +21,7 @@ export const SCHEDULES: { value: DrugSchedule; label: string }[] = [
 /** Every list that shows drugs or their stock refreshes after a drug is saved. */
 export const DRUG_QUERY_KEYS = ['pharmacy-drugs', 'pharmacy-drugs-active', 'pharmacy-alerts', 'pharmacy-clinic-stock'];
 
-export function DrugEditModal({ drug, onClose }: { drug: Partial<DrugMaster>; onClose: () => void }) {
+export function DrugEditModal({ drug, onClose, brandOf }: { drug: Partial<DrugMaster>; onClose: () => void; /** The medicine this new drug is another brand of (when added with "Brand"). */ brandOf?: string }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState<Partial<DrugMaster>>(drug);
@@ -46,8 +46,13 @@ export function DrugEditModal({ drug, onClose }: { drug: Partial<DrugMaster>; on
   });
 
   return (
-    <Modal open onClose={onClose} title={editing.id ? 'Edit Drug' : 'Add Drug to the Drug List'} size="lg">
+    <Modal open onClose={onClose} title={editing.id ? 'Edit Drug' : brandOf ? 'Add another brand' : 'Add Drug to the Drug List'} size="lg">
       <div className="space-y-3">
+        {brandOf && !editing.id && (
+          <div className="text-[12px] rounded-md border border-indigo-200 dark:border-indigo-800 bg-indigo-50/60 dark:bg-indigo-900/20 text-indigo-900 dark:text-indigo-100 px-2.5 py-1.5">
+            Another brand of <b>{brandOf}</b>. The ingredient, strength, form, schedule and GST are copied so it sits with the same medicine — type this brand&rsquo;s own name and MRP.
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Name *"><input className="input" value={editing.name || ''} onChange={(e) => setEditing({ ...editing, name: e.target.value })} /></Field>
           <Field label="Generic Name"><input className="input" value={editing.generic_name || ''} onChange={(e) => setEditing({ ...editing, generic_name: e.target.value })} /></Field>

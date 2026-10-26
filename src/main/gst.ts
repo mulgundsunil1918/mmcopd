@@ -22,6 +22,7 @@
  */
 import type Database from 'better-sqlite3';
 import { getAllSettings } from '../db/settings';
+import { pharmacyGstOn } from '../lib/pharmacyGst';
 
 export interface LineTax {
   is_taxable: boolean;
@@ -77,10 +78,17 @@ export function clinicalLineTax(db: Database.Database, chargeHeadId?: number | n
     : { is_taxable: false, gst_rate: 0, hsn_sac: null };
 }
 
-/** Tax treatment for a MEDICINE line, from the product's own rate. */
+/**
+ * Does the PHARMACY charge GST right now? Its own switch (Pharmacy page / Settings → Billing), separate from the clinic's: see lib/pharmacyGst.ts.
+ * Medicine sales, the GST claimed on purchases, pharmacy profit and stock value all ask this one function.
+ */
+export function pharmacyGstEnabled(db: Database.Database): boolean {
+  return pharmacyGstOn(getAllSettings(db));
+}
+
+/** Tax treatment for a MEDICINE line, from the product's own rate — if the pharmacy charges GST. */
 export function medicineLineTax(db: Database.Database, drugMasterId?: number | null): LineTax {
-  const ctx = gstContext(db);
-  if (!ctx.enabled || !drugMasterId) return { is_taxable: false, gst_rate: 0, hsn_sac: null };
+  if (!pharmacyGstEnabled(db) || !drugMasterId) return { is_taxable: false, gst_rate: 0, hsn_sac: null };
   const drug = db
     .prepare('SELECT gst_rate, hsn_code FROM drug_master WHERE id=?')
     .get(drugMasterId) as { gst_rate: number; hsn_code: string | null } | undefined;

@@ -666,7 +666,8 @@ export function registerIpc() {
 
   // Delete a PHARMACY counter sale: the sale, its lines and payments, and its dispensing-register rows — the medicines go back on the shelf.
   // (Erasing a register row of a Schedule H medicine removes a legal record, which is why this asks for the admin password.)
-  // A sale charged to an in-patient's bill is not deletable here: it is a line on that bill.
+  // A sale charged to an in-patient's bill is not deletable here WHILE it is a line on that bill (remove the line there). If that bill was
+  // deleted, the sale is left on its own and can be deleted like any other.
   ipcMain.handle('admin:deleteSale', (_e, saleId: number, adminPassword?: string) => {
     requireRole([], 'delete a pharmacy sale');
     const bad = adminPasswordProblem(adminPassword);
@@ -677,7 +678,8 @@ export function registerIpc() {
          FROM pharmacy_sales s LEFT JOIN patients p ON p.id = s.patient_id WHERE s.id = ?`
     ).get(saleId) as any;
     if (!s) return { ok: false, error: 'Sale not found' };
-    if (s.payment_mode === 'IPD-bill') {
+    if (s.payment_mode === 'IPD-bill'
+      && db.prepare("SELECT 1 FROM bill_items bi JOIN bills b ON b.id = bi.bill_id WHERE bi.source = 'pharmacy_ipd' AND bi.source_ref_id = ?").get(saleId)) {
       return { ok: false, error: `${s.sale_number} was charged to an in-patient's bill. It is a line on that bill — remove the line there instead.` };
     }
     const items = rowsOf(db, 'SELECT drug_name, qty, rate, amount FROM pharmacy_sale_items WHERE sale_id=? ORDER BY id', saleId);
@@ -698,8 +700,10 @@ export function registerIpc() {
     return { ok: true, sale: { id: saleId, sale_number: s.sale_number, total: s.total, who: s.who } };
   });
 
-  // Delete ANY bill (consultation, lab, radiology, services…) — the bill, its lines and its payment records. Money that was received on it
-  // disappears from the books with it; "Cancel bill" is the way to keep a refund on record. In-patient admission bills are not deletable.
+  // Delete ANY bill (consultation, lab, radiology, services, an in-patient admission's bill…) — the bill, its lines and its payment records.
+  // Money that was received on it disappears from the books with it; "Cancel bill" is the way to keep a refund on record. When the bill is an
+  // admission's, the admission itself stays (it simply has no bill — a new running bill starts if someone opens its billing again), and
+  // what the discharge approval took from the patient's advance deposits is given back, so the deposit is not left looking spent.
   ipcMain.handle('admin:deleteBill', (_e, billId: number, adminPassword?: string) => {
     requireRole([], 'delete a bill');
     const bad = adminPasswordProblem(adminPassword);
@@ -710,19 +714,38 @@ export function registerIpc() {
          FROM bills b LEFT JOIN patients p ON p.id = b.patient_id WHERE b.id = ?`
     ).get(billId) as any;
     if (!b) return { ok: false, error: 'Bill not found' };
-    const admission = db.prepare('SELECT id FROM ip_admissions WHERE bill_id = ?').get(billId);
-    if (b.admission_id != null || b.bill_type === 'ipd' || admission) {
-      return { ok: false, error: `${b.bill_number} is an in-patient bill. It belongs to an admission and is closed at discharge — to take a charge off it, remove the line or give a discount.` };
-    }
+    const admissions = rowsOf(db, 'SELECT id, admission_number FROM ip_admissions WHERE bill_id = ?', billId) as { id: number; admission_number: string }[];
+    const inpatient = b.admission_id != null || b.bill_type === 'ipd' || admissions.length > 0;
     const items = rowsOf(db, 'SELECT description, qty, rate, amount, gst_rate FROM bill_items WHERE bill_id=? ORDER BY id', billId);
     const payments = rowsOf(db, 'SELECT amount, payment_mode, received_at, reference FROM bill_payments WHERE bill_id=? ORDER BY id', billId);
     const { items_json: _drop, ...header } = b;
-    try { db.transaction(() => { db.prepare('DELETE FROM bills WHERE id = ?').run(billId); })(); }
-    catch (err: any) { return { ok: false, error: err?.message || 'Delete failed' }; }
+    let released = 0;
+    try {
+      db.transaction(() => {
+        if (inpatient) {
+          // the discharge approval recorded how much of the deposit this bill used: give it back, newest receipt first
+          const admissionId = (b.admission_id ?? admissions[0]?.id ?? null) as number | null;
+          let left = Math.round((Number(b.advance_adjusted) || 0) * 100);
+          if (admissionId != null && left > 0) {
+            const receipts = db.prepare('SELECT id, adjusted_amount FROM advances WHERE admission_id = ? AND adjusted_amount > 0 ORDER BY id DESC').all(admissionId) as { id: number; adjusted_amount: number }[];
+            for (const r of receipts) {
+              if (left <= 0) break;
+              const take = Math.min(Math.round(Number(r.adjusted_amount) * 100), left);
+              db.prepare('UPDATE advances SET adjusted_amount = ROUND(adjusted_amount - ?, 2) WHERE id = ?').run(take / 100, r.id);
+              left -= take; released += take;
+            }
+          }
+          db.prepare('UPDATE ip_admissions SET bill_id = NULL WHERE bill_id = ?').run(billId);   // the admission stays; it just has no bill now
+        }
+        db.prepare('DELETE FROM bills WHERE id = ?').run(billId);
+      })();
+    } catch (err: any) { return { ok: false, error: err?.message || 'Delete failed' }; }
     logAudit(db, actor(), 'bill_deleted', 'bills', billId,
-      `${b.bill_number} · ${b.uhid} ${b.patient_name} · total ₹${money(b.total)} · received ₹${money(Number(b.amount_paid) || 0)} · ${items.length} line(s), ${payments.length} payment record(s) erased · snapshot ${snapshotText({ bill: header, items, payments })}`);
+      `${b.bill_number} · ${b.uhid} ${b.patient_name} · total ₹${money(b.total)} · received ₹${money(Number(b.amount_paid) || 0)} · ${items.length} line(s), ${payments.length} payment record(s) erased`
+      + `${inpatient ? ` · IN-PATIENT bill of ${admissions.map((a) => a.admission_number).join(', ') || 'an admission'}${released > 0 ? `, ₹${(released / 100).toFixed(2)} of the advance deposit released` : ''}` : ''}`
+      + ` · snapshot ${snapshotText({ bill: header, items, payments })}`);
     broadcastNetworkEvent('bill:updated', { billId });
-    return { ok: true, bill: { id: billId, bill_number: b.bill_number, total: b.total, amount_paid: b.amount_paid, patient_name: b.patient_name } };
+    return { ok: true, bill: { id: billId, bill_number: b.bill_number, total: b.total, amount_paid: b.amount_paid, patient_name: b.patient_name, inpatient, advance_released: released / 100 } };
   });
 
   ipcMain.handle('admin:deletePatients', (_e, patientIds: number[], adminPassword?: string) => {

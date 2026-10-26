@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Printer, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { fmtDate, formatINR } from '../lib/utils';
+import { pharmacyGstOn } from '../lib/pharmacyGst';
 import { localISO } from '../lib/localDate';
 import { profitMetrics } from '../lib/pharmacyMath';
 
@@ -35,7 +36,7 @@ export function StockRegisterPrint({
 
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   // A clinic that charges GST on its sales earns the price WITHOUT the GST, so profit is worked out on that (same rule as the purchase bill and Analytics).
-  const gstCharged = !!settings?.gst_enabled && settings?.gst_registration_type !== 'unregistered' && settings?.gst_registration_type !== 'composition';
+  const gstCharged = pharmacyGstOn(settings);
   const unitCostOf = (r: { unit_cost?: number | null; purchase_price?: number | null }) => r.unit_cost ?? r.purchase_price ?? null;
   const moneyPerUnit = (r: { unit_cost?: number | null; purchase_price?: number | null; selling_price?: number | null; mrp: number; gst_rate: number }) => {
     const cost = unitCostOf(r);

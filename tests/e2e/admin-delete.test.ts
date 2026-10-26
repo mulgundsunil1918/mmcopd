@@ -1,6 +1,7 @@
 // Deleting a consultation, a visit or a bill needs the ADMIN PASSWORD typed again for that one deletion — checked in the main process,
-// whatever the screen thinks. Only the administrator may do it (when sign-in is on); an in-patient bill cannot be deleted; what each
-// delete removes — and what it must leave alone — is exact; and a copy of what was erased is kept in the audit log.
+// whatever the screen thinks. Only the administrator may do it (when sign-in is on); an in-patient (admission) bill can be deleted too —
+// the admission stays and the advance deposit the discharge used is given back; what each delete removes — and what it must leave alone —
+// is exact; and a copy of what was erased is kept in the audit log.
 // Real handlers on a temporary database.
 import { boot, call, attempt, getDb, setReadOnlyMode } from './harness';
 import { ok, eq, section, finish } from './lib';
@@ -91,18 +92,56 @@ const count = (sql: string, ...p: any[]) => (one(sql, ...p)?.c ?? 0) as number;
   }
 
   // ============================================================================================================
-  section('4 · an in-patient admission bill cannot be deleted');
-  const ward = await call('wards:save', { name: 'General', ward_type: 'general', per_day_rate: 0, nursing_per_day: 0 });
-  const bed = await call('beds:save', { ward_id: ward.id, bed_number: 'D-1' });
-  const adm = await call('ip:admitV2', { patient_id: pat.id, bed_id: bed.id, admission_doctor_id: doc.id, performed_by: 'tester' });
-  const admId = one('SELECT id FROM ip_admissions WHERE patient_id=? ORDER BY id DESC LIMIT 1', pat.id)?.id;
-  const ipBill = one('SELECT id, bill_number FROM bills WHERE admission_id=? ORDER BY id LIMIT 1', admId);
-  ok(adm.ok && !!ipBill, 'an admitted patient has a running bill');
-  if (ipBill) {
-    const r = await call('admin:deleteBill', ipBill.id, '1234');
-    ok(!r.ok && /in-patient bill/i.test(r.error), `deleting it is refused in plain words (${String(r.error).slice(0, 70)}…)`);
-    eq(count('SELECT COUNT(*) c FROM bills WHERE id=?', ipBill.id), 1, '…and the bill is still there');
-  }
+  section('4 · an in-patient (admission) bill can be deleted: the admission stays, the deposit is given back');
+  await call('settings:save', { ipd_advance_enabled: true, pharmacy_ipd_charge_enabled: true });
+  const sup4 = await call('wholesalers:upsert', { name: 'Ward Supplies', drug_license_no: 'DL-WARD' });
+  const drug4 = await call('pharmacy:upsertDrug', { name: 'Ward Tab', default_mrp: 50, gst_rate: 0, schedule: 'OTC', low_stock_threshold: 1 });
+  await call('purchase:create', { client_ref: 'ward-pur', invoice_number: 'WARD-1', wholesaler_id: sup4.id, invoice_date: today, items: [{ drug_master_id: drug4.id, batch_no: 'W1', expiry: '2031-01-01', qty_received: 30, purchase_price: 30, mrp: 50 }] });
+  const stock4 = () => Number(one('SELECT COALESCE(SUM(qty_remaining),0) s FROM drug_stock_batches WHERE drug_master_id=?', drug4.id).s);
+  const wardA = await call('wards:save', { name: 'General A', ward_type: 'general', per_day_rate: 0, nursing_per_day: 0 });
+  const bedA = await call('beds:save', { ward_id: wardA.id, bed_number: 'D-1' });
+  const patA = await call('patients:create', { first_name: 'Ira', last_name: 'Inpatient', dob: '1975-01-01', gender: 'F', phone: '9411000010' });
+  const admA = await call('ip:admitV2', { patient_id: patA.id, bed_id: bedA.id, admission_doctor_id: doc.id, advance_amount: 5000, advance_mode: 'Cash', performed_by: 'tester' });
+  const admAId = one('SELECT id FROM ip_admissions WHERE patient_id=? ORDER BY id DESC LIMIT 1', patA.id)?.id;
+  const ipBill = one('SELECT id, bill_number FROM bills WHERE admission_id=? ORDER BY id LIMIT 1', admAId);
+  ok(admA.ok && !!ipBill, 'an admitted patient has a running bill');
+  const wardSale4 = await call('pharmacy:sell', { client_ref: 'ward-sale-1', ipd_admission_id: admAId, patient_id: patA.id, items: [{ drug_master_id: drug4.id, drug_name: 'Ward Tab', qty: 2, rate: 50 }] });
+  eq(wardSale4.payment_mode, 'IPD-bill', 'two tablets are charged to the admission (a line on its bill)');
+  eq(stock4(), 28, '…and leave the shelf');
+  const stuck = await call('admin:deleteSale', wardSale4.id, '1234');
+  ok(!stuck.ok && /in-patient/i.test(stuck.error), 'while it is a line on the bill, the sale cannot be deleted on its own');
+  await settle();
+  const delIp = await call('admin:deleteBill', ipBill!.id, '1234');
+  ok(delIp.ok && delIp.bill.inpatient === true, `the in-patient bill is deleted with the admin password (${delIp.ok ? 'inpatient' : delIp.error})`);
+  eq(count('SELECT COUNT(*) c FROM bills WHERE id=?', ipBill!.id), 0, '…the bill and its lines are gone');
+  eq(one('SELECT status FROM ip_admissions WHERE id=?', admAId).status, 'admitted', '…the admission itself stays, still admitted');
+  eq(one('SELECT bill_id b FROM ip_admissions WHERE id=?', admAId).b, null, '…and simply has no bill now');
+  eq(Number(one('SELECT amount FROM advances WHERE admission_id=?', admAId).amount), 5000, '…the ₹5,000 deposit is still on record');
+  ok(/IN-PATIENT bill/.test(audit('bill_deleted') || '') && /snapshot/.test(audit('bill_deleted') || ''), 'a copy is kept in the audit log, marked as an in-patient bill');
+  const freed = await call('admin:deleteSale', wardSale4.id, '1234');
+  ok(freed.ok, `the medicine sale is no longer on any bill, so it can be deleted like any other (${freed.ok ? '' : freed.error})`);
+  eq(stock4(), 30, '…and its 2 tablets go back on the shelf');
+  const prevA = await call('bill:previewAdmission', admAId);
+  ok(!!prevA.bill && prevA.bill.id !== ipBill!.id, 'opening the admission\'s billing again starts a fresh running bill');
+
+  // a discharged admission: the discharge used part of the deposit; deleting its bill gives that back
+  const wardB = await call('wards:save', { name: 'General B', ward_type: 'general', per_day_rate: 1000, nursing_per_day: 0 });
+  const bedB = await call('beds:save', { ward_id: wardB.id, bed_number: 'D-2' });
+  const patB = await call('patients:create', { first_name: 'Omar', last_name: 'Discharged', dob: '1960-01-01', gender: 'M', phone: '9411000011' });
+  const admB = await call('ip:admitV2', { patient_id: patB.id, bed_id: bedB.id, admission_doctor_id: doc.id, advance_amount: 4000, advance_mode: 'Cash', performed_by: 'tester' });
+  const admBId = one('SELECT id FROM ip_admissions WHERE patient_id=? ORDER BY id DESC LIMIT 1', patB.id)?.id;
+  const prevB = await call('bill:previewAdmission', admBId);
+  eq(prevB.totals.total, 1000, 'one day of the ₹1,000 bed is on the bill');
+  ok((await call('ip:requestDischarge', admBId, { outcome: 'discharged' }, 'dr')).ok && (await call('ip:approveDischarge', admBId, { by: 'mgr' })).ok, 'the discharge is requested and approved');
+  const finB = one('SELECT id, advance_adjusted, finalized_at FROM bills WHERE admission_id=?', admBId);
+  ok(finB.advance_adjusted === 1000 && !!finB.finalized_at, 'the final bill is frozen and used ₹1,000 of the deposit');
+  eq(Number(one('SELECT adjusted_amount a FROM advances WHERE admission_id=?', admBId).a), 1000, '…the deposit shows ₹1,000 spent');
+  const delB = await call('admin:deleteBill', finB.id, '1234');
+  ok(delB.ok && delB.bill.advance_released === 1000, `the frozen final bill is deleted too, and ₹1,000 of the deposit is released (${delB.ok ? delB.bill.advance_released : delB.error})`);
+  eq(Number(one('SELECT adjusted_amount a FROM advances WHERE admission_id=?', admBId).a), 0, '…so the whole ₹4,000 deposit is refundable again');
+  eq(one('SELECT status FROM ip_admissions WHERE id=?', admBId).status, 'discharged', '…the admission stays discharged');
+  eq(one('SELECT bill_id b FROM ip_admissions WHERE id=?', admBId).b, null, '…with no bill');
+  ok(admB.ok, 'admissions were made on the real handlers');
 
   // ============================================================================================================
   section('5 · deleting a whole visit takes everything of that visit with it, and keeps a copy');
@@ -155,10 +194,7 @@ const count = (sql: string, ...p: any[]) => (one(sql, ...p)?.c ?? 0) as number;
   eq(count('SELECT COUNT(*) c FROM pharmacy_sales WHERE id=?', sale.id) + count('SELECT COUNT(*) c FROM pharmacy_sale_items WHERE sale_id=?', sale.id) + count('SELECT COUNT(*) c FROM dispensing_register WHERE sale_id=?', sale.id), 0, 'the sale, its lines and its register rows are gone');
   eq(stockOf(), 20, '…and the 5 medicines went back on the shelf');
   ok(/pharmacy_sale_deleted/.test(one("SELECT action a FROM audit_log WHERE action='pharmacy_sale_deleted' ORDER BY id DESC LIMIT 1")?.a || '') && /Del Tab/.test(audit('pharmacy_sale_deleted') || ''), 'a copy is kept in the audit log');
-  const wardSale = await call('pharmacy:sell', { client_ref: 'del-sale-ward', items: [{ drug_master_id: drug.id, drug_name: 'Del Tab', qty: 1, rate: 50 }], payment_mode: 'Cash' });
-  db.prepare("UPDATE pharmacy_sales SET payment_mode='IPD-bill' WHERE id=?").run(wardSale.id);
-  const refused = await call('admin:deleteSale', wardSale.id, '1234');
-  ok(!refused.ok && /in-patient/i.test(refused.error), 'a sale charged to an in-patient bill is refused (it is a line on that bill)');
+  // (a sale that is still a line on an in-patient's bill is refused — proved in section 4, with a real admission)
 
   const gone2 = await call('patients:create', { first_name: 'Gone', last_name: 'Patient', dob: '1990-01-01', gender: 'M', phone: '9411000077' });
   const noPw = await call('admin:deletePatient', gone2.id);

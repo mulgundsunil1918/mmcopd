@@ -207,8 +207,14 @@ const mainFile = () => { try { return fs.readFileSync(path.join(userData, 'licen
       ok(acc.addons?.length === 2 && acc.addons.every((a: any) => a.code && a.expires_at && a.id), 'the clinic\'s record keeps both codes with their own expiry');
       ok(acc.modules.every((m: string) => !['pharmacy', 'whatsapp', 'whatsapp_pro'].includes(m)), '…and the main licence\'s own module list is unchanged');
       ok(acc.history.some((h: any) => /Module code: Pharmacy/.test(h.note)), 'the history says which module codes were issued');
+      const latestId = async () => ((await (await fetch(B + '/accounts')).json() as any).issued.find((x: any) => x.clinic === 'Keygen Add-on')).id as string;   // a main renewal / upgrade gives the record a new id
+      const amountOf = async (id: string) => ((await (await fetch(B + '/accounts')).json() as any).issued.find((x: any) => x.id === id)).amount as number;
+      eq(await amountOf(first.id), 8999 + 1999 + 1999, 'the record has collected the base plan + Pharmacy + WhatsApp Pro so far (₹12,997)');
       const renew = await post('/addon', { id: first.id, modules: ['pharmacy'], days: 365 });
       ok(renew.ok && renew.codes.length === 1, 'a renewal of one module is one new code');
+      eq(renew.delta, 1999, 'renewing Pharmacy is money received: its price for another year (₹1,999)');
+      eq(await amountOf(first.id), 12997 + 1999, '…and it is ADDED to the amount collected (₹14,996)');
+      ok(JSON.stringify(renew.renewed) === '["pharmacy"]' && renew.added.length === 0, '…it was a renewal, not a new module');
       const acc2 = (await (await fetch(B + '/accounts')).json() as any).issued.find((x: any) => x.id === first.id);
       ok(acc2.addons.length === 2 && acc2.addons.find((a: any) => a.module === 'pharmacy').id === renew.codes[0].license_id, '…which replaces the old Pharmacy entry (still two records, Pharmacy now the new one)');
       const bad = await post('/addon', { id: first.id, modules: ['reception'], days: 30 });
@@ -219,11 +225,30 @@ const mainFile = () => { try { return fs.readFileSync(path.join(userData, 'licen
       ok(!unknown.ok, 'an unknown account is refused');
       const inv = await (await fetch(B + '/invoice?id=' + encodeURIComponent(first.id))).text();
       ok(/Pharmacy add-on/.test(inv) && /WhatsApp Pro add-on/.test(inv) && /Pharmacy module code valid until/.test(inv), 'the invoice lists the modules the clinic holds through module codes, with their end dates');
-      ok(/Total \(incl\. GST\)<\/td><td class="r">₹12,997</.test(inv), '…and its total is the sum of its lines (base + Pharmacy + WhatsApp Pro)');
+      ok(/Pharmacy add-on/.test(inv) && /Renewal — Pharmacy/.test(inv), '…and the renewal is a line of its own');
+      ok(/Total \(incl\. GST\)<\/td><td class="r">₹14,996</.test(inv), '…and its total is the sum of its lines (base + Pharmacy + WhatsApp Pro + the Pharmacy renewal)');
+      const free = await post('/addon', { id: first.id, modules: ['pharmacy'], days: 365, amount: '0' });
+      eq(free.delta, 0, 'a renewal can be given free: type 0 and nothing is added');
+      eq(await amountOf(first.id), 14996, '…the amount collected does not move');
+      const disc = await post('/addon', { id: first.id, modules: ['pharmacy'], days: 365, amount: '1500' });
+      eq(disc.delta, 1500, 'a renewal at a discount adds what was actually received');
+      eq(await amountOf(first.id), 14996 + 1500, '…(₹1,500)');
+      const mainRenew = await post('/renew', { id: first.id, days: 365 });
+      ok(mainRenew.ok && mainRenew.charged === 8999, `renewing the main licence adds the plan price (₹8,999 for the base plan) — got ₹${mainRenew.charged}`);
+      eq(await amountOf(mainRenew.id), 14996 + 1500 + 8999, '…to the amount collected');
+      ok((await post('/renew', { id: await latestId(), days: 365, amount: '0' })).charged === 0, 'a free main renewal adds nothing');
+      const inv2 = await (await fetch(B + '/invoice?id=' + encodeURIComponent(await latestId()))).text();
+      const sumOf = (h: string) => [...h.matchAll(/<tr><td>([^<]*)<\/td><td class="r">₹([\d,]+)<\/td><\/tr>/g)].reduce((t, m) => t + Number(m[2].replace(/,/g, '')), 0);
+      const invTotal = Number((inv2.match(/Total \(incl\. GST\)<\/td><td class="r">₹([\d,]+)</) || [])[1]?.replace(/,/g, ''));
+      const invDiscount = Number(((inv2.match(/Discount<\/td><td class="r">- ₹([\d,]+)</) || [])[1] || '0').replace(/,/g, ''));
+      ok(invTotal === 14996 + 1500 + 8999, `after renewals the invoice's total is the amount actually collected (₹${invTotal})`);
+      eq(sumOf(inv2) - invDiscount, invTotal, `…and its lines (₹${sumOf(inv2)}) less the discount for the renewals charged below list (₹${invDiscount}) add up to that total`);
+      const fresh = await post('/addon', { id: await latestId(), modules: ['lab'], days: 365 });
+      ok(fresh.ok && fresh.delta === 999 && fresh.added.join() === 'lab' && fresh.renewed.length === 0, 'a module the clinic never had is charged as a new module (Laboratory ₹999), not as a renewal');
       // a clinic still on an older app gets ONE replacement code: what it already holds through module codes is not charged twice
-      const legacy = await post('/upgrade', { id: first.id, lab: true, pharmacy: true, ipd: false, wa: 'pro' });
-      ok(legacy.ok && legacy.delta === 999, `the old-way replacement code charges only the NEW module (Laboratory ₹999) — got ₹${legacy.delta}`);
-      ok(['lab', 'pharmacy', 'whatsapp_pro'].every((m) => legacy.modules.includes(m)), '…and that code carries everything the clinic holds');
+      const legacy = await post('/upgrade', { id: await latestId(), lab: true, pharmacy: true, ipd: true, wa: 'pro' });
+      ok(legacy.ok && legacy.delta === 4999, `the old-way replacement code charges only the NEW module (IPD ₹4,999; the rest is already held) — got ₹${legacy.delta}`);
+      ok(['lab', 'pharmacy', 'ipd', 'whatsapp_pro'].every((m) => legacy.modules.includes(m)), '…and that code carries everything the clinic holds');
     } finally { kg.kill(); fs.rmSync(tmp, { recursive: true, force: true }); }
   } else ok(true, '(the real keygen check is skipped here: it needs the vendor private key and node on this computer)');
 

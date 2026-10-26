@@ -22,7 +22,7 @@ import { nextIpNumber, nextBillNumber } from '../db/ids';
 import { requireModule } from './licensing/enforce';
 import { collections, outstandingTotal } from './billing-portal';
 import { addLine, recalcBill, billGstEnabled } from './bill-totals';
-import { gstContext, splitInclusive } from './gst';
+import { gstContext, pharmacyGstEnabled, splitInclusive } from './gst';
 import { priceAtBatchSellingPrice, sellItems, type SellIn } from './pharmacy-finance';
 
 type Ok<T> = { ok: true } & T;
@@ -1696,7 +1696,7 @@ export function registerIpdBillingIpc() {
           // are NOT NULL) stays consistent with counter dispensing.
           const saleNo = `IPD-${order.admission_id}-${Date.now()}`;
           // The drug's own GST rate (a registered clinic only), taken OUT of the price — the same split the counter records.
-          const gstRate = gstContext(d).enabled ? (Number(batches[0]?.gst_rate) || 0) : 0;
+          const gstRate = pharmacyGstEnabled(d) ? (Number(batches[0]?.gst_rate) || 0) : 0;
           const lineAmt = money(rate * qty);
           const split = splitInclusive(lineAmt, gstRate);
           const sale = d.prepare(

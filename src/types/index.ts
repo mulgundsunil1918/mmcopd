@@ -869,6 +869,8 @@ export interface Settings {
   // ===== GST & Invoicing =====
   /** Master switch. Off = plain receipts with no tax columns anywhere. */
   gst_enabled: boolean;
+  /** The PHARMACY's own GST switch (separate from the clinic's). null = never touched: it follows `gst_enabled`. See lib/pharmacyGst.ts. */
+  pharmacy_gst_enabled: boolean | null;
   /** The GST % a NEW medicine starts with. null = the clinic has not decided: the form asks every time (nothing is assumed). */
   default_drug_gst_rate: number | null;
   /** unregistered | regular | composition — drives which document is printed. */

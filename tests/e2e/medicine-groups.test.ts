@@ -6,7 +6,8 @@
 //   - on the real 306-drug catalogue the paracetamol brands and their generic row share a key, and nothing else is pulled in;
 //   - on a real database a brand added later joins its generic by itself, the lists carry the key, and the stock of the medicine is the
 //     sum over its brands — while the sale still names (and the Schedule H register still records) the brand that was handed over;
-//   - "out of stock" / "low" are judged for the medicine, so one brand running out while another is on the shelf is not an alarm.
+//   - stock alerts stay BRAND BY BRAND (the owner's rule: a pharmacy orders and runs out of a brand): Crocin 650 running out is flagged even
+//     while Dolo 650 is on the shelf; the medicine's total over all its brands is only shown for reading.
 import { boot, call, attempt, getDb } from './harness';
 import { ok, eq, section, finish } from './lib';
 import { PHARMACY_CATALOG } from '../../src/data/pharmacy-catalog';
@@ -111,21 +112,21 @@ const one = (sql: string, ...p: any[]) => db.prepare(sql).get(...p) as any;
   const ms = medicineStock(g.rows);
   eq(ms.stock, 120, 'its stock is what is left over BOTH brands (80 + 40)');
   eq(ms.nextExpiry, '2027-01-31', 'its next expiry is the nearest of the two');
-  ok(!ms.low && !ms.out, 'it is neither low nor out');
   const brands = otherBrandsInStock(list, row(generic.id));
   eq(brands.map((d: any) => d.name).join(' → '), 'Crocin 650 → Dolo 650', 'for a prescription for the generic the shelf offers Crocin first (earliest expiry), then Dolo');
 
-  // one brand running out while another is on the shelf is not a shortage of the medicine
+  // alerts are brand by brand: one brand running out is news even while another is on the shelf
   const sell = (drug: any, qty: number, ref: string) => call('pharmacy:sell', { client_ref: ref, items: [{ drug_master_id: drug.id, drug_name: drug.name, qty, rate: 31 }], payment_mode: 'Cash' });
   await sell(crocin, 40, 'bg-sale-1');
   const after = await call('pharmacy:clinicStock');
   const cr = after.find((r: any) => r.id === crocin.id);
-  ok(cr.out_of_stock === true, 'Crocin 650 itself is now out (its own row says so)');
-  const gm = medicineStock(groupByMedicine(after).find((x) => x.key === cr.medicine_key)!.rows);
-  ok(!gm.out && !gm.low && gm.stock === 80, 'but the MEDICINE is not out: 80 are left as Dolo 650 — no alarm');
+  ok(cr.out_of_stock === true && cr.low_stock === false, 'Crocin 650 is flagged OUT on its own row — brand-wise stock, as the owner wants');
+  eq(medicineStock(groupByMedicine(after).find((x) => x.key === cr.medicine_key)!.rows).stock, 80, '…while the medicine still shows 80 over its brands (for reading)');
   await sell(dolo, 75, 'bg-sale-2');
-  const low = medicineStock(groupByMedicine(await call('pharmacy:clinicStock')).find((x) => x.key === cr.medicine_key)!.rows);
-  ok(low.low && !low.out && low.stock === 5, 'once only 5 are left over all brands, the medicine is low (the highest level any brand has is 10)');
+  const after2 = await call('pharmacy:clinicStock');
+  const dl = after2.find((r: any) => r.id === dolo.id);
+  ok(dl.low_stock === true && dl.out_of_stock === false, 'Dolo 650, with 5 left (level 10), is flagged LOW on its own row');
+  eq(medicineStock(groupByMedicine(after2).find((x) => x.key === cr.medicine_key)!.rows).stock, 5, '…and the medicine total is 5');
 
   // the sale records the brand that was handed over — never the generic that was merely prescribed
   const lines = db.prepare('SELECT drug_name, drug_master_id FROM pharmacy_sale_items ORDER BY id').all() as any[];

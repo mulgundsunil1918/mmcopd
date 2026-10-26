@@ -44,6 +44,15 @@ type Tab = 'dispense' | 'druglist' | 'clinic' | 'purchases' | 'sales' | 'wholesa
  */
 const defaultRate = (d: any): number => Number(d.next_selling_price ?? d.next_mrp ?? d.mrp ?? d.default_mrp ?? 0);
 
+/**
+ * "Add another brand": a new drug that starts as a copy of this one's composition (ingredient, strength, form, schedule, GST…) so it sits with the
+ * same medicine automatically. The name, MRP and barcode are the new brand's own, so they start empty.
+ */
+const anotherBrandOf = (d: DrugMaster): Partial<DrugMaster> => ({
+  is_active: 1, name: '', generic_name: d.generic_name, form: d.form, strength: d.strength, pack_size: d.pack_size, schedule: d.schedule,
+  hsn_code: d.hsn_code, gst_rate: d.gst_rate, default_mrp: 0, low_stock_threshold: d.low_stock_threshold,
+});
+
 /** A sale line for a drug from the list: priced at the batch FEFO will hand out next, with what the shelf looks like. */
 const rowFromDrug = (d: any, qty = 1) => ({
   drug_master_id: d.id as number,
@@ -813,6 +822,7 @@ function DrugListTab() {
   const toast = useToast();
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState<Partial<DrugMaster> | null>(null);
+  const [brandOf, setBrandOf] = useState<string | null>(null);   // set while the dialog adds ANOTHER BRAND of this medicine
   const [scanOpen, setScanOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -987,8 +997,12 @@ function DrugListTab() {
                     ? <span className="badge bg-green-100 text-green-700">Active</span>
                     : <span className="badge bg-gray-200 text-gray-600">Inactive</span>}
                 </td>
-                <td className="py-2 text-right">
-                  <button className="btn-ghost text-xs" onClick={() => setEditing(d)}><Pencil className="w-3.5 h-3.5" /> Edit</button>
+                <td className="py-2 text-right whitespace-nowrap">
+                  <button className="btn-ghost text-xs" onClick={() => { setBrandOf(null); setEditing(d); }}><Pencil className="w-3.5 h-3.5" /> Edit</button>
+                  <button className="btn-ghost text-xs" title="Add another brand of this same medicine — its ingredient, strength, form, schedule and GST are filled in for you"
+                    onClick={() => { setBrandOf(d.name); setEditing(anotherBrandOf(d)); }}>
+                    <Plus className="w-3.5 h-3.5" /> Brand
+                  </button>
                 </td>
               </tr>
             );
@@ -1049,7 +1063,7 @@ function DrugListTab() {
         </div>
       </Modal>
 
-      {editing && <DrugEditModal drug={editing} onClose={() => setEditing(null)} />}
+      {editing && <DrugEditModal drug={editing} brandOf={brandOf ?? undefined} onClose={() => { setEditing(null); setBrandOf(null); }} />}
       {settingGst && <SetGstModal selectedIds={[...selectedIds]} onClose={() => setSettingGst(false)} onDone={() => setSelectedIds(new Set())} />}
 
       <BarcodeScanModal

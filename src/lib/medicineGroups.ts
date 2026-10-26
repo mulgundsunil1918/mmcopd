@@ -119,16 +119,14 @@ export function medicineTitle<T extends MedicineLike>(rows: T[]): string {
 export interface StockLike { id: number; stock_qty: number; low_stock_threshold?: number | null; is_active?: number | boolean | null; next_expiry?: string | null }
 
 /**
- * A medicine is out of stock when NONE of its brands has a unit, and low when what is left over all its brands is at or below the
- * highest low-stock level any of them has. One brand running out while another is on the shelf is not a shortage of the medicine.
+ * What a screen shows when it looks at a medicine as a whole: the units over ALL its brands and the nearest expiry. This is for READING only —
+ * stock alerts (low, out) stay brand by brand, because a pharmacy orders and runs out of a brand, not of a salt: Crocin 650 being out is
+ * news even while Dolo 650 is on the shelf.
  */
-export function medicineStock<T extends StockLike>(rows: T[]): { stock: number; low: boolean; out: boolean; nextExpiry: string | null } {
-  const live = rows.filter((r) => Number(r.is_active ?? 1) === 1);
+export function medicineStock<T extends StockLike>(rows: T[]): { stock: number; nextExpiry: string | null } {
   const stock = rows.reduce((s, r) => s + (Number(r.stock_qty) || 0), 0);
-  const level = Math.max(0, ...live.map((r) => Number(r.low_stock_threshold) || 0));
   const exp = rows.filter((r) => (Number(r.stock_qty) || 0) > 0 && r.next_expiry).map((r) => String(r.next_expiry)).sort()[0] ?? null;
-  const active = live.length > 0;
-  return { stock, low: active && stock > 0 && stock <= level, out: active && stock <= 0, nextExpiry: exp };
+  return { stock, nextExpiry: exp };
 }
 
 /**
