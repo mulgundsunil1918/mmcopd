@@ -33,6 +33,7 @@ import {
   SalePaymentChoice, initialPayChoice, payDoneText, payFields, payProblem, usePayOptions, type PayChoice,
 } from '../components/pharmacy/SalePaymentChoice';
 import { DiscountRow, useSaleDiscount } from '../components/pharmacy/SaleDiscount';
+import { saleSubtotalPaise } from '../lib/discountLimit';
 import { Printer } from 'lucide-react';
 
 type Tab = 'dispense' | 'druglist' | 'clinic' | 'purchases' | 'sales' | 'wholesalers' | 'reports';
@@ -290,8 +291,9 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
   // re-prices them anyway). A line that uses two batches is priced per batch on the bill.
   const wardLocked = pay.how === 'ipd';
   const priceOf = (r: Row) => (wardLocked ? (r.listRate ?? r.rate) : r.rate);
-  const subtotal = useMemo(() => rows.reduce((s, r) => s + r.qty * priceOf(r), 0), [rows, wardLocked]);
-  const disc = useSaleDiscount(subtotal);                      // typed as a percentage (first choice) or in rupees — whichever the person types counts
+  const subtotalP = useMemo(() => saleSubtotalPaise(rows.filter(isRealLine).map((r) => ({ qty: r.qty, rate: priceOf(r) }))), [rows, wardLocked]);   // whole paise, as the receipt adds it up
+  const subtotal = subtotalP / 100;
+  const disc = useSaleDiscount(subtotalP);                     // typed as a percentage of the bill
   const discount = disc.amount;
   const total = Math.max(0, subtotal - discount);
   const payBlocked = payProblem(pay, payOpts, total, discount);
@@ -440,7 +442,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
         <SalePaymentChoice value={pay} onChange={setPay} options={payOpts} total={total} discount={discount} />
         <div className="card p-3 bg-gray-50 dark:bg-slate-900">
           <div className="flex justify-between text-xs"><span>Subtotal</span><span>{formatINR(subtotal)}</span></div>
-          <DiscountRow d={disc} subtotal={subtotal} over={lim.over} />
+          <DiscountRow d={disc} over={lim.over} />
           {lim.pct != null && (
             <div className={cn('text-[10px] text-right', lim.over ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-gray-500 dark:text-slate-400')}>
               {lim.over ? `More than your limit (${lim.pct}% = ${formatINR(lim.maxAmount as number)}) — ask a manager.` : `Your limit: ${lim.pct}% (up to ${formatINR(lim.maxAmount as number)})`}
@@ -503,8 +505,9 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
   // re-prices them anyway). A line that uses two batches is priced per batch on the bill.
   const wardLocked = pay.how === 'ipd';
   const priceOf = (r: Row) => (wardLocked ? (r.listRate ?? r.rate) : r.rate);
-  const subtotal = useMemo(() => rows.reduce((s, r) => s + r.qty * priceOf(r), 0), [rows, wardLocked]);
-  const disc = useSaleDiscount(subtotal);                      // typed as a percentage (first choice) or in rupees — whichever the person types counts
+  const subtotalP = useMemo(() => saleSubtotalPaise(rows.filter(isRealLine).map((r) => ({ qty: r.qty, rate: priceOf(r) }))), [rows, wardLocked]);   // whole paise, as the receipt adds it up
+  const subtotal = subtotalP / 100;
+  const disc = useSaleDiscount(subtotalP);                     // typed as a percentage of the bill
   const discount = disc.amount;
   const total = Math.max(0, subtotal - discount);
   const payOpts = usePayOptions(patient?.id);
@@ -717,7 +720,7 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
         <SalePaymentChoice value={pay} onChange={setPay} options={payOpts} total={total} discount={discount} />
         <div className="card p-3 bg-gray-50 dark:bg-slate-900">
           <div className="flex justify-between text-xs"><span>Subtotal</span><span>{formatINR(subtotal)}</span></div>
-          <DiscountRow d={disc} subtotal={subtotal} over={lim.over} />
+          <DiscountRow d={disc} over={lim.over} />
           {lim.pct != null && (
             <div className={cn('text-[10px] text-right', lim.over ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-gray-500 dark:text-slate-400')}>
               {lim.over ? `More than your limit (${lim.pct}% = ${formatINR(lim.maxAmount as number)}) — ask a manager.` : `Your limit: ${lim.pct}% (up to ${formatINR(lim.maxAmount as number)})`}

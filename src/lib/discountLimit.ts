@@ -7,6 +7,8 @@
  * already gives; the owner sets the numbers deliberately. A malformed map is the one exception: it must never silently grant
  * more than the owner meant, so every non-admin role is held at 0% until the setting is fixed. Admin is never limited.
  */
+import { toPaise } from './pharmacyMath';
+
 
 /** Roles shown in Settings (admin is always unlimited). */
 export const COUNTER_DISCOUNT_ROLES = [
@@ -44,4 +46,20 @@ export function counterDiscountCap(json: string | null | undefined, role: string
 /** The largest discount, in whole paise, that a percent limit allows on a sale of `subtotalPaise`. */
 export function capPaise(subtotalPaise: number, pct: number): number {
   return Math.floor((subtotalPaise * Math.max(0, Math.min(100, pct))) / 100 + 1e-9);
+}
+
+/**
+ * The value of a sale in whole paise, added up the way the main process adds it: every line is rounded to the paisa first, then the lines are summed.
+ * The sale screens use this (not a plain sum of rupees) so what they show, what a percentage comes to and what the receipt prints are the same figure.
+ */
+export function saleSubtotalPaise(lines: { qty: number; rate: number }[]): number {
+  return lines.reduce((s, l) => s + toPaise(Number(l.qty) * Number(l.rate)), 0);
+}
+
+/**
+ * What a discount of `pct` percent (given to at most two decimals) takes off a sale of `subtotalPaise`, in whole paise — never rounded up. It is the
+ * same rule as capPaise above, on purpose: a person whose limit is 10% who types exactly 10 is never refused for half a paisa.
+ */
+export function percentDiscountPaise(subtotalPaise: number, pct: number): number {
+  return capPaise(subtotalPaise, Math.round(Math.max(0, pct) * 100) / 100);
 }

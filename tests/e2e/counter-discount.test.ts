@@ -4,6 +4,8 @@
 // must not grant more than the owner meant. Real handlers on a temporary database.
 import { boot, call, attempt, getDb } from './harness';
 import { ok, eq, section, finish } from './lib';
+import { saleSubtotalPaise, percentDiscountPaise } from '../../src/lib/discountLimit';
+import { fromPaise } from '../../src/lib/pharmacyMath';
 
 boot();
 const db = getDb();
@@ -129,6 +131,33 @@ const db = getDb();
   eq(row((await pct(20, 5)).id).discount, 20, 'dropping the label never changes the rupees that were charged');
   eq(row(a.id).total, 285, 'the total is still the bill less the rupees (₹300 − ₹15)');
   ok((await call('pharmacy:saleDetail', (await pct(20, undefined)).id)).discount_pct == null, 'an old-style sale (no percentage) reads back as no percentage — nothing breaks for them');
+
+  // ============================================================================================================
+  section('5 · typing exactly your limit as a PERCENTAGE is never refused (the screen works the rupees out the way the main process does)');
+  await call('settings:save', { require_login: true, pharmacy_discount_caps_json: JSON.stringify({ pharmacist: 10, receptionist: 5 }) });
+  await call('auth:login', 'phil', 'pass1234');
+  // sale values with half a paisa in them: 10% of ₹333.35 is ₹33.335 -> the screen offers ₹33.33 (never rounded up), which the 10% limit allows
+  const cases: [number, number][] = [[1, 333.35], [3, 3.335], [7, 1.15], [13, 2.77], [2, 9.995], [1, 0.05], [9, 0.29], [11, 17.45]];
+  for (const [qty, rate] of cases) {
+    const subP = saleSubtotalPaise([{ qty, rate }]);
+    const amountP = percentDiscountPaise(subP, 10);
+    const r = await sell(fromPaise(amountP), { discount_pct: amountP > 0 ? 10 : null }, rate, qty);
+    ok(r.ok, `10% of ${qty} × ₹${rate} (₹${fromPaise(subP).toFixed(2)}) = ₹${fromPaise(amountP).toFixed(2)} is accepted for a pharmacist limited to 10%${r.ok ? '' : ' — REFUSED: ' + (r as any).error.slice(0, 80)}`);
+    if (r.ok && amountP > 0) eq(row((r as any).value.id).discount_pct, 10, `   …and it is remembered as 10%`);
+  }
+  // two lines, each rounded to the paisa before they are added (the receipt's way): 3 × 0.835 + 3 × 1.115
+  const two = [{ qty: 3, rate: 0.835 }, { qty: 3, rate: 1.115 }];
+  const subTwo = saleSubtotalPaise(two);
+  const amountTwo = percentDiscountPaise(subTwo, 10);
+  const rTwo = await attempt('pharmacy:sell', {
+    client_ref: `cap-sale-two-${++n}`, payment_mode: 'Cash', discount: fromPaise(amountTwo), discount_pct: 10,
+    items: two.map((l) => ({ drug_master_id: drug.id, drug_name: 'Cap Tablet', qty: l.qty, rate: l.rate })),
+  });
+  ok(rTwo.ok, `two lines adding up to ₹${fromPaise(subTwo).toFixed(2)}: 10% = ₹${fromPaise(amountTwo).toFixed(2)} is accepted${rTwo.ok ? '' : ' — REFUSED: ' + (rTwo as any).error.slice(0, 80)}`);
+  ok(percentDiscountPaise(100000, 10.004) === 10000 && percentDiscountPaise(100000, 10.006) === 10010, 'a percentage is read to two decimals (10.004 -> 10%, 10.006 -> 10.01%)');
+  ok(percentDiscountPaise(33335, 0) === 0 && percentDiscountPaise(5000, -3) === 0, 'no percentage, or a negative one, takes nothing off');
+  await call('auth:logout');
+  await call('settings:save', { require_login: false });
 
   finish();
 })().catch((e) => { console.error('SUITE CRASHED', e); process.exit(1); });

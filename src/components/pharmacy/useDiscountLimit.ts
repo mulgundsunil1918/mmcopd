@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../hooks/useAuth';
-import { counterDiscountCap } from '../../lib/discountLimit';
+import { capPaise, counterDiscountCap } from '../../lib/discountLimit';
 
 /**
  * The signed-in person's limit on a discount at the pharmacy counter, so the sale screens can say so before the main process
@@ -11,7 +11,7 @@ export function useCounterDiscountLimit(subtotal: number, discount: number) {
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   const role = user && user.id > 0 && user.role !== 'staff' ? user.role : null;
   const pct = counterDiscountCap(settings?.pharmacy_discount_caps_json, role);
-  const maxAmount = pct == null ? null : Math.floor(subtotal * pct) / 100;        // whole paise, never rounded up
+  const maxAmount = pct == null ? null : capPaise(Math.round(subtotal * 100), pct) / 100;        // whole paise, never rounded up — the main process's own rule
   const over = maxAmount != null && discount > maxAmount + 0.004;
   return { pct, maxAmount, over, role };
 }
