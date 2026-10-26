@@ -1,4 +1,5 @@
 export * from './types';
+export * from './items';
 export * from './normalize';
 export * from './template';
 export * from './match';

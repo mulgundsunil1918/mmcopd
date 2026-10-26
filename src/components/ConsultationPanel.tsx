@@ -173,10 +173,11 @@ export function ConsultationPanel({
     }
   }, [appointment.id, rxItems.length]);
 
-  // Drug master for autocomplete
+  // Drug master for autocomplete — medicines only: a syringe or a bed sheet (a "consumable") is never prescribed
   const { data: drugCatalog = [] } = useQuery({
     queryKey: ['pharmacy-drugs-active'],
     queryFn: () => window.electronAPI.pharmacy.listDrugs({ activeOnly: true }),
+    select: (rows) => rows.filter((d) => d.item_type !== 'consumable'),
   });
 
   const save = useMutation({

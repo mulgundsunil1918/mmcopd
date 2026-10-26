@@ -36,7 +36,7 @@ const CAT = PHARMACY_CATALOG.length;
   const day = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA'); };
   /** clearDrugs returns {ok:false,error} for a refusal and THROWS for a role problem — fold both into one shape. */
   const clear = async (payload: any): Promise<any> => {
-    const r = await attempt('pharmacy:clearDrugs', payload);
+    const r = await attempt('pharmacy:clearDrugs', { admin_password: '1234', ...payload });      // the administrator types the admin password for every delete
     return r.ok ? (r as any).value : { ok: false, error: (r as any).error };
   };
   const preview = (ids: number[] | null) => call('pharmacy:previewClear', ids === null ? {} : { ids });
@@ -136,7 +136,7 @@ const CAT = PHARMACY_CATALOG.length;
   section('3 · who may do it, and deleting just the ticked drugs');
   await call('settings:save', { require_login: true });
   const frozen = JSON.stringify([dbCounts(), await history()]);
-  for (const [who, role] of [['rita', 'receptionist'], ['mona', 'manager']]) {
+  for (const [who, role] of [['rita', 'receptionist'], ['mona', 'manager'], ['phil', 'pharmacist']]) {
     await call('auth:login', who, 'pass1234');
     const no = await clear({ ids: [C.id] });
     ok(!no.ok && new RegExp(`${role}.*not allowed`, 'i').test(no.error), `a ${role} is refused (${String(no.error).slice(0, 60)})`);
@@ -147,11 +147,20 @@ const CAT = PHARMACY_CATALOG.length;
   eq(JSON.stringify([dbCounts(), await history()]), frozen, 'the refusals changed nothing');
   eq(backups().length, 0, '…and made no safety copy');
 
-  await call('auth:login', 'phil', 'pass1234');
+  // only the administrator may — and with the admin password typed again, checked by the main process
+  await call('auth:login', 'admin', 'admin123');
+  for (const [what, pw] of [['a wrong admin password', 'nope'], ['no password at all', '']] as [string, string][]) {      // one wrong guess only: a second wrong one would slow the next attempt down
+    const bad = await clear({ ids: [C.id], admin_password: pw });
+    ok(!bad.ok && /wrong admin password/i.test(bad.error), `${what} is refused (${String(bad.error).slice(0, 40)})`);
+  }
+  const noKey = await attempt('pharmacy:clearDrugs', { ids: [C.id] });
+  ok(!(noKey.ok && (noKey as any).value?.ok), 'a call that sends no password at all is refused too');
+  eq(JSON.stringify([dbCounts(), await history()]), frozen, 'the wrong passwords changed nothing');
+  eq(backups().length, 0, '…and made no safety copy');
   const none = await clear({ ids: [] });
   ok(!none.ok && /tick at least one/i.test(none.error), 'nothing ticked is refused in plain words');
   const picked = await clear({ ids: [C.id, D.id, G.id] });
-  ok(picked.ok, `the pharmacy in-charge deletes the ticked drugs (${picked.ok ? '' : picked.error})`);
+  ok(picked.ok, `the administrator, with the right password, deletes the ticked drugs (${picked.ok ? '' : picked.error})`);
   eq(picked.mode, 'selected', 'it reports that it was a selected delete');
   eq(`${picked.drugs_deleted}/${picked.drugs_kept_inactive}/${picked.batches_deleted}/${picked.batches_zeroed}/${picked.units_removed}`, '3/0/3/0/35', 'three drugs erased, three batches deleted, 35 units removed — as the preview said');
   eq([C, D, G].map((d) => !!drugRow(d.id)).join(), 'false,false,false', 'Gamma, Delta and Eta are gone from the Drug List');
@@ -172,7 +181,7 @@ const CAT = PHARMACY_CATALOG.length;
 
   // ============================================================================================================
   section('4 · start fresh asks for the phrase, and saves a copy first or does nothing');
-  await call('auth:login', 'phil', 'pass1234');
+  await call('auth:login', 'admin', 'admin123');
   const stateBefore = JSON.stringify([dbCounts(), await history()]);
   for (const [what, payload] of [['no phrase', {}], ['the wrong phrase', { confirm: 'START' }], ['an empty phrase', { confirm: '   ' }]] as [string, any][]) {
     const r = await clear(payload);

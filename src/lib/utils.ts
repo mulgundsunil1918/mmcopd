@@ -1,5 +1,6 @@
 import clsx, { type ClassValue } from 'clsx';
 import { differenceInDays, differenceInMonths, differenceInYears, parseISO, format, differenceInMinutes, subDays, subMonths, subYears } from 'date-fns';
+import { isNoExpiry } from './expiry';
 
 export const cn = (...classes: ClassValue[]) => clsx(classes);
 
@@ -100,6 +101,7 @@ export function parseDbDate(d: string | Date | null | undefined): Date | null {
 // A missing or malformed date returns an em-dash instead of throwing
 // "Invalid time value", which would otherwise crash whatever screen renders it.
 export function fmtDate(d: string | Date | null | undefined, pattern = 'do MMMM yyyy') {
+  if (isNoExpiry(d)) return 'No expiry';          // the stand-in expiry of a consumable that prints none (see lib/expiry.ts) — no other date is ever that far off
   const date = parseDbDate(d);
   if (!date) return '—';
   return format(date, pattern);

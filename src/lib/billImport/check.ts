@@ -9,8 +9,9 @@
  * wrong, stale or tampered with cannot get a bad bill into stock.
  */
 import { computePurchase, fromPaise, toPaise } from '../pharmacyMath';
-import type { Draft, DraftBill, DraftLine, Problem, Reconciliation } from './types';
+import type { Draft, DraftBill, DraftLine, Problem, ReconPart, Reconciliation } from './types';
 import { looksLikePlaceholderBatch } from './normalize';
+import { isNoExpiry, pagesMissing, schemeInName } from './items';
 
 export const ALLOWED_GST = [0, 5, 12, 18, 28];
 /** CGST-only (or SGST-only) figures that are often copied by mistake as the line's GST: the TOTAL is double. */
@@ -31,6 +32,20 @@ export function lineComputed(l: Pick<DraftLine, 'qty' | 'rate' | 'disc_pct' | 'g
   const taxable = gross - disc;
   return fromPaise(taxable + Math.round((taxable * Math.max(0, l.gst_rate ?? 0)) / 100));
 }
+
+/**
+ * What a line comes to at each stage — quantity × rate (before any discount), after its own discount (before GST), and with GST. A bill may print ANY of
+ * the three as "the line's amount" (Samarth's AMOUNT column is the first, a "Taxable Amt" the second, a "Total" the third); all three are right.
+ */
+export function lineStages(l: Pick<DraftLine, 'qty' | 'rate' | 'disc_pct' | 'gst_rate'>): { gross: number; taxable: number; total: number } | null {
+  if (l.qty === null || l.rate === null || !Number.isFinite(l.qty) || !Number.isFinite(l.rate)) return null;
+  const gross = toPaise(l.qty * l.rate);
+  const disc = Math.round((gross * Math.min(100, Math.max(0, l.disc_pct || 0))) / 100);
+  const taxable = gross - disc;
+  return { gross: fromPaise(gross), taxable: fromPaise(taxable), total: fromPaise(taxable + Math.round((taxable * Math.max(0, l.gst_rate ?? 0)) / 100)) };
+}
+/** A figure that is the line's gross or taxable value may be off by this much (a paisa or two of rounding). */
+const STAGE_TOLERANCE = 0.03;
 
 /** Days from `from` to `to` (ISO dates). */
 function daysBetween(from: string, to: string): number {
@@ -94,11 +109,13 @@ export function checkLine(l: DraftLine, ctx: CheckContext): Problem[] {
   }
   if (l.selling_price !== null && l.mrp !== null && toPaise(l.selling_price) > toPaise(l.mrp)) add('sell_over_mrp', 'error', 'The selling price cannot be higher than the MRP.', 'mrp');
 
-  // ---- batch and expiry ----
-  if (!l.batch.trim()) add('no_batch', 'error', 'Enter the batch number from the strip or bottle.', 'batch');
-  else if (looksLikePlaceholderBatch(l.batch)) add('placeholder_batch', 'error', `“${l.batch.trim()}” is not a real batch number — type the one printed on the pack.`, 'batch');
-  if (!l.expiry) add('no_expiry', 'error', l.expiry_problem || 'Enter the expiry date (month and year printed on the pack).', 'expiry');
-  else {
+  // ---- batch and expiry (a consumable — a syringe, a bed sheet — may print neither; it is then stored as "NO BATCH" / "No expiry") ----
+  // (a line not decided yet follows what the bill itself suggests, so a bed sheet is not red for a batch it never had)
+  const consumable = l.new_drug ? l.new_drug.item_type === 'consumable' : l.drug_id !== null ? l.consumable === true : l.suggested_new?.item_type === 'consumable';
+  if (!l.batch.trim()) { if (!consumable) add('no_batch', 'error', 'Enter the batch number from the strip or bottle.', 'batch'); }
+  else if (!consumable && looksLikePlaceholderBatch(l.batch)) add('placeholder_batch', 'error', `“${l.batch.trim()}” is not a real batch number — type the one printed on the pack.`, 'batch');
+  if (!l.expiry) { if (!consumable || l.expiry_problem) add('no_expiry', 'error', l.expiry_problem || 'Enter the expiry date (month and year printed on the pack).', 'expiry'); }
+  else if (!isNoExpiry(l.expiry)) {
     const left = daysBetween(ctx.today, l.expiry);
     if (left < 0) add('expired', 'error', `This batch expired ${-left} day${left === -1 ? '' : 's'} ago (${l.expiry}). Check the pack — if it really is expired, set this line aside.`, 'expiry');
     else if (left <= 180) add('short_dated', 'warn', `Short expiry: only ${left} day${left === 1 ? '' : 's'} left (${l.expiry}).`, 'expiry');
@@ -110,9 +127,20 @@ export function checkLine(l: DraftLine, ctx: CheckContext): Problem[] {
   }
 
   // ---- does the line add up? ----
-  const computed = lineComputed(l);
-  if (computed !== null && l.printed_amount !== null && Math.abs(computed - l.printed_amount) > LINE_TOLERANCE) {
-    add('line_amount_differs', 'warn', `The bill prints ${money(l.printed_amount)} for this line but quantity × rate − discount + GST makes ${money(computed)}. Compare with the bill.`, 'amount');
+  const stages = lineStages(l);
+  if (stages !== null && l.printed_amount !== null) {
+    const p = l.printed_amount;
+    const matches = Math.abs(p - stages.gross) <= STAGE_TOLERANCE || Math.abs(p - stages.taxable) <= STAGE_TOLERANCE || Math.abs(p - stages.total) <= LINE_TOLERANCE;
+    if (!matches) {
+      add('line_amount_differs', 'warn', `The bill prints ${money(p)} for this line, but quantity × rate is ${money(stages.gross)}, after the discount ${money(stages.taxable)} and with GST ${money(stages.total)} — it matches none of them. Compare with the bill (the quantity, rate or amount may be misread).`, 'amount');
+    }
+  }
+  if (l.mrp !== null && l.rate !== null && l.rate > 0 && l.mrp >= 4 * l.rate) {
+    add('mrp_far_above_rate', 'warn', `The MRP (${money(l.mrp)}) is ${Math.round((l.mrp / l.rate) * 10) / 10} times the rate (${money(l.rate)}). Check that it is the MRP of ONE unit, not of a whole box.`, 'mrp');
+  }
+  const scheme = schemeInName(l.printed_name);
+  if (scheme && (l.free_qty || 0) === 0) {
+    add('scheme_in_name', 'warn', `The name says ${scheme.paid}+${scheme.free} — a free offer — but Free is 0. If the bill gives free units (look in its Free / F.Q column), enter them.`, 'free');
   }
   if (l.mrp !== null && l.rate !== null && l.mrp > 0 && l.rate > 0 && l.gst_rate !== null && l.rate * (1 + l.gst_rate / 100) > l.mrp + 0.005) {
     add('mrp_below_cost', 'warn', `The MRP (${money(l.mrp)}) is lower than the rate with GST (${money(l.rate * (1 + l.gst_rate / 100))}) — you would sell below cost. Check the MRP and the rate.`, 'mrp');
@@ -140,6 +168,12 @@ export function checkBill(bill: DraftBill, lines: DraftLine[], ctx: CheckContext
     const dup = ctx.existingInvoice?.(bill.wholesaler_id, bill.invoice_number.trim());
     if (dup) add('duplicate_invoice', 'error', `Invoice ${bill.invoice_number.trim()} from this supplier is already recorded (dated ${dup.date}). Open it from Purchases instead of importing it again.`, 'invoice_number');
   }
+  const miss = pagesMissing(bill.pages_seen);
+  if (miss) {
+    add('pages_missing', bill.totals_ack ? 'warn' : 'error',
+      `ChatGPT saw only ${miss.seen === 1 ? 'page 1' : `${miss.seen} pages`} of this ${miss.total}-page bill: the rest of the lines and the bill's total are on the other page${miss.total - miss.seen === 1 ? '' : 's'}. ` +
+      `Give ChatGPT every page and ask for the file again — importing part of a bill would make the other part look "already recorded". ${bill.totals_ack ? 'You have chosen to go on.' : 'Or tick “I have checked this difference” if you really mean to import only this part.'}`, 'pages');
+  }
   if (!(bill.discount >= 0)) add('bad_invoice_discount', 'error', 'The invoice discount cannot be negative.', 'discount');
   if (!(bill.other_charges >= 0)) add('bad_other_charges', 'error', 'Other charges cannot be negative.', 'other');
   void lines;
@@ -151,15 +185,40 @@ export function reconcile(bill: DraftBill, lines: DraftLine[]): Reconciliation {
   const real = lines.filter((l) => !l.aside && l.qty !== null && l.qty > 0 && l.rate !== null && l.rate >= 0)
     .map((l) => ({ qty: l.qty as number, free_qty: l.free_qty || 0, rate: l.rate as number, disc_pct: l.disc_pct || 0, gst_rate: l.gst_rate ?? 0 }));
   const asideLines = lines.filter((l) => l.aside);
-  const asidePrinted = fromPaise(asideLines.reduce((s, l) => s + toPaise(l.printed_amount ?? 0), 0));
-  // a set-aside line stands in by its printed amount (ex-GST), so the invoice discount is shared as it would be on the whole bill
-  const pseudo = asideLines.filter((l) => l.printed_amount !== null).map((l) => ({ qty: 1, free_qty: 0, rate: (l.printed_amount as number) / (1 + (l.gst_rate ?? 0) / 100), disc_pct: 0, gst_rate: l.gst_rate ?? 0 }));
+  /** What a set-aside line comes to WITH GST: its printed amount, unless the bill printed that amount before the discount or before the GST (then the line's own figure with GST). */
+  const withGst = (l: DraftLine): number => {
+    const p = l.printed_amount as number;
+    const st = lineStages(l);
+    return st !== null && (Math.abs(p - st.gross) <= STAGE_TOLERANCE || Math.abs(p - st.taxable) <= STAGE_TOLERANCE) ? st.total : p;
+  };
+  const asidePrinted = fromPaise(asideLines.reduce((s, l) => s + (l.printed_amount === null ? 0 : toPaise(withGst(l))), 0));
+  // a set-aside line stands in by its amount (ex-GST), so the invoice discount is shared as it would be on the whole bill
+  const pseudo = asideLines.filter((l) => l.printed_amount !== null).map((l) => ({ qty: 1, free_qty: 0, rate: withGst(l) / (1 + (l.gst_rate ?? 0) / 100), disc_pct: 0, gst_rate: l.gst_rate ?? 0 }));
   const opts = { header_discount: bill.discount, other_charges: bill.other_charges, interstate: bill.interstate, gst_in_cost: false, round_off: bill.round_off };
   let computed = 0;
   try { computed = computePurchase([...real, ...pseudo], opts).total; } catch { computed = 0; }
   const net = bill.printed.net;
   const difference = net === null ? null : fromPaise(toPaise(net) - toPaise(computed));
-  return { printed_net: net, computed_total: computed, aside_printed: asidePrinted, difference, ok: difference !== null && Math.abs(difference) <= TOTAL_TOLERANCE };
+  let parts: ReconPart[] = [];
+  if (asideLines.length === 0 && real.length > 0) {
+    try { parts = reconParts(bill, computePurchase(real, opts)); } catch { parts = []; }
+  }
+  return { printed_net: net, computed_total: computed, aside_printed: asidePrinted, difference, ok: difference !== null && Math.abs(difference) <= TOTAL_TOLERANCE, parts };
+}
+
+/** The bill's footer figures against the same figures from the lines: the sub total, the discount, the GST — so a difference says WHERE it is. */
+function reconParts(bill: DraftBill, calc: ReturnType<typeof computePurchase>): ReconPart[] {
+  const p = bill.printed;
+  const out: ReconPart[] = [];
+  const part = (label: string, printed: number, lines: number) => out.push({ label, printed, lines, diff: Math.round((printed - lines) * 100) / 100 });
+  if (p.subtotal !== null) {
+    // a "sub total" is either before the discount or after it: compare with whichever the bill's own figure is nearer to
+    if (Math.abs(p.subtotal - calc.subtotal) <= Math.abs(p.subtotal - calc.taxable)) part('Items total before discount (quantity × rate)', p.subtotal, calc.subtotal);
+    else part('Items total after discount, before GST', p.subtotal, calc.taxable);
+  }
+  if (p.discount !== null) part('Discount', p.discount, calc.discount);
+  if (p.cgst !== null || p.sgst !== null || p.igst !== null) part('GST (CGST + SGST + IGST)', (p.cgst ?? 0) + (p.sgst ?? 0) + (p.igst ?? 0), calc.gst);
+  return out;
 }
 
 /** Run every check. */
@@ -190,12 +249,15 @@ export function checkDraft(draft: Draft, ctx: CheckContext): CheckResult {
       code: 'totals_differ', severity: draft.bill.totals_ack ? 'warn' : 'error', line: null, field: 'totals',
       message: `The bill’s total is ${money(reconciliation.printed_net as number)} but the lines add up to ${money(reconciliation.computed_total)} ` +
         `(${d > 0 ? 'short by' : 'over by'} ${money(Math.abs(d))}). A line may be misread or missing, or the bill has a discount or charge not entered yet.` +
+        (reconciliation.parts ?? []).filter((x) => Math.abs(x.diff) > 0.5).map((x) => ` ${x.label}: the bill ${money(x.printed)}, your lines ${money(x.lines)} (${x.diff > 0 ? 'short by' : 'over by'} ${money(Math.abs(x.diff))}).`).join('') +
         `${draft.bill.totals_ack ? ' You have accepted this difference.' : ' Fix the lines, or tick “I have checked this difference”.'}`,
     });
   }
   // the bill's own lines against its own total — catches a MISSING line even when quantity × rate is right
   const all = draft.lines;
-  if (all.length > 0 && all.every((l) => l.printed_amount !== null) && draft.bill.printed.net !== null) {
+  // only meaningful when the printed line amounts are the lines' totals WITH GST — a gross or taxable column adds up to the sub total, not to the net
+  const amountsWithGst = all.length > 0 && all.every((l) => { const st = lineStages(l); return st !== null && l.printed_amount !== null && Math.abs(l.printed_amount - st.total) <= LINE_TOLERANCE; });
+  if (amountsWithGst && draft.bill.printed.net !== null) {
     const sum = fromPaise(all.reduce((s, l) => s + toPaise(l.printed_amount as number), 0));
     if (Math.abs(sum - draft.bill.printed.net) > TOTAL_TOLERANCE + 0.5) {
       problems.push({ code: 'lines_dont_add_up', severity: 'warn', line: null, message: `The line amounts printed on the bill add up to ${money(sum)}, but the bill’s total is ${money(draft.bill.printed.net)} — a line may be missing from the file.` });

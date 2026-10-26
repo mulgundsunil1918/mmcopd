@@ -41,6 +41,8 @@ function LineCardView({ line, problems, money, drugs, acts }: Props) {
   const info = matchInfo(line.match.kind);
   const chosen = line.drug_id !== null ? drugs.find((d) => d.id === line.drug_id) ?? null : null;
   const needsConfirm = line.drug_id !== null && !line.new_drug && !line.confirmed && !(line.match.kind === 'exact' || line.match.kind === 'alias');
+  // a syringe, a bed sheet…: may print no batch and no expiry — it is then stored as "NO BATCH" / "No expiry"
+  const consumable = line.new_drug ? line.new_drug.item_type === 'consumable' : line.drug_id !== null ? line.consumable === true : line.suggested_new.item_type === 'consumable';
   const reason = chosen ? line.match.candidates.find((c) => c.id === chosen.id)?.reason : '';
 
   if (line.aside) {
@@ -120,24 +122,25 @@ function LineCardView({ line, problems, money, drugs, acts }: Props) {
 
       {/* the figures */}
       <div className="flex gap-2.5 flex-wrap items-start">
-        <div className="w-32">
-          <Tip label="Batch *" title="Batch number"><p>The batch number printed on the strip or bottle (look for “B.No.” or “Batch”). Type the real one — stock is tracked, sold and recalled by batch.</p></Tip>
-          <input className={cn('input font-mono', errCls(bad('batch')))} value={line.batch} onChange={(e) => acts.patch(id, { batch: e.target.value })} />
+        <div className="w-28">
+          <Tip label={consumable ? 'Batch' : 'Batch *'} title="Batch number"><p>The batch number printed on the strip or bottle (look for “B.No.” or “Batch”). Type the real one — stock is tracked, sold and recalled by batch.</p>{consumable && <p>A consumable (a syringe, a bed sheet…) may print none: leave it empty and it is stored as “NO BATCH”.</p>}</Tip>
+          <input className={cn('input font-mono', errCls(bad('batch')))} placeholder={consumable ? 'none printed' : ''} value={line.batch} onChange={(e) => acts.patch(id, { batch: e.target.value })} />
         </div>
-        <div className="w-44">
-          <Tip label="Expiry *" title="Expiry date"><p>The date printed as “Exp” on the pack. A month alone means the last day of that month. The earliest-expiring stock is sold first, and the pharmacy warns you before it expires.</p></Tip>
+        <div className="w-40">
+          <Tip label={consumable ? 'Expiry' : 'Expiry *'} title="Expiry date"><p>The date printed as “Exp” on the pack. A month alone means the last day of that month. The earliest-expiring stock is sold first, and the pharmacy warns you before it expires.</p>{consumable && <p>A consumable may print none: leave it empty and it is stored as “No expiry”.</p>}</Tip>
           <input type="date" className={cn('input', errCls(bad('expiry')), warnCls(soft('expiry') && !bad('expiry')))} value={line.expiry} onChange={(e) => acts.patch(id, { expiry: e.target.value, expiry_problem: '' })} />
           {line.expiry_printed && <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-0.5 whitespace-nowrap">bill: {line.expiry_printed}</div>}
+          {consumable && !line.expiry && !line.expiry_printed && <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-0.5 whitespace-nowrap">stored as “No expiry”</div>}
         </div>
-        <div className="w-24">
+        <div className="w-20">
           <Tip label="Qty *" title="Quantity you paid for"><p>How many units the dealer billed you for — the “Qty” column. Free units are NOT counted here — they go in “Free”.</p></Tip>
           <input type="number" min={0} onFocus={selectAll} className={cn('input text-right px-2', errCls(bad('qty')))} value={line.qty ?? ''} onChange={(e) => acts.patch(id, { qty: numOrNull(e.target.value) })} />
         </div>
-        <div className="w-24">
+        <div className="w-20">
           <Tip label="Free" title="Free quantity"><p>Extra units the dealer gives you free on top of what you buy — a “scheme”, like <b>10 + 2</b>: you pay for 10 and receive 12. Leave 0 if the bill has none.</p><p>The free units are on your shelf, so what you paid is spread over ALL the units — each unit’s true cost is lower.</p></Tip>
           <input type="number" min={0} onFocus={selectAll} className={cn('input text-right px-2', errCls(bad('free')))} value={line.free_qty} onChange={(e) => acts.patch(id, { free_qty: Number(e.target.value) || 0 })} />
         </div>
-        <div className="w-28">
+        <div className="w-40">
           <Tip label="Dealer's rate ₹ *" title="Dealer's rate (what you pay for one unit)"><p>What the dealer charges for ONE unit, before any discount and before GST — the “Rate” column on the bill. It is not the MRP; it is what YOU pay.</p></Tip>
           <input type="number" min={0} step="0.01" onFocus={selectAll} className={cn('input text-right px-2', errCls(bad('rate')), warnCls(soft('rate') && !bad('rate')))} value={line.rate ?? ''} onChange={(e) => acts.patch(id, { rate: numOrNull(e.target.value) })} />
         </div>
@@ -145,15 +148,15 @@ function LineCardView({ line, problems, money, drugs, acts }: Props) {
           <Tip label="Disc %" title="Discount on this line"><p>The dealer’s trade discount on this line (the “Disc %” column). 0 if there is none. A discount on the whole bill goes in the bill box below.</p></Tip>
           <input type="number" min={0} max={100} step="0.01" onFocus={selectAll} className={cn('input text-right px-2', errCls(bad('disc')))} value={line.disc_pct} onChange={(e) => acts.patch(id, { disc_pct: Number(e.target.value) || 0 })} />
         </div>
-        <div className="w-28">
+        <div className="w-24">
           <Tip label="MRP ₹ *" title="MRP"><p>The Maximum Retail Price printed on the pack — the most you may charge a patient for one unit. It is not what you paid. If the bill has no MRP, read it off the pack.</p></Tip>
           <input type="number" min={0} step="0.01" onFocus={selectAll} className={cn('input text-right px-2', errCls(bad('mrp')), warnCls(soft('mrp') && !bad('mrp')))} value={line.mrp ?? ''} onChange={(e) => acts.patch(id, { mrp: numOrNull(e.target.value) })} />
         </div>
-        <div className="w-28">
+        <div className="w-24">
           <Tip label="Sell ₹" title="Your selling price"><p>What you will actually charge for one unit. Leave it empty to sell at the MRP. It can be lower than the MRP (a discount to your patients), never higher.</p></Tip>
           <input type="number" min={0} step="0.01" onFocus={selectAll} className="input text-right px-2" placeholder="= MRP" value={line.selling_price ?? ''} onChange={(e) => acts.patch(id, { selling_price: numOrNull(e.target.value) })} />
         </div>
-        <div className="w-24">
+        <div className="w-20">
           <Tip label="GST % *" title="GST rate"><p>The TOTAL GST rate of this line, as on the bill (CGST + SGST added together, or the IGST). Most medicines are taxed at 5%. A bill that shows 2.5 and 2.5 means 5.</p></Tip>
           <select className={cn('input px-2', errCls(bad('gst')))} value={line.gst_rate ?? ''} onChange={(e) => acts.patch(id, { gst_rate: e.target.value === '' ? null : Number(e.target.value) })}>
             <option value="">—</option>
@@ -162,24 +165,24 @@ function LineCardView({ line, problems, money, drugs, acts }: Props) {
           </select>
         </div>
         <div className="w-24 text-right" title="Value of the line after discount, before GST">
-          <div className="label">Line ₹</div>
-          <div className="font-semibold text-sm py-1.5">{money ? formatINR(money.taxable) : '—'}</div>
+          <div className="label flex items-center justify-end gap-1 whitespace-nowrap h-5">Line ₹</div>
+          <div className="font-semibold text-sm h-10 flex items-center justify-end">{money ? formatINR(money.taxable) : '—'}</div>
           {line.printed_amount !== null && <div className={cn('text-[10px] whitespace-nowrap', soft('amount') ? 'text-amber-700 dark:text-amber-300 font-semibold' : 'text-gray-500 dark:text-slate-400')}>bill: {formatINR(line.printed_amount)}</div>}
         </div>
         <div className="w-36 text-right">
-          <div className="label inline-flex items-center justify-end gap-1">You pay / unit
+          <div className="label flex items-center justify-end gap-1 whitespace-nowrap h-5">You pay / unit
             <HelpTip title="What one unit really costs you" align="right"><p>The true cost of ONE unit: the dealer’s rate, less discounts, with the free units spread in, plus freight — and GST too, if you cannot claim it back.</p><p>Your profit is worked out from this figure.</p></HelpTip>
           </div>
           {money && money.units > 0 ? (
             <>
-              <div className="font-semibold text-sm leading-tight pt-1.5">{formatINR(money.unit_cost)}</div>
+              <div className="font-semibold text-sm h-10 flex items-center justify-end">{formatINR(money.unit_cost)}</div>
               {money.margin_pct !== null && money.profit !== null && (
                 <div className={cn('text-[10px] leading-tight', money.margin_pct < 0 ? 'text-red-600 dark:text-red-400 font-semibold' : money.margin_pct < 10 ? 'text-amber-700 dark:text-amber-300' : 'text-gray-500 dark:text-slate-400')}>
                   profit {formatINR(money.profit)} / unit · {money.margin_pct.toFixed(1)}%
                 </div>
               )}
             </>
-          ) : <div className="text-gray-400 py-1.5">—</div>}
+          ) : <div className="text-gray-400 h-10 flex items-center justify-end">—</div>}
         </div>
       </div>
 

@@ -21,6 +21,7 @@ import * as XLSX from 'xlsx';
 import { createPurchase, getPurchase, isIsoDate, localISO, type PurchaseIn } from './pharmacy-finance';
 import {
   NOT_EXCEL_MESSAGE, aliasKey, buildDraft, buildTemplateWorkbook, checkDraft, looksLikeExcel, planParts, readBillRows, readWorkbook,
+  NO_BATCH, NO_EXPIRY,
   type Draft, type DraftLine, type ImportCommit, type ImportResult, type NewDrugSpec, type ParseResult, type WaitingGet, type WaitingRow,
 } from '../lib/billImport';
 export type { ImportCommit, ImportResult, ParseResult, WaitingRow };
@@ -44,7 +45,7 @@ const existingInvoice = (db: Database.Database) => (wholesalerId: number | null,
 /** Context from the clinic's own lists: its drugs, what it taught the matcher before, its suppliers. */
 function context(db: Database.Database) {
   return {
-    drugs: db.prepare('SELECT id, name, generic_name, form, strength, is_active FROM drug_master').all() as { id: number; name: string; generic_name: string | null; form: string | null; strength: string | null; is_active: number }[],
+    drugs: db.prepare("SELECT id, name, generic_name, form, strength, is_active, COALESCE(item_type, 'medicine') AS item_type FROM drug_master").all() as { id: number; name: string; generic_name: string | null; form: string | null; strength: string | null; is_active: number; item_type: string }[],
     aliases: (db.prepare('SELECT alias, drug_master_id AS drug_id, supplier_id FROM purchase_name_aliases').all() as { alias: string; drug_id: number; supplier_id: number | null }[]),
     suppliers: db.prepare('SELECT id, name, gstin, drug_license_no FROM wholesalers WHERE is_active=1').all() as { id: number; name: string; gstin: string | null; drug_license_no: string | null }[],
     today: localISO(),
@@ -94,8 +95,13 @@ export function commitImport(db: Database.Database, input: ImportCommit, opts: {
     const hit = db.prepare('SELECT id, invoice_number, total FROM purchase_invoices WHERE client_ref=?').get(ref) as { id: number; invoice_number: string; total: number } | undefined;
     if (hit) return { ok: true, duplicate: true, invoice_id: hit.id, invoice_number: hit.invoice_number, lines: 0, batches: 0, total: hit.total, new_drugs: 0, reactivated: 0, new_supplier: false, aliases_saved: 0, waiting_id: null, aside: 0 };
   }
-  const draft = input?.draft;
-  if (!draft || !draft.bill || !Array.isArray(draft.lines)) return { ok: false, error: 'There is no bill to import.' };
+  if (!input?.draft || !input.draft.bill || !Array.isArray(input.draft.lines)) return { ok: false, error: 'There is no bill to import.' };
+  // a consumable (syringe, bed sheet…) is judged from the Drug List itself, never from what the screen says, so a stale or doctored screen cannot skip the batch / expiry rule
+  const typeOf = db.prepare("SELECT COALESCE(item_type, 'medicine') AS t FROM drug_master WHERE id=?");
+  const draft: Draft = {
+    ...input.draft,
+    lines: input.draft.lines.map((l) => (l.drug_id !== null && !l.new_drug ? { ...l, consumable: (typeOf.get(l.drug_id) as { t: string } | undefined)?.t === 'consumable' } : { ...l, consumable: false })),
+  };
   const photoBytes = input.photo?.base64 ? bytesOf(input.photo.base64) : null;
   if (photoBytes && photoBytes.byteLength > MAX_PHOTO_BYTES) return { ok: false, error: 'The bill photo is too big (over 20 MB). Use a smaller picture or a PDF.' };
 
@@ -132,8 +138,8 @@ export function commitImport(db: Database.Database, input: ImportCommit, opts: {
       const getDrug = db.prepare('SELECT id, name, is_active FROM drug_master WHERE id=?');
       const byName = db.prepare('SELECT id, is_active FROM drug_master WHERE lower(name)=lower(?) ORDER BY is_active DESC, id LIMIT 1');
       const wake = db.prepare("UPDATE drug_master SET is_active=1, updated_at=datetime('now') WHERE id=?");
-      const insDrug = db.prepare(`INSERT INTO drug_master (name, generic_name, manufacturer, form, strength, pack_size, schedule, hsn_code, gst_rate, default_mrp, low_stock_threshold, is_active)
-                                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 10, 1)`);
+      const insDrug = db.prepare(`INSERT INTO drug_master (name, generic_name, manufacturer, form, strength, pack_size, schedule, hsn_code, gst_rate, default_mrp, low_stock_threshold, is_active, item_type)
+                                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 10, 1, ?)`);
       const drugFor = (l: DraftLine): number => {
         if (l.new_drug) {
           const nd: NewDrugSpec = l.new_drug;
@@ -144,9 +150,10 @@ export function commitImport(db: Database.Database, input: ImportCommit, opts: {
             if (!same.is_active) { wake.run(same.id); reactivated++; }                 // a switched-off medicine the person is adding again is the same medicine: switch it back on, or its stock would be hidden
             created.set(key, same.id); return same.id;
           }
-          if (!SCHEDULES.includes(nd.schedule)) throw new Error(`Line ${l.line_no}: choose the schedule of the new medicine.`);
-          const id = Number(insDrug.run(clean(nd.name), clean(nd.generic_name) || null, clean(l.manufacturer) || null, clean(nd.form) || null, clean(nd.strength) || null,
-            nd.pack_size && nd.pack_size > 0 ? Math.floor(nd.pack_size) : null, nd.schedule, clean(nd.hsn_code) || null, l.gst_rate ?? 0, l.mrp ?? 0).lastInsertRowid);
+          const cons = nd.item_type === 'consumable';
+          if (!cons && !SCHEDULES.includes(nd.schedule)) throw new Error(`Line ${l.line_no}: choose the schedule of the new medicine.`);
+          const id = Number(insDrug.run(clean(nd.name), cons ? null : clean(nd.generic_name) || null, clean(l.manufacturer) || null, clean(nd.form) || (cons ? 'Consumable' : null), cons ? null : clean(nd.strength) || null,
+            nd.pack_size && nd.pack_size > 0 ? Math.floor(nd.pack_size) : null, cons ? 'OTC' : nd.schedule, clean(nd.hsn_code) || null, l.gst_rate ?? 0, l.mrp ?? 0, cons ? 'consumable' : 'medicine').lastInsertRowid);
           created.set(key, id); newDrugs++;
           return id;
         }
@@ -186,10 +193,13 @@ export function commitImport(db: Database.Database, input: ImportCommit, opts: {
           part ? `Later part of invoice ${part}` : '',
           clean(draft.bill.notes),
         ].filter(Boolean).join('. '),
-        items: plan.importLines.map((l) => ({
-          drug_master_id: lineDrug.get(l.id) as number, batch_no: clean(l.batch), expiry: l.expiry, qty_received: l.qty as number, free_qty: l.free_qty || 0,
+        items: plan.importLines.map((l) => {
+          // a consumable that prints no batch / expiry is stored as "NO BATCH" / "No expiry" (the checks above let it through for that reason only)
+          const cons = l.new_drug ? l.new_drug.item_type === 'consumable' : l.consumable === true;
+          return {
+          drug_master_id: lineDrug.get(l.id) as number, batch_no: clean(l.batch) || (cons ? NO_BATCH : ''), expiry: l.expiry || (cons ? NO_EXPIRY : ''), qty_received: l.qty as number, free_qty: l.free_qty || 0,
           purchase_price: l.rate as number, disc_pct: l.disc_pct || 0, mrp: l.mrp as number, selling_price: l.selling_price, gst_rate: l.gst_rate ?? 0,
-        })),
+          }; }),
       };
       if (!isIsoDate(payload.invoice_date)) throw new Error('The invoice date is not valid.');
       invoice = createPurchase(db, payload, opts.by ?? null);

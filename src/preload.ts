@@ -430,13 +430,12 @@ const api = {
       ipcRenderer.invoke('pharmacy:upsertDrug', drug) as Promise<DrugMaster>,
     upsertBatch: (batch: Partial<DrugStockBatch>) =>
       ipcRenderer.invoke('pharmacy:upsertBatch', batch) as Promise<DrugStockBatch>,
-    bulkDeleteDrugs: (ids: number[]) =>
-      ipcRenderer.invoke('pharmacy:bulkDeleteDrugs', ids) as Promise<{
-        ok: boolean;
-        hardDeleted: number;
-        softDeleted: number;
-        results: Array<{ id: number; name: string; mode: 'hard_deleted' | 'soft_deleted' | 'failed'; refs?: any; error?: string }>;
-      }>,
+    /** Administrator only, with the admin password typed again. */
+    bulkDeleteDrugs: (ids: number[], adminPassword?: string) =>
+      ipcRenderer.invoke('pharmacy:bulkDeleteDrugs', ids, adminPassword) as Promise<
+        | { ok: true; hardDeleted: number; softDeleted: number; results: Array<{ id: number; name: string; mode: 'hard_deleted' | 'soft_deleted' | 'failed'; refs?: any; error?: string }> }
+        | { ok: false; error: string }
+      >,
     alerts: () =>
       ipcRenderer.invoke('pharmacy:alerts') as Promise<{ lowStock: (DrugMaster & Drug)[]; expiringSoon: DrugStockBatch[] }>,
     /** "Drugs in my clinic": the drugs the clinic holds (a batch or a purchase), with stock, next expiry, cost, price and filter flags. */
@@ -444,9 +443,9 @@ const api = {
     /** What "Start fresh" (ids omitted) or "Delete selected" (ids given) WOULD do — nothing is changed. */
     previewClear: (payload: { ids?: number[] | null } = {}) =>
       ipcRenderer.invoke('pharmacy:previewClear', payload) as Promise<ClearPreview>,
-    /** Clear drugs, their stock and batches — admin and the pharmacy in-charge only. Without `ids` it clears everything and needs `confirm: 'START FRESH'`.
+    /** Clear drugs, their stock and batches — administrator only, with the admin password (`admin_password`). Without `ids` it clears everything and needs `confirm: 'START FRESH'`.
      *  A copy of the whole database is saved first (backup_path). */
-    clearDrugs: (payload: { ids?: number[] | null; confirm?: string }) =>
+    clearDrugs: (payload: { ids?: number[] | null; confirm?: string; admin_password?: string }) =>
       ipcRenderer.invoke('pharmacy:clearDrugs', payload) as Promise<
         { ok: true; mode: 'all' | 'selected'; drugs_deleted: number; drugs_kept_inactive: number; batches_deleted: number; batches_zeroed: number; units_removed: number; backup_path: string }
         | { ok: false; error: string }

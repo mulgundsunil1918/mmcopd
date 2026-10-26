@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import { fmtDate, formatINR } from '../lib/utils';
 import { pharmacyGstOn } from '../lib/pharmacyGst';
 import { localISO } from '../lib/localDate';
+import { isNoExpiry } from '../lib/expiry';
 import { profitMetrics } from '../lib/pharmacyMath';
 
 /**
@@ -161,7 +162,7 @@ export function StockRegisterPrint({
                       <td style={cellBody(4, 'center', { fontWeight: 700 })}>{r.schedule}</td>
                       <td style={cellBody(9, 'left', { fontFamily: 'monospace' })}>{r.batch_no}</td>
                       <td style={cellBody(7, 'left', { fontSize: 9 })}>
-                        {(() => { try { return format(new Date(r.expiry), 'MMM yy'); } catch { return r.expiry; } })()}
+                        {isNoExpiry(r.expiry) ? 'No expiry' : (() => { try { return format(new Date(r.expiry), 'MMM yy'); } catch { return r.expiry; } })()}
                         {expired && <div style={{ fontSize: 8, fontWeight: 700, color: '#991b1b' }}>EXPIRED</div>}
                         {expiringSoon && <div style={{ fontSize: 8, color: '#92400e' }}>in {r.days_to_expiry}d</div>}
                       </td>

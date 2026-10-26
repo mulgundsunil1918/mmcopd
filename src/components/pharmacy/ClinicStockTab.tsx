@@ -6,7 +6,7 @@
  * heading that shows the medicine's total. Stock is still kept BRAND BY BRAND: "Out of stock" and "Low stock" judge each brand on its own (the
  * owner's rule — a pharmacy orders and runs out of a brand), so Crocin 650 running out is flagged even while Dolo 650 is on the shelf. Each
  * brand keeps its own row, batches, price and edit button.
- * Admin and the pharmacy in-charge can also tick drugs and delete them (with their stock and batches), or "Start fresh" to clear the lot.
+ * The administrator can also tick drugs and delete them (with their stock and batches), or "Start fresh" to clear the lot — each time with the admin password.
  */
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -73,9 +73,9 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
   const [editDrug, setEditDrug] = useState<Partial<DrugMaster> | null>(null);
   const [costOpen, setCostOpen] = useState(false);
   const [pickOpen, setPickOpen] = useState(false);
-  // Deleting drugs (and their stock) is for the administrator and the pharmacy in-charge only; the main process checks the role again.
+  // Deleting drugs (and their stock) is for the administrator only, with the admin password typed again; the main process checks both again.
   const { user, adminUnlocked } = useAuth();
-  const canClear = canAnyRole(user, ['pharmacist'], adminUnlocked);
+  const canClear = canAnyRole(user, [], adminUnlocked);
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [clearing, setClearing] = useState<{ ids: number[] | null; names: string[] } | null>(null);
   const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
@@ -153,6 +153,7 @@ export function ClinicStockTab({ filter, onFilter }: { filter: ClinicFilter; onF
             <div className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">
               {d.name}
               {nested && isGenericNamed(d) && <span className="badge bg-sky-100 text-sky-700 ml-2 align-middle" title="Named by its ingredient, not by a brand — a prescription for the generic can be given from any brand of this medicine">generic</span>}
+              {d.item_type === 'consumable' && <span className="badge bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200 ml-2 align-middle" title="A syringe, cannula, suture, tape, bed sheet… — no generic name, strength or schedule; may have no expiry">Consumable</span>}
               {Number(d.is_active) === 0 && <span className="badge bg-gray-200 text-gray-600 ml-2 align-middle" title="Removed from the Drug List, but units are still on the shelf">Inactive</span>}
             </div>
             <div className="text-[11px] text-gray-500 dark:text-slate-400 truncate">
@@ -620,7 +621,7 @@ const andList = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')
 /**
  * "Start fresh" (ids = null) and "Delete selected" (ids given). It shows exactly what will go BEFORE anything is touched — the same plan the
  * main process then carries out — asks for a typed confirmation when everything is being cleared, and afterwards says where the safety copy of
- * the data was saved. Admin and the pharmacy in-charge only; the main process checks the role again and takes the safety copy first.
+ * the data was saved. Administrator only, with the admin password typed again; the main process checks both and takes the safety copy first.
  */
 function ClearDrugsModal({ ids, names, onClose, onDone }: { ids: number[] | null; names: string[]; onClose: () => void; onDone: () => void }) {
   const qc = useQueryClient();
@@ -628,6 +629,7 @@ function ClearDrugsModal({ ids, names, onClose, onDone }: { ids: number[] | null
   const everything = ids === null;
   const [typed, setTyped] = useState('');
   const [sure, setSure] = useState(false);
+  const [pw, setPw] = useState('');                       // the administrator password, typed again for this one deletion
   const [error, setError] = useState('');
   const [done, setDone] = useState<ClearDone | null>(null);
   const { data: p, isLoading } = useQuery({
@@ -636,9 +638,9 @@ function ClearDrugsModal({ ids, names, onClose, onDone }: { ids: number[] | null
     gcTime: 0,
   });
   const run = useMutation({
-    mutationFn: () => window.electronAPI.pharmacy.clearDrugs({ ids, confirm: everything ? typed : undefined }),
+    mutationFn: () => window.electronAPI.pharmacy.clearDrugs({ ids, confirm: everything ? typed : undefined, admin_password: pw }),
     onSuccess: (r) => {
-      if (!r.ok) { setError(r.error); toast(r.error, 'error'); return; }
+      if (!r.ok) { setError(r.error); setPw(''); toast(r.error, 'error'); return; }
       for (const k of ['pharmacy-drugs', 'pharmacy-drugs-active', 'pharmacy-batches', 'pharmacy-alerts', 'pharmacy-cost-summary', 'pharmacy-profit', 'pharmacy-valuation', 'pharmacy-checks', 'pharmacy-clear-preview', CLINIC_STOCK_KEY]) {
         qc.invalidateQueries({ queryKey: [k] });
       }
@@ -649,7 +651,7 @@ function ClearDrugsModal({ ids, names, onClose, onDone }: { ids: number[] | null
   });
 
   const nothing = !!p && p.drugs === 0;
-  const ready = !!p && !nothing && (everything ? typed.trim().toUpperCase() === 'START FRESH' : (p.units === 0 || sure));
+  const ready = !!p && !nothing && pw.length > 0 && (everything ? typed.trim().toUpperCase() === 'START FRESH' : (p.units === 0 || sure));
 
   if (done) {
     return (
@@ -733,6 +735,12 @@ function ClearDrugsModal({ ids, names, onClose, onDone }: { ids: number[] | null
             <span>I understand the {plural(p.units, 'unit')} of stock on {ids!.length === 1 ? 'this drug' : 'these drugs'} will be removed.</span>
           </label>
         ) : null}
+
+        {!nothing && (
+          <Field label="Admin password">
+            <input className="input" type="password" autoComplete="off" placeholder="Type the admin password to confirm" value={pw} onChange={(e) => { setPw(e.target.value); setError(''); }} />
+          </Field>
+        )}
 
         {error && <div className="text-[12px] text-red-600 dark:text-red-400" role="alert">{error}</div>}
         <div className="flex justify-end gap-2 pt-2">

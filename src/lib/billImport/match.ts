@@ -18,7 +18,7 @@
  */
 import { FORM_FAMILIES } from './template';
 
-export interface DrugRef { id: number; name: string; generic_name: string | null; form: string | null; strength: string | null; is_active?: number | null }
+export interface DrugRef { id: number; name: string; generic_name: string | null; form: string | null; strength: string | null; is_active?: number | null; /** 'consumable' for a syringe, a cannula…; absent or 'medicine' otherwise. */ item_type?: string | null }
 export interface AliasRef { alias: string; drug_id: number; supplier_id: number | null }
 export interface LookupInfo { brand: string; generic: string; strength: string; form: string }
 

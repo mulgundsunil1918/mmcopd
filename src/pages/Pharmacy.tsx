@@ -837,21 +837,20 @@ function DrugListTab() {
     queryKey: ['pharmacy-drugs-active'],
     queryFn: () => window.electronAPI.pharmacy.listDrugs({ activeOnly: true }),
   });
-  const bulkDelete = useMutation({
-    mutationFn: (ids: number[]) => window.electronAPI.pharmacy.bulkDeleteDrugs(ids),
-    onSuccess: (r) => {
-      for (const k of DRUG_QUERY_KEYS) qc.invalidateQueries({ queryKey: [k] });
-      const parts: string[] = [];
-      if (r.hardDeleted) parts.push(`${r.hardDeleted} permanently deleted`);
-      if (r.softDeleted) parts.push(`${r.softDeleted} marked Inactive (had history)`);
-      const failed = r.results.filter((x) => x.mode === 'failed').length;
-      if (failed) parts.push(`${failed} failed`);
-      toast(parts.join(' · ') || 'No drugs deleted');
-      setSelectedIds(new Set());
-      setConfirmDelete(false);
-    },
-    onError: (e: any) => toast(e?.message || 'Bulk delete failed', 'error'),
-  });
+  // Deleting a drug needs the administrator password (typed in the box below, checked by the app itself — never by this screen).
+  const deleteDrugs = async (password: string): Promise<{ ok: boolean; error?: string }> => {
+    const r = await window.electronAPI.pharmacy.bulkDeleteDrugs([...selectedIds], password);
+    if (!r.ok) return { ok: false, error: r.error };
+    for (const k of DRUG_QUERY_KEYS) qc.invalidateQueries({ queryKey: [k] });
+    const parts: string[] = [];
+    if (r.hardDeleted) parts.push(`${r.hardDeleted} permanently deleted`);
+    if (r.softDeleted) parts.push(`${r.softDeleted} marked Inactive (had history)`);
+    const failed = r.results.filter((x) => x.mode === 'failed').length;
+    if (failed) parts.push(`${failed} failed`);
+    toast(parts.join(' · ') || 'No drugs deleted');
+    setSelectedIds(new Set());
+    return { ok: true };
+  };
 
   const allSelected = drugs.length > 0 && drugs.every((d) => selectedIds.has(d.id));
   const someSelected = selectedIds.size > 0 && !allSelected;
@@ -978,8 +977,8 @@ function DrugListTab() {
                   />
                 </td>
                 <td className="py-2">
-                  <div className="font-medium text-gray-900 dark:text-slate-100">{d.name}</div>
-                  <div className="text-[11px] text-gray-500 dark:text-slate-400">{d.generic_name || '—'}{d.manufacturer ? ` · ${d.manufacturer}` : ''}</div>
+                  <div className="font-medium text-gray-900 dark:text-slate-100">{d.name}{d.item_type === 'consumable' && <span className="badge bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200 ml-2 align-middle" title="A syringe, cannula, suture, tape, bed sheet… — no generic name, strength or schedule; not offered in prescriptions">Consumable</span>}</div>
+                  <div className="text-[11px] text-gray-500 dark:text-slate-400">{d.item_type === 'consumable' ? 'Not a medicine' : d.generic_name || '—'}{d.manufacturer ? ` · ${d.manufacturer}` : ''}</div>
                   {(() => {
                     const same = siblingsOf(allActive as any[], d as any);
                     return same.length > 0 ? (
@@ -1010,14 +1009,14 @@ function DrugListTab() {
         </tbody>
       </table>
 
-      {/* === Bulk delete confirmation modal === */}
-      <Modal
-        open={confirmDelete}
-        onClose={() => !bulkDelete.isPending && setConfirmDelete(false)}
-        title={`Delete ${selectedIds.size} drug${selectedIds.size === 1 ? '' : 's'}?`}
-        size="md"
-      >
-        <div className="space-y-3">
+      {/* === Bulk delete: the administrator password is typed again === */}
+      {confirmDelete && (
+        <AdminPasswordModal
+          title={`Delete ${selectedIds.size} drug${selectedIds.size === 1 ? '' : 's'}?`}
+          confirmLabel={`Yes, Delete ${selectedIds.size}`}
+          onClose={() => setConfirmDelete(false)}
+          onConfirm={deleteDrugs}
+        >
           <div className="flex items-start gap-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 rounded">
             <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
             <div className="text-sm text-gray-800 dark:text-slate-200">
@@ -1044,24 +1043,8 @@ function DrugListTab() {
               ))}
             </ul>
           </div>
-          <div className="flex justify-end gap-2">
-            <button
-              className="btn-secondary"
-              onClick={() => setConfirmDelete(false)}
-              disabled={bulkDelete.isPending}
-            >
-              Cancel
-            </button>
-            <button
-              className="btn-danger"
-              onClick={() => bulkDelete.mutate([...selectedIds])}
-              disabled={bulkDelete.isPending || selectedIds.size === 0}
-            >
-              <Trash2 className="w-4 h-4" /> {bulkDelete.isPending ? 'Deleting…' : `Yes, Delete ${selectedIds.size}`}
-            </button>
-          </div>
-        </div>
-      </Modal>
+        </AdminPasswordModal>
+      )}
 
       {editing && <DrugEditModal drug={editing} brandOf={brandOf ?? undefined} onClose={() => { setEditing(null); setBrandOf(null); }} />}
       {settingGst && <SetGstModal selectedIds={[...selectedIds]} onClose={() => setSettingGst(false)} onDone={() => setSelectedIds(new Set())} />}

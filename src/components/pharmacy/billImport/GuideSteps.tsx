@@ -1,8 +1,9 @@
 /**
- * Import a supplier's bill — the three steps a person follows:
+ * Import a supplier's bill — the four steps a person follows:
  *   1. copy the instructions for ChatGPT,
- *   2. give ChatGPT the bill together with those instructions and download the Excel it makes,
- *   3. upload that Excel here (and, if you like, the bill picture) — then the checking screen opens.
+ *   2. give ChatGPT the bill together with those instructions and download the Excel it makes (it only READS the bill, exactly as printed),
+ *   3. in the same chat, send a second message so ChatGPT looks every medicine up on the internet and fills in brand, generic name, strength and form,
+ *   4. upload that Excel here (and, if you like, the bill picture) — then the checking screen opens.
  * Nothing here changes stock; reading the file only produces a draft to check.
  */
 import { useRef, useState } from 'react';
@@ -11,7 +12,7 @@ import { HelpTip } from '../../HelpTip';
 import { cn } from '../../../lib/utils';
 import { copyText } from '../../../lib/clipboard';
 import { base64ToBlob, fileToBase64 } from '../../../lib/base64';
-import { TEMPLATE_FILE_NAME, buildPrompt, looksLikeExcel, NOT_EXCEL_MESSAGE } from '../../../lib/billImport';
+import { TEMPLATE_FILE_NAME, buildLookupPrompt, buildPrompt, looksLikeExcel, NOT_EXCEL_MESSAGE } from '../../../lib/billImport';
 import type { ParseResult } from '../../../lib/billImport';
 import { Banner, Stepper } from './ui';
 
@@ -84,14 +85,19 @@ export function GuideSteps({ waitingCount, onParsed, onOpenWaiting, isDemo }: {
 }) {
   const [step, setStep] = useState(1);
   const [copied, setCopied] = useState(false);
+  const [copiedLookup, setCopiedLookup] = useState(false);
   const [excel, setExcel] = useState<File | null>(null);
   const [photo, setPhoto] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [problems, setProblems] = useState<string[]>([]);
   const prompt = buildPrompt();
+  const lookupPrompt = buildLookupPrompt();
 
   const copy = async () => {
     if (await copyText(prompt)) { setCopied(true); setTimeout(() => setCopied(false), 2500); }
+  };
+  const copyLookup = async () => {
+    if (await copyText(lookupPrompt)) { setCopiedLookup(true); setTimeout(() => setCopiedLookup(false), 2500); }
   };
   const pickExcel = (f: File) => {
     setProblems([]);
@@ -129,16 +135,16 @@ export function GuideSteps({ waitingCount, onParsed, onOpenWaiting, isDemo }: {
 
   return (
     <div className="space-y-4">
-      <Stepper step={step} labels={['Copy the instructions', 'Ask ChatGPT', 'Upload the Excel']} onGo={setStep} />
+      <Stepper step={step} labels={['Copy the instructions', 'Ask ChatGPT', 'Look up the medicines', 'Upload the Excel']} onGo={setStep} />
       <Disclaimer />
 
       {step === 1 && (
         <div className="space-y-3">
-          <h3 className="text-base font-bold text-gray-900 dark:text-slate-100">Step 1 of 3 · Copy the instructions for ChatGPT</h3>
+          <h3 className="text-base font-bold text-gray-900 dark:text-slate-100">Step 1 of 4 · Copy the instructions for ChatGPT</h3>
           <p className="text-sm text-gray-700 dark:text-slate-300">
-            ChatGPT will read your bill for you. First give it its instructions — click <b>Copy</b>. They tell ChatGPT to copy the bill <b>exactly as printed</b>,
-            never to guess or calculate, to leave a blank (and say why) when it cannot read something or the bill does not print it, to tell the seller from the buyer, to
-            check its own work, and to look up each medicine’s brand, generic name and strength on the internet.
+            ChatGPT will read your bill for you. First give it its instructions — click <b>Copy</b>. These instructions tell ChatGPT to copy the bill <b>exactly as printed</b>,
+            never to guess or calculate, to leave a blank (and say why) when it cannot read something or the bill does not print it, to tell the seller from the buyer, and to
+            check its own work. A second message (step 3) then makes it look up each medicine’s brand, generic name and strength on the internet.
           </p>
           <div className="flex items-center gap-2 flex-wrap">
             <button className="btn-primary" onClick={copy}>
@@ -167,15 +173,14 @@ export function GuideSteps({ waitingCount, onParsed, onOpenWaiting, isDemo }: {
 
       {step === 2 && (
         <div className="space-y-3">
-          <h3 className="text-base font-bold text-gray-900 dark:text-slate-100">Step 2 of 3 · Give ChatGPT the bill</h3>
+          <h3 className="text-base font-bold text-gray-900 dark:text-slate-100">Step 2 of 4 · Give ChatGPT the bill</h3>
           <ol className="space-y-2.5 text-sm text-gray-700 dark:text-slate-300">
             {[
               <>Open <b>ChatGPT</b> and start a new chat. <button type="button" className="inline-flex items-center gap-1 text-blue-600 hover:underline" onClick={() => window.electronAPI.app.openExternal('https://chatgpt.com/')}>Open chatgpt.com <ExternalLink className="w-3 h-3" /></button></>,
-              <>Click the <b>＋</b> (paperclip) and attach the bill — the PDF, or a photo of <b>every page</b>. Photos: flat, sharp, bright, nothing cut off.</>,
+              <>Click the <b>＋</b> (paperclip) and attach the bill — the PDF, or a photo of <b>every page</b> (the bill’s total is usually on the last page). Photos: sharp, bright, nothing cut off. A photo taken sideways is fine.</>,
               <><b>Paste</b> the instructions you copied (Ctrl + V) and press Send.</>,
-              <>Switch on <b>Search</b> (the globe button under the message box) so ChatGPT can look each medicine up on the internet.</>,
               <>Wait for the answer. ChatGPT gives a link to an Excel file called <b>{TEMPLATE_FILE_NAME}</b> — click it to download. If it only shows a table, or says it cannot make files, type: <i>“Please use your Python tool to build the Excel file and give me the download link.”</i> One bill at a time.</>,
-              <>If it stops half-way, type <i>“continue”</i>. You don’t need to check its work in Excel — you will check everything in CureDesk.</>,
+              <>Read its short reply: it says how many lines the bill has, which lines have a note, and if a page is missing (then attach that page and ask again). If it stops half-way, type <i>“continue”</i>. You don’t need to open the Excel — you will check everything in CureDesk.</>,
             ].map((t, i) => (
               <li key={i} className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">{i + 1}</span><span className="pt-0.5">{t}</span></li>
             ))}
@@ -188,7 +193,40 @@ export function GuideSteps({ waitingCount, onParsed, onOpenWaiting, isDemo }: {
 
       {step === 3 && (
         <div className="space-y-3">
-          <h3 className="text-base font-bold text-gray-900 dark:text-slate-100">Step 3 of 3 · Upload the Excel</h3>
+          <h3 className="text-base font-bold text-gray-900 dark:text-slate-100">Step 3 of 4 · Ask ChatGPT to look up the medicines</h3>
+          <p className="text-sm text-gray-700 dark:text-slate-300">
+            ChatGPT has copied the bill. Now it looks every medicine up on the internet — brand, generic name, strength and form — so <b>you do not have to type them</b>.
+            You still check each one on the next screen before anything reaches your stock.
+          </p>
+          <ol className="space-y-2.5 text-sm text-gray-700 dark:text-slate-300">
+            {[
+              <>Switch on <b>Search</b> (the globe button under the message box). Without it ChatGPT cannot look anything up.</>,
+              <>In the <b>same chat</b>, <b>paste</b> the second message (use the button below) and press Send.</>,
+              <>Wait — it works through the medicines a few at a time. If it stops half-way, type <i>“continue”</i>.</>,
+              <>Download the updated Excel (same name, <b>{TEMPLATE_FILE_NAME}</b>) — that is the file you upload in the next step.</>,
+            ].map((t, i) => (
+              <li key={i} className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">{i + 1}</span><span className="pt-0.5">{t}</span></li>
+            ))}
+          </ol>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button className="btn-primary" onClick={copyLookup}>
+              {copiedLookup ? <ClipboardCheck className="w-4 h-4" /> : <Clipboard className="w-4 h-4" />} {copiedLookup ? 'Copied — paste it in the same chat' : 'Copy the second message'}
+            </button>
+            <HelpTip title="Why a second message?">
+              <p>Reading a bill exactly and looking up forty medicines on the internet are two different jobs. Done in one message, ChatGPT tends to rush the lookups or copy a number from the line above. Two messages give both jobs its full attention.</p>
+              <p>You can skip this step — CureDesk still reads the bill — but then you type each new medicine’s generic name and strength yourself.</p>
+            </HelpTip>
+          </div>
+          <details className="rounded-lg border border-gray-200 dark:border-slate-700">
+            <summary className="cursor-pointer select-none px-3 py-2 text-xs font-semibold text-gray-600 dark:text-slate-300">Read the second message</summary>
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap px-3 pb-3 text-[11px] leading-relaxed text-gray-700 dark:text-slate-300">{lookupPrompt}</pre>
+          </details>
+        </div>
+      )}
+
+      {step === 4 && (
+        <div className="space-y-3">
+          <h3 className="text-base font-bold text-gray-900 dark:text-slate-100">Step 4 of 4 · Upload the Excel</h3>
           <div className="grid md:grid-cols-2 gap-3">
             <PickBox icon={FileSpreadsheet} title="Choose the Excel from ChatGPT" hint="or drop it here · .xlsx" accept=".xlsx,.xls,.xlsm" file={excel} onPick={pickExcel} onClear={() => { setExcel(null); setProblems([]); }} />
             <PickBox icon={photo?.type === 'application/pdf' ? FileText : ImageIcon} title="The bill’s picture or PDF" hint="shown beside the lines and kept with the purchase" accept="image/*,application/pdf,.pdf,.heic" file={photo} onPick={pickPhoto} onClear={() => setPhoto(null)} optional />
@@ -214,6 +252,7 @@ export function GuideSteps({ waitingCount, onParsed, onOpenWaiting, isDemo }: {
                 <button type="button" className="underline text-blue-600" disabled={busy} onClick={() => trySample('manans-whole')}>Manans — wholesale layout</button>
                 <button type="button" className="underline text-blue-600" disabled={busy} onClick={() => trySample('jeqline')}>Jeqline — one batch on three lines</button>
                 <button type="button" className="underline text-blue-600" disabled={busy} onClick={() => trySample('meerut')}>Meerut — a bill whose numbers disagree</button>
+                <button type="button" className="underline text-blue-600" disabled={busy} onClick={() => trySample('samarth')}>Samarth — two pages, 41 lines, syringes and cannulas (a real ChatGPT file)</button>
               </div>
             </div>
           )}
@@ -230,7 +269,7 @@ export function GuideSteps({ waitingCount, onParsed, onOpenWaiting, isDemo }: {
         </div>
         <div className="flex items-center gap-2">
           <button className="btn-secondary" disabled={step === 1} onClick={() => setStep((s) => Math.max(1, s - 1))}><ArrowLeft className="w-4 h-4" /> Back</button>
-          {step < 3 && <button className="btn-primary" onClick={() => setStep((s) => Math.min(3, s + 1))}>Next <ArrowRight className="w-4 h-4" /></button>}
+          {step < 4 && <button className="btn-primary" onClick={() => setStep((s) => Math.min(4, s + 1))}>Next <ArrowRight className="w-4 h-4" /></button>}
         </div>
       </div>
     </div>

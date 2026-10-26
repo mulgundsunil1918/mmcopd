@@ -34,9 +34,10 @@ export function DrugPicker({ value, newSelected, candidates, drugs, invalid, onP
 
   useEffect(() => {
     if (!open) return;
-    const away = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener('mousedown', away);
-    return () => document.removeEventListener('mousedown', away);
+    const away = (e: Event) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
+    // capture phase: the dialog around this screen stops a mouse-down from reaching the document, so a normal listener never heard a click made inside it
+    document.addEventListener('mousedown', away, true);
+    return () => document.removeEventListener('mousedown', away, true);
   }, [open]);
   useEffect(() => { if (open) { setHi(0); setTimeout(() => input.current?.focus(), 0); } }, [open]);
 

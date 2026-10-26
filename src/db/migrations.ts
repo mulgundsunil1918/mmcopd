@@ -607,6 +607,9 @@ export function runMigrations(db: Database.Database) {
   // Lab tests get a category (pathology / radiology) so the catalog can be grouped
   // and filtered; existing rows default to pathology.
   addColumnIfMissing(db, 'lab_tests', 'category', "TEXT NOT NULL DEFAULT 'pathology'");
+  // 0.9.9: a syringe, a cannula or a bed sheet is a 'consumable' (no generic name / strength / schedule, may have no expiry, not offered in prescriptions).
+  // Every drug that exists today is a medicine.
+  addColumnIfMissing(db, 'drug_master', 'item_type', "TEXT NOT NULL DEFAULT 'medicine'");
 
   // users.doctor_id was added to the schema after some installs already created the users
   // table — add it to existing DBs so doctor-linked logins (and FK ref counts) work.

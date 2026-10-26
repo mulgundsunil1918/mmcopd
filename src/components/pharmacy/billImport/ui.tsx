@@ -41,9 +41,12 @@ export const errCls = (bad: boolean): string => (bad ? 'border-red-500 bg-red-50
 /** The amber box: worth a second look, does not block the import. */
 export const warnCls = (warn: boolean): string => (warn ? 'border-amber-400 bg-amber-50/70 dark:bg-amber-900/10' : '');
 
-/** A field label with a little "?" that explains the word in plain language. */
+/**
+ * A field label with a little "?" that explains the word in plain language.
+ * One line, one fixed height: a label that wrapped ("DEALER'S RATE ₹ *" in a narrow box) used to push its box lower than its neighbours.
+ */
 export function Tip({ label, title, align, children }: { label: string; title?: string; align?: 'left' | 'right'; children: React.ReactNode }) {
-  return <label className="label inline-flex items-center gap-1">{label}<HelpTip title={title ?? label.replace(/[ *₹%]+$/, '')} align={align}>{children}</HelpTip></label>;
+  return <label className="label flex items-center gap-1 whitespace-nowrap h-5">{label}<HelpTip title={title ?? label.replace(/[ *₹%]+$/, '')} align={align}>{children}</HelpTip></label>;
 }
 
 /** How a name on the bill was matched to the Drug List, in words. `sure` = nothing for the person to confirm. */
@@ -70,7 +73,7 @@ export function Pill({ tone = 'gray', children, className }: { tone?: Tone; chil
   return <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight', PILL[tone], className)}>{children}</span>;
 }
 
-/** "Step 1 of 3" — the three things a person does, with the current one highlighted. */
+/** "Step 1 of 4" — the things a person does, one after another, with the current one highlighted. */
 export function Stepper({ step, labels, onGo }: { step: number; labels: string[]; onGo?: (n: number) => void }) {
   return (
     <ol className="flex items-center gap-2 w-full" aria-label="Steps">

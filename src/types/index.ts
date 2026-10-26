@@ -390,6 +390,8 @@ export interface DrugMaster {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  /** 'consumable' = a syringe, cannula, suture, tape, bed sheet… (no generic name / strength / schedule, may have no expiry, not offered in prescriptions). Absent / 'medicine' = a medicine. */
+  item_type?: 'medicine' | 'consumable';
   /** Aggregated from drug_stock_batches by listDrugs (not stored in row). */
   stock_qty?: number;
   /** Earliest expiry across active batches (not stored in row). */

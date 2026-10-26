@@ -70,14 +70,31 @@ const parse = async (b: SampleBill) => {
     ['seller versus buyer, and the buyer\'s licence is not the supplier\'s', /The BUYER is the clinic[\s\S]*Supplier drug licence no" empty/], ['labels one row out of line', /one row out of line/],
     ['the invoice date, not the due date', /not the "Due date"/], ['"Previous outstanding" is not part of the bill', /Previous outstanding/], ['a footer discount is only the sum of the line discounts', /only the sum of the per-line discounts/],
     ['Rate is not Taxable Amt, not Amount, not MRP', /NOT "Taxable Amt"[\s\S]*NOT the MRP/], ['no discount column → Disc % stays EMPTY (not 0, not worked out)', /NO discount column, leave Disc % EMPTY/],
-    ['no free column → Free qty stays EMPTY', /no free column, leave Free qty EMPTY/], ['no MRP column → MRP stays EMPTY', /no MRP column, leave it EMPTY/],
+    ['no free column → Free qty stays EMPTY', /no free column at all, leave Free qty EMPTY/], ['no MRP column → MRP stays EMPTY', /no MRP column, leave it EMPTY/],
     ['one GST rate when CGST, SGST and IGST sit side by side', /CGST 6\.00, SGST 6\.00, IGST 12\.00[\s\S]*ONE rate \(12\)/], ['"new batch" is copied and flagged', /"new batch"[\s\S]*not a real batch/],
     ['no expiry printed → leave both empty and flag', /BOTH cells empty and flag "expiry not printed"/], ['a quantity "1." is 1', /"1\." is 1/],
     ['something that is not a medicine is flagged', /not a medicine/], ['text cells stay text, numbers stay numbers', /Write these as TEXT[\s\S]*Write these as NUMBERS/],
     ['it checks its own work (row count)', /CHECK YOUR OWN WORK[\s\S]*the same number/], ['it never stops to ask', /Do not stop to ask me questions/], ['it trusts the lines over a footer', /Trust the lines over a footer/],
     ['only one invoice per file', /ONE invoice/],
+    // the five-bill round (Samarth Drug House, 41 lines, photographed sideways): what the real ChatGPT file got wrong
+    ['two messages: this one only reads, no internet', /FIRST of two messages[\s\S]*do NOT search the internet now/],
+    ['every row has its own values (no copy-down from the row above)', /Every row has its OWN values[\s\S]*never copy a quantity, rate, batch, expiry, manufacturer code or amount down from the row above/i],
+    ['a wrapped name joins with one space and keeps every character (-NO DISC, 24G)', /name can run onto a second line[\s\S]*ONE space[\s\S]*24G/],
+    ['a sideways photo: turn it upright, enlarge, read in strips', /sideways, upside down, tilted or small[\s\S]*Python tool to turn the picture upright[\s\S]*strips of about 8 rows/],
+    ['syringes, cannulas, sutures, tapes, bed sheets are rows too, flagged "not a medicine"', /Syringes, needles, IV cannulas[\s\S]*bed sheets[\s\S]*write "not a medicine"/],
+    ['S.Q and F.Q are the quantity and the free quantity; every row\'s free column is looked at', /"S\.Q"[\s\S]*"F\.Q"[\s\S]*Look at the free column of EVERY row/],
+    ['a short manufacturer code is copied, never expanded or copied from another row', /SHORT CODE[\s\S]*never expand it and never copy it from another row/],
+    ['no serial-number column: number the rows 1, 2, 3', /NO serial-number column, number the rows 1, 2, 3/],
+    ['pages seen: how many given, of how many the bill has; the totals are on the last page', /how many pages you were GIVEN[\s\S]*"1 of 2" when one is missing[\s\S]*LAST page/],
+    ['two licences are both copied; FSL is a food licence, not a drug licence', /"DL X"[\s\S]*copy both, separated by " \/ "[\s\S]*FSL[\s\S]*FOOD licence/],
+    ['the buyer\'s doctor registration number is not wanted', /doctor's registration number[\s\S]*NOT wanted/],
+    ['a corner word CASH / CREDIT is the payment terms', /CASH or CREDIT printed in a corner/],
+    ['the line amount: the Total column, else the column headed Amount; never a discount-only or tax-only column', /headed just "Amount"[\s\S]*never a column that holds only the discount or only a tax/],
+    ['"1+1" in a name is a free offer: the free units are in the Free column', /"1\+1" or "10\+2" is a free offer/],
+    ['the self-check: add up the amount column and compare with the bill\'s own total; fix a misread row, never a number to fit', /Add up the "Line amount as printed" column[\s\S]*never change a number just to make a sum fit/],
+    ['the reply lists the lines whose Free qty is not 0', /line numbers where Free qty is not 0/],
   ] as [string, RegExp][]) ok(re.test(prompt), `the prompt: ${what}`);
-  ok(prompt.length > 8000 && prompt.length < 16000, `…and is complete without being a wall of text (${prompt.length} characters)`);
+  ok(prompt.length > 8000 && prompt.length < 19000, `…and is complete without being a wall of text (${prompt.length} characters)`);
   for (const c of ITEM_COLUMNS) ok(prompt.includes(c.header), `…it names the column "${c.header}"`);
   for (const f of BILL_FIELDS) ok(prompt.includes(f.label), `…and the field "${f.label}"`);
 
@@ -150,7 +167,8 @@ const parse = async (b: SampleBill) => {
   const jr = checkDraft(j.draft, { today: JEQLINE.asOf });
   ok(jr.reconciliation.ok && jr.reconciliation.difference === 0, `the lines + round off make exactly the printed ₹18,912.00 (difference ${jr.reconciliation.difference})`);
   const jc = codes(j.draft, JEQLINE.asOf);
-  ok(['1:no_expiry', '2:no_expiry', '3:no_expiry', '5:no_expiry'].every((c) => jc.includes(c)) && !jc.includes('4:no_expiry'), 'red: four lines print no expiry (the fourth batch prints 10-2025)');
+  ok(['1:no_expiry', '2:no_expiry', '3:no_expiry'].every((c) => jc.includes(c)) && !jc.includes('4:no_expiry') && !jc.includes('5:no_expiry'),
+    'red: three medicine lines print no expiry (the fourth batch prints 10-2025; the plastic bottle is a consumable — it needs none)');
   ok(jc.includes('1:repeat_batch'), 'the one batch (025488) on three lines is noticed: they will be one batch of stock');
   // typing the expiry once fills the other lines of the same batch — and no other batch
   let jd = j.draft;

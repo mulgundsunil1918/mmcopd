@@ -21,15 +21,18 @@ export function HelpTip({ title, children, align = 'left' }: {
   const boxRef = useRef<HTMLDivElement | null>(null);
 
   // Close on outside click / Escape, so it never traps the user.
+  // The click is listened for in the CAPTURE phase: a dialog (Modal) stops a mouse-down from travelling up to the document, so a listener in the
+  // normal phase never heard a click made anywhere inside a dialog and the popup stayed open. Capture hears it first, whatever sits in between.
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: MouseEvent) => {
+    const onDown = (e: Event) => {
       if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', onDown);
+    document.addEventListener('mousedown', onDown, true);
+    document.addEventListener('touchstart', onDown, true);
     document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+    return () => { document.removeEventListener('mousedown', onDown, true); document.removeEventListener('touchstart', onDown, true); document.removeEventListener('keydown', onKey); };
   }, [open]);
 
   return (
@@ -52,8 +55,9 @@ export function HelpTip({ title, children, align = 'left' }: {
         >
           <div className="flex items-start justify-between gap-2 mb-1">
             {title && <div className="text-[12px] font-bold text-gray-900 dark:text-slate-100">{title}</div>}
-            <button type="button" onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-600 shrink-0 ml-auto">
-              <X className="w-3.5 h-3.5" />
+            <button type="button" onClick={() => setOpen(false)} aria-label="Close" title="Close"
+              className="text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-slate-800 rounded p-1.5 -m-1.5 shrink-0 ml-auto">
+              <X className="w-4 h-4" />
             </button>
           </div>
           <div className="text-[11.5px] text-gray-600 dark:text-slate-300 leading-relaxed space-y-1.5 normal-case tracking-normal font-normal">

@@ -25,6 +25,7 @@ export function DrugEditModal({ drug, onClose, brandOf }: { drug: Partial<DrugMa
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState<Partial<DrugMaster>>(drug);
+  const consumable = editing.item_type === 'consumable';
   // GST is the clinic's decision: a NEW medicine starts with the clinic's own default if it set one, else the form asks (nothing is assumed).
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   useEffect(() => {
@@ -54,16 +55,28 @@ export function DrugEditModal({ drug, onClose, brandOf }: { drug: Partial<DrugMa
           </div>
         )}
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Name *"><input className="input" value={editing.name || ''} onChange={(e) => setEditing({ ...editing, name: e.target.value })} /></Field>
-          <Field label="Generic Name"><input className="input" value={editing.generic_name || ''} onChange={(e) => setEditing({ ...editing, generic_name: e.target.value })} /></Field>
-          <Field label="Manufacturer"><input className="input" placeholder="e.g. GSK / Cipla" value={editing.manufacturer || ''} onChange={(e) => setEditing({ ...editing, manufacturer: e.target.value })} /></Field>
-          <Field label="Schedule">
-            <select className="input" value={editing.schedule || 'OTC'} onChange={(e) => setEditing({ ...editing, schedule: e.target.value as DrugSchedule })}>
-              {SCHEDULES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          <Field label="Type">
+            <select className="input" value={consumable ? 'consumable' : 'medicine'} onChange={(e) => setEditing(e.target.value === 'consumable'
+              ? { ...editing, item_type: 'consumable', generic_name: null, strength: null, schedule: 'OTC', form: 'Consumable' }
+              : { ...editing, item_type: 'medicine', form: editing.form === 'Consumable' ? '' : editing.form })}>
+              <option value="medicine">Medicine</option>
+              <option value="consumable">Consumable — syringe, cannula, suture, tape, bed sheet…</option>
             </select>
+            {consumable && <div className="text-[10px] text-gray-500 dark:text-slate-400 mt-0.5">No generic name, strength or schedule. May have no batch or expiry. Not offered in prescriptions.</div>}
           </Field>
-          <Field label="Form"><input className="input" placeholder="Tab / Syrup / Inj" value={editing.form || ''} onChange={(e) => setEditing({ ...editing, form: e.target.value })} /></Field>
-          <Field label="Strength"><input className="input" placeholder="500mg / 10mg" value={editing.strength || ''} onChange={(e) => setEditing({ ...editing, strength: e.target.value })} /></Field>
+          <div />
+          <Field label="Name *"><input className="input" value={editing.name || ''} onChange={(e) => setEditing({ ...editing, name: e.target.value })} /></Field>
+          {!consumable && <Field label="Generic Name"><input className="input" value={editing.generic_name || ''} onChange={(e) => setEditing({ ...editing, generic_name: e.target.value })} /></Field>}
+          <Field label="Manufacturer"><input className="input" placeholder="e.g. GSK / Cipla" value={editing.manufacturer || ''} onChange={(e) => setEditing({ ...editing, manufacturer: e.target.value })} /></Field>
+          {!consumable && (
+            <Field label="Schedule">
+              <select className="input" value={editing.schedule || 'OTC'} onChange={(e) => setEditing({ ...editing, schedule: e.target.value as DrugSchedule })}>
+                {SCHEDULES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </Field>
+          )}
+          {!consumable && <Field label="Form"><input className="input" placeholder="Tab / Syrup / Inj" value={editing.form || ''} onChange={(e) => setEditing({ ...editing, form: e.target.value })} /></Field>}
+          {!consumable && <Field label="Strength"><input className="input" placeholder="500mg / 10mg" value={editing.strength || ''} onChange={(e) => setEditing({ ...editing, strength: e.target.value })} /></Field>}
           <Field label="Pack Size"><input type="number" className="input" placeholder="10 (tabs/strip)" value={editing.pack_size ?? ''} onChange={(e) => setEditing({ ...editing, pack_size: e.target.value === '' ? null : Number(e.target.value) })} /></Field>
           <Field label="Default MRP (₹)"><input type="number" className="input" value={editing.default_mrp ?? 0} onChange={(e) => setEditing({ ...editing, default_mrp: Number(e.target.value) })} /></Field>
           <Field label="HSN Code"><input className="input" placeholder="30049099" value={editing.hsn_code || ''} onChange={(e) => setEditing({ ...editing, hsn_code: e.target.value })} /></Field>
@@ -78,7 +91,7 @@ export function DrugEditModal({ drug, onClose, brandOf }: { drug: Partial<DrugMa
           <Field label="Barcode (EAN/UPC)"><input className="input" placeholder="optional" value={editing.barcode || ''} onChange={(e) => setEditing({ ...editing, barcode: e.target.value })} /></Field>
           <Field label="Low-stock Threshold"><input type="number" className="input" value={editing.low_stock_threshold ?? 10} onChange={(e) => setEditing({ ...editing, low_stock_threshold: Number(e.target.value) })} /></Field>
         </div>
-        <SameMedicineNote id={editing.id} generic={editing.generic_name} strength={editing.strength} form={editing.form} />
+        {!consumable && <SameMedicineNote id={editing.id} generic={editing.generic_name} strength={editing.strength} form={editing.form} />}
         <Field label="Notes">
           <textarea className="input" rows={2} value={editing.notes || ''} onChange={(e) => setEditing({ ...editing, notes: e.target.value })} />
         </Field>

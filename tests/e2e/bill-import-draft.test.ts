@@ -7,7 +7,7 @@
 import * as XLSX from 'xlsx';
 import { PHARMACY_CATALOG } from '../../src/data/pharmacy-catalog';
 import {
-  buildDraft, buildPrompt, buildTemplateWorkbook, checkDraft, ITEM_COLUMNS, BILL_FIELDS, lineComputed, packUnits, parseBillDate, parseExpiry, parseNumber,
+  buildDraft, buildLookupPrompt, buildPrompt, buildTemplateWorkbook, checkDraft, ITEM_COLUMNS, BILL_FIELDS, lineComputed, packUnits, parseBillDate, parseExpiry, parseNumber,
   readBillRows, readWorkbook, type DraftLine, type Draft, type SupplierRef,
 } from '../../src/lib/billImport';
 import { ok, eq, near, section, finish } from './lib';
@@ -26,7 +26,11 @@ const prompt = buildPrompt();
 ok(prompt.length > 3000, `the prompt is complete (${prompt.length} characters)`);
 for (const c of ITEM_COLUMNS) ok(prompt.includes(c.header), `the prompt names the column "${c.header}"`);
 for (const f of BILL_FIELDS) ok(prompt.includes(f.label), `the prompt names the field "${f.label}"`);
-ok(/web search|Search on/i.test(prompt) && /Never guess a composition/.test(prompt) && /AMBIGUOUS/.test(prompt) && /NOT FOUND/.test(prompt), 'the prompt tells ChatGPT to search, never to guess a composition, and to flag AMBIGUOUS / NOT FOUND');
+const lookup = buildLookupPrompt();
+ok(/do NOT search the internet now/i.test(prompt) && /LEAVE THEM EMPTY IN THIS MESSAGE/.test(prompt), 'the first message only READS the bill: no internet, the six lookup columns stay empty');
+ok(/web search|Search must be switched on/i.test(lookup) && /Never guess a composition/.test(lookup) && /AMBIGUOUS/.test(lookup) && /NOT FOUND/.test(lookup), 'the second message tells ChatGPT to search, never to guess a composition, and to flag AMBIGUOUS / NOT FOUND');
+ok(/THREE different searches/.test(lookup) && /full web address/.test(lookup), '…to try three different searches before NOT FOUND, and to give the page address as its source');
+ok(/ONLY for these rows[^]*3, 5, 8/.test(buildLookupPrompt(['3', '5', '8'])) && !/for EVERY row/.test(buildLookupPrompt(['3'])), 'a re-run can be limited to the lines that were not found');
 ok(/Do not stop to ask me questions/.test(prompt) && /one row per printed line/i.test(prompt), '…to leave blanks and flag them rather than stop, and to keep one row per printed line');
 ok(/Trust the lines over a footer/.test(prompt) && /CGST% \+ SGST%/.test(prompt), '…to trust the lines over a footer that disagrees, and to give the TOTAL GST');
 const empty = draftFromFile(buildTemplateWorkbook(XLSX, false));

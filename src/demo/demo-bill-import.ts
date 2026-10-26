@@ -4,9 +4,10 @@
  * bills, so the website shows the real screens and the real rules. The Excel is read in the browser. Nothing here ships in the app.
  */
 import {
-  BILL_FIELDS, ITEM_COLUMNS, NOT_EXCEL_MESSAGE, SHEET_BILL, SHEET_ITEMS, aliasKey, buildDraft, buildTemplateWorkbook, checkDraft, looksLikeExcel, planParts, readBillRows, readWorkbook,
+  BILL_FIELDS, ITEM_COLUMNS, NOT_EXCEL_MESSAGE, NO_BATCH, NO_EXPIRY, SHEET_BILL, SHEET_ITEMS, aliasKey, buildDraft, buildTemplateWorkbook, checkDraft, looksLikeExcel, planParts, readBillRows, readWorkbook,
 } from '../lib/billImport';
 import { SAMPLE_BILLS, sampleBillFor } from './sample-bills';
+import { SAMARTH } from './sample-samarth';
 import type { Draft, ImportCommit, ImportResult, ParseResult, WaitingGet, WaitingRow } from '../lib/billImport';
 import { toPaise } from '../lib/pharmacyMath';
 import { localISO } from '../lib/localDate';
@@ -39,10 +40,10 @@ export function makeDemoBillImport(deps: {
   };
 
   return {
-    // `which` (demo only) picks one of the owner's four real-world sample bills (src/demo/sample-bills.ts), dated around today
+    // `which` (demo only) picks one of the owner's five real-world sample bills (src/demo/sample-bills.ts and sample-samarth.ts), dated around today
     template: async (withSample: boolean, which?: string): Promise<string> => {
       const X = await xlsx();
-      const pick = which ? SAMPLE_BILLS.find((b) => b.key === which) : undefined;
+      const pick = which ? [...SAMPLE_BILLS, SAMARTH].find((b) => b.key === which) : undefined;
       if (!pick) return bytesToBase64(buildTemplateWorkbook(X, !!withSample, localISO()));
       const b = sampleBillFor(pick, localISO());
       const wb = X.utils.book_new();
@@ -61,7 +62,7 @@ export function makeDemoBillImport(deps: {
       const read = readBillRows(rows.billRows, rows.itemRows);
       if (read.problems.length) return { ok: false, problems: read.problems };
       const draft = buildDraft(read, {
-        drugs: deps.drugs().map((d) => ({ id: d.id, name: d.name, generic_name: d.generic_name, form: d.form, strength: d.strength, is_active: d.is_active })),
+        drugs: deps.drugs().map((d) => ({ id: d.id, name: d.name, generic_name: d.generic_name, form: d.form, strength: d.strength, is_active: d.is_active, item_type: d.item_type ?? 'medicine' })),
         aliases: aliases.map((a) => ({ alias: a.alias, drug_id: a.drug_id, supplier_id: a.supplier_id })),
         suppliers: deps.wholesalers().filter((w) => w.is_active !== 0).map((w) => ({ id: w.id, name: w.name, gstin: w.gstin ?? null, drug_license_no: w.drug_license_no })),
         today: localISO(),
@@ -75,14 +76,17 @@ export function makeDemoBillImport(deps: {
       if (clean(input?.confirm).toUpperCase() !== 'IMPORT') return { ok: false, error: 'To add this bill to your stock, type IMPORT to confirm.' };
       const ref = clean(input?.client_ref);
       if (ref && done.has(ref)) { const first = done.get(ref) as ImportResult; return first.ok ? { ...first, duplicate: true } : first; }
-      const draft = input?.draft;
-      if (!draft?.bill || !Array.isArray(draft.lines)) return { ok: false, error: 'There is no bill to import.' };
+      if (!input?.draft?.bill || !Array.isArray(input.draft.lines)) return { ok: false, error: 'There is no bill to import.' };
+      // a consumable is judged from the Drug List itself (as the real app does), not from what the screen says
+      const draft: Draft = { ...input.draft, lines: input.draft.lines.map((l) => ({ ...l, consumable: l.drug_id !== null && !l.new_drug ? deps.drugs().find((d) => d.id === l.drug_id)?.item_type === 'consumable' : false })) };
       const result = checkDraft(draft, { today: localISO(), existingInvoice: existing });
       if (!result.ready) {
         const errs = result.problems.filter((p) => p.severity === 'error');
         return { ok: false, error: `This bill is not ready to import: ${errs.slice(0, 3).map((p) => p.message).join(' ')}`, problems: errs };
       }
       const plan = planParts(draft.bill, draft.lines);
+      /** a consumable that prints no batch / expiry is stored as "NO BATCH" / "No expiry" */
+      const isConsumable = (l: Draft['lines'][number]) => (l.new_drug ? l.new_drug.item_type === 'consumable' : l.consumable === true);
 
       // ---- supplier ----
       let supplierId = draft.bill.wholesaler_id;
@@ -103,10 +107,11 @@ export function makeDemoBillImport(deps: {
           let id = created.get(key) ?? deps.drugs().find((d) => d.name.toLowerCase() === key)?.id;
           if (id === undefined) {
             const nd = l.new_drug;
+            const cons = nd.item_type === 'consumable';
             id = deps.addDrug({
-              name: clean(nd.name), generic_name: clean(nd.generic_name) || null, manufacturer: clean(l.manufacturer) || null, form: clean(nd.form) || null, strength: clean(nd.strength) || null,
-              pack_size: nd.pack_size ?? null, schedule: nd.schedule, hsn_code: clean(nd.hsn_code) || null, gst_rate: l.gst_rate ?? 0, default_mrp: l.mrp ?? 0, low_stock_threshold: 10,
-              barcode: null, is_active: 1, notes: null, created_at: localISO(), updated_at: localISO(),
+              name: clean(nd.name), generic_name: cons ? null : clean(nd.generic_name) || null, manufacturer: clean(l.manufacturer) || null, form: clean(nd.form) || (cons ? 'Consumable' : null), strength: cons ? null : clean(nd.strength) || null,
+              pack_size: nd.pack_size ?? null, schedule: cons ? 'OTC' : nd.schedule, hsn_code: clean(nd.hsn_code) || null, gst_rate: l.gst_rate ?? 0, default_mrp: l.mrp ?? 0, low_stock_threshold: 10,
+              barcode: null, is_active: 1, notes: null, created_at: localISO(), updated_at: localISO(), item_type: cons ? 'consumable' : 'medicine',
             } as DrugMaster).id;
             newDrugs++;
           }
@@ -138,7 +143,7 @@ export function makeDemoBillImport(deps: {
         gst_in_cost: input.gst_in_cost === true, payment_mode: clean(draft.bill.pay_mode) || null, amount_paid: Math.max(0, Number(draft.bill.paid_now) || 0),
         notes: [`Imported from the bill (ChatGPT → Excel) on ${localISO()} · ${plan.importLines.length} line${plan.importLines.length === 1 ? '' : 's'}`, part ? `Later part of invoice ${part}` : ''].filter(Boolean).join('. '),
         items: plan.importLines.map((l) => ({
-          drug_master_id: lineDrug.get(l.id) as number, batch_no: clean(l.batch), expiry: l.expiry, qty_received: l.qty as number, free_qty: l.free_qty || 0,
+          drug_master_id: lineDrug.get(l.id) as number, batch_no: clean(l.batch) || (isConsumable(l) ? NO_BATCH : ''), expiry: l.expiry || (isConsumable(l) ? NO_EXPIRY : ''), qty_received: l.qty as number, free_qty: l.free_qty || 0,
           purchase_price: l.rate as number, disc_pct: l.disc_pct || 0, mrp: l.mrp as number, selling_price: l.selling_price, gst_rate: l.gst_rate ?? 0,
         })),
       } as any);

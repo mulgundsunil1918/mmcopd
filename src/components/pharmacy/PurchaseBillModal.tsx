@@ -7,6 +7,8 @@ import { QuickDrugModal } from './QuickDrugModal';
 import { useToast } from '../../hooks/useToast';
 import { cn, fmtDate, formatINR, newRef, todayISO } from '../../lib/utils';
 import { pharmacyGstOn } from '../../lib/pharmacyGst';
+import { NO_BATCH } from '../../lib/billImport';
+import { NO_EXPIRY } from '../../lib/expiry';
 import { computePurchase, profitMetrics, toPaise, validatePurchase } from '../../lib/pharmacyMath';
 import type { PurchaseInvoiceInput } from '../../types';
 
@@ -54,7 +56,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 /** A field label with a little "?" that explains the word in plain language — what it means, where to find it on the bill. */
 function Tip({ label, title, children }: { label: string; title?: string; children: React.ReactNode }) {
-  return <label className="label inline-flex items-center gap-1">{label}<HelpTip title={title ?? label}>{children}</HelpTip></label>;
+  return <label className="label flex items-center gap-1 whitespace-nowrap h-5">{label}<HelpTip title={title ?? label}>{children}</HelpTip></label>;
 }
 
 /** What this drug last cost, and how the rate being typed compares — a price creeping up is easy to miss on paper. */
@@ -124,6 +126,9 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
   );
   const lineResult = new Map(used.map((l, i) => [l, calc.lines[i]]));
 
+  /** A consumable (syringe, cannula, bed sheet…) may print no batch and no expiry: it is stored as "NO BATCH" / "No expiry". */
+  const consumableOf = (l: Line) => drugs.find((d) => d.id === l.drug_master_id)?.item_type === 'consumable';
+
   // Every problem, in plain words, so nothing is skipped without the user knowing.
   const issues = useMemo(() => {
     const out: string[] = [];
@@ -133,8 +138,9 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
     used.forEach((l, i) => {
       const who = `Line ${i + 1}${l.drug_name ? ` (${l.drug_name})` : ''}`;
       if (!l.drug_master_id) out.push(`${who}: choose the medicine.`);
-      if (!l.batch_no.trim()) out.push(`${who}: enter the batch number.`);
-      if (!l.expiry) out.push(`${who}: enter the expiry date.`);
+      const cons = consumableOf(l);                       // a syringe, a bed sheet…: may print no batch and no expiry
+      if (!cons && !l.batch_no.trim()) out.push(`${who}: enter the batch number.`);
+      if (!cons && !l.expiry) out.push(`${who}: enter the expiry date.`);
       if (!(l.mrp > 0)) out.push(`${who}: enter the MRP printed on the pack.`);
       if (l.selling_price !== null && toPaise(l.selling_price) > toPaise(l.mrp)) out.push(`${who}: the selling price cannot be higher than the MRP.`);
     });
@@ -169,8 +175,8 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
         notes: header.notes || null,
         items: used.map((l) => ({
           drug_master_id: l.drug_master_id as number,
-          batch_no: l.batch_no.trim(),
-          expiry: l.expiry,
+          batch_no: l.batch_no.trim() || (consumableOf(l) ? NO_BATCH : ''),
+          expiry: l.expiry || (consumableOf(l) ? NO_EXPIRY : ''),
           manufacture_date: l.manufacture_date || null,
           qty_received: Number(l.qty_received),
           free_qty: Number(l.free_qty) || 0,
@@ -255,9 +261,9 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
                         {drugs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                       </select>
                     </div>
-                    <div className="w-32"><Tip label="Batch *" title="Batch number"><p>The batch number printed on the strip or bottle (look for “B.No.” or “Batch”). Type the real one — stock is tracked, sold and recalled by batch.</p></Tip><input className="input font-mono" value={l.batch_no} onChange={(e) => setLine(idx, { batch_no: e.target.value })} /></div>
+                    <div className="w-32"><Tip label={consumableOf(l) ? 'Batch' : 'Batch *'} title="Batch number"><p>The batch number printed on the strip or bottle (look for “B.No.” or “Batch”). Type the real one — stock is tracked, sold and recalled by batch.</p>{consumableOf(l) && <p>A consumable may print none: leave it empty (stored as “NO BATCH”).</p>}</Tip><input className="input font-mono" placeholder={consumableOf(l) ? 'none printed' : ''} value={l.batch_no} onChange={(e) => setLine(idx, { batch_no: e.target.value })} /></div>
                     <div className="w-40"><label className="label">Mfg</label><input type="month" className="input" value={l.manufacture_date} onChange={(e) => setLine(idx, { manufacture_date: e.target.value })} /></div>
-                    <div className="w-44"><Tip label="Expiry *" title="Expiry date"><p>The date printed as “Exp” on the pack. The earliest-expiring stock is sold first, and the pharmacy warns you before it expires.</p></Tip><input type="date" className="input" value={l.expiry} onChange={(e) => setLine(idx, { expiry: e.target.value })} /></div>
+                    <div className="w-44"><Tip label={consumableOf(l) ? 'Expiry' : 'Expiry *'} title="Expiry date"><p>The date printed as “Exp” on the pack. The earliest-expiring stock is sold first, and the pharmacy warns you before it expires.</p>{consumableOf(l) && <p>A consumable may print none: leave it empty (stored as “No expiry”).</p>}</Tip><input type="date" className="input" value={l.expiry} onChange={(e) => setLine(idx, { expiry: e.target.value })} /></div>
                     <div className="w-24 text-right" title="Value of the line after discount, before GST">
                       <div className="label">Line ₹</div>
                       <div className="font-semibold text-sm py-1.5">{formatINR(r?.taxable ?? 0)}</div>
@@ -285,7 +291,7 @@ export function NewPurchaseModal({ onClose }: { onClose: () => void }) {
                   <div className="flex gap-3 flex-wrap items-start pl-8">
                     <div className="w-24"><Tip label="Qty" title="Quantity you paid for"><p>How many units the dealer billed you for — the “Qty” column of the bill. Count in the same unit you sell in: strips if you sell by the strip, tablets if you sell loose.</p><p>Free units are NOT counted here — they go in “Free”.</p></Tip><input type="number" min={0} onFocus={selectAll} className="input text-right px-2" value={l.qty_received} onChange={(e) => setLine(idx, { qty_received: Number(e.target.value) })} /></div>
                     <div className="w-24"><Tip label="Free" title="Free quantity"><p>Extra units the dealer gives you free on top of what you buy — a “scheme”, like <b>10 + 2</b>: you pay for 10 and receive 12.</p><p>You do not pay for the free ones, but they are on your shelf, so CureDesk spreads what you paid over ALL the units — that makes each unit’s true cost lower. Leave 0 if the bill has none.</p></Tip><input type="number" min={0} onFocus={selectAll} className="input text-right px-2" value={l.free_qty} onChange={(e) => setLine(idx, { free_qty: Number(e.target.value) })} /></div>
-                    <div className="w-32">
+                    <div className="w-40">
                       <Tip label="Dealer's rate ₹" title="Dealer's rate (what you pay for one unit)"><p>What the dealer charges for ONE unit, before any discount and before GST — the “Rate” column on the bill. It is not the MRP; it is what YOU pay.</p></Tip>
                       <input type="number" min={0} step="0.01" onFocus={selectAll} className="input text-right px-2" value={l.purchase_price} onChange={(e) => setLine(idx, { purchase_price: Number(e.target.value) })} />
                       <LastRateHint drugId={l.drug_master_id} rate={l.purchase_price} />

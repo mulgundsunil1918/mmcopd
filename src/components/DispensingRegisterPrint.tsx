@@ -3,6 +3,7 @@ import { Printer, X } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { fmtDate, fmtDateTime } from '../lib/utils';
 import type { DrugSchedule } from '../types';
+import { isNoExpiry } from '../lib/expiry';
 
 /**
  * Schedule H/H1 dispensing register — printed straight from the browser via
@@ -138,7 +139,7 @@ export function DispensingRegisterPrint({
                       </td>
                       <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px', fontFamily: 'monospace', fontSize: 9 }}>{r.batch_no}</td>
                       <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px', fontSize: 9 }}>
-                        {(() => { try { return format(parseISO(r.expiry), 'MMM yy'); } catch { return r.expiry; } })()}
+                        {isNoExpiry(r.expiry) ? 'No expiry' : (() => { try { return format(parseISO(r.expiry), 'MMM yy'); } catch { return r.expiry; } })()}
                       </td>
                       <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px', textAlign: 'right', fontWeight: 600 }}>{r.qty}</td>
                       <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px', fontSize: 9 }}>{r.doctor_name || '—'}</td>

@@ -4,6 +4,7 @@
  */
 import { BILL_FIELDS, FORM_FAMILIES, ITEM_COLUMNS, SHEET_BILL, SHEET_ITEMS, billFieldFor, itemColumnFor } from './template';
 import { cleanText, parseBillDate, parseExpiry, parseNumber, simplify } from './normalize';
+import { looksConsumable, pagesMissing, printedStrength, stripBillingNotes } from './items';
 import { makeMatcher, tokenize, wordSimilarity, type AliasRef, type DrugRef } from './match';
 import type { Draft, DraftBill, DraftLine, LineLookup, NewDrugSpec, PrintedTotals } from './types';
 
@@ -38,6 +39,13 @@ export function readBillRows(billRows: unknown[][] | null, itemRows: unknown[][]
     }
     for (const f of BILL_FIELDS.filter((x) => x.need === 'must')) {
       if (blank(bill[f.key])) problems.push(`The Bill sheet has no value for "${f.label}".`);
+    }
+    // a bill of several pages read in part: its total is on the LAST page, so the plain "no total" message would not tell the person what to do
+    const miss = pagesMissing(cleanText(bill.pages_seen));
+    if (miss && blank(bill.printed_net)) {
+      const msg = `This bill has ${miss.total} pages and ChatGPT saw only ${miss.seen === 1 ? 'page 1' : `${miss.seen} of them`} — the bill's total is on the last page. Give ChatGPT every page of the bill (in step 2) and ask for the file again.`;
+      const k = problems.findIndex((x) => x.includes('"Printed net amount"'));
+      if (k >= 0) problems[k] = msg; else problems.push(msg);
     }
   }
 
@@ -98,13 +106,13 @@ function gstOf(v: unknown): number | null {
   return parseNumber(v);
 }
 
-/** Units in one pack, from the pack text: "1x10" → 10, "100 ml" → 100, "15's" → 15. */
+/** Units in one pack, from the pack text: "1x10" → 10, "100 ml" → 100, "15's" → 15, "1'UNIT" → 1 (a part of a millilitre is never rounded UP to a whole one). */
 export function packUnits(pack: string): number | null {
   const t = cleanText(pack).toLowerCase();
   let m: RegExpMatchArray | null;
   if ((m = t.match(/(\d+)\s*[x×]\s*(\d+)/))) return Number(m[2]);
-  if ((m = t.match(/(\d+(?:\.\d+)?)\s*(ml|l)\b/))) return Math.round(Number(m[1]) * (m[2] === 'l' ? 1000 : 1));
-  if ((m = t.match(/(\d+)\s*['’`]?\s*s\b/))) return Number(m[1]);
+  if ((m = t.match(/(\d+(?:\.\d+)?)\s*(ml|l)\b/))) return Math.max(1, Math.floor(Number(m[1]) * (m[2] === 'l' ? 1000 : 1)));
+  if ((m = t.match(/(\d+)\s*['’`]?\s*(?:s|units?|pcs?|nos?|pieces?)\b/))) return Number(m[1]);
   if ((m = t.match(/^\(?(\d+)\)?$/))) return Number(m[1]);
   return null;
 }
@@ -145,10 +153,21 @@ const num = (v: unknown) => parseNumber(v);
 const FORM_NAMES = new Set(['Tablet', 'Capsule', 'Syrup', 'Suspension', 'Drops', 'Injection', 'Ointment', 'Cream', 'Gel', 'Inhaler', 'Powder', 'Sachet', 'Respules', 'Solution', 'Spray', 'Other']);
 function formName(lookupForm: string, printed: string): string {
   const fam = FORM_FAMILIES[cleanText(lookupForm).toLowerCase()] ?? (FORM_NAMES.has(cleanText(lookupForm)) ? cleanText(lookupForm) : '');
-  return fam || tokenize(printed).form || 'Other';
+  // "PARABOOST IV", "ALKEM METRO IV": IV in a name is an intravenous product — an injection or a drip
+  return fam || tokenize(printed).form || (/(^|[\s-])i\.?v\.?($|[\s-])/i.test(printed) ? 'Injection' : 'Other');
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * A discount on the WHOLE bill: what the bill prints as its discount, less what the lines' own discounts already come to — and only when that leaves
+ * more than a rupee (below it, the lines explain it). Worked out again whenever a line is corrected (edit.ts), so a misread quantity can never leave a
+ * discount behind that the corrected line has already covered.
+ */
+export function autoBillDiscount(printedDiscount: number | null, lines: Pick<DraftLine, 'qty' | 'rate' | 'disc_pct'>[]): number {
+  const lineDisc = lines.reduce((s, l) => s + (l.qty !== null && l.rate !== null ? l.qty * l.rate * ((l.disc_pct || 0) / 100) : 0), 0);
+  return printedDiscount !== null && printedDiscount > lineDisc + 1 ? Math.round((printedDiscount - lineDisc) * 100) / 100 : 0;
+}
 
 /**
  * A bill with NO discount column still shows each line's amount AFTER its discount (the "Taxable Amt" column before it, the GST and the Total after it —
@@ -212,11 +231,19 @@ export function buildDraft(read: ReadResult, ctx: BuildContext): Draft {
     const certain = m.certain;
     const pack = cleanText(r.pack);
     const notStandard = /not a (standard )?medicine/i.test(flags);
-    const suggested: NewDrugSpec = {
-      name: lookup.brand && lookup.confidence !== 'Low' && lookup.confidence !== '' ? lookup.brand : printedName,
-      generic_name: lookup.generic, form: formName(lookup.form, printedName), strength: lookup.strength,
-      schedule: notStandard ? 'OTC' : 'H', pack_size: packUnits(pack), hsn_code: cleanText(r.hsn),
-    };
+    // a syringe, a cannula, a suture, a bed sheet: told by ChatGPT's own note, the HSN code or plain words in the name — never a medicine's schedule or strength
+    const consumableLine = looksConsumable({ name: printedName, hsn: cleanText(r.hsn), flags });
+    const matchedConsumable = m.drug_id !== null && ctx.drugs.find((d) => d.id === m.drug_id)?.item_type === 'consumable';
+    const form = formName(lookup.form, printedName);
+    const cleanName = stripBillingNotes(printedName) || printedName;                      // "-NO DISC" is the dealer's note, not part of the name
+    const suggested: NewDrugSpec = consumableLine
+      ? { name: cleanName, generic_name: '', form: 'Consumable', strength: '', schedule: 'OTC', pack_size: 1, hsn_code: cleanText(r.hsn), item_type: 'consumable' }
+      : {
+        name: lookup.brand && lookup.confidence !== 'Low' && lookup.confidence !== '' ? lookup.brand : cleanName,
+        generic_name: lookup.generic, form, strength: lookup.strength || printedStrength(printedName),
+        // one ampoule, vial or bottle of an injection is ONE unit whatever its millilitres
+        schedule: notStandard ? 'OTC' : 'H', pack_size: form === 'Injection' && /\b(ml|l)\b|\d\s*(ml|l)\b/i.test(pack) ? 1 : packUnits(pack), hsn_code: cleanText(r.hsn),
+      };
     return {
       id: i + 1, row: r.__row, line_no: cleanText(r.line_no) || String(i + 1), printed_name: printedName, lookup, pack,
       manufacturer: cleanText(r.manufacturer), hsn: cleanText(r.hsn), batch: cleanText(r.batch), expiry, expiry_printed: cleanText(r.expiry_printed), expiry_problem: expiryProblem,
@@ -225,19 +252,19 @@ export function buildDraft(read: ReadResult, ctx: BuildContext): Draft {
       drug_id: m.drug_id, new_drug: null, confirmed: certain, aside: false,
       match: { kind: m.kind, candidates: m.candidates, composition: m.composition },
       suggested_new: suggested,
+      ...(matchedConsumable ? { consumable: true } : {}),
     };
   });
 
   deriveDiscounts(lines, read.items, printed.discount);
 
   // header amounts: what is on the bill, unless the lines' own discounts already explain it
-  const lineDisc = lines.reduce((s, l) => s + (l.qty !== null && l.rate !== null ? l.qty * l.rate * ((l.disc_pct || 0) / 100) : 0), 0);
-  const billDiscount = printed.discount !== null && printed.discount > lineDisc + 1 ? Math.round((printed.discount - lineDisc) * 100) / 100 : 0;
+  const billDiscount = autoBillDiscount(printed.discount, lines);
   const bill: DraftBill = {
     supplier_name: text('supplier_name'), supplier_gstin: gstinKey(text('supplier_gstin')) || text('supplier_gstin'), supplier_license: text('supplier_license'),
     wholesaler_id: sup.id, invoice_number: text('invoice_number'), invoice_date: date.iso ?? '', invoice_date_printed: text('invoice_date'),
     payment_terms: text('payment_terms'), printed, pages_seen: text('pages_seen'), notes: text('notes'),
-    discount: billDiscount, other_charges: printed.other !== null && printed.other > 0 ? printed.other : 0,
+    discount: billDiscount, discount_auto: true, other_charges: printed.other !== null && printed.other > 0 ? printed.other : 0,
     round_off: printed.round_off !== null && Math.abs(printed.round_off) > 0.004 ? 'auto' : 0,
     interstate: (printed.igst ?? 0) > 0 && !((printed.cgst ?? 0) > 0 || (printed.sgst ?? 0) > 0),
     paid_now: 0, pay_mode: /cash/i.test(text('payment_terms')) ? 'Cash' : '', totals_ack: false, part_of: '',

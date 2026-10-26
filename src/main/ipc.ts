@@ -21,6 +21,7 @@ import { buildReferralStats, type ReferralVisit } from '../lib/referralStats';
 import { medicineKey } from '../lib/medicineGroups';
 import { genericLabelOf } from '../lib/rxLabel';
 import { seedSampleData } from '../db/sample-data';
+import { inspectBackupDb } from './backup-guard';
 
 /**
  * Cross-module hook: registerIpc() sets this to its internal `performBackupToRoot`
@@ -2508,28 +2509,29 @@ export function registerIpc() {
         UPDATE drug_master SET
           name=?, generic_name=?, manufacturer=?, form=?, strength=?, pack_size=?,
           schedule=?, hsn_code=?, gst_rate=?, default_mrp=?, low_stock_threshold=?,
-          barcode=?, is_active=?, notes=?, updated_at=datetime('now')
+          barcode=?, is_active=?, notes=?, item_type=COALESCE(?, item_type), updated_at=datetime('now')
         WHERE id=?
       `).run(
         drug.name, drug.generic_name ?? null, drug.manufacturer ?? null,
         drug.form ?? null, drug.strength ?? null, drug.pack_size ?? null,
         drug.schedule ?? 'OTC', drug.hsn_code ?? null, drug.gst_rate ?? 12,
         drug.default_mrp ?? drug.mrp ?? 0, drug.low_stock_threshold ?? 10,
-        drug.barcode ?? null, drug.is_active ?? 1, drug.notes ?? null, drug.id
+        drug.barcode ?? null, drug.is_active ?? 1, drug.notes ?? null,
+        drug.item_type === 'consumable' ? 'consumable' : drug.item_type === 'medicine' ? 'medicine' : null, drug.id      // an older screen that does not send a type leaves it as it is
       );
       return db.prepare('SELECT * FROM drug_master WHERE id=?').get(drug.id);
     }
     const info = db.prepare(`
       INSERT INTO drug_master
         (name, generic_name, manufacturer, form, strength, pack_size, schedule,
-         hsn_code, gst_rate, default_mrp, low_stock_threshold, barcode, is_active, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         hsn_code, gst_rate, default_mrp, low_stock_threshold, barcode, is_active, notes, item_type)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       drug.name, drug.generic_name ?? null, drug.manufacturer ?? null,
       drug.form ?? null, drug.strength ?? null, drug.pack_size ?? null,
       drug.schedule ?? 'OTC', drug.hsn_code ?? null, drug.gst_rate ?? 12,
       drug.default_mrp ?? drug.mrp ?? 0, drug.low_stock_threshold ?? 10,
-      drug.barcode ?? null, drug.is_active ?? 1, drug.notes ?? null
+      drug.barcode ?? null, drug.is_active ?? 1, drug.notes ?? null, drug.item_type === 'consumable' ? 'consumable' : 'medicine'
     );
     return db.prepare('SELECT * FROM drug_master WHERE id=?').get(info.lastInsertRowid);
   });
@@ -2608,9 +2610,12 @@ export function registerIpc() {
   //   - Otherwise → SOFT delete (is_active=0). Drug stays in history but disappears
   //     from active dispense + master listings.
   // Returns a per-drug summary so the UI can explain what happened.
-  ipcMain.handle('pharmacy:bulkDeleteDrugs', (_e, ids: number[]) => {
-    requireRole(['pharmacist'], 'delete drugs');
-    if (!Array.isArray(ids) || ids.length === 0) return { ok: true, hardDeleted: 0, softDeleted: 0, results: [] };
+  // Deleting a drug needs the ADMINISTRATOR (and the admin password typed again, checked here — never trusted from the screen).
+  ipcMain.handle('pharmacy:bulkDeleteDrugs', (_e, ids: number[], adminPassword?: string) => {
+    requireRole([], 'delete drugs');
+    const bad = adminPasswordProblem(adminPassword);
+    if (bad) return { ok: false as const, error: bad };
+    if (!Array.isArray(ids) || ids.length === 0) return { ok: true as const, hardDeleted: 0, softDeleted: 0, results: [] };
     const db = getDb();
     const countRefs = (id: number) => {
       const c = (sql: string) => (db.prepare(sql).get(id) as { c: number }).c;
@@ -2655,7 +2660,7 @@ export function registerIpc() {
     });
     tx();
 
-    return { ok: true, hardDeleted, softDeleted, results };
+    return { ok: true as const, hardDeleted, softDeleted, results };
   });
 
   ipcMain.handle('pharmacy:alerts', () => {
@@ -3991,6 +3996,9 @@ export function registerIpc() {
     try {
       const resolved = resolveSourceSqlite(sourcePath);
       if (!resolved.ok) return { ok: false, error: resolved.error };
+      // look inside BEFORE showing "this will replace everything": is it a sound CureDesk database, and not from a newer CureDesk?
+      const look = inspectBackupDb(resolved.sqlitePath);
+      if (!look.ok) return { ok: false, error: look.error };
 
       const backupTakenAt = parseBackupTimestamp(sourcePath, resolved.sqlitePath);
 
@@ -4068,44 +4076,87 @@ export function registerIpc() {
       sourceSqlite = sourcePath;
     }
 
+    // 0) Look inside the file BEFORE anything is touched: a sound CureDesk database, not made by a NEWER CureDesk. (An OLDER one is fine: opening it brings it up to date.)
+    const look = inspectBackupDb(sourceSqlite);
+    if (!look.ok) return { ok: false, error: look.error };
+
     const userData = app.getPath('userData');
     const currentDb = path.join(userData, 'caredesk.sqlite');
     const currentDocs = path.join(userData, 'documents');
+    const stagedDocs = path.join(userData, 'documents.restoring');
+    const oldDocs = path.join(userData, 'documents.before-restore');
 
-    // 1) Safety-backup the current data first (always, no matter what)
+    // 1) Safety-backup the current data first (always, no matter what) — it is also what the clinic's own data is put back from if anything below goes wrong
+    let safety: string;
     try {
       const s = getAllSettings(getDb());
       const safeDir = backupRoot(s);
       if (!fs.existsSync(safeDir)) fs.mkdirSync(safeDir, { recursive: true });
       const r = await performBackupToRoot(safeDir, 'pre-restore');
+      safety = r.bundleDir;
       logAudit(getDb(), actor(), 'pre_restore_backup', 'backups', undefined, r.bundleDir);
     } catch (e: any) {
       return { ok: false, error: 'Could not make safety backup of current data: ' + (e?.message || e) };
     }
 
-    // 2) Close the DB so we can overwrite the file
-    closeDb();
-
-    // 3) Replace caredesk.sqlite (and remove WAL sidecars so new DB is loaded cleanly)
+    // 2) The backup's documents are copied NEXT to the live ones first: if that fails, nothing has been replaced yet
     try {
-      for (const sidecar of ['caredesk.sqlite-wal', 'caredesk.sqlite-shm']) {
+      fs.rmSync(stagedDocs, { recursive: true, force: true });
+      fs.rmSync(oldDocs, { recursive: true, force: true });
+      if (sourceDocs) copyDirRecursive(sourceDocs, stagedDocs);
+    } catch (e: any) {
+      try { fs.rmSync(stagedDocs, { recursive: true, force: true }); } catch { /* nothing to clean */ }
+      return { ok: false, error: 'Nothing was changed: the documents in that backup could not be copied (' + (e?.message || e) + ').' };
+    }
+
+    const dropSidecars = () => {
+      for (const sidecar of ['caredesk.sqlite-wal', 'caredesk.sqlite-shm', 'caredesk.sqlite-journal']) {
         const p = path.join(userData, sidecar);
         if (fs.existsSync(p)) { try { fs.unlinkSync(p); } catch { /* ignore */ } }
       }
-      fs.copyFileSync(sourceSqlite, currentDb);
-    } catch (e: any) {
-      return { ok: false, error: 'Failed to copy new database: ' + (e?.message || e) };
-    }
+    };
+    /** Put the clinic's own data back exactly as the safety copy has it. */
+    const rollBack = (why: string): { ok: false; error: string } => {
+      try {
+        try { closeDb(); } catch { /* ignore */ }
+        dropSidecars();
+        fs.copyFileSync(path.join(safety, 'caredesk.sqlite'), currentDb);
+        if (fs.existsSync(oldDocs)) { fs.rmSync(currentDocs, { recursive: true, force: true }); fs.renameSync(oldDocs, currentDocs); }
+        else if (fs.existsSync(path.join(safety, 'documents'))) { fs.rmSync(currentDocs, { recursive: true, force: true }); copyDirRecursive(path.join(safety, 'documents'), currentDocs); }
+        fs.rmSync(stagedDocs, { recursive: true, force: true });
+        getDb();                                                              // opens (and, if needed, upgrades) the clinic's own database again
+      } catch (e: any) {
+        return { ok: false, error: `${why} Your own data is safe in the copy made just before: ${safety} (${e?.message || e}).` };
+      }
+      return { ok: false, error: `${why} Your own data was put back exactly as it was — nothing was lost.` };
+    };
 
-    // 4) Replace documents folder (if the bundle has one)
+    // 3) Close the DB, replace caredesk.sqlite (WAL sidecars removed so the new file loads cleanly), swap in the documents
+    closeDb();
     try {
+      dropSidecars();
+      const tmp = currentDb + '.restoring';
+      fs.copyFileSync(sourceSqlite, tmp);
+      fs.renameSync(tmp, currentDb);
       if (sourceDocs) {
-        if (fs.existsSync(currentDocs)) fs.rmSync(currentDocs, { recursive: true, force: true });
-        copyDirRecursive(sourceDocs, currentDocs);
+        if (fs.existsSync(currentDocs)) fs.renameSync(currentDocs, oldDocs);
+        fs.renameSync(stagedDocs, currentDocs);
       }
     } catch (e: any) {
-      return { ok: false, error: 'DB restored but documents copy failed: ' + (e?.message || e) };
+      return rollBack('Failed to put the backup in place (' + (e?.message || e) + ').');
     }
+
+    // 4) Prove the restored database opens with THIS version (this also brings an older backup up to date) before saying it worked
+    try {
+      const db = getDb();
+      const check = db.prepare('PRAGMA integrity_check').get() as { integrity_check?: string };
+      if (String(check?.integrity_check).toLowerCase() !== 'ok') throw new Error('the restored database failed its integrity check');
+      db.prepare('SELECT COUNT(*) AS c FROM patients').get();
+      db.prepare('SELECT COUNT(*) AS c FROM drug_master').get();
+    } catch (e: any) {
+      return rollBack('That backup could not be opened by this version of CureDesk (' + (e?.message || e) + ').');
+    }
+    try { fs.rmSync(oldDocs, { recursive: true, force: true }); } catch { /* the safety copy has them too */ }
 
     logAudit(getDb(), actor(), 'restore_completed', 'backups', undefined, sourcePath);
 

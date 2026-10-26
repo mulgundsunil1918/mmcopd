@@ -320,7 +320,9 @@ export function createSchema(db: Database.Database) {
       is_active INTEGER NOT NULL DEFAULT 1,
       notes TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      -- 'medicine' or 'consumable' (a syringe, a cannula, a bed sheet: no generic name / strength / schedule, may have no expiry; not offered in prescriptions)
+      item_type TEXT NOT NULL DEFAULT 'medicine'
     );
     CREATE INDEX IF NOT EXISTS idx_drug_master_name ON drug_master(name);
     CREATE INDEX IF NOT EXISTS idx_drug_master_generic ON drug_master(generic_name);

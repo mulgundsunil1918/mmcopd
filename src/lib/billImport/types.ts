@@ -1,4 +1,5 @@
 import type { Candidate, MatchKind } from './match';
+import type { ItemType } from './items';
 
 /** What a medicine looked-up by ChatGPT says it is — advisory only, never saved without a person's say. */
 export interface LineLookup {
@@ -15,6 +16,8 @@ export interface NewDrugSpec {
   schedule: 'OTC' | 'H' | 'H1' | 'G' | 'X';
   pack_size: number | null;
   hsn_code: string;
+  /** A syringe, a cannula, a suture, a bed sheet… is a consumable: no generic name, strength or schedule, and it may print no batch or expiry. Absent = medicine. */
+  item_type?: ItemType;
 }
 
 export interface DraftLine {
@@ -42,6 +45,8 @@ export interface DraftLine {
   disc_pct: number;
   /** The bill has no discount column: the percentage was worked out from this line's printed amount (and the discounts add up to the bill's printed discount). */
   disc_derived?: boolean;
+  /** The medicine chosen for this line is a consumable (a new one is judged from `new_drug.item_type` instead). A consumable may have no batch or expiry. */
+  consumable?: boolean;
   gst_rate: number | null;
   selling_price: number | null;
   printed_amount: number | null;
@@ -82,6 +87,8 @@ export interface DraftBill {
   // ---- worked out from the bill, editable ----
   /** A discount on the WHOLE bill, ₹ (the line discounts are already in each line). */
   discount: number;
+  /** `discount` was worked out from the bill (the printed discount less the lines' own) and follows the lines when they are corrected; typing in the box makes it the person's own. */
+  discount_auto?: boolean;
   other_charges: number;
   round_off: 'auto' | number;
   interstate: boolean;
@@ -110,6 +117,9 @@ export interface Problem {
   message: string;
 }
 
+/** One figure of the bill's footer against the same figure from the lines — says WHERE a difference is (the sub total? the discount? the GST?). */
+export interface ReconPart { label: string; printed: number; lines: number; diff: number }
+
 export interface Reconciliation {
   /** What the bill says is payable. */
   printed_net: number | null;
@@ -120,6 +130,8 @@ export interface Reconciliation {
   /** printed_net − (computed_total + aside_printed): zero when everything adds up. */
   difference: number | null;
   ok: boolean;
+  /** The footer's own figures against the lines', for each figure the bill printed (empty when none was printed). */
+  parts?: ReconPart[];
 }
 
 // ---------------------------------------------------------------------------------------------------------------- between the screen and the app

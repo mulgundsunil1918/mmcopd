@@ -8,13 +8,14 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Eye, EyeOff, Loader2, PackageCheck, Pause } from 'lucide-react';
+import { ArrowLeft, Clipboard, ClipboardCheck, Eye, EyeOff, Loader2, PackageCheck, Pause } from 'lucide-react';
 import { HelpTip } from '../../HelpTip';
 import { cn, formatINR, newRef, refFor, todayISO } from '../../../lib/utils';
 import { pharmacyGstOn } from '../../../lib/pharmacyGst';
 import { fileToBase64 } from '../../../lib/base64';
+import { copyText } from '../../../lib/clipboard';
 import {
-  addAsNew, billTotals, chooseDrug, checkDraft, clearChoice, confirmLine, lineMoney, patchBill, patchLine, setAside, summarize,
+  addAsNew, billTotals, buildLookupPrompt, chooseDrug, checkDraft, clearChoice, confirmLine, lineMoney, patchBill, patchLine, setAside, summarize,
 } from '../../../lib/billImport';
 import type { Draft, DraftBill, DraftLine, ImportResult, NewDrugSpec, Problem } from '../../../lib/billImport';
 import { PhotoPanel, type BillPicture } from './PhotoPanel';
@@ -89,9 +90,11 @@ export function ReviewScreen({ initial, notices, duplicate, picture, photoFile, 
   const linesWithErrors = draft.lines.filter((l) => !l.aside && (byLine.get(l.id) ?? []).some((p) => p.severity === 'error'));
 
   // ---- the things a card can do (one stable object) ----
+  const drugsRef = useRef(drugs);
+  drugsRef.current = drugs;
   const acts = useMemo<LineActs>(() => ({
     patch: (id, patch) => setDraft((d) => patchLine(d, id, patch)),
-    choose: (id, drugId) => setDraft((d) => chooseDrug(d, id, drugId)),
+    choose: (id, drugId) => setDraft((d) => chooseDrug(d, id, drugId, drugId !== null && drugsRef.current.find((x) => x.id === drugId)?.item_type === 'consumable')),
     confirm: (id) => setDraft((d) => confirmLine(d, id)),
     addNew: (id) => setDraft((d) => addAsNew(d, id)),
     newSpec: (id, spec: NewDrugSpec) => setDraft((d) => addAsNew(d, id, spec)),
@@ -123,6 +126,16 @@ export function ReviewScreen({ initial, notices, duplicate, picture, photoFile, 
     } catch (e: any) {
       setServerError(String(e?.message || e || 'Could not import the bill.'));
     } finally { setBusy(false); }
+  };
+
+  // ChatGPT's second message (the lookup) was skipped, or Search was off: many medicines that are not on the Drug List arrive with no generic name
+  const [followUpCopied, setFollowUpCopied] = useState(false);
+  const unresolved = useMemo(() => draft.lines.filter((l) => !l.aside && l.drug_id === null && !l.new_drug?.item_type && !l.suggested_new.item_type
+    && !l.lookup.generic && !l.lookup.brand && !/not a (standard )?medicine/i.test(l.flags)), [draft.lines]);
+  const lookable = draft.lines.filter((l) => !l.aside && !l.suggested_new.item_type && !/not a (standard )?medicine/i.test(l.flags)).length;
+  const showLookupBanner = unresolved.length >= 3 && unresolved.length * 4 >= lookable;
+  const copyFollowUp = async () => {
+    if (await copyText(buildLookupPrompt(unresolved.map((l) => l.line_no)))) { setFollowUpCopied(true); setTimeout(() => setFollowUpCopied(false), 2500); }
   };
 
   const b = draft.bill;
@@ -237,6 +250,20 @@ export function ReviewScreen({ initial, notices, duplicate, picture, photoFile, 
           </Banner>
         )}
 
+        {showLookupBanner && (
+          <Banner tone="amber" title={`ChatGPT looked up only ${lookable - unresolved.length} of ${lookable} medicines`}>
+            <p>
+              For {unresolved.length} of them it found no generic name or strength (lines {unresolved.slice(0, 12).map((l) => l.line_no).join(', ')}{unresolved.length > 12 ? '…' : ''}). The internet lookup was probably skipped — most often because
+              <b> Search</b> was switched off. You can fill them in yourself below, or ask ChatGPT again: switch <b>Search</b> on, paste this in the <b>same chat</b>, download the new Excel and read it here again.
+            </p>
+            <div className="pt-1">
+              <button type="button" className="btn-secondary text-xs px-2.5 py-1.5" onClick={copyFollowUp}>
+                {followUpCopied ? <ClipboardCheck className="w-3.5 h-3.5" /> : <Clipboard className="w-3.5 h-3.5" />} {followUpCopied ? 'Copied' : 'Copy the follow-up message for ChatGPT'}
+              </button>
+            </div>
+          </Banner>
+        )}
+
         {worthALook.length > 0 && (
           <Banner tone="amber" title="Worth a look">
             <ul className="list-disc pl-5 space-y-0.5">{worthALook.map((p, i) => <li key={i}>{p.message}</li>)}</ul>
@@ -321,6 +348,20 @@ export function ReviewScreen({ initial, notices, duplicate, picture, photoFile, 
                   <input type="checkbox" checked={b.totals_ack} onChange={(e) => bill({ totals_ack: e.target.checked })} />
                   I have checked this difference — import anyway
                 </label>
+              )}
+              {!rec.ok && rec.parts && rec.parts.length > 0 && (
+                <div className="mt-2 space-y-0.5">
+                  <div className="font-semibold">Where the difference is — the bill’s own footer against your lines:</div>
+                  {rec.parts.map((x) => (
+                    <div key={x.label} className="flex flex-wrap gap-x-4 gap-y-0.5">
+                      <span className="min-w-[260px]">{x.label}</span>
+                      <span>bill <b>{formatINR(x.printed)}</b></span>
+                      <span>lines <b>{formatINR(x.lines)}</b></span>
+                      <span className={Math.abs(x.diff) > 0.5 ? 'font-semibold' : 'opacity-70'}>{Math.abs(x.diff) <= 0.5 ? '✓ agree' : `${x.diff > 0 ? 'short by' : 'over by'} ${formatINR(Math.abs(x.diff))}`}</span>
+                    </div>
+                  ))}
+                  <p className="opacity-90">Look at the part that does not agree: a quantity or rate misread (compare lines with the same figures as the line above), a free quantity left out, or a line missing.</p>
+                </div>
               )}
               {!rec.ok && <p className="mt-1 opacity-90">A line may be misread or missing, or the bill has a discount or charge you have not entered above. Compare the totals with the paper first.</p>}
             </div>

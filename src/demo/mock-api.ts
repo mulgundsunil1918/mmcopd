@@ -677,11 +677,12 @@ export function createMockElectronAPI(): any {
         else { const id = nextId(batches); b = { id, ...b }; batches = [...batches, b]; }
         return r(b);
       },
-      bulkDeleteDrugs: () => r({ ok: true, hardDeleted: 0, softDeleted: 0, results: [] }),
+      bulkDeleteDrugs: (_ids?: number[], pw?: string) => r(pw === '1234' ? { ok: true, hardDeleted: 0, softDeleted: 0, results: [] } : { ok: false, error: 'Wrong admin password.' }),
       // "Start fresh" / "Delete selected": same plan as main/pharmacy-finance.ts. A drug is kept (Inactive) when a sale, purchase or prescription
       // mentions it; a batch that was sold from or bought on a bill is zeroed rather than deleted in this demo so the numbers stay believable.
       previewClear: (p?: { ids?: number[] | null }) => r(clearPlan(p?.ids ?? null).preview),
-      clearDrugs: (p: { ids?: number[] | null; confirm?: string }) => {
+      clearDrugs: (p: { ids?: number[] | null; confirm?: string; admin_password?: string }) => {
+        if (p?.admin_password !== '1234') return r({ ok: false, error: 'Wrong admin password.' });       // the demo's admin password is shown on screen
         const ids = Array.isArray(p?.ids) ? p.ids : null;
         if (ids !== null && ids.length === 0) return r({ ok: false, error: 'Tick at least one drug to delete.' });
         if (ids === null && String(p?.confirm ?? '').trim().toUpperCase() !== 'START FRESH') return r({ ok: false, error: 'To clear everything, type START FRESH to confirm.' });

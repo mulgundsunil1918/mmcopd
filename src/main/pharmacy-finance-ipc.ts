@@ -167,15 +167,17 @@ export function registerPharmacyFinanceIpc() {
   });
 
   // ----- clear drugs, stock and batches: "Start fresh" (every drug) or "Delete selected" (the ticked ones) -----
-  /** Who may do it: the pharmacy in-charge (pharmacist) and the administrator (requireRole always lets admin through). */
-  const CLEARERS: Role[] = ['pharmacist'];
+  // Administrator only, with the admin password typed again (checked here, never trusted from the screen) — the same rule as every other delete.
+  const CLEARERS: Role[] = [];
   ipcMain.handle('pharmacy:previewClear', (_e, payload: { ids?: number[] | null } = {}) => {
     const ids = Array.isArray(payload?.ids) ? payload.ids : null;
     return fin.previewClearDrugs(getDb(), ids);
   });
-  ipcMain.handle('pharmacy:clearDrugs', (_e, payload: { ids?: number[] | null; confirm?: string } = {}) => {
+  ipcMain.handle('pharmacy:clearDrugs', (_e, payload: { ids?: number[] | null; confirm?: string; admin_password?: string } = {}) => {
     requireModule('pharmacy', 'Pharmacy');
     requireRole(CLEARERS, 'clear the drug list and stock');
+    const badPassword = adminPasswordProblem(payload?.admin_password);
+    if (badPassword) return { ok: false as const, error: badPassword };
     const ids = Array.isArray(payload?.ids) ? payload.ids.map(Number).filter((x) => Number.isInteger(x) && x > 0) : null;
     if (ids !== null && ids.length === 0) return { ok: false as const, error: 'Tick at least one drug to delete.' };
     // Everything at once needs the phrase typed — checked HERE too, so no screen (or stray call) can wipe the lot by accident.

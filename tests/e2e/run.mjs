@@ -31,6 +31,7 @@ const ZONES = {
   // An imported bill is dated by the PC's own calendar day, and its expiry window is counted from it.
   'bill-import': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   'bill-import-samples': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
+  'bill-import-samarth': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   booking: ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   'counter-discount': ['Asia/Kolkata', 'America/Los_Angeles'],
   'ward-price': ['Asia/Kolkata', 'America/Los_Angeles'],

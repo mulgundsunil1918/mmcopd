@@ -5,9 +5,14 @@
 import { computePurchase, profitMetrics } from '../pharmacyMath';
 import { planParts } from './parts';
 import { looksLikePlaceholderBatch, simplify } from './normalize';
+import { autoBillDiscount } from './draft';
 import type { Draft, DraftBill, DraftLine, NewDrugSpec } from './types';
 
-export const patchBill = (d: Draft, patch: Partial<DraftBill>): Draft => ({ ...d, bill: { ...d.bill, ...patch } });
+/** Change the bill's header. Typing a discount makes it the person's own: it no longer follows the lines. */
+export const patchBill = (d: Draft, patch: Partial<DraftBill>): Draft => ({ ...d, bill: { ...d.bill, ...patch, ...('discount' in patch && !('discount_auto' in patch) ? { discount_auto: false } : {}) } });
+
+/** The invoice discount that was worked out from the bill follows the lines when one is corrected (a person's own figure is left alone). */
+const refollow = (d: Draft): Draft => (d.bill.discount_auto ? { ...d, bill: { ...d.bill, discount: autoBillDiscount(d.bill.printed.discount, d.lines) } } : d);
 
 /** Two lines of a bill that are the same medicine in the same batch (a bill may print one batch on several lines, each with its own discount or free units). */
 const sameBatch = (a: DraftLine, b: DraftLine): boolean => {
@@ -26,8 +31,8 @@ const sameBatch = (a: DraftLine, b: DraftLine): boolean => {
 export const patchLine = (d: Draft, id: number, patch: Partial<DraftLine>): Draft => {
   const lines = d.lines.map((l) => (l.id === id ? { ...l, ...patch } : l));
   const me = lines.find((l) => l.id === id);
-  if (!me || (!patch.expiry && !(typeof patch.mrp === 'number' && patch.mrp > 0))) return { ...d, lines };
-  return {
+  if (!me || (!patch.expiry && !(typeof patch.mrp === 'number' && patch.mrp > 0))) return refollow({ ...d, lines });
+  return refollow({
     ...d,
     lines: lines.map((l) => {
       if (l.id === id || !sameBatch(me, l)) return l;
@@ -36,12 +41,12 @@ export const patchLine = (d: Draft, id: number, patch: Partial<DraftLine>): Draf
       if (typeof patch.mrp === 'number' && patch.mrp > 0 && (l.mrp === null || !(l.mrp > 0))) next.mrp = me.mrp;
       return next;
     }),
-  };
+  });
 };
 
-/** The person chose a medicine from the list for this line (a deliberate choice, so it counts as confirmed). */
-export const chooseDrug = (d: Draft, id: number, drugId: number | null): Draft =>
-  patchLine(d, id, { drug_id: drugId, new_drug: null, confirmed: drugId !== null });
+/** The person chose a medicine from the list for this line (a deliberate choice, so it counts as confirmed). `consumable`: the chosen item is a syringe, a bed sheet… */
+export const chooseDrug = (d: Draft, id: number, drugId: number | null, consumable = false): Draft =>
+  patchLine(d, id, { drug_id: drugId, new_drug: null, confirmed: drugId !== null, consumable });
 
 /** "Yes, it is this one" for a match that was not certain. */
 export const confirmLine = (d: Draft, id: number): Draft => patchLine(d, id, { confirmed: true });
@@ -50,14 +55,14 @@ export const confirmLine = (d: Draft, id: number): Draft => patchLine(d, id, { c
 export const addAsNew = (d: Draft, id: number, spec?: NewDrugSpec): Draft => {
   const line = d.lines.find((l) => l.id === id);
   if (!line) return d;
-  return patchLine(d, id, { new_drug: spec ?? line.new_drug ?? { ...line.suggested_new }, drug_id: null, confirmed: true });
+  return patchLine(d, id, { new_drug: spec ?? line.new_drug ?? { ...line.suggested_new }, drug_id: null, confirmed: true, consumable: false });
 };
 
 /** Back to "choose the medicine" (the line keeps its suggested match as a starting point). */
 export const clearChoice = (d: Draft, id: number): Draft => {
   const line = d.lines.find((l) => l.id === id);
   if (!line) return d;
-  return patchLine(d, id, { new_drug: null, drug_id: null, confirmed: false });
+  return patchLine(d, id, { new_drug: null, drug_id: null, confirmed: false, consumable: false });
 };
 
 export const setAside = (d: Draft, id: number, aside: boolean): Draft => patchLine(d, id, { aside });

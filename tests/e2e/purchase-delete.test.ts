@@ -117,7 +117,7 @@ const count = (sql: string, ...p: any[]) => (one(sql, ...p)?.c ?? 0) as number;
   ok(del5.ok && del5.purchase.units_taken_off === 30 && stockOf(d5.id) === 0 && !batch(d5.id, 'E1'), 'both lines come off, and the batch is removed');
   const d6 = await mkDrug('Foxtrot');
   const p6 = await bill(sup.id, 'PD-6', [line(d6, 'F1', 40, 10)]);
-  await call('pharmacy:clearDrugs', { ids: [d6.id] });                         // "Delete selected" (the stock and the batch go)
+  await call('pharmacy:clearDrugs', { ids: [d6.id], admin_password: '1234' });                         // "Delete selected" (the stock and the batch go)
   const del6 = await call('admin:deletePurchase', p6.id, '1234');
   ok(del6.ok && del6.purchase.units_taken_off === 0 && del6.purchase.units_gone === 40, 'a bill whose batch was cleared earlier still deletes (its 40 units were already gone)');
 
