@@ -118,10 +118,10 @@ export function GuideSteps({ waitingCount, onParsed, onOpenWaiting, isDemo }: {
     } finally { setBusy(false); }
   };
 
-  const trySample = async () => {
+  const trySample = async (which?: string) => {
     setBusy(true); setProblems([]);
     try {
-      const result = await window.electronAPI.purchaseImport.parse(await window.electronAPI.purchaseImport.template(true));
+      const result = await window.electronAPI.purchaseImport.parse(await window.electronAPI.purchaseImport.template(true, which));
       if (!result.ok) { setProblems(result.problems); return; }
       onParsed({ result, photo: null, fileName: TEMPLATE_FILE_NAME });
     } finally { setBusy(false); }
@@ -137,7 +137,8 @@ export function GuideSteps({ waitingCount, onParsed, onOpenWaiting, isDemo }: {
           <h3 className="text-base font-bold text-gray-900 dark:text-slate-100">Step 1 of 3 · Copy the instructions for ChatGPT</h3>
           <p className="text-sm text-gray-700 dark:text-slate-300">
             ChatGPT will read your bill for you. First give it its instructions — click <b>Copy</b>. They tell ChatGPT to copy the bill <b>exactly as printed</b>,
-            never to guess, to leave a blank (and say why) when it cannot read something, and to look up each medicine’s brand, generic name and strength on the internet.
+            never to guess or calculate, to leave a blank (and say why) when it cannot read something or the bill does not print it, to tell the seller from the buyer, to
+            check its own work, and to look up each medicine’s brand, generic name and strength on the internet.
           </p>
           <div className="flex items-center gap-2 flex-wrap">
             <button className="btn-primary" onClick={copy}>
@@ -173,7 +174,7 @@ export function GuideSteps({ waitingCount, onParsed, onOpenWaiting, isDemo }: {
               <>Click the <b>＋</b> (paperclip) and attach the bill — the PDF, or a photo of <b>every page</b>. Photos: flat, sharp, bright, nothing cut off.</>,
               <><b>Paste</b> the instructions you copied (Ctrl + V) and press Send.</>,
               <>Switch on <b>Search</b> (the globe button under the message box) so ChatGPT can look each medicine up on the internet.</>,
-              <>Wait for the answer. ChatGPT gives a link to an Excel file called <b>{TEMPLATE_FILE_NAME}</b> — click it to download. If it only shows a table, type: <i>“Please give me the Excel file to download.”</i></>,
+              <>Wait for the answer. ChatGPT gives a link to an Excel file called <b>{TEMPLATE_FILE_NAME}</b> — click it to download. If it only shows a table, or says it cannot make files, type: <i>“Please use your Python tool to build the Excel file and give me the download link.”</i> One bill at a time.</>,
               <>If it stops half-way, type <i>“continue”</i>. You don’t need to check its work in Excel — you will check everything in CureDesk.</>,
             ].map((t, i) => (
               <li key={i} className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">{i + 1}</span><span className="pt-0.5">{t}</span></li>
@@ -205,8 +206,15 @@ export function GuideSteps({ waitingCount, onParsed, onOpenWaiting, isDemo }: {
             <span className="text-[11px] text-gray-500 dark:text-slate-400">Reading only shows you what is in the file. Nothing is added to your stock yet.</span>
           </div>
           {isDemo && (
-            <div className="text-xs text-gray-600 dark:text-slate-300">
-              Just want to see how it works? <button type="button" className="underline text-blue-600" disabled={busy} onClick={trySample}>Try it with a sample bill</button>
+            <div className="text-xs text-gray-600 dark:text-slate-300 space-y-1">
+              <div>Just want to see how it works? <button type="button" className="underline text-blue-600" disabled={busy} onClick={() => trySample()}>Try it with a sample bill</button></div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                <span>…or with a real-world layout:</span>
+                <button type="button" className="underline text-blue-600" disabled={busy} onClick={() => trySample('manans-tax')}>Manans — tax invoice (no discount / MRP columns)</button>
+                <button type="button" className="underline text-blue-600" disabled={busy} onClick={() => trySample('manans-whole')}>Manans — wholesale layout</button>
+                <button type="button" className="underline text-blue-600" disabled={busy} onClick={() => trySample('jeqline')}>Jeqline — one batch on three lines</button>
+                <button type="button" className="underline text-blue-600" disabled={busy} onClick={() => trySample('meerut')}>Meerut — a bill whose numbers disagree</button>
+              </div>
             </div>
           )}
         </div>

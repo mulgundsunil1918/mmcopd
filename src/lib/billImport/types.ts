@@ -40,6 +40,8 @@ export interface DraftLine {
   mrp: number | null;
   rate: number | null;
   disc_pct: number;
+  /** The bill has no discount column: the percentage was worked out from this line's printed amount (and the discounts add up to the bill's printed discount). */
+  disc_derived?: boolean;
   gst_rate: number | null;
   selling_price: number | null;
   printed_amount: number | null;

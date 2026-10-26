@@ -148,6 +148,38 @@ function formName(lookupForm: string, printed: string): string {
   return fam || tokenize(printed).form || 'Other';
 }
 
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * A bill with NO discount column still shows each line's amount AFTER its discount (the "Taxable Amt" column before it, the GST and the Total after it —
+ * Alprax: 10 × ₹100, GST 12%, printed ₹1,008 instead of ₹1,120), and a discount total at the bottom. Left alone, that discount would be spread over
+ * all the lines in proportion and the tax would come out a few rupees wrong. So where a line's printed amount is smaller than quantity × rate + GST by a
+ * CLEAN percentage (it reproduces the printed amount to the paisa), that percentage is the line's discount — but only if the discounts found this way,
+ * with any printed in a column, add up to the discount the bill prints. Arithmetic on the bill's own numbers, never a guess; the line is marked so a
+ * person can compare it with the bill.
+ */
+function deriveDiscounts(lines: DraftLine[], raw: ReadResult['items'], printedDiscount: number | null): void {
+  if (printedDiscount === null || !(printedDiscount > 0)) return;
+  const found: { l: DraftLine; pct: number; money: number }[] = [];
+  let explicit = 0;
+  lines.forEach((l, i) => {
+    const gross = l.qty !== null && l.rate !== null ? l.qty * l.rate : null;
+    if (gross === null) return;
+    if (!blank(raw[i].disc_pct)) { explicit += gross * ((l.disc_pct || 0) / 100); return; }
+    if (l.printed_amount === null || l.gst_rate === null || !(gross > 0)) return;
+    const full = gross * (1 + l.gst_rate / 100);
+    if (l.printed_amount >= full - 0.02) return;                                  // no discount on this line (a paisa of rounding is not one)
+    const pct = r2((1 - l.printed_amount / full) * 100);
+    if (!(pct > 0 && pct <= 60)) return;
+    if (Math.abs(gross * (1 - pct / 100) * (1 + l.gst_rate / 100) - l.printed_amount) > 0.02) return;   // not a clean percentage: leave it for a person
+    found.push({ l, pct, money: gross * (pct / 100) });
+  });
+  if (!found.length) return;
+  const sum = explicit + found.reduce((s, f) => s + f.money, 0);
+  if (Math.abs(sum - printedDiscount) > 1.0) return;                               // they do not explain the bill's discount: do not apply any
+  for (const f of found) { f.l.disc_pct = f.pct; f.l.disc_derived = true; }
+}
+
 export function buildDraft(read: ReadResult, ctx: BuildContext): Draft {
   const b = read.bill;
   const text = (k: string) => cleanText(b[k]);
@@ -179,7 +211,7 @@ export function buildDraft(read: ReadResult, ctx: BuildContext): Draft {
     const m = matcher.match(printedName, lookup, sup.id);
     const certain = m.certain;
     const pack = cleanText(r.pack);
-    const notStandard = /not a standard medicine/i.test(flags);
+    const notStandard = /not a (standard )?medicine/i.test(flags);
     const suggested: NewDrugSpec = {
       name: lookup.brand && lookup.confidence !== 'Low' && lookup.confidence !== '' ? lookup.brand : printedName,
       generic_name: lookup.generic, form: formName(lookup.form, printedName), strength: lookup.strength,
@@ -195,6 +227,8 @@ export function buildDraft(read: ReadResult, ctx: BuildContext): Draft {
       suggested_new: suggested,
     };
   });
+
+  deriveDiscounts(lines, read.items, printed.discount);
 
   // header amounts: what is on the bill, unless the lines' own discounts already explain it
   const lineDisc = lines.reduce((s, l) => s + (l.qty !== null && l.rate !== null ? l.qty * l.rate * ((l.disc_pct || 0) / 100) : 0), 0);

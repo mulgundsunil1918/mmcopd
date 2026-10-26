@@ -4,10 +4,40 @@
  */
 import { computePurchase, profitMetrics } from '../pharmacyMath';
 import { planParts } from './parts';
+import { looksLikePlaceholderBatch, simplify } from './normalize';
 import type { Draft, DraftBill, DraftLine, NewDrugSpec } from './types';
 
 export const patchBill = (d: Draft, patch: Partial<DraftBill>): Draft => ({ ...d, bill: { ...d.bill, ...patch } });
-export const patchLine = (d: Draft, id: number, patch: Partial<DraftLine>): Draft => ({ ...d, lines: d.lines.map((l) => (l.id === id ? { ...l, ...patch } : l)) });
+
+/** Two lines of a bill that are the same medicine in the same batch (a bill may print one batch on several lines, each with its own discount or free units). */
+const sameBatch = (a: DraftLine, b: DraftLine): boolean => {
+  const batch = (l: DraftLine) => l.batch.trim().toLowerCase();
+  if (!batch(a) || batch(a) !== batch(b) || looksLikePlaceholderBatch(a.batch)) return false;
+  if (a.drug_id !== null && a.drug_id === b.drug_id) return true;
+  if (a.new_drug && b.new_drug && a.new_drug.name.trim().toLowerCase() === b.new_drug.name.trim().toLowerCase()) return true;
+  return simplify(a.printed_name) === simplify(b.printed_name);
+};
+
+/**
+ * Change a line. What is true of a BATCH — its expiry and its MRP — is also true of the other lines of the same medicine and batch, so when a person
+ * types one into a line the other lines of that batch that are still blank take it too (a bill with one batch on three lines needs it typed once).
+ * A value already on another line is never overwritten.
+ */
+export const patchLine = (d: Draft, id: number, patch: Partial<DraftLine>): Draft => {
+  const lines = d.lines.map((l) => (l.id === id ? { ...l, ...patch } : l));
+  const me = lines.find((l) => l.id === id);
+  if (!me || (!patch.expiry && !(typeof patch.mrp === 'number' && patch.mrp > 0))) return { ...d, lines };
+  return {
+    ...d,
+    lines: lines.map((l) => {
+      if (l.id === id || !sameBatch(me, l)) return l;
+      const next: DraftLine = { ...l };
+      if (patch.expiry && !l.expiry) { next.expiry = me.expiry; next.expiry_problem = ''; }
+      if (typeof patch.mrp === 'number' && patch.mrp > 0 && (l.mrp === null || !(l.mrp > 0))) next.mrp = me.mrp;
+      return next;
+    }),
+  };
+};
 
 /** The person chose a medicine from the list for this line (a deliberate choice, so it counts as confirmed). */
 export const chooseDrug = (d: Draft, id: number, drugId: number | null): Draft =>

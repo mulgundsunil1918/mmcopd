@@ -4,8 +4,9 @@
  * bills, so the website shows the real screens and the real rules. The Excel is read in the browser. Nothing here ships in the app.
  */
 import {
-  NOT_EXCEL_MESSAGE, aliasKey, buildDraft, buildTemplateWorkbook, checkDraft, looksLikeExcel, planParts, readBillRows, readWorkbook,
+  BILL_FIELDS, ITEM_COLUMNS, NOT_EXCEL_MESSAGE, SHEET_BILL, SHEET_ITEMS, aliasKey, buildDraft, buildTemplateWorkbook, checkDraft, looksLikeExcel, planParts, readBillRows, readWorkbook,
 } from '../lib/billImport';
+import { SAMPLE_BILLS, sampleBillFor } from './sample-bills';
 import type { Draft, ImportCommit, ImportResult, ParseResult, WaitingGet, WaitingRow } from '../lib/billImport';
 import { toPaise } from '../lib/pharmacyMath';
 import { localISO } from '../lib/localDate';
@@ -38,7 +39,18 @@ export function makeDemoBillImport(deps: {
   };
 
   return {
-    template: async (withSample: boolean): Promise<string> => bytesToBase64(buildTemplateWorkbook(await xlsx(), !!withSample, localISO())),
+    // `which` (demo only) picks one of the owner's four real-world sample bills (src/demo/sample-bills.ts), dated around today
+    template: async (withSample: boolean, which?: string): Promise<string> => {
+      const X = await xlsx();
+      const pick = which ? SAMPLE_BILLS.find((b) => b.key === which) : undefined;
+      if (!pick) return bytesToBase64(buildTemplateWorkbook(X, !!withSample, localISO()));
+      const b = sampleBillFor(pick, localISO());
+      const wb = X.utils.book_new();
+      X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet([['Field', 'Value'], ...BILL_FIELDS.map((f) => [f.label, b.bill[f.label] ?? ''])]), SHEET_BILL);
+      const headers = ITEM_COLUMNS.map((c) => c.header);
+      X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet([headers, ...b.items.map((r) => headers.map((h) => r[h] ?? ''))]), SHEET_ITEMS);
+      return bytesToBase64(new Uint8Array(X.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer));
+    },
 
     parse: async (file: string): Promise<ParseResult> => {
       let data: Uint8Array;

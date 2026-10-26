@@ -105,6 +105,10 @@ export function checkLine(l: DraftLine, ctx: CheckContext): Problem[] {
     else if (daysBetween(ctx.today, l.expiry) > 365 * 8) add('far_expiry', 'warn', `The expiry (${l.expiry}) is more than 8 years away — check the year.`, 'expiry');
   }
 
+  if (l.disc_derived) {
+    add('disc_derived', 'warn', `This bill has no discount column. The ${l.disc_pct}% discount was worked out from the line's printed amount ${money(l.printed_amount ?? 0)} (it adds up with the other lines to the discount the bill prints). Compare it with the bill.`, 'disc');
+  }
+
   // ---- does the line add up? ----
   const computed = lineComputed(l);
   if (computed !== null && l.printed_amount !== null && Math.abs(computed - l.printed_amount) > LINE_TOLERANCE) {

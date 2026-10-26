@@ -530,7 +530,7 @@ const api = {
   // Reading and checking change nothing; only `create` does, and only with the typed word IMPORT.
   purchaseImport: {
     /** The Excel to give ChatGPT as the form to fill (empty), or the same with a sample bill to try the screen — as base64 text. */
-    template: (withSample: boolean) => ipcRenderer.invoke('purchaseImport:template', withSample) as Promise<string>,
+    template: (withSample: boolean, which?: string) => ipcRenderer.invoke('purchaseImport:template', withSample, which) as Promise<string>,
     /** Read the uploaded Excel (base64 text) into a draft to review — or say plainly what is wrong with the file. */
     parse: (base64: string) => ipcRenderer.invoke('purchaseImport:parse', base64) as Promise<ParseResult>,
     /** Is this supplier's invoice number already recorded? */
