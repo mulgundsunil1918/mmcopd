@@ -9,6 +9,8 @@
 //   - one batch printed on three lines is typed once (the expiry and MRP follow it) and becomes one batch of stock;
 //   - the same invoice in two layouts is caught as already recorded; a bill whose own numbers disagree (Meerut) needs a person to look;
 //   - the prompt ChatGPT is given says the things these bills need said.
+import fs from 'node:fs';
+import path from 'node:path';
 import * as XLSX from 'xlsx';
 import { boot, call, getDb } from './harness';
 import {
@@ -20,6 +22,7 @@ import { ok, eq, near, section, finish } from './lib';
 
 boot();
 const db = getDb();
+const root = fs.existsSync(path.join(process.cwd(), 'tests', 'e2e')) ? process.cwd() : path.resolve(__dirname, '..');
 const one = (sql: string, ...p: any[]) => db.prepare(sql).get(...p) as any;
 
 const toXlsx = (b: SampleBill): Uint8Array => {
@@ -202,7 +205,28 @@ const parse = async (b: SampleBill) => {
   }
 
   // ============================================================================================================
-  section('7 · what the four bills have in common');
+  section('7 · the owner\'s REAL ChatGPT file (Manans wholesale layout, made with the new instructions on 2026-10-26)');
+  const real = await call('purchaseImport:parse', fs.readFileSync(path.join(root, 'tests', 'e2e', 'fixtures', 'chatgpt-real-manans-wholesale-2.xlsx')).toString('base64'));
+  ok(real.ok === true, 'the file ChatGPT really produced is accepted as it is');
+  if (real.ok) {
+    const rd = real.draft as Draft;
+    eq(rd.lines.length, 5, 'its five lines are all there');
+    eq(rd.bill.invoice_number + ' / ' + rd.bill.invoice_date, '12 / 2024-04-28', 'invoice 12 of 28-04-2024');
+    eq(rd.bill.supplier_gstin, '24AKPPP1343N1ZK', 'the seller\'s GSTIN');
+    ok(/^20C VAD 94560/.test(rd.bill.supplier_license), 'the SELLER\'s licence — not the buyer\'s DLdb3245');
+    eq(rd.lines.map((l) => `${l.qty}+${l.free_qty}`).join(' '), '1+0 10+0 5+2 1+0 6+0', 'quantities and the 2 free units of Ciplox 100');
+    eq(rd.lines.map((l) => l.disc_pct).join(' '), '0 10 2 0 0', 'the printed line discounts');
+    eq(rd.lines.map((l) => l.gst_rate).join(' '), '12 12 5 5 5', 'GST as CGST + SGST');
+    const rr = checkDraft(rd, { today: '2024-05-02' });
+    ok(rr.reconciliation.ok && rr.reconciliation.difference === 0, `the lines add up to the printed ₹2,556.36 exactly (difference ${rr.reconciliation.difference})`);
+    const rc = rr.problems.map((p) => `${p.line ?? '·'}:${p.code}`);
+    ok(rc.includes('2:placeholder_batch') && rc.includes('4:no_expiry') && rc.includes('5:no_expiry') && rc.includes('1:confirm_match'), 'the things the bill really leaves open are RED: "new batch", the two missing expiries, the Cap-for-tablet match');
+    const okRed = new Set(['confirm_match', 'no_drug', 'placeholder_batch', 'no_expiry']);
+    ok(rr.problems.filter((p) => p.severity === 'error').every((p) => okRed.has(p.code)), 'and nothing else is red: no wrong total, no missing MRP, no bad GST or quantity — only "which medicine", the batch and the expiry the bill does not give');
+  }
+
+  // ============================================================================================================
+  section('8 · what the four bills have in common');
   eq(SAMPLE_BILLS.length, 4, 'four sample bills are tested');
   eq(one('SELECT COUNT(*) c FROM purchase_invoices').c, 4, 'four purchase bills are in the books (the repeat of invoice 12 was refused, then the new number 12-B went in)');
   const sum = one('SELECT COALESCE(SUM(total),0) s FROM purchase_invoices').s;

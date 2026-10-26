@@ -243,6 +243,17 @@ const mainFile = () => { try { return fs.readFileSync(path.join(userData, 'licen
       const invDiscount = Number(((inv2.match(/Discount<\/td><td class="r">- ₹([\d,]+)</) || [])[1] || '0').replace(/,/g, ''));
       ok(invTotal === 14996 + 1500 + 8999, `after renewals the invoice's total is the amount actually collected (₹${invTotal})`);
       eq(sumOf(inv2) - invDiscount, invTotal, `…and its lines (₹${sumOf(inv2)}) less the discount for the renewals charged below list (₹${invDiscount}) add up to that total`);
+      // one click renews the main licence AND every module code together
+      const beforeAll = await amountOf(await latestId());
+      const all = await post('/renew-all', { id: await latestId(), days: 365 });
+      ok(all.ok && Array.isArray(all.codes) && all.codes.length >= 2, `"renew everything" gives the main code and a fresh code for each module (${all.codes?.length} module codes)`);
+      eq(all.charged, 8999 + all.codes.reduce((t: number, c: any) => t + ({ pharmacy: 1999, whatsapp_pro: 1999, lab: 999, ipd: 4999, whatsapp: 999 } as any)[c.module], 0), '…and adds the main plan + each module at its price in one amount');
+      eq(await amountOf(all.id), beforeAll + all.charged, '…to the amount collected');
+      ok(all.codes.every((c: any) => Date.parse(c.expires_at) - Date.now() > 360 * DAY), '…every code now runs about a year');
+      const inv3 = await (await fetch(B + '/invoice?id=' + encodeURIComponent(all.id))).text();
+      ok(/Renewal — .*module codes/.test(inv3), '…and the invoice shows it as one renewal line');
+      const free2 = await post('/renew-all', { id: all.id, days: 365, amount: '0' });
+      eq(free2.charged, 0, 'a free "renew everything" adds nothing');
       const fresh = await post('/addon', { id: await latestId(), modules: ['lab'], days: 365 });
       ok(fresh.ok && fresh.delta === 999 && fresh.added.join() === 'lab' && fresh.renewed.length === 0, 'a module the clinic never had is charged as a new module (Laboratory ₹999), not as a renewal');
       // a clinic still on an older app gets ONE replacement code: what it already holds through module codes is not charged twice
