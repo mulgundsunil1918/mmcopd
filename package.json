@@ -19,7 +19,9 @@
     "build:win": "bash scripts/build-windows.sh",
     "test": "node --experimental-sqlite tests/patient-log-fanout.test.mjs && node tests/host-watchdog.test.mjs && npx esbuild src/main/powercfg-parse.ts --bundle --format=esm --platform=node --packages=external --outfile=.vite-test/powercfg-parse.mjs && node tests/host-power.test.mjs && npx esbuild src/main/ws-heartbeat.ts --bundle --format=esm --platform=node --packages=external --outfile=.vite-test/ws-heartbeat.mjs && node tests/ws-heartbeat.test.mjs",
     "test:db": "node tests/db/run.mjs",
-    "test:e2e": "node tests/e2e/run.mjs"
+    "test:e2e": "node tests/e2e/run.mjs",
+    "premake": "node -e \"require('fs').rmSync('.vite-test',{recursive:true,force:true})\"",
+    "prebuild:win": "node -e \"require('fs').rmSync('.vite-test',{recursive:true,force:true})\""
   },
   "keywords": [],
   "author": {
