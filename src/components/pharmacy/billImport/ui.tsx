@@ -73,7 +73,7 @@ export function Pill({ tone = 'gray', children, className }: { tone?: Tone; chil
   return <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight', PILL[tone], className)}>{children}</span>;
 }
 
-/** "Step 1 of 4" — the things a person does, one after another, with the current one highlighted. */
+/** "Step 1 of 3" — the things a person does, one after another, with the current one highlighted. */
 export function Stepper({ step, labels, onGo }: { step: number; labels: string[]; onGo?: (n: number) => void }) {
   return (
     <ol className="flex items-center gap-2 w-full" aria-label="Steps">

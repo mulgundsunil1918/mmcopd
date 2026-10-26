@@ -27,10 +27,12 @@ ok(prompt.length > 3000, `the prompt is complete (${prompt.length} characters)`)
 for (const c of ITEM_COLUMNS) ok(prompt.includes(c.header), `the prompt names the column "${c.header}"`);
 for (const f of BILL_FIELDS) ok(prompt.includes(f.label), `the prompt names the field "${f.label}"`);
 const lookup = buildLookupPrompt();
-ok(/do NOT search the internet now/i.test(prompt) && /LEAVE THEM EMPTY IN THIS MESSAGE/.test(prompt), 'the first message only READS the bill: no internet, the six lookup columns stay empty');
-ok(/web search|Search must be switched on/i.test(lookup) && /Never guess a composition/.test(lookup) && /AMBIGUOUS/.test(lookup) && /NOT FOUND/.test(lookup), 'the second message tells ChatGPT to search, never to guess a composition, and to flag AMBIGUOUS / NOT FOUND');
-ok(/THREE different searches/.test(lookup) && /full web address/.test(lookup), '…to try three different searches before NOT FOUND, and to give the page address as its source');
-ok(/ONLY for these rows[^]*3, 5, 8/.test(buildLookupPrompt(['3', '5', '8'])) && !/for EVERY row/.test(buildLookupPrompt(['3'])), 'a re-run can be limited to the lines that were not found');
+ok(/TWO PHASES, ONE FILE/.test(prompt) && /you do NOT search the internet/i.test(prompt) && /Do NOT hand the file over until phase 2 has been done for EVERY row/.test(prompt), 'ONE prompt, two phases: read the bill first (no internet), then look every medicine up; the file is not handed over until every row is done');
+ok(/web search|Search must be switched on|web search must be on/i.test(prompt) && /Never guess a composition/.test(prompt) && /AMBIGUOUS/.test(prompt) && /NOT FOUND/.test(prompt), 'the one prompt tells ChatGPT to search, never to guess a composition, and to flag AMBIGUOUS / NOT FOUND');
+ok(/THREE different searches/.test(prompt) && /full web address/.test(prompt) && /bill's own words/.test(prompt), '…to search with the bill\'s own words, try three different searches before NOT FOUND, and give the page address as its source');
+ok(!/FIRST of two messages|second message/i.test(prompt), '…and it is ONE message (no "second message" to send)');
+ok(/ONLY for these rows[^]*3, 5, 8/.test(buildLookupPrompt(['3', '5', '8'])) && !/for EVERY row/.test(buildLookupPrompt(['3'])), 'the "ask ChatGPT again" reminder can be limited to the lines that were not found');
+ok(/THREE different searches/.test(lookup) && /full web address/.test(lookup), '…and carries the same search method');
 ok(/Do not stop to ask me questions/.test(prompt) && /one row per printed line/i.test(prompt), '…to leave blanks and flag them rather than stop, and to keep one row per printed line');
 ok(/Trust the lines over a footer/.test(prompt) && /CGST% \+ SGST%/.test(prompt), '…to trust the lines over a footer that disagrees, and to give the TOTAL GST');
 const empty = draftFromFile(buildTemplateWorkbook(XLSX, false));

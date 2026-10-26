@@ -86,25 +86,56 @@ export const FORM_FAMILIES: Record<string, string> = {
 };
 
 /**
- * The TWO messages the pharmacist pastes into ChatGPT. Plain text; the screen shows them and has a Copy button for each.
+ * THE prompt the pharmacist copies into ChatGPT together with the bill — ONE message (the owner: "one solid prompt"). Plain text; the screen shows it and has a Copy button.
  *
- *   1. buildPrompt()        READ the bill exactly as printed and make the Excel. No internet in this message, so all of ChatGPT's attention is on copying.
- *   2. buildLookupPrompt()  in the SAME chat, afterwards: look every medicine up on the internet (brand, generic name, strength, form) and fill those columns.
+ * Inside it ChatGPT works in two PHASES on one file: 1. READ the bill exactly as printed (no internet — all its attention on copying), 2. LOOK UP every medicine on the
+ * internet (brand, generic name, strength, form) in batches, and only then hand the file over. The lookup rules (lookupRules) are also what the checking screen's
+ * "ask ChatGPT again" button sends (buildLookupPrompt) when ChatGPT skipped the lookups.
  *
- * Why two: one long message asking for 40 lines read AND 40 web searches made ChatGPT give up on most lookups ("NOT FOUND" for Normal Saline, Alcipro, Klotin…)
- * and copy numbers down from the row above (a cannula quantity of 5 instead of 15, a free quantity of 0 instead of 10) — mistakes no arithmetic on one line can see.
+ * Why the lookup part is so explicit: with a vague "search for each medicine" ChatGPT gave up on 24 of 41 lines ("NOT FOUND" for Normal Saline, Alcipro, Klotin…) although
+ * ONE search with the bill's own words ("Klotin 500mg injection 5ml") finds them; and it copied numbers down from the row above (a cannula quantity of 5 instead of 15, a free
+ * quantity of 0 instead of 10) — mistakes no arithmetic on one line can see, so the prompt makes it add up the columns against the bill's own footer.
  *
  * Written from the owner's own sample bills (five layouts of three wholesalers, see src/demo/sample-bills.ts and the real ChatGPT files in tests/e2e/fixtures) —
- * every rule answers something those bills really do: labels one row out of line, "new batch" in the batch box, one batch on three lines with different discounts,
- * no discount / MRP / free column, a Taxable Amt before the discount but a Total after it, CGST + SGST beside an IGST column, a footer discount that is only the
- * sum of the lines, a "Previous outstanding" amount, blank expiries, a lone number between two rows, a quantity "1.", a face mask among the medicines, a photo taken
- * sideways, S.Q / F.Q columns, short manufacturer codes, two licence numbers, a name that wraps ("-NO DISC"), "1+1" in a name, no serial-number column, a bill of two pages.
+ * every rule answers something those bills really do: labels one row out of line, "new batch" in the batch box, one batch on three lines with different discounts, no discount / MRP /
+ * free column, a Taxable Amt before the discount but a Total after it, CGST + SGST beside an IGST column, a footer discount that is only the sum of the lines, a "Previous
+ * outstanding" amount, blank expiries, a lone number between two rows, a quantity "1.", a face mask among the medicines, a photo taken sideways, S.Q / F.Q columns, short
+ * manufacturer codes, two licence numbers, a name that wraps ("-NO DISC"), "1+1" in a name, no serial-number column, a bill of two pages.
  */
+
+/** How ChatGPT looks the medicines up — shared by the one prompt (phase 2) and by the "ask ChatGPT again" follow-up. */
+function lookupRules(): string {
+  return `How to search:
+- Search with the bill's own words: the name as printed + the strength printed in it + the form word (INJ, TAB, SYP, INFUSION ...) + the pack + the company. Examples: for "KLOTIN INJ 500MG" with pack "5ML" search "Klotin 500mg injection 5ml"; for "ALCIPRO IV INFUSION" with pack "100ML" from company ALKE search "Alcipro IV infusion 100ml Alkem".
+- The "Manufacturer" cell is usually a short code made from the first letters of the company's name (ALKO and ALKE = Alkem, LUPI = Lupin, INTA = Intas, HINS = Hindustan Syringes). Use it as a hint when the name alone is not enough; do not write your guess of the company into any cell.
+- Good places to look: 1mg, Apollo Pharmacy, PharmEasy, Netmeds, Truemeds, myUpchar, MedPlus, the maker's own website, CPHI-online. OPEN the page and read it — do not rely on the search snippet.
+- You may write NOT FOUND only after THREE different searches (different words, different websites) have failed, and then write in Flags what you tried.
+
+What to write:
+- Brand name — the brand as sold, with its variant (for example "Alcipro IV 200 mg/100 ml Infusion").
+- Generic name — the active ingredient(s), joined with " + " (for example "Ciprofloxacin").
+- Strength — the amount of EACH ingredient and, for liquids and injections, per what volume: "200 mg/100 ml", "500 mg/5 ml", "250 mg/5 ml", "200 mg + 28.5 mg/5 ml", "500 mg + 125 mg".
+- Form — Tablet, Capsule, Syrup, Suspension, Drops, Injection, Infusion, Cream, Ointment, Gel, Inhaler, Sachet, Solution, Spray ...
+- Lookup source — the full web address (https://...) of the page you read, one per row. A row with no address means you did not search: say why in Flags.
+- Lookup confidence — High (the page names this exact product), Medium (the brand is right but the variant is not certain), Low.
+
+Rules for the lookup:
+- If the product's own name IS a generic name (Normal Saline, Ringer Lactate, DNS = Dextrose Normal Saline, Sterile Water for Injection, Tetanus Toxoid, Adrenaline, Dexamethasone ...): write the ingredients as the Generic name (for example "Sodium Chloride"), the standard strength you find (for example "0.9% w/v") and the Form. These are never NOT FOUND.
+- Never mix variants: Lox 2% and Lox 2% + Adrenaline are different, Ascoril LS and Ascoril D are different. If the line does not make the product clear, write AMBIGUOUS in Flags, list the possible products there, and leave the cells empty.
+- Rows with "not a medicine" in Flags (syringes, needles, cannulas, tapes, sutures, bed sheets ...): do not search them. Leave Brand name, Generic name and Strength empty and write Form = "Consumable".
+- Homeopathic and ayurvedic items: if you find no composition, leave Generic name, Strength and Form empty and add "not a standard medicine" to Flags.
+- Never guess a composition. If a page gives several strengths, take the one that matches the pack on the bill and say so in Flags.`;
+}
+
 export function buildPrompt(): string {
   const billRows = BILL_FIELDS.map((f) => f.label).join('; ');
   const cols = ITEM_COLUMNS.map((c) => c.header).join(', ');
   return `You are helping a clinic pharmacy enter a medicine purchase bill (an invoice from an Indian wholesaler or distributor) into CureDesk, its pharmacy program. I have attached the bill: a photo, a PDF or an Excel file, one page or several. Read EVERY page. Produce ONE Excel file (.xlsx), described at the end, and nothing else.
-This is the FIRST of two messages. In this one you only READ the bill and copy it exactly — do NOT search the internet now. I will send a second message afterwards, in this same chat, asking you to look the medicines up.
+
+═══ HOW TO WORK: TWO PHASES, ONE FILE ═══
+PHASE 1 — READ the bill and copy it exactly as printed, into the Excel. In phase 1 you do NOT search the internet: all your attention goes to copying.
+PHASE 2 — LOOK UP every medicine on the internet (brand, generic name, strength, form) and fill the lookup columns of the same file. Web search must be switched on for this.
+Do NOT hand the file over until phase 2 has been done for EVERY row. Do phase 2 in batches of about 8-10 rows and save the file after each batch. If you cannot finish in one go, stop and tell me only which row you reached — I will type "continue".
 
 ═══ ABOVE ALL: EXACTLY WHAT IS PRINTED — NO MISTAKES, NO CHANGES, NO ADDITIONS ═══
 1. Copy, never guess. Every value comes from what is printed on the bill, character for character. If a value is not printed, or you cannot read it with certainty, leave the cell EMPTY and write the reason in the "Flags" column (for example "expiry not printed", "batch unreadable"). Never fill a blank from memory, from another row, or from "what it usually is". If the bill uses ditto marks, copy the value from the row above and add the flag "ditto".
@@ -157,8 +188,9 @@ Bills differ: columns can be in any order and have different names. Match them b
 - Blurred, cut off or doubtful digits: leave the cell empty and flag it; never guess a digit.
 - A name that says "1+1" or "10+2" is a free offer: the free units are in the Free column — copy them there.
 
-═══ THE LOOKUP COLUMNS — LEAVE THEM EMPTY IN THIS MESSAGE ═══
-The file has six lookup columns: Brand name, Generic name, Strength, Form, Lookup source, Lookup confidence. In this first file leave all six EMPTY, on every row: my second message will ask you to fill them in, with the internet. Do not search now. The only thing about a medicine that you write in this message is "not a medicine" in Flags (for syringes, cannulas, sutures, tapes, bed sheets and the like) and "not a standard medicine" for homeopathic or ayurvedic items.
+═══ PHASE 2 — LOOKING UP THE MEDICINES (web search must be on) ═══
+A bill often prints only a brand name ("Calpol", "Ascoril LS", "Klotin"). When the file is read (phase 1), search the internet for EVERY row and fill these six columns, which are SEPARATE from "Name as printed" (never change "Name as printed" because of what you find): Brand name, Generic name, Strength, Form, Lookup source, Lookup confidence.
+${lookupRules()}
 
 ═══ THE FILE ═══
 Build it with your Python tool (openpyxl) and name it ${TEMPLATE_FILE_NAME}. It has exactly two sheets.
@@ -168,50 +200,32 @@ Sheet 2, named "${SHEET_ITEMS}": one header row with exactly these column names,
 - Write these as NUMBERS (digits and a decimal point only, no ₹, no commas, no % sign): Qty, Free qty, MRP, Rate, Disc %, GST %, Line amount as printed.
 - Leave a cell empty when the bill does not show it. Do not add other columns, rows or sheets.
 
-Example of the style (an imaginary line, not part of your answer). Printed: "3 | Calpol 500 Tab | 3004 | A12345 | 05/27 | 10+2 | MRP 22.00 | Rate 17.62 | Disc 8 | CGST 2.5 | SGST 2.5 | Amount 170.21". The row: Line no 3; Name as printed "Calpol 500 Tab"; HSN "3004"; Batch "A12345"; Expiry as printed "05/27"; Expiry (MM/YYYY) "05/2027"; Qty 10; Free qty 2; MRP 22; Rate 17.62; Disc % 8; GST % 5; Line amount as printed 170.21; Flags "10+2"; the six lookup columns empty.
+Example of the style (an imaginary line, not part of your answer). Printed: "3 | Calpol 500 Tab | 3004 | A12345 | 05/27 | 10+2 | MRP 22.00 | Rate 17.62 | Disc 8 | CGST 2.5 | SGST 2.5 | Amount 170.21". The row: Line no 3; Name as printed "Calpol 500 Tab"; HSN "3004"; Batch "A12345"; Expiry as printed "05/27"; Expiry (MM/YYYY) "05/2027"; Qty 10; Free qty 2; MRP 22; Rate 17.62; Disc % 8; GST % 5; Line amount as printed 170.21; Flags "10+2"; and, from phase 2, Brand name "Calpol 500 Tablet", Generic name "Paracetamol", Strength "500 mg", Form "Tablet", Lookup source the page address, Lookup confidence "High".
 
 ═══ BEFORE YOU HAND IT OVER — CHECK YOUR OWN WORK (use Python for the sums) ═══
 1. Count the lines printed on the bill (the bill's own "No / Items" count, if it prints one) and the rows in "Items": they must be the same number.
 2. Add up the "Line amount as printed" column and compare it with the bill's own total of that column (the footer's "Basic Amt", "Sub Total" or "Total"). If they differ, a row is misread: look first at rows whose Qty, Rate or amount is the same as the row above, then at digits that are easy to confuse (1 and 7, 0 and 6 and 8, 5 and 6, 3 and 8), and read those rows again from the picture. Correct a cell only to what is PRINTED — never change a number just to make a sum fit. Write both sums in Notes (for example "lines add up to 7179.47, bill says 7289.47").
 3. Look at the picture one last time and compare, for every row, the cells that go wrong most often: Batch, Expiry, Manufacturer code, Qty, Free qty, Rate, GST %.
-4. Make sure nothing is in the file that is not on the bill.
+4. Make sure nothing is in the file that is not on the bill (except the six lookup columns).
 5. Make sure every empty cell that you would have expected to be filled has its reason in "Flags".
+6. Make sure phase 2 is done for every row: each medicine has its lookup columns filled with a web address as the source, or says in Flags why not (NOT FOUND after three searches, AMBIGUOUS, not a medicine, not a standard medicine).
 
-When the file is ready, give it to me as a download. In the chat, write only: how many lines the bill has; the line numbers that have something in "Flags"; the line numbers where Free qty is not 0; whether the two sums in check 2 agree; and say if a page was unreadable or missing. Nothing else. If you cannot create an Excel file, say so in one sentence — do not give me a table instead.`;
+When the file is ready, give it to me as a download. In the chat, write only: how many lines the bill has; the line numbers that have something in "Flags"; the line numbers where Free qty is not 0; whether the two sums in check 2 agree; how many rows you looked up and which line numbers are still NOT FOUND or AMBIGUOUS; and say if a page was unreadable or missing. Nothing else. If you cannot create an Excel file, say so in one sentence — do not give me a table instead.`;
 }
 
 /**
- * The SECOND message, sent in the same chat once the Excel exists: look every medicine up on the internet and fill the lookup columns — nothing else.
- * `only` = the "Line no" values still to be looked up (a re-run for the lines the first run gave up on).
+ * The "ask ChatGPT again" message the checking screen offers when ChatGPT skipped the lookups (Search was off, or it rushed): the same lookup rules, for the lines still to do.
+ * `only` = the "Line no" values still to be looked up.
  */
 export function buildLookupPrompt(only?: string[]): string {
   const which = only && only.length
     ? `ONLY for these rows (by "Line no"): ${only.join(', ')}. Leave every other row exactly as it is.`
     : 'for EVERY row.';
-  return `Now the second step. In the Excel file you just made (${TEMPLATE_FILE_NAME}) fill ONLY these six columns: Brand name, Generic name, Strength, Form, Lookup source and Lookup confidence — and, where needed, add a note at the END of "Flags" (keep what is already there, separated by a semicolon). Do not change any other cell: not a name, not a number, not a batch, not a code. Open ${TEMPLATE_FILE_NAME} with Python (openpyxl), fill the cells, save it under the same name and give it to me as a download. If you can no longer open the file, tell me in one sentence and I will attach it again.
+  return `In the Excel file you made (${TEMPLATE_FILE_NAME}) the internet lookups are missing or incomplete. Fill ONLY these six columns: Brand name, Generic name, Strength, Form, Lookup source and Lookup confidence — and, where needed, add a note at the END of "Flags" (keep what is already there, separated by a semicolon). Do not change any other cell: not a name, not a number, not a batch, not a code. Open ${TEMPLATE_FILE_NAME} with Python (openpyxl), fill the cells, save it under the same name and give it to me as a download. If you can no longer open the file, tell me in one sentence and I will attach it again.
 
 Use web search ${which} Search must be switched on. Work through the rows in batches of about 8-10; after each batch go straight on to the next. Do not stop and do not ask me anything until every row has been looked up. If you stop half-way I will type "continue".
 
-═══ HOW TO SEARCH ═══
-- Search with the bill's own words: the name as printed + the strength printed in it + the form word (INJ, TAB, SYP, INFUSION ...) + the pack + the company. Examples: for "KLOTIN INJ 500MG" with pack "5ML" search "Klotin 500mg injection 5ml"; for "ALCIPRO IV INFUSION" with pack "100ML" from company ALKE search "Alcipro IV infusion 100ml Alkem".
-- The "Manufacturer" cell is usually a short code made from the first letters of the company's name (ALKO and ALKE = Alkem, LUPI = Lupin, INTA = Intas, HINS = Hindustan Syringes). Use it as a hint when the name alone is not enough; do not write your guess of the company into any cell.
-- Good places to look: 1mg, Apollo Pharmacy, PharmEasy, Netmeds, Truemeds, myUpchar, MedPlus, the maker's own website, CPHI-online. OPEN the page and read it — do not rely on the search snippet.
-- You may write NOT FOUND only after THREE different searches (different words, different websites) have failed, and then write in Flags what you tried.
-
-═══ WHAT TO WRITE ═══
-- Brand name — the brand as sold, with its variant (for example "Alcipro IV 200 mg/100 ml Infusion").
-- Generic name — the active ingredient(s), joined with " + " (for example "Ciprofloxacin").
-- Strength — the amount of EACH ingredient and, for liquids and injections, per what volume: "200 mg/100 ml", "500 mg/5 ml", "250 mg/5 ml", "200 mg + 28.5 mg/5 ml", "500 mg + 125 mg".
-- Form — Tablet, Capsule, Syrup, Suspension, Drops, Injection, Infusion, Cream, Ointment, Gel, Inhaler, Sachet, Solution, Spray ...
-- Lookup source — the full web address (https://...) of the page you read, one per row. A row with no address means you did not search: say why in Flags.
-- Lookup confidence — High (the page names this exact product), Medium (the brand is right but the variant is not certain), Low.
-
-═══ RULES ═══
-- If the product's own name IS a generic name (Normal Saline, Ringer Lactate, DNS = Dextrose Normal Saline, Sterile Water for Injection, Tetanus Toxoid, Adrenaline, Dexamethasone ...): write the ingredients as the Generic name (for example "Sodium Chloride"), the standard strength you find (for example "0.9% w/v") and the Form. These are never NOT FOUND.
-- Never mix variants: Lox 2% and Lox 2% + Adrenaline are different, Ascoril LS and Ascoril D are different. If the line does not make the product clear, write AMBIGUOUS in Flags, list the possible products there, and leave the cells empty.
-- Rows with "not a medicine" in Flags (syringes, needles, cannulas, tapes, sutures, bed sheets ...): do not search them. Leave Brand name, Generic name and Strength empty and write Form = "Consumable".
-- Homeopathic and ayurvedic items: if you find no composition, leave Generic name, Strength and Form empty and add "not a standard medicine" to Flags.
-- Never guess a composition. If a page gives several strengths, take the one that matches the pack on the bill and say so in Flags.
+${lookupRules()}
 
 When the file is ready, give it to me as a download. In the chat write only: how many rows you looked up, and the line numbers that are still NOT FOUND or AMBIGUOUS. Nothing else.`;
 }

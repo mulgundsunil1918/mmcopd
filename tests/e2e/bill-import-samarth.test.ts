@@ -222,9 +222,9 @@ const withBill = (changes: Record<string, string>): string => {
   ok(dd.problems.some((p) => p.code === 'duplicate_invoice'), '…and the import is refused as a duplicate');
 
   // ============================================================================================================
-  section('9 · the second message can be limited to the lines still not found');
+  section('9 · the "ask ChatGPT again" reminder can be limited to the lines still not found');
   const lk = buildLookupPrompt(['3', '5', '8']);
-  ok(/ONLY for these rows \(by "Line no"\): 3, 5, 8/.test(lk), 'the follow-up message names the lines');
+  ok(/ONLY for these rows \(by "Line no"\): 3, 5, 8/.test(lk), 'the reminder names the lines');
   ok(/THREE different searches/.test(lk) && /Klotin 500mg injection 5ml/.test(lk), '…and still carries the search method (the words printed on the bill, three tries)');
 
   finish();

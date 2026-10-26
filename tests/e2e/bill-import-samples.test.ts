@@ -77,7 +77,9 @@ const parse = async (b: SampleBill) => {
     ['it checks its own work (row count)', /CHECK YOUR OWN WORK[\s\S]*the same number/], ['it never stops to ask', /Do not stop to ask me questions/], ['it trusts the lines over a footer', /Trust the lines over a footer/],
     ['only one invoice per file', /ONE invoice/],
     // the five-bill round (Samarth Drug House, 41 lines, photographed sideways): what the real ChatGPT file got wrong
-    ['two messages: this one only reads, no internet', /FIRST of two messages[\s\S]*do NOT search the internet now/],
+    ['ONE prompt, two phases: read first with no internet, then look every medicine up; not handed over until every row is done', /TWO PHASES, ONE FILE[\s\S]*PHASE 1[\s\S]*you do NOT search the internet[\s\S]*PHASE 2[\s\S]*Do NOT hand the file over until phase 2 has been done for EVERY row/],
+    ['the lookup searches with the bill\'s own words, tries three times, gives the page address, and never gives up on a generic name', /Search with the bill's own words[\s\S]*THREE different searches[\s\S]*full web address[\s\S]*These are never NOT FOUND/],
+    ['the end check includes that phase 2 is done for every row', /Make sure phase 2 is done for every row/],
     ['every row has its own values (no copy-down from the row above)', /Every row has its OWN values[\s\S]*never copy a quantity, rate, batch, expiry, manufacturer code or amount down from the row above/i],
     ['a wrapped name joins with one space and keeps every character (-NO DISC, 24G)', /name can run onto a second line[\s\S]*ONE space[\s\S]*24G/],
     ['a sideways photo: turn it upright, enlarge, read in strips', /sideways, upside down, tilted or small[\s\S]*Python tool to turn the picture upright[\s\S]*strips of about 8 rows/],
@@ -94,7 +96,7 @@ const parse = async (b: SampleBill) => {
     ['the self-check: add up the amount column and compare with the bill\'s own total; fix a misread row, never a number to fit', /Add up the "Line amount as printed" column[\s\S]*never change a number just to make a sum fit/],
     ['the reply lists the lines whose Free qty is not 0', /line numbers where Free qty is not 0/],
   ] as [string, RegExp][]) ok(re.test(prompt), `the prompt: ${what}`);
-  ok(prompt.length > 8000 && prompt.length < 19000, `…and is complete without being a wall of text (${prompt.length} characters)`);
+  ok(prompt.length > 8000 && prompt.length < 21000, `…and is complete without being a wall of text (${prompt.length} characters)`);
   for (const c of ITEM_COLUMNS) ok(prompt.includes(c.header), `…it names the column "${c.header}"`);
   for (const f of BILL_FIELDS) ok(prompt.includes(f.label), `…and the field "${f.label}"`);
 
