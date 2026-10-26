@@ -462,6 +462,8 @@ const api = {
       appointment_id?: number | null;
       items: { drug_id?: number | null; drug_master_id?: number | null; drug_name: string; qty: number; rate: number; gst_amount?: number }[];
       discount?: number;
+      /** The discount was typed as a percentage (`discount` is that percentage worked out in rupees): the receipt then says "Discount (5%)". */
+      discount_pct?: number | null;
       payment_mode?: string;
       sold_by?: string;
       /** Medicines on credit: a registered patient takes them now and pays later. Needs the Settings switch. */

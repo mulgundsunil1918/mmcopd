@@ -32,8 +32,8 @@ import { CollectPaymentModal } from '../components/billing/CollectPaymentModal';
 import {
   SalePaymentChoice, initialPayChoice, payDoneText, payFields, payProblem, usePayOptions, type PayChoice,
 } from '../components/pharmacy/SalePaymentChoice';
-import { BarcodeScanModal } from '../components/BarcodeScanModal';
-import { Scan, Printer } from 'lucide-react';
+import { DiscountRow, useSaleDiscount } from '../components/pharmacy/SaleDiscount';
+import { Printer } from 'lucide-react';
 
 type Tab = 'dispense' | 'druglist' | 'clinic' | 'purchases' | 'sales' | 'wholesalers' | 'reports';
 
@@ -64,6 +64,21 @@ const rowFromDrug = (d: any, qty = 1) => ({
   stock: (d.stock_qty ?? 0) as number,
   schedule: d.schedule as DrugSchedule | undefined,
 });
+
+/**
+ * A sale screen always shows ONE empty line at the bottom, ready to type a drug into — nobody has to press "Add drug". When that line gets a drug (or any
+ * letters) a fresh empty one appears below it; a second empty line at the end is dropped again.
+ */
+const isBlankLine = (r: { drug_name: string; drug_master_id?: number }) => !r.drug_name.trim() && r.drug_master_id == null;
+function withEntryLine<T extends { drug_name: string; drug_master_id?: number; qty: number; rate: number }>(rows: T[]): T[] {
+  const out = [...rows];
+  while (out.length > 1 && isBlankLine(out[out.length - 1]) && isBlankLine(out[out.length - 2])) out.pop();
+  if (!out.length || !isBlankLine(out[out.length - 1])) out.push({ drug_name: '', qty: 1, rate: 0 } as T);
+  return out;
+}
+/** A line that is really being sold (a drug with a quantity) — the empty entry line is not. */
+const isRealLine = (r: { drug_name: string; qty: number }) => !!r.drug_name.trim() && r.qty > 0;
+const hasRealLine = (rows: { drug_name: string; qty: number }[]) => rows.some(isRealLine);
 
 export function Pharmacy() {
   const [tab, setTab] = useState<Tab>('dispense');
@@ -250,51 +265,25 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
 
   type Row = { drug_master_id?: number; drug_name: string; qty: number; rate: number; /** the batch's selling price the screen offered */ listRate?: number; nextBatch?: string; nextExpiry?: string; stock?: number; schedule?: DrugSchedule;
     /** the name the doctor wrote, when the line is filled from another brand of the same medicine */ swappedFrom?: string };
-  const [rows, setRows] = useState<Row[]>([]);
-  const [discount, setDiscount] = useState(0);
+  const [rows, setRows] = useState<Row[]>(() => withEntryLine<Row>([]));
   const [pay, setPay] = useState<PayChoice>(initialPayChoice);       // paid now / on credit / charged to the in-patient bill
   const payOpts = usePayOptions(appointment.patient_id);
-  const [scanOpen, setScanOpen] = useState(false);
   const [receiptId, setReceiptId] = useState<number | null>(null);   // printed bill after dispensing
   // One id per sale attempt: the same attempt sent twice (double click, lost reply) is one sale.
   const [saleRef, setSaleRef] = useState(newRef);
-
-  // Scan flow inside dispense: add the matched drug as a new row.
-  const handleScan = async (code: string) => {
-    setScanOpen(false);
-    const matches = await window.electronAPI.pharmacy.listDrugs({ q: code, activeOnly: true });
-    const exact = matches.find((d) => (d.barcode || '').trim() === code.trim());
-    if (!exact) {
-      toast(`No drug with barcode ${code} — add it in the Drug List first`, 'error');
-      return;
-    }
-    setRows((prev) => [
-      ...prev,
-      {
-        drug_master_id: exact.id,
-        drug_name: exact.name,
-        qty: 1,
-        rate: defaultRate(exact), listRate: defaultRate(exact),
-        nextBatch: exact.batch || undefined,
-        nextExpiry: exact.expiry || undefined,
-        stock: exact.stock_qty ?? 0,
-      },
-    ]);
-    toast(`Added ${exact.name}`);
-  };
 
   // When Rx items arrive, auto-fill rows from drug_master_id (preferred) or the written name. A prescription written for the GENERIC
   // ("Paracetamol 650 mg Tablet") that the shelf holds only under a brand (Dolo 650, Crocin 650) is filled from the brand that expires
   // first and says so; a prescription for a BRAND is never swapped by itself — the other brands are offered under the line instead.
   useEffect(() => {
-    if (rx.length === 0) { setRows([]); return; }
+    if (rx.length === 0) { setRows(withEntryLine<Row>([])); return; }
     const pre: Row[] = rx.map((r: any) => {
       const match = drugForRx(drugs as any[], r) as any;
       if (!match) return { drug_name: r.drug_name, qty: 1, rate: 0 };
       const alt = isGenericNamed(match) && (Number(match.stock_qty) || 0) <= 0 ? otherBrandsInStock(drugs as any[], match)[0] : undefined;
       return { ...rowFromDrug(alt || match), swappedFrom: alt ? match.name : undefined };
     });
-    setRows(pre);
+    setRows(withEntryLine(pre));
   }, [appointment.id, rx.length, drugs.length]);
 
   // Medicines charged to an in-patient's bill are priced at the batch's selling price: the rate is shown, not editable (the main process
@@ -302,6 +291,8 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
   const wardLocked = pay.how === 'ipd';
   const priceOf = (r: Row) => (wardLocked ? (r.listRate ?? r.rate) : r.rate);
   const subtotal = useMemo(() => rows.reduce((s, r) => s + r.qty * priceOf(r), 0), [rows, wardLocked]);
+  const disc = useSaleDiscount(subtotal);                      // typed as a percentage (first choice) or in rupees — whichever the person types counts
+  const discount = disc.amount;
   const total = Math.max(0, subtotal - discount);
   const payBlocked = payProblem(pay, payOpts, total, discount);
   const lim = useCounterDiscountLimit(subtotal, discount);     // the signed-in role's limit on a counter discount, if the clinic set one
@@ -311,13 +302,14 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
       const payload = {
         appointment_id: appointment.id,
         patient_id: appointment.patient_id,
-        items: rows.filter((r) => r.drug_name && r.qty > 0).map((r) => ({
+        items: rows.filter(isRealLine).map((r) => ({
           drug_master_id: r.drug_master_id,
           drug_name: r.drug_name,
           qty: r.qty,
           rate: priceOf(r),
         })),
         discount,
+        discount_pct: disc.pct,
         ...payFields(pay, payOpts),
       };
       return window.electronAPI.pharmacy.sell({ ...payload, sold_by: user?.username, client_ref: refFor(saleRef, payload) });
@@ -342,7 +334,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
   });
 
   const setRow = (idx: number, patch: Partial<Row>) =>
-    setRows((r) => { const n = [...r]; n[idx] = { ...n[idx], ...patch }; return n; });
+    setRows((r) => { const n = [...r]; n[idx] = { ...n[idx], ...patch }; return withEntryLine(n); });
 
   return (
     <div className="card p-5">
@@ -371,6 +363,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
                 <input
                   list="drugs-list"
                   className="input"
+                  placeholder={isBlankLine(r) ? 'Type a drug name…' : 'Search drug…'}
                   value={r.drug_name}
                   onChange={(e) => {
                     const match = drugs.find((d) => d.name === e.target.value);
@@ -411,7 +404,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
                     const n = [...prev];
                     n[idx] = { ...n[idx], qty: Math.max(0, n[idx].stock ?? 0) };
                     n.splice(idx + 1, 0, { ...rowFromDrug(d, rest), swappedFrom: n[idx].swappedFrom });
-                    return n;
+                    return withEntryLine(n);
                   })}
                 />
               </td>
@@ -424,9 +417,11 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
               </td>
               <td className="py-1.5 px-1 text-right font-medium">{formatINR(r.qty * priceOf(r))}</td>
               <td>
-                <button className="text-red-500 hover:text-red-700 p-1" onClick={() => setRows(rows.filter((_, i) => i !== idx))}>
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                {!(isBlankLine(r) && idx === rows.length - 1) && (       // the empty entry line at the bottom has nothing to remove
+                  <button className="text-red-500 hover:text-red-700 p-1" aria-label="Remove this line" onClick={() => setRows(withEntryLine(rows.filter((_, i) => i !== idx)))}>
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </td>
             </tr>
           ))}
@@ -435,15 +430,6 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
       <datalist id="drugs-list">
         {drugs.map((d) => <option key={d.id} value={d.name} />)}
       </datalist>
-
-      <div className="flex gap-2 mt-2">
-        <button className="btn-ghost text-xs" onClick={() => setRows([...rows, { drug_name: '', qty: 1, rate: 0 }])}>
-          <Plus className="w-3.5 h-3.5" /> Add drug
-        </button>
-        <button className="btn-ghost text-xs" onClick={() => setScanOpen(true)} title="Scan drug barcode (USB scanner or camera)">
-          <Scan className="w-3.5 h-3.5" /> Scan
-        </button>
-      </div>
 
       {wardLocked && (
         <div className="mt-2 text-[11px] text-sky-700 dark:text-sky-300">
@@ -454,9 +440,7 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
         <SalePaymentChoice value={pay} onChange={setPay} options={payOpts} total={total} discount={discount} />
         <div className="card p-3 bg-gray-50 dark:bg-slate-900">
           <div className="flex justify-between text-xs"><span>Subtotal</span><span>{formatINR(subtotal)}</span></div>
-          <div className="flex justify-between text-xs items-center"><span>Discount</span>
-            <input type="number" className={cn('input w-24 text-right py-1', lim.over && 'border-red-400 focus:ring-red-300')} value={discount} onChange={(e) => setDiscount(Number(e.target.value))} />
-          </div>
+          <DiscountRow d={disc} subtotal={subtotal} over={lim.over} />
           {lim.pct != null && (
             <div className={cn('text-[10px] text-right', lim.over ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-gray-500 dark:text-slate-400')}>
               {lim.over ? `More than your limit (${lim.pct}% = ${formatINR(lim.maxAmount as number)}) — ask a manager.` : `Your limit: ${lim.pct}% (up to ${formatINR(lim.maxAmount as number)})`}
@@ -469,17 +453,10 @@ function DispenseForm({ appointment, onDone }: { appointment: any; onDone: () =>
       </div>
 
       <div className="flex justify-end gap-2 mt-4">
-        <button className="btn-success" onClick={() => sell.mutate()} disabled={sell.isPending || rows.length === 0 || !!payBlocked || lim.over}>
+        <button className="btn-success" onClick={() => sell.mutate()} disabled={sell.isPending || !hasRealLine(rows) || !!payBlocked || !!disc.problem || lim.over}>
           {sell.isPending ? 'Dispensing…' : pay.how === 'ipd' ? 'Dispense (FEFO) & add to IPD bill' : pay.how === 'credit' ? 'Dispense (FEFO) on credit' : 'Dispense (FEFO) & Charge'}
         </button>
       </div>
-
-      <BarcodeScanModal
-        open={scanOpen}
-        onClose={() => setScanOpen(false)}
-        onScan={handleScan}
-        hint="Scan a drug barcode to add it to this dispense. Drug must already be in the Drug List with a barcode set."
-      />
 
       {/* Printed bill — offered right after dispensing. */}
       {receiptId !== null && (
@@ -507,10 +484,8 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
   });
 
   type Row = { drug_master_id?: number; drug_name: string; qty: number; rate: number; /** the batch's selling price the screen offered */ listRate?: number; nextBatch?: string; nextExpiry?: string; stock?: number; schedule?: DrugSchedule };
-  const [rows, setRows] = useState<Row[]>([]);
-  const [discount, setDiscount] = useState(0);
+  const [rows, setRows] = useState<Row[]>(() => withEntryLine<Row>([]));
   const [pay, setPay] = useState<PayChoice>(initialPayChoice);       // paid now / on credit / charged to the in-patient bill
-  const [scanOpen, setScanOpen] = useState(false);
   const [receiptId, setReceiptId] = useState<number | null>(null);   // printed receipt after the sale
   const [saleRef, setSaleRef] = useState(newRef);                      // one id per sale attempt (see DispenseForm)
   const [guestName, setGuestName] = useState('');                       // walk-in only: an optional name for the receipt and the walk-in list
@@ -529,37 +504,15 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
   const wardLocked = pay.how === 'ipd';
   const priceOf = (r: Row) => (wardLocked ? (r.listRate ?? r.rate) : r.rate);
   const subtotal = useMemo(() => rows.reduce((s, r) => s + r.qty * priceOf(r), 0), [rows, wardLocked]);
+  const disc = useSaleDiscount(subtotal);                      // typed as a percentage (first choice) or in rupees — whichever the person types counts
+  const discount = disc.amount;
   const total = Math.max(0, subtotal - discount);
   const payOpts = usePayOptions(patient?.id);
   const payBlocked = payProblem(pay, payOpts, total, discount);
   const lim = useCounterDiscountLimit(subtotal, discount);     // the signed-in role's limit on a counter discount, if the clinic set one
 
   const setRow = (idx: number, patch: Partial<Row>) =>
-    setRows((r) => { const n = [...r]; n[idx] = { ...n[idx], ...patch }; return n; });
-
-  const handleScan = async (code: string) => {
-    setScanOpen(false);
-    const matches = await window.electronAPI.pharmacy.listDrugs({ q: code, activeOnly: true });
-    const exact = matches.find((d) => (d.barcode || '').trim() === code.trim());
-    if (!exact) {
-      toast(`No drug with barcode ${code}`, 'error');
-      return;
-    }
-    setRows((prev) => [
-      ...prev,
-      {
-        drug_master_id: exact.id,
-        drug_name: exact.name,
-        qty: 1,
-        rate: defaultRate(exact), listRate: defaultRate(exact),
-        nextBatch: exact.batch || undefined,
-        nextExpiry: exact.expiry || undefined,
-        stock: exact.stock_qty ?? 0,
-        schedule: exact.schedule,
-      },
-    ]);
-    toast(`Added ${exact.name}`);
-  };
+    setRows((r) => { const n = [...r]; n[idx] = { ...n[idx], ...patch }; return withEntryLine(n); });
 
   const sell = useMutation({
     mutationFn: () => {
@@ -567,13 +520,14 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
         appointment_id: null,
         patient_id: patient?.id ?? null,
         customer_name: patient ? null : (guestName.trim() || null),
-        items: rows.filter((r) => r.drug_name && r.qty > 0).map((r) => ({
+        items: rows.filter(isRealLine).map((r) => ({
           drug_master_id: r.drug_master_id,
           drug_name: r.drug_name,
           qty: r.qty,
           rate: priceOf(r),
         })),
         discount,
+        discount_pct: disc.pct,
         ...payFields(pay, payOpts),
       };
       return window.electronAPI.pharmacy.sell({ ...payload, sold_by: user?.username, client_ref: refFor(saleRef, payload) });
@@ -690,19 +644,13 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
           </tr>
         </thead>
         <tbody>
-          {rows.length === 0 ? (
-            <tr>
-              <td colSpan={5} className="py-6 text-center text-xs text-gray-400 dark:text-slate-500">
-                No drugs yet — type a name below or click Scan.
-              </td>
-            </tr>
-          ) : rows.map((r, idx) => (
+          {rows.map((r, idx) => (
             <tr key={idx} className="border-b border-gray-100 dark:border-slate-800 align-top">
               <td className="py-1.5 pr-2">
                 <input
                   list="counter-drugs-list"
                   className="input"
-                  placeholder="Search drug…"
+                  placeholder={isBlankLine(r) ? 'Type a drug name…' : 'Search drug…'}
                   value={r.drug_name}
                   onChange={(e) => {
                     const match = drugs.find((d) => d.name === e.target.value);
@@ -737,7 +685,7 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
                     const n = [...prev];
                     n[idx] = { ...n[idx], qty: Math.max(0, n[idx].stock ?? 0) };
                     n.splice(idx + 1, 0, rowFromDrug(d, rest));
-                    return n;
+                    return withEntryLine(n);
                   })}
                 />
               </td>
@@ -746,9 +694,11 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
                   title={wardLocked ? "Medicines charged to an in-patient are priced at the batch's selling price" : undefined} onChange={(e) => setRow(idx, { rate: Number(e.target.value) })} /></td>
               <td className="py-1.5 px-1 text-right font-medium">{formatINR(r.qty * priceOf(r))}</td>
               <td>
-                <button className="text-red-500 hover:text-red-700 p-1" onClick={() => setRows(rows.filter((_, i) => i !== idx))}>
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                {!(isBlankLine(r) && idx === rows.length - 1) && (       // the empty entry line at the bottom has nothing to remove
+                  <button className="text-red-500 hover:text-red-700 p-1" aria-label="Remove this line" onClick={() => setRows(withEntryLine(rows.filter((_, i) => i !== idx)))}>
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </td>
             </tr>
           ))}
@@ -757,15 +707,6 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
       <datalist id="counter-drugs-list">
         {drugs.map((d) => <option key={d.id} value={d.name} />)}
       </datalist>
-
-      <div className="flex gap-2 mt-2">
-        <button className="btn-ghost text-xs" onClick={() => setRows([...rows, { drug_name: '', qty: 1, rate: 0 }])}>
-          <Plus className="w-3.5 h-3.5" /> Add drug
-        </button>
-        <button className="btn-ghost text-xs" onClick={() => setScanOpen(true)} title="Scan barcode">
-          <Scan className="w-3.5 h-3.5" /> Scan
-        </button>
-      </div>
 
       {wardLocked && (
         <div className="mt-2 text-[11px] text-sky-700 dark:text-sky-300">
@@ -776,9 +717,7 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
         <SalePaymentChoice value={pay} onChange={setPay} options={payOpts} total={total} discount={discount} />
         <div className="card p-3 bg-gray-50 dark:bg-slate-900">
           <div className="flex justify-between text-xs"><span>Subtotal</span><span>{formatINR(subtotal)}</span></div>
-          <div className="flex justify-between text-xs items-center"><span>Discount</span>
-            <input type="number" className={cn('input w-24 text-right py-1', lim.over && 'border-red-400 focus:ring-red-300')} value={discount} onChange={(e) => setDiscount(Number(e.target.value))} />
-          </div>
+          <DiscountRow d={disc} subtotal={subtotal} over={lim.over} />
           {lim.pct != null && (
             <div className={cn('text-[10px] text-right', lim.over ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-gray-500 dark:text-slate-400')}>
               {lim.over ? `More than your limit (${lim.pct}% = ${formatINR(lim.maxAmount as number)}) — ask a manager.` : `Your limit: ${lim.pct}% (up to ${formatINR(lim.maxAmount as number)})`}
@@ -792,17 +731,10 @@ function CounterSaleForm({ onDone, initialPatient = null }: {
 
       <div className="flex justify-end gap-2 mt-4">
         <button className="btn-secondary" onClick={onDone}>Cancel</button>
-        <button className="btn-success" onClick={() => sell.mutate()} disabled={sell.isPending || rows.length === 0 || !!payBlocked || lim.over}>
+        <button className="btn-success" onClick={() => sell.mutate()} disabled={sell.isPending || !hasRealLine(rows) || !!payBlocked || !!disc.problem || lim.over}>
           {sell.isPending ? 'Recording…' : pay.how === 'ipd' ? 'Record Sale & add to IPD bill' : pay.how === 'credit' ? 'Record Sale on credit' : 'Record Sale & Charge'}
         </button>
       </div>
-
-      <BarcodeScanModal
-        open={scanOpen}
-        onClose={() => setScanOpen(false)}
-        onScan={handleScan}
-        hint="Scan a drug barcode to add it to this counter sale. Drug must already be in the Drug List with a barcode."
-      />
 
       {/* Printed receipt — shown right after the sale is recorded. */}
       {receiptId !== null && (
@@ -823,7 +755,6 @@ function DrugListTab() {
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState<Partial<DrugMaster> | null>(null);
   const [brandOf, setBrandOf] = useState<string | null>(null);   // set while the dialog adds ANOTHER BRAND of this medicine
-  const [scanOpen, setScanOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [settingGst, setSettingGst] = useState(false);          // the "Set GST %" dialog
@@ -870,22 +801,6 @@ function DrugListTab() {
   // (For the confirmation modal copy — actual delete logic is server-side.)
   const selectedDrugs = drugs.filter((d) => selectedIds.has(d.id));
 
-  // Scan flow: lookup the barcode in the master.
-  // - If exactly one match → open it for editing.
-  // - If no match → open Add Drug pre-filled with the scanned barcode.
-  const handleScan = async (code: string) => {
-    setScanOpen(false);
-    const matches = await window.electronAPI.pharmacy.listDrugs({ q: code, activeOnly: false });
-    const exact = matches.find((d) => (d.barcode || '').trim() === code.trim());
-    if (exact) {
-      setEditing(exact);
-      toast(`Matched: ${exact.name}`);
-    } else {
-      setEditing({ is_active: 1, low_stock_threshold: 10, default_mrp: 0, schedule: 'OTC', barcode: code });
-      toast(`No match — pre-filling new drug with barcode ${code}`, 'info');
-    }
-  };
-
   return (
     <section className="card p-4">
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -893,9 +808,6 @@ function DrugListTab() {
           <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input className="input pl-9" placeholder="Search by name / generic / barcode" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
-        <button className="btn-secondary" onClick={() => setScanOpen(true)} title="Scan barcode (USB scanner or camera)">
-          <Scan className="w-4 h-4" /> Scan
-        </button>
         <button className="btn-secondary" onClick={() => setSettingGst(true)} title="You decide the GST % of your medicines — change many at once">
           <Percent className="w-4 h-4" /> Set GST %
         </button>
@@ -1049,12 +961,6 @@ function DrugListTab() {
       {editing && <DrugEditModal drug={editing} brandOf={brandOf ?? undefined} onClose={() => { setEditing(null); setBrandOf(null); }} />}
       {settingGst && <SetGstModal selectedIds={[...selectedIds]} onClose={() => setSettingGst(false)} onDone={() => setSelectedIds(new Set())} />}
 
-      <BarcodeScanModal
-        open={scanOpen}
-        onClose={() => setScanOpen(false)}
-        onScan={handleScan}
-        hint="Scan the outer carton barcode. If it matches an existing drug we open it; otherwise we pre-fill a new drug with this barcode."
-      />
     </section>
   );
 }

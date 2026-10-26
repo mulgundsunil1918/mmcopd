@@ -39,6 +39,7 @@ export function PharmacySaleReceipt({ saleId, onClose }: { saleId: number; onClo
   const items: any[] = (sale as any).items || [];
   const subtotal = Number((sale as any).subtotal || 0);
   const discount = Number((sale as any).discount || 0);
+  const discountPct = (sale as any).discount_pct != null && Number((sale as any).discount_pct) > 0 ? Number((sale as any).discount_pct) : null;   // typed as a percentage at the counter
   const total = Number((sale as any).total || 0);
   const hasSchedule = items.some((i) => i.schedule === 'H' || i.schedule === 'H1' || i.schedule === 'X');
   // Medicines on credit / on the in-patient bill: a reprint must say what has been paid and what is still owing.
@@ -155,7 +156,7 @@ export function PharmacySaleReceipt({ saleId, onClose }: { saleId: number; onClo
               </tr>
               {discount > 0 && (
                 <tr>
-                  <td style={{ padding: '3px 10px', textAlign: 'right', color: '#475569' }}>Discount</td>
+                  <td style={{ padding: '3px 10px', textAlign: 'right', color: '#475569' }}>Discount{discountPct !== null ? ` (${discountPct}%)` : ''}</td>
                   <td style={{ padding: '3px 10px', textAlign: 'right', color: '#b91c1c' }}>− ₹{inr(discount)}</td>
                 </tr>
               )}

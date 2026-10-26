@@ -736,13 +736,14 @@ export function createMockElectronAPI(): any {
       pendingRx: () => r(appointments.filter((a) => rxItems.some((x) => x.appointment_id === a.id)).slice(0, 10).map((a) => ({ ...buildAppointmentRow(a), rx_count: rxItems.filter((x) => x.appointment_id === a.id).length }))),
       getAppointmentRx: (id: number) => r(rxItems.filter((x) => x.appointment_id === id)),
       sell: (payload: any) => {
-        const total = (payload.items || []).reduce((s: number, it: any) => s + it.qty * it.rate, 0);
+        const subtotal = (payload.items || []).reduce((s: number, it: any) => s + it.qty * it.rate, 0);
+        const total = Math.max(0, subtotal - (Number(payload.discount) || 0));
         const id = nextId(pharmSales);
         // Medicines on credit: only what was paid now counts as received; the rest stays owing.
         const paidNow = payload.credit ? Math.min(total, Math.max(0, Number(payload.paid_now || 0))) : total;
         const onCredit = payload.credit && paidNow < total ? 1 : 0;
         const created: any = {
-          id, sale_number: `PHX-${String(id).padStart(5, '0')}`, ...payload, subtotal: total, total,
+          id, sale_number: `PHX-${String(id).padStart(5, '0')}`, ...payload, subtotal, total,
           payment_mode: payload.ipd_admission_id ? 'IPD-bill' : onCredit && paidNow === 0 ? 'Credit' : payload.payment_mode,
           amount_paid: onCredit ? paidNow : total, on_credit: onCredit, created_at: new Date().toISOString(),
         };
@@ -765,8 +766,19 @@ export function createMockElectronAPI(): any {
       saleDetail: (id: number) => {
         const sale: any = pharmSales.find((x: any) => x.id === id) ?? pharmSales[0];
         const pt: any = patients.find((p: any) => p.id === sale?.patient_id);
-        const rows = dispensing.filter((d: any) => d.sale_id === sale?.id).slice(0, 12);
-        const items = (rows.length ? rows : dispensing.slice(0, 5)).map((d: any, i: number) => {
+        // A sale made in the demo carries the lines that were typed (so its receipt adds up); the seeded sales are filled from the demo's dispensing register.
+        const typed: any[] | null = Array.isArray(sale?.items) && sale.items.length && sale.items.every((it: any) => it && it.qty != null && it.rate != null) ? sale.items : null;
+        const rows = typed ? [] : dispensing.filter((d: any) => d.sale_id === sale?.id).slice(0, 12);
+        const typedItems = (typed || []).map((it: any, i: number) => {
+          const m: any = drugMaster.find((x: any) => x.id === it.drug_master_id);
+          const d: any = dispensing.find((x: any) => x.drug_master_id === it.drug_master_id);
+          return {
+            id: i + 1, drug_name: it.drug_name || m?.name || 'Medicine', qty: it.qty, rate: it.rate, amount: it.qty * it.rate, drug_master_id: it.drug_master_id,
+            generic_name: m?.generic_name, strength: m?.strength, form: m?.form, schedule: m?.schedule ?? 'OTC',
+            batches: d ? `${d.batch_no || 'B1'} (exp ${d.expiry || '2027-12-31'})` : '',
+          };
+        });
+        const items = typed ? typedItems : (rows.length ? rows : dispensing.slice(0, 5)).map((d: any, i: number) => {
           const m: any = drugMaster.find((x: any) => x.id === d.drug_master_id);
           return {
             id: i + 1, drug_name: m?.name ?? 'Medicine', qty: d.qty ?? 1, rate: d.rate ?? 10,
@@ -775,7 +787,7 @@ export function createMockElectronAPI(): any {
             batches: `${d.batch_no || 'B1'} (exp ${d.expiry || '2027-12-31'})`,
           };
         });
-        const subtotal = items.reduce((s: number, it: any) => s + it.amount, 0);
+        const subtotal = typed ? Number(sale.subtotal) : items.reduce((s: number, it: any) => s + it.amount, 0);
         return r({
           ...sale, subtotal, total: sale?.total ?? subtotal, discount: sale?.discount ?? 0, items,
           patient_name: pt ? `${pt.first_name} ${pt.last_name}` : null, patient_uhid: pt?.uhid ?? null,

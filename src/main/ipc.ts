@@ -2732,7 +2732,7 @@ export function registerIpc() {
     const items = db.prepare(
       `SELECT si.id, si.drug_name, si.qty, si.rate, si.amount, si.drug_master_id,
               m.generic_name, m.strength, m.form, m.schedule, m.hsn_code,
-              (SELECT GROUP_CONCAT(dr.batch_no || ' (exp ' || dr.expiry || ')', ', ')
+              (SELECT GROUP_CONCAT(dr.batch_no || CASE WHEN dr.expiry >= '2099' THEN ' (no expiry)' ELSE ' (exp ' || dr.expiry || ')' END, ', ')
                  FROM dispensing_register dr WHERE dr.sale_item_id = si.id) AS batches
          FROM pharmacy_sale_items si
          LEFT JOIN drug_master m ON m.id = si.drug_master_id

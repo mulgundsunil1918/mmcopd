@@ -843,6 +843,8 @@ export function runMigrations(db: Database.Database) {
    * rate lives on drug_master; these hold what was actually charged, so a
    * reprint years later shows the tax as it was on the day.
    */
+  // 0.9.9: a discount typed as a PERCENTAGE at the counter is remembered as that percentage (NULL = typed in rupees), so the receipt can say "Discount (5%)".
+  addColumnIfMissing(db, 'pharmacy_sales', 'discount_pct', 'REAL');
   addColumnIfMissing(db, 'pharmacy_sales', 'taxable_total', 'REAL NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'pharmacy_sales', 'exempt_total', 'REAL NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'pharmacy_sales', 'cgst_total', 'REAL NOT NULL DEFAULT 0');

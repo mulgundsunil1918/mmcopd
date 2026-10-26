@@ -104,5 +104,31 @@ const db = getDb();
   // the setting round-trips as the Settings screen writes it
   eq((await call('settings:get')).pharmacy_discount_caps_json, JSON.stringify({ pharmacist: 10 }), 'the limits are kept as the Settings screen saved them');
 
+  // ============================================================================================================
+  section('4 · a discount typed as a PERCENTAGE is remembered as that percentage (the receipt says "Discount (5%)")');
+  const row = (id: number) => db.prepare('SELECT discount, discount_pct, subtotal, total FROM pharmacy_sales WHERE id = ?').get(id) as any;
+  const pct = async (discount: number, discount_pct: any, rate = 100, qty = 3) => {
+    const r = await sell(discount, { discount_pct }, rate, qty);
+    if (!r.ok) throw new Error('sale refused: ' + (r as any).error);
+    return (r as any).value ?? r;
+  };
+  const a = await pct(15, 5);                                            // ₹300 bill, 5% = ₹15
+  eq(row(a.id).discount_pct, 5, '5% on a ₹300 bill is stored as 5%…');
+  eq(row(a.id).discount, 15, '…with the rupees it comes to (₹15)');
+  eq((await call('pharmacy:saleDetail', a.id)).discount_pct, 5, '…and the receipt gets it back from the sale\'s detail');
+  eq(row((await pct(25, 7.5, 333.33, 1)).id).discount_pct, 7.5, '7.5% of ₹333.33 (₹25.00 after rounding) is kept as 7.5%');
+  eq(row((await pct(33.33, 10, 333.33, 1)).id).discount_pct, 10, '10% of ₹333.33 (₹33.33) is kept as 10%');
+  eq(row((await pct(20, undefined)).id).discount_pct, null, 'a discount typed in RUPEES carries no percentage…');
+  eq(row((await pct(20, null)).id).discount_pct, null, '…whether it is sent as nothing or as null');
+  eq(row((await pct(20, 5)).id).discount_pct, null, 'a "5%" label that does not match ₹20 on ₹300 is dropped — the bill shows only the rupees');
+  eq(row((await pct(0, 5)).id).discount_pct, null, 'no discount, no percentage');
+  eq(row((await pct(15, 'abc')).id).discount_pct, null, 'rubbish in the percentage field is ignored');
+  eq(row((await pct(15, -5)).id).discount_pct, null, 'a negative percentage is ignored');
+  eq(row((await pct(300, 100)).id).discount_pct, 100, '100% (the whole bill) is allowed');
+  eq(row((await pct(15, 500)).id).discount_pct, null, 'more than 100% is never kept');
+  eq(row((await pct(20, 5)).id).discount, 20, 'dropping the label never changes the rupees that were charged');
+  eq(row(a.id).total, 285, 'the total is still the bill less the rupees (₹300 − ₹15)');
+  ok((await call('pharmacy:saleDetail', (await pct(20, undefined)).id)).discount_pct == null, 'an old-style sale (no percentage) reads back as no percentage — nothing breaks for them');
+
   finish();
 })().catch((e) => { console.error('SUITE CRASHED', e); process.exit(1); });

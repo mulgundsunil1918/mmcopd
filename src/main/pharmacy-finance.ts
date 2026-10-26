@@ -923,6 +923,8 @@ export interface SellIn {
   items: SellItemIn[];
   /** Flat bill discount in rupees. */
   discount?: number;
+  /** The discount was typed as a PERCENTAGE of the bill (the rupees above are that percentage worked out): kept so the receipt can say "Discount (5%)". Absent / null = typed in rupees. */
+  discount_pct?: number | null;
   payment_mode?: string;
   sold_by?: string;
   /** Medicines on credit: a registered patient takes them now and pays later (all or part is left owing). Needs the
@@ -1005,6 +1007,11 @@ export function sellItems(db: Database.Database, payload: SellIn, now: Date = ne
   const subtotalP = amountsP.reduce((s, x) => s + x, 0);
   const discountP = toPaise(payload.discount ?? 0);
   if (discountP < 0) throw new Error('The discount cannot be negative.');
+  // The "(5%)" printed beside the discount is kept only when it IS what the rupees say (give or take a couple of paise of rounding): a label that disagrees with
+  // the amount would be a wrong figure on a printed bill, so anything else is dropped and the bill simply shows the rupees.
+  const typedPct = payload.discount_pct === null || payload.discount_pct === undefined ? NaN : Number(payload.discount_pct);
+  const discountPct = discountP > 0 && Number.isFinite(typedPct) && typedPct > 0 && typedPct <= 100 && Math.abs(Math.round((subtotalP * typedPct) / 100) - discountP) <= 2
+    ? Math.round(typedPct * 100) / 100 : null;
   if (discountP > subtotalP) throw new Error(`The discount (${rupees(fromPaise(discountP))}) is more than the bill value (${rupees(fromPaise(subtotalP))}).`);
   if (payload.max_discount_pct !== null && payload.max_discount_pct !== undefined && Number.isFinite(Number(payload.max_discount_pct))) {
     const pct = Math.max(0, Math.min(100, Number(payload.max_discount_pct)));
@@ -1063,10 +1070,10 @@ export function sellItems(db: Database.Database, payload: SellIn, now: Date = ne
 
   const tx = db.transaction(() => {
     const info = db.prepare(
-      'INSERT INTO pharmacy_sales (sale_number, patient_id, appointment_id, subtotal, discount, total, payment_mode, sold_by, client_ref, customer_name, amount_paid, on_credit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO pharmacy_sales (sale_number, patient_id, appointment_id, subtotal, discount, discount_pct, total, payment_mode, sold_by, client_ref, customer_name, amount_paid, on_credit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     ).run(
       saleNumber, payload.patient_id ?? null, payload.appointment_id ?? null,
-      fromPaise(subtotalP), fromPaise(discountP), fromPaise(totalP),
+      fromPaise(subtotalP), fromPaise(discountP), discountPct, fromPaise(totalP),
       paymentMode, payload.sold_by ?? null, ref, guestName, fromPaise(amountPaidP), onCredit,
     );
     const saleId = Number(info.lastInsertRowid);
