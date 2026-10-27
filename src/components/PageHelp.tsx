@@ -124,7 +124,7 @@ const HELP: Record<PageKey, { title: string; body: React.ReactNode }> = {
     title: 'Communication',
     body: (
       <>
-        <p>Reaching patients on WhatsApp. <b>Module 1</b> uses your own number — pick a patient, the message is pre-written, you press send.</p>
+        <p>Reaching patients on WhatsApp. <b>Module 1</b> uses your own number — pick a patient, the message is pre-written, you press send. What each message says, and the Google review link, are set in <b>Settings &rarr; WhatsApp</b>.</p>
         <p><b>Module 2</b> is automation (reminders and campaigns that send themselves), which runs through AiSensy on the official WhatsApp Business API.</p>
       </>
     ),

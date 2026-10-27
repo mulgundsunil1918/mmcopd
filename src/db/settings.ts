@@ -68,6 +68,8 @@ export function getAllSettings(db: Database.Database): Settings {
         '{{clinic_address}}\nPhone: {{clinic_phone}}\n\n' +
         'Please arrive 10 minutes early. For any change, simply reply to this message or call us.\n\nThank you,\n*{{clinic_name}}*',
     whatsapp_country_code: map.whatsapp_country_code || '91',
+    // The clinic's changes to the one-click WhatsApp messages ('' = none changed). See lib/whatsappTemplates.ts.
+    whatsapp_templates_json: map.whatsapp_templates_json || '',
     aisensy_signup_url: map.aisensy_signup_url || '',
     aisensy_connected_on: map.aisensy_connected_on || '',
     appointments_default_sort: (map.appointments_default_sort as any) || 'oldest_first',

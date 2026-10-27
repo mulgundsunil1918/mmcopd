@@ -7,6 +7,7 @@ import { boot, call, getDb } from './harness';
 import { runMigrations } from '../../src/db/migrations';
 import { cleanForWhatsApp, hasEmojiOrBrokenText } from '../../src/lib/messageText';
 import { buildWhatsAppUrl, DEFAULT_WHATSAPP_TEMPLATE, renderTemplate } from '../../src/lib/whatsapp';
+import { DEFAULT_WA_TEMPLATES } from '../../src/lib/whatsappTemplates';
 import { ok, eq, section, finish } from './lib';
 
 boot();
@@ -51,9 +52,10 @@ const ascii = (s: string) => /^[\x00-\x7F]*$/.test(s);
   // ============================================================================================================
   section('3 · the built-in templates are plain text — so no one can put emoji back by accident');
   ok(ascii(DEFAULT_WHATSAPP_TEMPLATE) && !hasEmojiOrBrokenText(DEFAULT_WHATSAPP_TEMPLATE), 'the default appointment template (lib/whatsapp.ts) is plain ASCII');
-  const page = fs.readFileSync(path.join(root, 'src', 'pages', 'WhatsApp.tsx'), 'utf8');
-  const m1 = page.slice(page.indexOf('const DEFAULT_M1_TEMPLATES'), page.indexOf('};', page.indexOf('const DEFAULT_M1_TEMPLATES')) + 2);
-  ok(m1.length > 500 && ascii(m1), `the seven messages on the WhatsApp page (confirmed, visit done, review, Rx, lab, radiology, bill) are plain ASCII (${m1.length} characters checked)`);
+  // The seven one-click messages now live in lib/whatsappTemplates.ts (a saved setting, edited in Settings → WhatsApp) — they are checked as data, not as page source.
+  const m1 = Object.values(DEFAULT_WA_TEMPLATES).join('\n');
+  ok(m1.length > 500 && ascii(m1), `the seven built-in messages (confirmed, visit done, review, Rx, lab, radiology, bill) are plain ASCII (${m1.length} characters checked)`);
+  ok(Object.keys(DEFAULT_WA_TEMPLATES).length === 7, 'there are exactly seven of them');
   const seed = fs.readFileSync(path.join(root, 'src', 'db', 'seed.ts'), 'utf8');
   const seedTpl = seed.slice(seed.indexOf('whatsapp_template:'), seed.indexOf('};', seed.indexOf('whatsapp_template:')));
   ok(seedTpl.length > 200 && ascii(seedTpl), "a new install's stored template (db/seed.ts) is plain ASCII");

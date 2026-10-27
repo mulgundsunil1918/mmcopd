@@ -832,6 +832,8 @@ export interface Settings {
   whatsapp_api_key: string | null;
   whatsapp_template: string;
   whatsapp_country_code: string;
+  /** JSON map of only the one-click WhatsApp messages the clinic changed ('' = none). Settings → WhatsApp. */
+  whatsapp_templates_json: string;
   /** Where the AiSensy signup button points. Blank = the built-in default.
    *  Set to a partner/referral link so signups from inside CureDesk are tracked. */
   aisensy_signup_url: string;

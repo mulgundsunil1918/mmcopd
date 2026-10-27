@@ -10,7 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { boot, call } from './harness';
-import { SETTINGS_TABS, SETTINGS_GROUPS, BILLING_KEYS, PHARMACY_KEYS, LAB_KEYS, IPD_KEYS, owningTabOfKey, tabFromStored } from '../../src/lib/settingsMap';
+import { SETTINGS_TABS, SETTINGS_GROUPS, BILLING_KEYS, PHARMACY_KEYS, LAB_KEYS, IPD_KEYS, WHATSAPP_KEYS, LEGACY_UNUSED_KEYS, owningTabOfKey, tabFromStored } from '../../src/lib/settingsMap';
 import { ok, eq, section, finish } from './lib';
 
 boot();
@@ -28,7 +28,7 @@ const OLD_BILLING_IPD_KEYS = [
 (async () => {
   const saved = await call('settings:get');
   const keysOfSaved = Object.keys(saved);
-  const lists: Record<string, string[]> = { billing: BILLING_KEYS as string[], pharmacy: PHARMACY_KEYS as string[], lab: LAB_KEYS as string[], ipd: IPD_KEYS as string[] };
+  const lists: Record<string, string[]> = { billing: BILLING_KEYS as string[], pharmacy: PHARMACY_KEYS as string[], lab: LAB_KEYS as string[], ipd: IPD_KEYS as string[], whatsapp: WHATSAPP_KEYS as string[] };
 
   // ============================================================================================================
   section('1 · a setting with a module\'s name on it is saved by that module\'s tab');
@@ -50,7 +50,7 @@ const OLD_BILLING_IPD_KEYS = [
 
   // ============================================================================================================
   section('2 · nothing the old Billing & IPD tab saved was dropped');
-  const now = new Set(seen.keys());
+  const now = new Set([...seen.entries()].filter(([, tab]) => tab !== 'whatsapp').map(([k]) => k));     // the four tabs the old one was split into
   const lost = OLD_BILLING_IPD_KEYS.filter((k) => !now.has(k));
   eq(lost.length, 0, `all ${OLD_BILLING_IPD_KEYS.length} settings are still saved by some tab${lost.length ? ' — LOST: ' + lost.join(', ') : ''}`);
   const added = [...now].filter((k) => !OLD_BILLING_IPD_KEYS.includes(k));
@@ -61,13 +61,19 @@ const OLD_BILLING_IPD_KEYS = [
   eq(new Set(SETTINGS_TABS.map((t) => t.id)).size, SETTINGS_TABS.length, 'tab ids are unique');
   ok(SETTINGS_TABS.every((t) => SETTINGS_GROUPS.some((g) => g.id === t.group)), 'every tab belongs to a group of the tab bar');
   ok(SETTINGS_GROUPS.every((g) => SETTINGS_TABS.some((t) => t.group === g.id)), 'every group has a tab');
-  eq(JSON.stringify(SETTINGS_TABS.filter((t) => t.module).map((t) => `${t.id}:${t.module}`)), JSON.stringify(['pharmacy:pharmacy', 'lab:lab', 'ipd:ipd']), 'exactly the Pharmacy, Laboratory & Radiology and In-Patient tabs wait for a module');
+  eq(JSON.stringify(SETTINGS_TABS.filter((t) => t.module).map((t) => `${t.id}:${t.module}`)), JSON.stringify(['pharmacy:pharmacy', 'lab:lab', 'ipd:ipd', 'whatsapp:whatsapp']), 'exactly the Pharmacy, Laboratory & Radiology, In-Patient and WhatsApp tabs wait for a module');
   ok(SETTINGS_TABS.every((t) => t.blurb.length > 20), 'every tab says in a sentence what lives in it');
   eq(tabFromStored('workflow'), 'reception', 'a remembered "Fees & Workflow" tab opens Reception & Fees');
   eq(tabFromStored('patients'), 'reception', 'a remembered "Patients" tab opens Reception & Fees');
   eq(tabFromStored('pharmacy'), 'pharmacy', 'a current tab name is kept');
   eq(tabFromStored('nonsense'), 'clinic', 'an unknown name opens the first tab, not a blank page');
   eq(tabFromStored(null), 'clinic', 'nothing remembered opens the first tab');
+
+  // WhatsApp: the wording, the country code and the review link are saved by ONE tab; the old API-era keys are the only exceptions, and nothing else uses them
+  eq(owningTabOfKey('google_review_url'), 'whatsapp', 'the Google review link belongs to the WhatsApp tab (it used to be typed into Clinic Info as well)');
+  ok(LEGACY_UNUSED_KEYS.every((k) => owningTabOfKey(k) === null), 'the old API-era WhatsApp keys are not claimed by any tab');
+  const legacyUsed = LEGACY_UNUSED_KEYS.filter((k) => seen.has(k));
+  eq(legacyUsed.length, 0, 'and no tab saves them');
 
   const page = fs.readFileSync(path.join(root, 'src', 'pages', 'Settings.tsx'), 'utf8');
   const undrawn = SETTINGS_TABS.filter((t) => !new RegExp(`tab === '${t.id}'`).test(page)).map((t) => t.id);

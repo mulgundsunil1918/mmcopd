@@ -32,8 +32,11 @@ import { ModuleTutorialButton } from '../components/ModuleTutorial';
 import { BillingSettings } from '../components/settings/BillingSettings';
 import { PharmacyGstCard, PharmacyDiscountLimits, PharmacyCredit } from '../components/settings/PharmacySettings';
 import { AccrualToggle, SectionSaveBar, TabIntro, LockedModule, Explain } from '../components/settings/shared';
-import { SETTINGS_TABS, SETTINGS_GROUPS, SETTINGS_TAB_STORAGE_KEY, tabDef, tabFromStored, BILLING_KEYS, PHARMACY_KEYS, LAB_KEYS, IPD_KEYS, type SettingsTabId, type SettingsTabDef } from '../lib/settingsMap';
-import { Pill, BedDouble, ScanLine } from 'lucide-react';
+import { SETTINGS_TABS, SETTINGS_GROUPS, SETTINGS_TAB_STORAGE_KEY, tabDef, tabFromStored, BILLING_KEYS, PHARMACY_KEYS, LAB_KEYS, IPD_KEYS, WHATSAPP_KEYS, type SettingsTabId, type SettingsTabDef } from '../lib/settingsMap';
+import { Pill, BedDouble, ScanLine, MessageSquare } from 'lucide-react';
+import { useWhatsAppTemplates } from '../hooks/useWhatsAppTemplates';
+import { WA_TEMPLATE_TYPES, DEFAULT_WA_TEMPLATES, WA_VARIABLES, resolveWaTemplates, serializeWaTemplates } from '../lib/whatsappTemplates';
+import { WHATSAPP_PLACEHOLDERS, renderTemplate } from '../lib/whatsapp';
 import { useToast } from '../hooks/useToast';
 import { useLicensedModules } from '../hooks/useLicensedModules';
 import { HelpTip } from '../components/HelpTip';
@@ -89,7 +92,7 @@ const TAB_LABEL = Object.fromEntries(SETTINGS_TABS.map((t) => [t.id, t.label])) 
 const TAB_ICON: Record<SettingsTab, React.ReactNode> = {
   clinic: <Building2 className="w-3.5 h-3.5" />, doctors: <Stethoscope className="w-3.5 h-3.5" />, reception: <Wallet className="w-3.5 h-3.5" />,
   billing: <IndianRupee className="w-3.5 h-3.5" />, pharmacy: <Pill className="w-3.5 h-3.5" />, lab: <FlaskConical className="w-3.5 h-3.5" />,
-  ipd: <BedDouble className="w-3.5 h-3.5" />, peds: <Baby className="w-3.5 h-3.5" />, system: <HardDrive className="w-3.5 h-3.5" />,
+  ipd: <BedDouble className="w-3.5 h-3.5" />, whatsapp: <MessageSquare className="w-3.5 h-3.5" />, peds: <Baby className="w-3.5 h-3.5" />, system: <HardDrive className="w-3.5 h-3.5" />,
   multisystem: <Wifi className="w-3.5 h-3.5" />, subscription: <ShieldCheck className="w-3.5 h-3.5" />,
 };
 
@@ -126,6 +129,10 @@ const SETTINGS_SEARCH: { tab: SettingsTab; label: string; hint: string; keywords
   { tab: 'ipd', label: 'Insurance / TPA', hint: 'Cashless admissions', keywords: 'tpa insurance cashless claim preauth' },
   { tab: 'ipd', label: 'Discharge Summary', hint: 'Builder + templates', keywords: 'discharge summary template letterhead' },
   { tab: 'ipd', label: 'Admission Requests', hint: 'Doctor requests from OPD', keywords: 'admission request opd reception' },
+  { tab: 'whatsapp', label: 'WhatsApp message wording', hint: 'What each one-click message says', keywords: 'whatsapp message template wording text confirmed visit done review rx lab radiology bill reminder' },
+  { tab: 'whatsapp', label: 'Google review link', hint: 'Used by the Google Review WhatsApp message', keywords: 'google review link url rate us feedback whatsapp' },
+  { tab: 'whatsapp', label: 'Country code for phone numbers', hint: 'Added in front of a patient number (91 for India)', keywords: 'whatsapp country code 91 phone number prefix' },
+  { tab: 'whatsapp', label: 'WhatsApp Pro automation', hint: 'Status of the automatic reminders (AiSensy)', keywords: 'whatsapp pro automation aisensy reminders inbox campaigns connected' },
   { tab: 'peds', label: 'Pediatrics Add-on', hint: 'Growth, vaccines, calculators', keywords: 'pediatrics paediatrics growth centile who iap vaccine immunisation calculator bmi head circumference child chart' },
   { tab: 'system', label: 'Security & Login', hint: 'Sign-in, idle sign-out', keywords: 'security login password idle signout user audit require sign-in' },
   { tab: 'system', label: 'Role-Based Access', hint: 'Module access per staff role', keywords: 'role access permission module staff customisable' },
@@ -144,6 +151,7 @@ const SETTINGS_SEARCH: { tab: SettingsTab; label: string; hint: string; keywords
 const TAB_ALSO: Partial<Record<SettingsTab, (go: (t: SettingsTab) => void) => React.ReactNode>> = {
   billing: (go) => <>Looking for the pharmacy&rsquo;s GST, its discount limit or credit? <LinkBtn onClick={() => go('pharmacy')}>Pharmacy</LinkBtn> · Wards, deposits, admission numbers? <LinkBtn onClick={() => go('ipd')}>In-Patient (IPD)</LinkBtn> · Lab and scan prices? <LinkBtn onClick={() => go('lab')}>Laboratory &amp; Radiology</LinkBtn></>,
   pharmacy: (go) => <>The clinic&rsquo;s GST registration (regular / composition) and GSTIN are set once under <LinkBtn onClick={() => go('billing')}>Billing &amp; GST</LinkBtn>. Drugs, stock, suppliers and registers are on the Pharmacy page itself.</>,
+  whatsapp: () => <>Sending the messages happens on the Communication page (today&rsquo;s patients, one button per message). The Pro automation (reminders, inbox, campaigns) is set up there too.</>,
   lab: () => <>Tests and scans are added, priced and switched on or off here and on the Laboratory and Radiology pages (Test Catalog / Catalogue &amp; Prices).</>,
   ipd: (go) => <>The clinic&rsquo;s GST registration is under <LinkBtn onClick={() => go('billing')}>Billing &amp; GST</LinkBtn>; the pharmacy&rsquo;s charge-to-ward-bill switch is under <LinkBtn onClick={() => go('pharmacy')}>Pharmacy</LinkBtn>.</>,
   reception: () => <>Doctors&rsquo; own fees are set with each doctor under Doctors &amp; Templates.</>,
@@ -329,6 +337,10 @@ export function SettingsPage() {
           {tab === 'ipd' && (isLocked(tabDef('ipd'))
             ? <LockedModule name="In-Patient (IPD)" what="wards, admissions and discharge" onOpenSubscription={() => setTab('subscription')} />
             : <IpdTab goTo={setTab} />)}
+
+          {tab === 'whatsapp' && (isLocked(tabDef('whatsapp'))
+            ? <LockedModule name="WhatsApp" what="the messages patients get on WhatsApp" onOpenSubscription={() => setTab('subscription')} />
+            : <WhatsAppTab />)}
 
           {tab === 'peds' && <PediatricsTab />}
 
@@ -1437,7 +1449,7 @@ function ClinicInfo() {
   const qc = useQueryClient();
   const toast = useToast();
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
-  const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, ['clinic_name', 'clinic_tagline', 'clinic_phone', 'clinic_email', 'clinic_address', 'clinic_registration_no', 'google_review_url'], {
+  const { draft, set, reset, dirty, save, saving } = useSectionDraft(settings, ['clinic_name', 'clinic_tagline', 'clinic_phone', 'clinic_email', 'clinic_address', 'clinic_registration_no'], {
     extraInvalidateKeys: [['clinic-name'], ['clinic-name-title']],
   });
 
@@ -1479,16 +1491,6 @@ function ClinicInfo() {
             <TxtField label="Address" value={draft.clinic_address ?? ''} onChange={(v) => set('clinic_address', v)} />
           </div>
           <TxtField label="Registration No." value={draft.clinic_registration_no ?? ''} onChange={(v) => set('clinic_registration_no', v)} />
-          <div className="col-span-2">
-            <label className="label">Google Review URL</label>
-            <input
-              className="input w-full"
-              value={draft.google_review_url ?? ''}
-              onChange={(e) => set('google_review_url', e.target.value)}
-              placeholder="https://g.page/r/…/review"
-            />
-            <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-1">Used in the WhatsApp "Rate Us" button and feedback automation.</p>
-          </div>
         </div>
       </div>
     </section>
@@ -5641,6 +5643,98 @@ function PharmacyTab({ goTo }: { goTo: (t: SettingsTab) => void }) {
       <PharmacyGstCard draft={draft} set={set as any} saved={settings} goBilling={() => goTo('billing')} />
       <PharmacyDiscountLimits draft={draft} set={set as any} />
       <PharmacyCredit draft={draft} set={set as any} hasIpd={has('ipd')} />
+    </div>
+  );
+}
+
+/** WhatsApp: the wording of the one-click messages, the Google review link, the country code for patients' numbers, and the Pro automation status. */
+function WhatsAppTab() {
+  const navigate = useNavigate();
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  useWhatsAppTemplates();                                   // also carries an old per-computer copy of the wording into the saved setting, once
+  const { draft, set, reset, dirty, saving, save } = useSectionDraft(settings, WHATSAPP_KEYS);
+  const { has } = useLicensedModules();
+  const saved = settings?.whatsapp_templates_json ?? '';
+  // What is typed in the boxes. Kept apart from the saved text so a box can be emptied while retyping (an empty message means "the built-in wording").
+  const [texts, setTexts] = useState<Record<string, string>>(() => resolveWaTemplates(saved));
+  const [focusKey, setFocusKey] = useState<string | null>(null);
+  useEffect(() => { setTexts(resolveWaTemplates(saved)); }, [saved]);        // after a save, or when the saved wording arrives
+  if (!settings) return <SettingsLoading />;
+
+  const change = (key: string, text: string) => {
+    const next = { ...texts, [key]: text };
+    setTexts(next);
+    set('whatsapp_templates_json', serializeWaTemplates(next) as any);
+  };
+  const resetAll = () => { reset(); setTexts(resolveWaTemplates(saved)); };
+  // A preview with sample values (and this clinic's own name, phone and address), so the wording can be judged as the patient will read it.
+  const sample: Record<string, string> = Object.fromEntries(WHATSAPP_PLACEHOLDERS.map((p) => [p.token.slice(2, -2), p.sample]));
+  const ctx = { ...sample, clinic_name: settings.clinic_name || sample.clinic_name, clinic_phone: settings.clinic_phone || sample.clinic_phone, clinic_address: settings.clinic_address || sample.clinic_address,
+    review_link: (draft.google_review_url || '').trim() || 'https://g.page/r/your-review-link' };
+  const connectedOn = String((settings as any).aisensy_connected_on || '').trim();
+
+  return (
+    <div className="space-y-5">
+      <SectionSaveBar note={<>The wording, the review link and the country code need <b>Save</b>.</>} dirty={dirty} saving={saving} onReset={resetAll} onSave={save} />
+
+      <div className="card p-5 space-y-4">
+        <div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">What each message says</div>
+          <Explain>
+            The seven one-click messages on the Communication page. CureDesk opens WhatsApp with the message already typed and you press Send. <b>Variables you can use:</b>{' '}
+            <span className="font-mono">{WA_VARIABLES}</span> — and <span className="font-mono">{'{{review_link}}'}</span> (the Google review link below). Emoji are removed from every
+            message automatically, so strange characters can never appear — write plain text. A message you leave as it is follows any improvement made to the built-in wording later.
+          </Explain>
+        </div>
+        {WA_TEMPLATE_TYPES.map((t) => (
+          <div key={t.key}>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-semibold text-gray-700 dark:text-slate-200">{t.icon} {t.label}</label>
+              <button type="button" className="text-[10px] text-gray-400 hover:text-emerald-600 dark:hover:text-emerald-400 font-medium"
+                onClick={() => change(t.key, DEFAULT_WA_TEMPLATES[t.key])}>Reset to the built-in wording</button>
+            </div>
+            <textarea className="input w-full text-xs font-mono leading-relaxed" rows={5} value={texts[t.key] ?? ''}
+              onFocus={() => setFocusKey(t.key)} onChange={(e) => change(t.key, e.target.value)} />
+            {focusKey === t.key && (
+              <div className="mt-1.5 rounded-lg px-3 py-2 text-[12px] whitespace-pre-wrap text-gray-800 dark:text-slate-100 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+                <div className="text-[9px] uppercase tracking-widest font-bold text-emerald-700 dark:text-emerald-300 mb-1">How it reads (sample patient)</div>
+                {renderTemplate(texts[t.key] || DEFAULT_WA_TEMPLATES[t.key], ctx as any)}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div className="card p-5 space-y-3">
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Google review link</div>
+        <input className="input w-full" placeholder="https://g.page/r/…/review" value={draft.google_review_url ?? ''} onChange={(e) => set('google_review_url', e.target.value)} />
+        <Explain>Used by the Google Review message (and the Pro automatic review request). Open your clinic on Google Maps → Share → the review link.</Explain>
+      </div>
+
+      <div className="card p-5 space-y-3">
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Phone numbers</div>
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] text-gray-700 dark:text-slate-200">Country code</span>
+          <span className="text-gray-500">+</span>
+          <input className="input w-20 font-mono" inputMode="numeric" maxLength={4} value={draft.whatsapp_country_code ?? '91'}
+            onChange={(e) => set('whatsapp_country_code', e.target.value.replace(/\D/g, ''))} />
+        </div>
+        <Explain>Put in front of a patient&rsquo;s 10-digit number when the message is opened in WhatsApp. 91 for India — change it only if your patients&rsquo; numbers are from another country.</Explain>
+      </div>
+
+      <div className="card p-5 space-y-2">
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">WhatsApp Pro — automatic messages</div>
+        {has('whatsapp_pro') ? (
+          <>
+            <div className="text-[13px] text-gray-800 dark:text-slate-200">
+              {connectedOn ? <>Connected on <b>{connectedOn}</b>. Reminders, the inbox and campaigns run through AiSensy.</> : <>Not connected yet. The Communication page walks you through signing up with AiSensy and sending your contacts and templates across.</>}
+            </div>
+            <button className="btn-secondary text-xs" onClick={() => navigate('/whatsapp')}>Open the Communication page</button>
+          </>
+        ) : (
+          <Explain>Automatic reminders, a two-way inbox and campaigns are the <b>WhatsApp Pro</b> upgrade. Add it under Subscription &amp; Modules whenever you want it.</Explain>
+        )}
+      </div>
     </div>
   );
 }

@@ -252,6 +252,7 @@ const TOPICS: Topic[] = [
           <li><b>Module 1 — WhatsApp Business (Basic):</b> uses your existing number. Pick today's patient, the message is pre-typed, you press Send. No setup, no approval, free.</li>
           <li><b>Module 2 — Automation (Pro):</b> reminders and campaigns that send themselves, run through our partner <b>AiSensy</b> on the official WhatsApp Business API. CureDesk hands over your contacts and ready-made templates.</li>
         </ul>
+        <div className="mt-2"><Tip>The <b>wording</b> of the seven one-click messages, the <b>Google review link</b> and the <b>country code</b> for patients&rsquo; numbers are set in <Path>Settings → WhatsApp</Path> (the tab appears when WhatsApp is in your subscription). They are saved with your data, so they are in every backup and the same on every computer.</Tip></div>
         <p className="mt-3 mb-1.5 font-semibold">Setting up Pro automation (one time):</p>
         <ol className="space-y-2">
           <Step n={1}>Open <Path>Communication → Automation</Path> and press <b>Open AiSensy to sign up</b>. Create the account with your clinic’s own WhatsApp number.</Step>

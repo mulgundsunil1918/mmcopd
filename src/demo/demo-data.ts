@@ -90,6 +90,7 @@ export const DEMO_SETTINGS: Settings = {
     '*Patient ID (UHID):* {{uhid}}\n*Visit ID:* {{visit_id}}\n\n' +
     '{{clinic_address}}\nPhone: {{clinic_phone}}\n\nThank you,\n*{{clinic_name}}*',
   whatsapp_country_code: '91',
+  whatsapp_templates_json: '',
   aisensy_signup_url: '',
   aisensy_connected_on: '',
   appointments_default_sort: 'oldest_first',
