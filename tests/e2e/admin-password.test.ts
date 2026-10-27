@@ -213,6 +213,8 @@ const q = (sql: string, ...p: any[]) => db.prepare(sql).all(...p) as any[];
   ok(/Set one admin password/.test(users) && /passwordState/.test(users), 'Users & Access tells a clinic with two passwords to set one');
   const auth = fs.readFileSync(path.join(root, 'src', 'hooks', 'useAuth.tsx'), 'utf8');
   ok(/if \(u\.role === 'admin'\) setAdminUnlocked\(true\)/.test(auth), 'signing in as Admin unlocks Settings (no second password)');
+  ok(/sessionStorage\.setItem\(SESSION_KEY/.test(auth) && !/localStorage\.setItem\(SESSION_KEY/.test(auth) && /localStorage\.removeItem\(SESSION_KEY\)/.test(auth), 'who is signed in is remembered for this run of the app only — after a restart everyone signs in again (and an older stored sign-in is forgotten)');
+  ok(/signs in again each time CureDesk is opened/.test(fs.readFileSync(path.join(root, 'src', 'pages', 'Login.tsx'), 'utf8')), '…and the sign-in screen says so'); 
 
   finish();
 })().catch((e) => { console.error('SUITE CRASHED', e); process.exit(1); });

@@ -22,6 +22,9 @@ export interface SessionUser {
   must_change_password?: boolean;
 }
 
+// Who is signed in is remembered for THIS run of the app only (sessionStorage: a reload keeps it, closing and reopening CureDesk does not). The main process keeps
+// "who is signed in" in memory too and forgets it on every restart — so remembering a person on screen across a restart would show them signed in while the program
+// treated them as nobody (a delete refused with "sign in", sales without a name, no discount limit). After every restart everyone signs in again, which is also the safer way.
 const SESSION_KEY = 'caredesk-session';
 const ADMIN_UNLOCK_KEY = 'caredesk-admin-unlocked';
 // Mirror of settings.require_login so the very first render can decide whether
@@ -86,7 +89,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const [user, setUser] = useState<SessionUser | null>(() => {
     try {
-      const raw = localStorage.getItem(SESSION_KEY);
+      try { localStorage.removeItem(SESSION_KEY); } catch { /* an older version kept the person here across restarts — forget it */ }
+      const raw = sessionStorage.getItem(SESSION_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         // If an older admin-auto-session was stored, drop it.
@@ -124,8 +128,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     try {
-      if (user) localStorage.setItem(SESSION_KEY, JSON.stringify(user));
-      else localStorage.removeItem(SESSION_KEY);
+      if (user) sessionStorage.setItem(SESSION_KEY, JSON.stringify(user));
+      else sessionStorage.removeItem(SESSION_KEY);
     } catch { /* ignore */ }
   }, [user]);
 

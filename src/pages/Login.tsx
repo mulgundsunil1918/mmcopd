@@ -51,6 +51,7 @@ export function Login() {
           <div className="text-center pt-1">
             <ForgotPasswordLink />
           </div>
+          <div className="text-center text-[11px] pt-1" style={{ color: '#94a3b8' }}>For safety, everyone signs in again each time CureDesk is opened.</div>
         </div>
       </form>
     </div>
