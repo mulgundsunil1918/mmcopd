@@ -815,9 +815,15 @@ export function createMockElectronAPI(): any {
       },
     },
     wholesalers: {
-      list: () => r(wholesalers),
+      list: (f: any = {}) => r(f?.activeOnly === false ? wholesalers : wholesalers.filter((x: any) => (x.is_active ?? 1) === 1)),
       upsert: (w: any) => { if (w.id) wholesalers = wholesalers.map((x) => x.id === w.id ? { ...x, ...w } : x); else { const id = nextId(wholesalers); w = { id, ...w }; wholesalers = [...wholesalers, w]; } return r(w); },
-      delete: (id: number) => { wholesalers = wholesalers.filter((x) => x.id !== id); return r({ ok: true }); },
+      // Like the real app: a supplier with bills is switched off and kept; one nothing points at is really deleted.
+      delete: (id: number) => {
+        const bills = purchaseStore.all().filter((p) => p.wholesaler_id === id).length;
+        if (bills > 0) { wholesalers = wholesalers.map((x: any) => x.id === id ? { ...x, is_active: 0 } : x); return r({ ok: true as const, mode: 'switched_off' as const, bills }); }
+        wholesalers = wholesalers.filter((x) => x.id !== id);
+        return r({ ok: true as const, mode: 'deleted' as const, bills: 0 });
+      },
       // Every supplier's account in one list — the same builders the real app uses, fed from the demo's bills and payments.
       accounts: () => {
         const entries = wholesalers.map((w: any) => {

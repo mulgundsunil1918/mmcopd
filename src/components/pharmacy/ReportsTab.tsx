@@ -17,7 +17,11 @@ import { Field, daysAgo } from './shared';
 export function ReportsTab() {
   const [view, setView] = useState<'menu' | 'dispensing' | 'stock' | 'purchase' | 'accounts' | 'statement'>('menu');
   const [supplierId, setSupplierId] = useState(0);
-  const { data: wholesalers = [] } = useQuery({ queryKey: ['wholesalers-all'], queryFn: () => window.electronAPI.wholesalers.list({ activeOnly: false }) });
+  const { data: allSuppliers = [] } = useQuery({ queryKey: ['wholesalers-all'], queryFn: () => window.electronAPI.wholesalers.list({ activeOnly: false }) });
+  const { data: supplierBills = [] } = useQuery({ queryKey: ['wholesalers-summary'], queryFn: () => window.electronAPI.wholesalers.summary() });
+  // Suppliers in use, plus switched-off ones that have bills (their account is still on record). A switched-off supplier with no bill has nothing to show.
+  const billsOf = new Map(supplierBills.map((s) => [s.wholesaler_id, s.bills]));
+  const wholesalers = allSuppliers.filter((w) => w.is_active === 1 || (billsOf.get(w.id) ?? 0) > 0);
   const [from, setFrom] = useState(daysAgo(30));
   const [to, setTo] = useState(todayISO());
   const [schedule, setSchedule] = useState<DrugSchedule | 'ALL'>('H');
@@ -126,7 +130,7 @@ export function ReportsTab() {
               <div className="flex gap-2">
                 <select className="input flex-1" value={supplierId || ''} onChange={(e) => setSupplierId(Number(e.target.value))}>
                   <option value="">— Choose a supplier —</option>
-                  {wholesalers.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                  {wholesalers.map((w) => <option key={w.id} value={w.id}>{w.name}{w.is_active !== 1 ? ' (switched off)' : ''}</option>)}
                 </select>
                 <button className="btn-secondary text-xs" disabled={!supplierId} onClick={() => setView('statement')}>
                   <FileText className="w-3.5 h-3.5" /> Open statement

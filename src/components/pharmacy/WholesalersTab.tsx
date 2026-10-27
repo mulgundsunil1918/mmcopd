@@ -42,10 +42,27 @@ export function WholesalersTab({ onViewBills }: { onViewBills: (w: { id: number;
     onSuccess: () => { refresh(); toast('Wholesaler saved'); setEditing(null); },
     onError: (e: any) => toast(String(e?.message || e), 'error'),
   });
-  const deactivate = useMutation({
+  const remove = useMutation({
     mutationFn: (id: number) => window.electronAPI.wholesalers.delete(id),
-    onSuccess: () => { refresh(); toast('Marked inactive'); },
+    onSuccess: (r) => {
+      refresh();
+      if (r.mode === 'switched_off') toast(`Switched off, not erased: it has ${r.bills} purchase bill${r.bills === 1 ? '' : 's'} on record. It shows under "Show inactive" and comes back by itself the next time you import a bill from it.`);
+      else toast('Supplier deleted');
+    },
+    onError: (e: any) => toast(String(e?.message || e), 'error'),
   });
+  const switchOn = useMutation({
+    mutationFn: (w: Wholesaler) => window.electronAPI.wholesalers.upsert({ ...w, is_active: 1 }),
+    onSuccess: () => { refresh(); toast('Supplier switched on'); },
+    onError: (e: any) => toast(String(e?.message || e), 'error'),
+  });
+  /** Ask first, and say plainly what will happen: a supplier with bills cannot be erased (the bills would lose their supplier), so it is switched off. */
+  const askDelete = (w: Wholesaler, bills: number) => {
+    const msg = bills > 0
+      ? `Delete "${w.name}"?\n\nIt has ${bills} purchase bill${bills === 1 ? '' : 's'} on record, so it cannot be erased — it will be switched off and kept for the records (shown under "Show inactive").\nTo erase it completely, delete its bills first.`
+      : `Delete "${w.name}"?\n\nNo bill is recorded for it, so it will be erased completely.`;
+    if (window.confirm(msg)) remove.mutate(w.id);
+  };
 
   const rows = useMemo(() => {
     const byId = new Map(summary.map((s) => [s.wholesaler_id, s]));
@@ -144,7 +161,13 @@ export function WholesalersTab({ onViewBills }: { onViewBills: (w: { id: number;
                       View bills
                     </button>
                     <button className="btn-ghost text-xs" title="Edit this wholesaler" aria-label={`Edit ${w.name}`} onClick={() => setEditing(w)}><Pencil className="w-3.5 h-3.5" /></button>
-                    {w.is_active === 1 && <button className="text-xs text-red-600 hover:underline ml-2" onClick={() => deactivate.mutate(w.id)}>Deactivate</button>}
+                    {w.is_active !== 1 && <button className="text-xs text-emerald-700 dark:text-emerald-400 hover:underline ml-2" disabled={switchOn.isPending} title="Use this supplier again" onClick={() => switchOn.mutate(w)}>Switch on</button>}
+                    {!(w.is_active !== 1 && s.bills > 0) && (    /* a switched-off supplier that has bills is already as removed as it can be */
+                      <button className="text-xs text-red-600 hover:underline ml-2" disabled={remove.isPending}
+                        title={s.bills > 0 ? 'It has bills, so it is switched off and kept for the records' : 'No bills: erased completely'} onClick={() => askDelete(w, s.bills)}>
+                        Delete
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

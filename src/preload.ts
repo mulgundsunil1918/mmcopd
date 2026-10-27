@@ -501,8 +501,9 @@ const api = {
       ipcRenderer.invoke('wholesalers:list', filter || {}) as Promise<Wholesaler[]>,
     upsert: (w: Partial<Wholesaler>) =>
       ipcRenderer.invoke('wholesalers:upsert', w) as Promise<Wholesaler>,
+    /** Really deletes a supplier no bill points at (mode 'deleted'); one with bills is switched off and kept for the records (mode 'switched_off', `bills` = how many). */
     delete: (id: number) =>
-      ipcRenderer.invoke('wholesalers:delete', id) as Promise<{ ok: boolean }>,
+      ipcRenderer.invoke('wholesalers:delete', id) as Promise<{ ok: true; mode: 'deleted' | 'switched_off' | 'gone'; bills: number }>,
     /** Bills, amount bought and amount owed per supplier (same "owed" rule as the Analytics supplier report). */
     summary: () => ipcRenderer.invoke('wholesalers:summary') as Promise<SupplierSummaryRow[]>,
     /** Every supplier's account in one list: billed, paid, owed now, ageing of the unpaid bills. */

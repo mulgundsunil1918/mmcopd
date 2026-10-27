@@ -47,7 +47,7 @@ function context(db: Database.Database) {
   return {
     drugs: db.prepare("SELECT id, name, generic_name, form, strength, is_active, COALESCE(item_type, 'medicine') AS item_type FROM drug_master").all() as { id: number; name: string; generic_name: string | null; form: string | null; strength: string | null; is_active: number; item_type: string }[],
     aliases: (db.prepare('SELECT alias, drug_master_id AS drug_id, supplier_id FROM purchase_name_aliases').all() as { alias: string; drug_id: number; supplier_id: number | null }[]),
-    suppliers: db.prepare('SELECT id, name, gstin, drug_license_no FROM wholesalers WHERE is_active=1').all() as { id: number; name: string; gstin: string | null; drug_license_no: string | null }[],
+    suppliers: db.prepare('SELECT id, name, gstin, drug_license_no, is_active FROM wholesalers').all() as { id: number; name: string; gstin: string | null; drug_license_no: string | null; is_active: number }[],
     today: localISO(),
   };
 }
@@ -116,21 +116,32 @@ export function commitImport(db: Database.Database, input: ImportCommit, opts: {
   const finishing = input.waiting_id ? (db.prepare("SELECT id, scan_path FROM purchase_import_waiting WHERE id=? AND status='waiting'").get(Number(input.waiting_id)) as { id: number; scan_path: string | null } | undefined) : undefined;
   let photoPath: string | null = finishing?.scan_path ?? null;
   let wrotePhoto = false, committed = false;
-  let newDrugs = 0, reactivated = 0, newSupplier = false, aliasesSaved = 0, waitingId: number | null = null;
+  let newDrugs = 0, reactivated = 0, newSupplier = false, supplierSwitchedOn = false, aliasesSaved = 0, waitingId: number | null = null;
   try {
     if (photoBytes && input.photo) { photoPath = savePhoto(opts.scanDir, { name: input.photo.name, data: photoBytes }, `${draft.bill.invoice_number}`); wrotePhoto = true; }
     let invoice!: { id: number; duplicate: boolean };
     const tx = db.transaction(() => {
       // ---- the supplier ----
       let supplierId = draft.bill.wholesaler_id;
+      // A supplier that was deleted from the Wholesalers list while it still had bills is only SWITCHED OFF: importing a bill from it switches it on again
+      // (it is never a reason to refuse the bill, and never a reason to make a second supplier of the same name).
+      const switchOn = (id: number) => { if (db.prepare('UPDATE wholesalers SET is_active=1 WHERE id=? AND is_active<>1').run(id).changes > 0) supplierSwitchedOn = true; };
       if (supplierId !== null) {
         if (!db.prepare('SELECT 1 FROM wholesalers WHERE id=?').get(supplierId)) throw new Error('The supplier chosen for this bill no longer exists.');
+        switchOn(supplierId);
       } else {
         const name = clean(draft.bill.supplier_name), lic = clean(draft.bill.supplier_license);
         if (!name || !lic) throw new Error('A new supplier needs a name and a drug licence number.');
-        if (db.prepare('SELECT 1 FROM wholesalers WHERE lower(name)=lower(?)').get(name)) throw new Error(`A supplier called "${name}" already exists (it may be switched off under Wholesalers) — choose it from the list, or switch it on first.`);
-        supplierId = Number(db.prepare('INSERT INTO wholesalers (name, drug_license_no, gstin, is_active) VALUES (?, ?, ?, 1)').run(name, lic, clean(draft.bill.supplier_gstin) || null).lastInsertRowid);
-        newSupplier = true;
+        const same = db.prepare('SELECT id, is_active, gstin FROM wholesalers WHERE lower(name)=lower(?) ORDER BY is_active DESC, id LIMIT 1').get(name) as { id: number; is_active: number; gstin: string | null } | undefined;
+        if (same && same.is_active === 1) throw new Error(`A supplier called "${name}" already exists — choose it from the Supplier list on this screen instead of adding it again.`);
+        if (same) {                                      // the same supplier, switched off: use it again rather than make a twin
+          supplierId = same.id;
+          switchOn(same.id);
+          if (!same.gstin && clean(draft.bill.supplier_gstin)) db.prepare('UPDATE wholesalers SET gstin=? WHERE id=?').run(clean(draft.bill.supplier_gstin), same.id);
+        } else {
+          supplierId = Number(db.prepare('INSERT INTO wholesalers (name, drug_license_no, gstin, is_active) VALUES (?, ?, ?, 1)').run(name, lic, clean(draft.bill.supplier_gstin) || null).lastInsertRowid);
+          newSupplier = true;
+        }
       }
 
       // ---- the medicines: existing ones are checked, new ones created once each ----
@@ -233,7 +244,7 @@ export function commitImport(db: Database.Database, input: ImportCommit, opts: {
     committed = true;
     const inv = getPurchase(db, invoice.id) as { invoice_number: string; total: number; items: unknown[] } | null;
     const batches = (db.prepare('SELECT COUNT(DISTINCT drug_master_id || \'|\' || batch_no) AS c FROM purchase_invoice_items WHERE invoice_id=?').get(invoice.id) as { c: number }).c;
-    return { ok: true, duplicate: invoice.duplicate, invoice_id: invoice.id, invoice_number: inv?.invoice_number ?? draft.bill.invoice_number, lines: plan.importLines.length, batches, total: inv?.total ?? plan.importedTotal, new_drugs: newDrugs, reactivated, new_supplier: newSupplier, aliases_saved: aliasesSaved, waiting_id: waitingId, aside: plan.asideLines.length };
+    return { ok: true, duplicate: invoice.duplicate, invoice_id: invoice.id, invoice_number: inv?.invoice_number ?? draft.bill.invoice_number, lines: plan.importLines.length, batches, total: inv?.total ?? plan.importedTotal, new_drugs: newDrugs, reactivated, new_supplier: newSupplier, supplier_switched_on: supplierSwitchedOn, aliases_saved: aliasesSaved, waiting_id: waitingId, aside: plan.asideLines.length };
   } catch (e: any) {
     if (photoPath && wrotePhoto && !committed) { try { fs.rmSync(photoPath, { force: true }); } catch { /* nothing to clean */ } }   // never remove the picture of a bill that was saved
     return { ok: false, error: String(e?.message || e || 'Could not import the bill.') };

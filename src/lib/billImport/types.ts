@@ -159,7 +159,7 @@ export interface ImportCommit {
 }
 
 export type ImportResult =
-  | { ok: true; duplicate: boolean; invoice_id: number; invoice_number: string; lines: number; batches: number; total: number; new_drugs: number; reactivated: number; new_supplier: boolean; aliases_saved: number; waiting_id: number | null; aside: number }
+  | { ok: true; duplicate: boolean; invoice_id: number; invoice_number: string; lines: number; batches: number; total: number; new_drugs: number; reactivated: number; new_supplier: boolean; /** the supplier had been switched off under Wholesalers and was switched on again for this bill */ supplier_switched_on?: boolean; aliases_saved: number; waiting_id: number | null; aside: number }
   | { ok: false; error: string; problems?: Problem[] };
 
 export interface WaitingRow { id: number; supplier_name: string | null; invoice_number: string; invoice_date: string | null; line_count: number; imported_invoice_id: number | null; created_at: string; has_photo: boolean }

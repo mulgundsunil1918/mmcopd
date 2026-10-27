@@ -765,7 +765,8 @@ export function supplierStatement(db: Database.Database, wholesalerId: number, o
 
 /** Every supplier's account in one list (Pharmacy → Reports → Supplier accounts): what is owed today and how old it is. Built from each supplier's statement. */
 export function supplierAccounts(db: Database.Database) {
-  const ids = (db.prepare('SELECT id FROM wholesalers ORDER BY name COLLATE NOCASE').all() as { id: number }[]).map((r) => r.id);
+  // A switched-off supplier with no bill has no account to show (nothing was ever bought from it); one with bills keeps its account for the records.
+  const ids = (db.prepare('SELECT w.id FROM wholesalers w WHERE w.is_active=1 OR EXISTS (SELECT 1 FROM purchase_invoices pi WHERE pi.wholesaler_id=w.id) ORDER BY w.name COLLATE NOCASE').all() as { id: number }[]).map((r) => r.id);
   const entries = ids.map((id) => supplierStatement(db, id)).filter((x): x is NonNullable<ReturnType<typeof supplierStatement>> => !!x)
     .map(({ supplier, ...statement }) => ({ supplier, statement: statement as SupplierStatement }));
   return buildSupplierAccounts(entries, localISO());

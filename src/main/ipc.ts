@@ -2805,9 +2805,20 @@ export function registerIpc() {
   });
 
   ipcMain.handle('wholesalers:delete', (_e, id: number) => {
-    // Soft delete — preserve referential integrity for purchase_invoices.
-    getDb().prepare('UPDATE wholesalers SET is_active=0 WHERE id=?').run(id);
-    return { ok: true };
+    // A supplier nothing points at is REALLY deleted (its name is free again, its remembered medicine names go with it). A supplier with purchase bills
+    // cannot be erased without breaking those bills, so it is switched off instead — and the answer says which happened, so the screen can tell the person.
+    const db = getDb();
+    const w = db.prepare('SELECT id, name FROM wholesalers WHERE id=?').get(Number(id)) as { id: number; name: string } | undefined;
+    if (!w) return { ok: true as const, mode: 'gone' as const, bills: 0 };
+    const bills = (db.prepare('SELECT COUNT(*) AS c FROM purchase_invoices WHERE wholesaler_id=?').get(w.id) as { c: number }).c;
+    if (bills === 0) {
+      db.prepare('DELETE FROM wholesalers WHERE id=?').run(w.id);       // purchase_name_aliases cascade; a waiting bill just loses its supplier link
+      logAudit(db, actor(), 'supplier_deleted', 'wholesalers', w.id, w.name);
+      return { ok: true as const, mode: 'deleted' as const, bills: 0 };
+    }
+    db.prepare('UPDATE wholesalers SET is_active=0 WHERE id=?').run(w.id);
+    logAudit(db, actor(), 'supplier_switched_off', 'wholesalers', w.id, `${w.name} (${bills} bill${bills === 1 ? '' : 's'} on record)`);
+    return { ok: true as const, mode: 'switched_off' as const, bills };
   });
 
   // ===== Purchase invoices =====

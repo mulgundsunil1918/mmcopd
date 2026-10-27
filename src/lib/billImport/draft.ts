@@ -122,16 +122,22 @@ const SUPPLIER_NOISE = new Set(['pvt', 'ltd', 'private', 'limited', 'llp', 'co',
 const supplierWords = (n: string) => simplify(n).replace(/\./g, ' ').split(' ').filter((w) => w && !SUPPLIER_NOISE.has(w));
 const gstinKey = (g: string) => cleanText(g).toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-export interface SupplierRef { id: number; name: string; gstin: string | null; drug_license_no: string | null }
+/** `is_active`: 1/true (or missing) = in use; 0/false = switched off under Wholesalers. A switched-off supplier is still matched — importing a bill from it switches it on again. */
+export interface SupplierRef { id: number; name: string; gstin: string | null; drug_license_no: string | null; is_active?: number | boolean | null }
+const supplierOn = (s: SupplierRef) => s.is_active === undefined || s.is_active === null || s.is_active === true || s.is_active === 1;
 export function matchSupplier(name: string, gstin: string, suppliers: SupplierRef[]): { id: number | null; suggestions: { id: number; name: string; reason: string }[] } {
   const g = gstinKey(gstin);
-  if (g.length === 15) { const hit = suppliers.find((s) => s.gstin && gstinKey(s.gstin) === g); if (hit) return { id: hit.id, suggestions: [] }; }
+  // a supplier in use wins over a switched-off one that looks the same
+  const list = [...suppliers].sort((a, b) => Number(supplierOn(b)) - Number(supplierOn(a)));
+  if (g.length === 15) { const hit = list.find((s) => s.gstin && gstinKey(s.gstin) === g); if (hit) return { id: hit.id, suggestions: [] }; }
   const w = supplierWords(name);
   if (w.length) {
-    const same = suppliers.filter((s) => { const x = supplierWords(s.name); return x.length === w.length && w.every((a) => x.includes(a)); });
+    const same = list.filter((s) => { const x = supplierWords(s.name); return x.length === w.length && w.every((a) => x.includes(a)); });
     if (same.length === 1) return { id: same[0].id, suggestions: [] };
+    const on = same.filter(supplierOn);
+    if (on.length === 1) return { id: on[0].id, suggestions: [] };
   }
-  const suggestions = suppliers.map((s) => {
+  const suggestions = list.map((s) => {
     const x = supplierWords(s.name);
     const common = w.filter((a) => x.some((b) => a === b || wordSimilarity(a, b) > 0)).length;
     return { s, score: w.length && x.length ? common / Math.max(w.length, x.length) : 0 };

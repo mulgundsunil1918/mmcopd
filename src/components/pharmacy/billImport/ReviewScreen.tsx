@@ -49,7 +49,10 @@ export function ReviewScreen({ initial, notices, duplicate, picture, photoFile, 
 
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   const { data: drugs = [] } = useQuery({ queryKey: ['pharmacy-drugs-active'], queryFn: () => window.electronAPI.pharmacy.listDrugs({ activeOnly: true }) });
-  const { data: wholesalers = [] } = useQuery({ queryKey: ['wholesalers'], queryFn: () => window.electronAPI.wholesalers.list({ activeOnly: true }) });
+  // Switched-off suppliers are listed too (marked): a supplier "deleted" while it still had bills is only switched off, and importing a bill from it switches it on again.
+  const { data: wholesalersAll = [] } = useQuery({ queryKey: ['wholesalers-all'], queryFn: () => window.electronAPI.wholesalers.list({ activeOnly: false }) });
+  const wholesalers = [...wholesalersAll].sort((a, b) => (b.is_active - a.is_active) || a.name.localeCompare(b.name));
+  const chosenOff = wholesalers.find((w) => w.id === draft.bill.wholesaler_id && w.is_active !== 1);
   const gstCharged = pharmacyGstOn(settings);
   const claimable = claimOverride ?? gstCharged;
 
@@ -183,8 +186,9 @@ export function ReviewScreen({ initial, notices, duplicate, picture, photoFile, 
               <select className={cn('input', errCls(billBad('supplier')))} value={b.wholesaler_id ?? 'new'}
                 onChange={(e) => bill({ wholesaler_id: e.target.value === 'new' ? null : Number(e.target.value) })}>
                 <option value="new">＋ A new supplier (not in my Wholesalers list yet)</option>
-                {wholesalers.map((w) => <option key={w.id} value={w.id}>{w.name} ({w.drug_license_no})</option>)}
+                {wholesalers.map((w) => <option key={w.id} value={w.id}>{w.name} ({w.drug_license_no}){w.is_active !== 1 ? ' — switched off, will be switched on again' : ''}</option>)}
               </select>
+              {chosenOff && <div className="text-[11px] text-amber-700 dark:text-amber-300 mt-1">This supplier was switched off under Wholesalers (it had bills, so it was kept). Importing this bill switches it on again.</div>}
             </div>
             <div>
               <label className="label">Invoice number *</label>
@@ -377,6 +381,7 @@ export function ReviewScreen({ initial, notices, duplicate, picture, photoFile, 
                   Ready: <b>{summary.lines}</b> medicine line{summary.lines === 1 ? '' : 's'} · <b>{summary.units}</b> units{summary.free_units > 0 && <> (incl. {summary.free_units} free)</>} · <b>{formatINR(summary.total)}</b>
                   {summary.new_medicines > 0 && <> · <b>{summary.new_medicines}</b> new medicine{summary.new_medicines === 1 ? '' : 's'} added to the Drug List</>}
                   {b.wholesaler_id === null && <> · new supplier added</>}
+                  {chosenOff && <> · supplier switched on again</>}
                   {summary.aside > 0 && <> · <b>{summary.aside}</b> set aside to finish later</>}
                   {check.warnings > 0 && <span className="text-amber-700 dark:text-amber-300"> · {check.warnings} note{check.warnings === 1 ? '' : 's'} (▲) worth a look</span>}
                 </span>
