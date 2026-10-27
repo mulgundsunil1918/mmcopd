@@ -138,7 +138,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (username: string, password: string) => {
     const u = await window.electronAPI.auth.login(username, password);
-    if (u) { setUser(u); return true; }
+    if (u) {
+      setUser(u);
+      // The Admin login's password IS the admin password, so signing in as the administrator already proves it: Settings and Users & Access open without
+      // asking again. (The "Lock" button still locks them, and a deletion still asks for the password to confirm.)
+      if (u.role === 'admin') setAdminUnlocked(true);
+      return true;
+    }
     return false;
   };
 

@@ -475,7 +475,7 @@ export function ConnectGuide({ showHeader = true }: { showHeader?: boolean }) {
         <div className="space-y-3">
           <Steps items={[
             <>On the main computer open <b>Users &amp; Access → Add User</b>. Give each person their own username, a password and a role (Reception, Doctor, Nurse, Pharmacist …).</>,
-            'Each person then signs in on any computer with their own login. The Admin can sign in anywhere; the clinic’s Settings are changed on the main computer.',
+            'Each person then signs in on any computer with their own login. The Admin can sign in anywhere, and the admin password is the same on every computer (signed in as Admin, Settings opens without asking again). The clinic’s Settings are changed on the main computer.',
             <>On each computer open <b>Settings → Computers &amp; staff → This Computer’s Job</b> and choose what it is for (reception desk, doctor’s cabin, pharmacy counter …). Its menu then shows only what it needs.</>,
           ]} />
           <div className="flex flex-wrap gap-2"><button type="button" className="btn-secondary text-xs" onClick={() => navigate('/users')}>Open Users &amp; Access</button></div>

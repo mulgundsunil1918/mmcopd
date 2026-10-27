@@ -41,6 +41,7 @@ export function ForcePasswordChange() {
         </div>
         <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded p-3 mb-5">
           You are logged in with the factory default password. Please set a unique password now — it cannot be skipped.
+          {user?.username === 'admin' && <> This is <b>the admin password</b>: it also unlocks Settings and the deletions, on every computer.</>}
         </p>
         <div className="space-y-3">
           <div>

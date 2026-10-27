@@ -15,6 +15,13 @@ const noop = () => undefined;
 const deep: any = new Proxy(function () {}, { get: (_t, k) => (k === 'then' ? undefined : deep), apply: () => deep, construct: () => deep });
 
 export const stubState = { isPackaged: false };
+export const liveHandlers = new Map<string, (event: any, ...args: any[]) => any>();
+/** Call a channel through the handler that is installed right now (a network proxy, once installNetworkClient has run). */
+export async function invokeLive(channel: string, ...args: any[]) {
+  const h = liveHandlers.get(channel);
+  if (!h) throw new Error(`no live IPC handler for "${channel}"`);
+  return await h({ sender: {} }, ...args);
+}
 const electron = {
   app: {
     get isPackaged() { return stubState.isPackaged; },
@@ -29,7 +36,9 @@ const electron = {
     on: noop, once: noop, whenReady: () => Promise.resolve(), quit: noop, exit: noop, relaunch: noop,
     setLoginItemSettings: noop, getLoginItemSettings: () => ({ openAtLogin: false }),
   },
-  ipcMain: { handle: noop as (ch: string, fn: any) => void, on: noop, removeHandler: noop },
+  // The handlers that are LIVE (the app's own, or a network proxy installed over them — main/network-client.ts). Most suites call `ipcHandlers` (the app's own); a suite that
+  // proves the network proxies calls `invokeLive` to go through whatever is installed right now.
+  ipcMain: { handle: ((ch: string, fn: any) => { liveHandlers.set(ch, fn); }) as (ch: string, fn: any) => void, on: noop, removeHandler: (ch: string) => { liveHandlers.delete(ch); } },
   shell: { openExternal: async () => undefined, openPath: async () => '', showItemInFolder: noop },
   dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }), showSaveDialog: async () => ({ canceled: true }), showMessageBox: async () => ({ response: 0 }) },
   BrowserWindow: Object.assign(function () { return deep; }, { getAllWindows: () => [], getFocusedWindow: () => null, fromWebContents: () => null }),

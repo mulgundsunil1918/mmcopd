@@ -98,6 +98,11 @@ function UsersInner() {
   });
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
   const loginsOn = settings?.require_login === true;
+  // Has the clinic ONE admin password yet (the Admin login and the Settings lock together)? An older main computer cannot say — then no notice is shown.
+  const { data: pwState } = useQuery({
+    queryKey: ['admin-password-state'],
+    queryFn: () => window.electronAPI.admin.passwordState().catch(() => null),
+  });
 
   const updateMut = useMutation({
     mutationFn: ({ id, patch }: { id: number; patch: any }) => window.electronAPI.auth.updateUser(id, patch),
@@ -128,6 +133,16 @@ function UsersInner() {
           <button className="btn-primary" onClick={() => setCreating(true)}><Plus className="w-4 h-4" /> Add User</button>
         </div>
       </div>
+
+      {loginsOn && pwState && !pwState.unified && !pwState.isDefault && (
+        <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 text-[12px] text-amber-900 dark:text-amber-100 flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <b>Two admin passwords at the moment.</b> Signing in as <b>Admin</b> and unlocking Settings can still use different passwords. Set <b>one admin password</b> now — it then does both,
+            on every computer, and you only have to remember one. Either of your current passwords works as the “current password”.
+          </div>
+          <button className="btn-primary text-xs shrink-0" onClick={() => setAdminPwOpen(true)}><KeyRound className="w-3.5 h-3.5" /> Set one admin password</button>
+        </div>
+      )}
 
       {/* Where accounts live, so a multi-PC clinic isn't surprised. */}
       {settings?.network_mode === 'client' && (
@@ -377,13 +392,25 @@ function PasswordModal({ user, onClose }: { user: any; onClose: () => void }) {
   const [pw, setPw] = useState('');
   const [pw2, setPw2] = useState('');
   const toast = useToast();
+  const qc = useQueryClient();
+  const isAdminLogin = user.username === 'admin';
   const change = useMutation({
     mutationFn: () => window.electronAPI.auth.changePassword(user.id, pw),
-    onSuccess: () => { toast('Password updated'); onClose(); },
+    onSuccess: () => {
+      toast(isAdminLogin ? 'Admin password updated — it also locks Settings now' : 'Password updated');
+      if (isAdminLogin) qc.invalidateQueries({ queryKey: ['admin-password-state'] });
+      onClose();
+    },
+    onError: (e: any) => toast(e?.message || 'Could not change the password', 'error'),
   });
   return (
     <Modal open onClose={onClose} title={`Change Password · ${user.username}`}>
       <div className="space-y-3">
+        {isAdminLogin && (
+          <div className="text-[11px] p-2 rounded-md bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
+            This is <b>the admin password</b>: it also unlocks Settings and the deletions, on every computer. At least 8 characters, and not an easy one.
+          </div>
+        )}
         <Row label="New Password"><input type="password" className="input" value={pw} onChange={(e) => setPw(e.target.value)} /></Row>
         <Row label="Confirm"><input type="password" className="input" value={pw2} onChange={(e) => setPw2(e.target.value)} /></Row>
         <div className="flex justify-end gap-2 pt-2">
@@ -405,12 +432,14 @@ function AdminPasswordModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const change = useMutation({
     mutationFn: () => window.electronAPI.admin.changePassword(current, next),
+    onError: (e: any) => toast(e?.message || 'Could not change the admin password', 'error'),
     onSuccess: (r) => {
       if (r.ok) {
-        toast('Admin password updated — the default 1234 will no longer work.');
+        toast('Admin password updated — it is now the password of the Admin login and of the Settings lock, on every computer.');
         // Refresh the gate's "is default password?" cache so the next unlock
         // screen drops the "default is 1234" hint immediately.
         qc.invalidateQueries({ queryKey: ['is-default-admin-password'] });
+        qc.invalidateQueries({ queryKey: ['admin-password-state'] });
         onClose();
       } else {
         toast(r.error || 'Failed', 'error');
@@ -421,10 +450,11 @@ function AdminPasswordModal({ onClose }: { onClose: () => void }) {
     <Modal open onClose={onClose} title="Change Admin Password">
       <div className="space-y-3">
         <div className="text-[11px] p-2 rounded-md bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
-          This password unlocks Settings, Users & Access, and all destructive admin actions clinic-wide.
+          <b>One admin password for the whole clinic.</b> It is the password of the <b>Admin</b> login (username <b>admin</b>) <i>and</i> it unlocks Settings, Users &amp; Access and the
+          deletions — the same on every computer. Changing it here changes all of them together.
         </div>
-        <Row label="Current Password"><input type="password" className="input" value={current} onChange={(e) => setCurrent(e.target.value)} /></Row>
-        <Row label="New Password (min 4 chars)"><input type="password" className="input" value={next} onChange={(e) => setNext(e.target.value)} /></Row>
+        <Row label="Current Password"><input type="password" className="input" value={current} onChange={(e) => setCurrent(e.target.value)} placeholder="Either of your current admin passwords" /></Row>
+        <Row label="New Password (min 8 chars)"><input type="password" className="input" value={next} onChange={(e) => setNext(e.target.value)} placeholder="At least 8 characters, not an easy one" /></Row>
         <Row label="Confirm New Password"><input type="password" className="input" value={next2} onChange={(e) => setNext2(e.target.value)} /></Row>
         <div className="flex justify-end gap-2 pt-2">
           <button className="btn-secondary" onClick={onClose}>Cancel</button>

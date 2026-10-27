@@ -67,7 +67,8 @@ export async function runConfiguredBackup(label: 'backup' | 'pre-restore' = 'bac
 import { getAllSettings, saveSettings } from '../db/settings';
 import { broadcastEvent as broadcastNetworkEvent } from './network-server';
 import { NotificationService } from '../services/notifications';
-import { createUser, verifyLogin, ensureDefaultAdmin, changePassword, listUsers, updateUser, logAudit, listAudit, type Role, type SessionUser } from './auth';
+import { createUser, verifyLogin, ensureDefaultAdmin, changePassword, listUsers, updateUser, logAudit, listAudit, adminPasswordChoiceProblem, verifyAdminAccount, isAdminAccount, setAdminAccountPassword, type Role, type SessionUser } from './auth';
+import { remoteCaller, isRemoteCall } from './caller-session';
 import { verifyResetCode } from './licensing/passwordReset';
 import { requireModule } from './licensing/enforce';
 import { deleteOrdersForPatient as deleteRadiologyForPatient, deleteOrdersForAppointment as deleteRadiologyForAppointment } from './radiology';
@@ -195,7 +196,8 @@ let currentSession: SessionUser | null = null;
  * nobody when it doesn't).
  */
 export function actor(): SessionUser | null {
-  return currentSession;
+  const remote = remoteCaller();          // a call that came from another computer is made for the person signed in THERE (main/caller-session.ts)
+  return remote ? remote.session : currentSession;
 }
 
 /** Rupees for a message shown to a human. */
@@ -207,15 +209,91 @@ export function requireRole(allowed: Role[], action: string): void {
   let loginRequired = false;
   try { loginRequired = getAllSettings(getDb()).require_login === true; } catch { /* fail open */ }
   if (!loginRequired) return;                       // shared-PC mode: no identity to enforce
-  if (!currentSession) {
+  const who = actor();
+  if (!who) {
     throw new Error(`Please sign in before you ${action}.`);
   }
-  if (currentSession.role === 'admin') return;      // owner may do anything
-  if (!allowed.includes(currentSession.role)) {
+  if (who.role === 'admin') return;                 // owner may do anything
+  if (!allowed.includes(who.role)) {
     throw new Error(
-      `Your role (${currentSession.role}) is not allowed to ${action}. Ask an administrator to do this.`
+      `Your role (${who.role}) is not allowed to ${action}. Ask an administrator to do this.`
     );
   }
+}
+
+// ── THE ONE ADMIN PASSWORD ────────────────────────────────────────────────────
+// A clinic used to have TWO admin secrets that nobody could tell apart: the Settings lock ("admin PIN", settings.admin_password) and the password of the Admin
+// login (users table). They are now ONE: whenever the administrator sets or changes the password, both are set to it, together (setOneAdminPassword). Until a
+// clinic has done that once, the two may differ — and then either one is accepted, because anyone who knows the Admin login's password is the administrator
+// anyway — so an update locks nobody out. `admin_password_unified` records that it has been done.
+const UNIFIED_KEY = 'admin_password_unified';
+
+export function adminPasswordUnified(db: Database.Database): boolean {
+  const r = db.prepare('SELECT value FROM settings WHERE key=?').get(UNIFIED_KEY) as { value: string } | undefined;
+  return r?.value === '1';
+}
+
+/** Which half of the admin secret `input` opens: the Settings lock ('pin'), the Admin login ('account'), or neither. `pinOnly` = the Settings lock alone. */
+function adminSecretMatch(db: Database.Database, input: string, pinOnly = false): 'pin' | 'account' | null {
+  if (typeof input !== 'string' || input === '') return null;
+  if (verifyAdminPassword(input, getAllSettings(db).admin_password || '1234')) return 'pin';
+  if (!pinOnly && verifyAdminAccount(db, input)) return 'account';
+  return null;
+}
+
+/** Set the Settings lock AND the Admin login to the same new password, and remember that the clinic now has ONE. */
+function setOneAdminPassword(db: Database.Database, newPassword: string) {
+  db.transaction(() => {
+    saveSettings(db, { admin_password: hashAdminPassword(newPassword) });
+    setAdminAccountPassword(db, newPassword);
+    saveSettings(db, { [UNIFIED_KEY]: '1' } as any);
+  })();
+}
+
+/**
+ * THIS computer's copy of the clinic's admin password, kept after the main computer confirmed it (or changed it). An extra computer asks the main computer first
+ * (network-client.ts); this copy is what lets it still open Settings when the main computer cannot be reached, and it is the same password the main computer holds.
+ */
+export function cacheClinicAdminPassword(plain: string, unified: boolean) {
+  const db = getDb();
+  saveSettings(db, { admin_password: hashAdminPassword(plain) });
+  if (unified) saveSettings(db, { [UNIFIED_KEY]: '1' } as any);
+}
+
+/** Is the Settings lock still the factory password (or empty / a very weak one)? */
+function pinIsDefault(db: Database.Database): boolean {
+  const stored = (getAllSettings(db).admin_password || '').trim();
+  if (stored === '') return true;
+  // Legacy plaintext rows: compare directly.
+  if (!stored.startsWith('$scrypt$')) return stored === '1234' || stored === '1918';
+  // Hashed rows: a plain string compare can never match, which used to make ANY hashed PIN — including a factory-weak one — report as "properly configured"
+  // and silenced the first-run gate forever. Verify against the known-weak list.
+  return ['1234', '1918', '0000', '1111', 'admin'].some((weak) => verifyAdminPassword(weak, stored));
+}
+
+/** The unlock screen's check — wrong-password slow-down, audit trail, and the one-time move of an old plaintext PIN to a hash. */
+function tryAdminUnlock(input: string, pinOnly = false): boolean {
+  if (!checkRateLimit('admin_unlock')) return false;
+  const db = getDb();
+  const stored = getAllSettings(db).admin_password || '1234';
+  const match = adminSecretMatch(db, input, pinOnly);
+  if (match) {
+    clearAuthFailures('admin_unlock');
+    // Transparently migrate plaintext to hashed on first successful unlock
+    if (match === 'pin' && !stored.startsWith('$scrypt$')) saveSettings(db, { admin_password: hashAdminPassword(input) });
+  } else {
+    recordAuthFailure('admin_unlock');
+  }
+  logAudit(db, actor(), match ? 'admin_unlock' : 'admin_unlock_failed');
+  return !!match;
+}
+
+/**
+ * THIS computer's own Settings password only — what an extra computer falls back to when the main computer cannot be asked. The Admin LOGIN on an extra computer's own
+ * database is not part of it: every computer is created with the factory "admin" login, and that must never become a way into Settings while the network is down.
+ */
+export function verifyLocalAdminPin(input: string): boolean {
+  return tryAdminUnlock(String(input ?? ''), true);
 }
 
 /**
@@ -226,9 +304,8 @@ export function requireRole(allowed: Role[], action: string): void {
 export function adminPasswordProblem(password: unknown): string | null {
   if (!checkRateLimit('admin_unlock')) return 'Too many wrong passwords — wait a little and try again.';
   const db = getDb();
-  const stored = getAllSettings(db).admin_password || '1234';
   if (typeof password !== 'string' || password === '') return 'Wrong admin password.';      // nothing typed is not a guess: not counted
-  if (!verifyAdminPassword(password, stored)) {
+  if (!adminSecretMatch(db, password)) {
     recordAuthFailure('admin_unlock');
     logAudit(db, actor(), 'delete_password_wrong');
     return 'Wrong admin password.';
@@ -249,7 +326,7 @@ export function registerIpc() {
     const user = verifyLogin(db, username, password);
     if (user) {
       clearAuthFailures(key);
-      currentSession = user;          // main-process session — the basis for requireRole()
+      if (!isRemoteCall()) currentSession = user;     // main-process session — the basis for requireRole(). A sign-in from another computer is carried by that computer (caller-session.ts).
       logAudit(db, user, 'login');
       return user;
     }
@@ -270,11 +347,17 @@ export function registerIpc() {
     return u;
   });
   ipcMain.handle('auth:changePassword', (_e, userId: number, newPassword: string) => {
-    if (String(newPassword ?? '').length < 4) throw new Error('Choose a password of at least 4 characters.');
     const db = getDb();
+    // The built-in Admin login's password is THE admin password (it also locks Settings), so it follows the same rule and moves the Settings lock with it.
+    const isAdminLogin = isAdminAccount(db, userId);
+    if (isAdminLogin) {
+      const problem = adminPasswordChoiceProblem(newPassword);
+      if (problem) throw new Error(problem);
+    } else if (String(newPassword ?? '').length < 4) throw new Error('Choose a password of at least 4 characters.');
     // Anyone may change their OWN password; changing someone else's is an administrator's job.
     if (actor()?.id !== userId) requireRole([], "change another person's password");
-    changePassword(db, userId, newPassword);
+    if (isAdminLogin) setOneAdminPassword(db, newPassword);
+    else changePassword(db, userId, newPassword);
     logAudit(db, actor(), 'password_changed', 'users', userId);
     return true;
   });
@@ -302,15 +385,16 @@ export function registerIpc() {
       clearAuthFailures(`login:${target.username.toLowerCase()}`);
     }
     // 2) Reset the admin-GATE password (the PIN that guards Settings / destructive ops).
-    saveSettings(db, { admin_password: hashAdminPassword(pw) });
+    saveSettings(db, { admin_password: hashAdminPassword(pw), [UNIFIED_KEY]: '1' } as any);       // the Settings lock and the Admin login now share this one password
     clearAuthFailures('admin_unlock');
     logAudit(db, actor(), 'password_recovered_via_code', 'users', target?.id);
     return { ok: true as const, username: target?.username || null };
   });
 
   ipcMain.handle('auth:logout', () => {
-    if (currentSession) logAudit(getDb(), currentSession, 'logout');
-    currentSession = null;
+    const who = actor();
+    if (who) logAudit(getDb(), who, 'logout');
+    if (!isRemoteCall()) currentSession = null;
     return { ok: true as const };
   });
   ipcMain.handle('auth:listUsers', () => listUsers(getDb()));
@@ -321,72 +405,57 @@ export function registerIpc() {
     logAudit(db, actor(), 'user_updated', 'users', id, JSON.stringify(patch));
     return listUsers(db);
   });
-  ipcMain.handle('auth:verifyAdminPassword', (_e, password: string) => {
-    if (!checkRateLimit('admin_unlock')) return false;
-    const db = getDb();
-    const settings = getAllSettings(db);
-    const input = password || '';
-    const stored = settings.admin_password || '1234';
-
-    const ok = verifyAdminPassword(input, stored);
-    if (ok) {
-      clearAuthFailures('admin_unlock');
-      // Transparently migrate plaintext to hashed on first successful unlock
-      if (!stored.startsWith('$scrypt$')) {
-        saveSettings(db, { admin_password: hashAdminPassword(input) });
-      }
-    } else {
-      recordAuthFailure('admin_unlock');
-    }
-    logAudit(db, actor(), ok ? 'admin_unlock' : 'admin_unlock_failed');
-    return ok;
+  ipcMain.handle('auth:verifyAdminPassword', (_e, password: string) => tryAdminUnlock(password || ''));
+  // The same check, plus whether the clinic has ONE admin password yet. An extra computer asks the main computer this (network-client.ts) so it knows whether its own
+  // old Settings password may still open Settings.
+  ipcMain.handle('auth:verifyAdminPasswordEx', (_e, password: string) => {
+    const ok = tryAdminUnlock(password || '');
+    return { ok, unified: adminPasswordUnified(getDb()) };
   });
   // Returns true while the admin password is still the factory default (1234) or empty.
   // Used by the unlock screen to decide whether to show the 'default is 1234' hint.
   // Legacy '1918' still counts as "default" so old installs that were migrated
   // also drop the hint correctly once the user sets a real password.
-  ipcMain.handle('auth:isDefaultAdminPassword', () => {
-    const settings = getAllSettings(getDb());
-    const stored = (settings.admin_password || '').trim();
-    if (stored === '') return true;
-    // Legacy plaintext rows: compare directly.
-    if (!stored.startsWith('$scrypt$')) return stored === '1234' || stored === '1918';
-    // Hashed rows: a plain string compare can never match, which used to make ANY
-    // hashed PIN — including a factory-weak one — report as "properly configured"
-    // and silenced the first-run gate forever. Verify against the known-weak list.
-    return ['1234', '1918', '0000', '1111', 'admin'].some((weak) => verifyAdminPassword(weak, stored));
+  ipcMain.handle('auth:isDefaultAdminPassword', () => pinIsDefault(getDb()));
+  // Where the clinic stands: has the administrator set ONE password (the Admin login and the Settings lock together), and is it still the factory one?
+  ipcMain.handle('auth:adminPasswordState', () => {
+    const db = getDb();
+    return { unified: adminPasswordUnified(db), isDefault: pinIsDefault(db) };
   });
   ipcMain.handle('auth:changeAdminPassword', (_e, currentPassword: string, newPassword: string) => {
+    if (!checkRateLimit('admin_unlock')) return { ok: false, error: 'Too many wrong passwords — wait a little and try again.' };
     const db = getDb();
-    const settings = getAllSettings(db);
-    const stored = settings.admin_password || '1234';
-
-    if (!verifyAdminPassword(currentPassword || '', stored)) {
+    // Either half of the admin secret may be typed as "current" (see THE ONE ADMIN PASSWORD above) — a clinic that has not unified yet is not locked out.
+    if (!adminSecretMatch(db, currentPassword || '')) {
+      recordAuthFailure('admin_unlock');
       return { ok: false, error: 'Current password incorrect' };
     }
-    if (!newPassword || newPassword.length < 8) {
-      return { ok: false, error: 'Password must be at least 8 characters' };
-    }
-    saveSettings(db, { admin_password: hashAdminPassword(newPassword) });
+    clearAuthFailures('admin_unlock');
+    const problem = adminPasswordChoiceProblem(newPassword);
+    if (problem) return { ok: false, error: problem };
+    setOneAdminPassword(db, newPassword);
     logAudit(db, actor(), 'admin_password_changed');
-    return { ok: true };
+    return { ok: true, unified: true };
   });
   // First-run only: set the admin password when it's still the factory default,
   // WITHOUT requiring the current one (there is none the user chose). Refuses
   // once a real password exists — after that, use auth:changeAdminPassword.
+  // On a brand-new clinic the Admin login still has its factory password too, so ONE password is set for both. If the Admin login's password was already
+  // changed (an older clinic whose Settings lock was never set), it is left alone — that clinic is simply not unified yet.
   ipcMain.handle('auth:setInitialAdminPassword', (_e, newPassword: string) => {
     const db = getDb();
-    const stored = (getAllSettings(db).admin_password || '').trim();
-    const isDefault = stored === '' || stored === '1234' || stored === '1918';
-    if (!isDefault) return { ok: false, error: 'An admin password is already set — use Change password in Settings.' };
+    if (!pinIsDefault(db)) return { ok: false, error: 'An admin password is already set — use Change password in Settings.' };
     const pw = String(newPassword || '');
-    if (pw.length < 8) return { ok: false, error: 'Password must be at least 8 characters.' };
-    if (['1234', '1918', '12345678', 'password', 'admin123'].includes(pw.toLowerCase())) {
-      return { ok: false, error: 'That password is too easy to guess — choose another.' };
+    const problem = adminPasswordChoiceProblem(pw);
+    if (problem) return { ok: false, error: problem === 'That password is too easy to guess — choose another.' ? problem : 'Password must be at least 8 characters.' };
+    if (verifyAdminAccount(db, 'admin123')) {
+      setOneAdminPassword(db, pw);
+      logAudit(db, actor(), 'admin_password_set_initial', undefined, undefined, 'admin login and settings lock');
+      return { ok: true, unified: true };
     }
     saveSettings(db, { admin_password: hashAdminPassword(pw) });
     logAudit(db, actor(), 'admin_password_set_initial');
-    return { ok: true };
+    return { ok: true, unified: false };
   });
 
   ipcMain.handle('audit:list', (_e, limit?: number) => listAudit(getDb(), limit ?? 500));
@@ -397,9 +466,7 @@ export function registerIpc() {
       return { ok: false, error: 'Confirmation phrase required' };
     }
     const db = getDb();
-    const settings = getAllSettings(db);
-    const stored = settings.admin_password || '1234';
-    if (!adminPassword || !verifyAdminPassword(adminPassword, stored)) {
+    if (!adminPassword || !adminSecretMatch(db, adminPassword)) {
       return { ok: false, error: 'Admin password required' };
     }
     const count = (db.prepare('SELECT COUNT(*) as c FROM audit_log').get() as { c: number }).c;

@@ -103,9 +103,12 @@ const api = {
     verifyPassword: (password: string) => ipcRenderer.invoke('auth:verifyAdminPassword', password) as Promise<boolean>,
     isDefaultAdminPassword: () => ipcRenderer.invoke('auth:isDefaultAdminPassword') as Promise<boolean>,
     setInitialAdminPassword: (newPassword: string) =>
-      ipcRenderer.invoke('auth:setInitialAdminPassword', newPassword) as Promise<{ ok: boolean; error?: string }>,
+      ipcRenderer.invoke('auth:setInitialAdminPassword', newPassword) as Promise<{ ok: boolean; error?: string; unified?: boolean }>,
+    /** Sets the Admin login's password AND the Settings lock to the new one (the clinic has ONE admin password). Needs the main computer when this is an extra computer. */
     changePassword: (currentPassword: string, newPassword: string) =>
-      ipcRenderer.invoke('auth:changeAdminPassword', currentPassword, newPassword) as Promise<{ ok: boolean; error?: string }>,
+      ipcRenderer.invoke('auth:changeAdminPassword', currentPassword, newPassword) as Promise<{ ok: boolean; error?: string; unified?: boolean }>,
+    /** Has the clinic ONE admin password yet (the Admin login and the Settings lock together), and is it still the factory one? */
+    passwordState: () => ipcRenderer.invoke('auth:adminPasswordState') as Promise<{ unified: boolean; isDefault: boolean }>,
     resetAuditLog: (confirmPhrase: string, adminPassword: string) =>
       ipcRenderer.invoke('admin:resetAuditLog', confirmPhrase, adminPassword) as Promise<{ ok: boolean; error?: string; deleted?: number }>,
     resetNotificationLog: (confirmPhrase: string) =>

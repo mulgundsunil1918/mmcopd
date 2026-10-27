@@ -380,8 +380,8 @@ const TOPICS: Topic[] = [
       <>
         <p className="mb-2">There are two separate things, and mixing them up is the commonest confusion:</p>
         <ul className="list-disc pl-5 space-y-1.5 mb-2">
-          <li><b>Admin password (PIN)</b> — guards Settings, Users and destructive actions. Every clinic has one.</li>
-          <li><b>Staff accounts</b> — individual usernames, only used if you switch sign-in on.</li>
+          <li><b>The admin password</b> — ONE password for the whole clinic. It is the password of the <b>Admin</b> login (username <b>admin</b>) <i>and</i> it unlocks Settings, Users and the deletions — the same on every computer. Signed in as Admin, you are not asked for it again to open Settings. Change it at <Path>Users &amp; Access → Admin Password</Path>.</li>
+          <li><b>Staff accounts</b> — each person's own username and password, used when sign-in is on (always, with more than one computer).</li>
         </ul>
         <ol className="space-y-2">
           <Step n={1}>Create people at <Path>Users &amp; Access → Add User</Path> and give each a role.</Step>

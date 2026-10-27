@@ -23,6 +23,7 @@ import http from 'node:http';
 import dgram from 'node:dgram';
 import crypto from 'node:crypto';
 import { ipcHandlers } from './ipc-registry';
+import { runForRemoteCaller, sanitizeWireSession } from './caller-session';
 import { listNetworkInterfaces, broadcastAddressFor } from './network-diagnostics';
 import { startHostWatchdog, stopHostWatchdog } from './host-watchdog';
 import { startSleepPrevention, stopSleepPrevention } from './host-power';
@@ -379,7 +380,12 @@ export async function startNetworkServer(port: number, secret: string, appVersio
           const body = await readJsonBody(req);
           const args = Array.isArray(body?.args) ? body.args : [];
           const fakeEvent = { sender: { send: () => { /* noop */ } } } as any;
-          const result = await handler(fakeEvent, ...args);
+          // Run the call AS the person signed in on the computer that sent it (caller-session.ts) — so the audit trail, "sold by" and the role checks
+          // are about THAT person, and a sign-in over there never replaces whoever is signed in on this computer. An older computer says nothing: unchanged.
+          const caller = sanitizeWireSession(body?.session);
+          const result = caller === undefined
+            ? await handler(fakeEvent, ...args)
+            : await runForRemoteCaller(caller, () => handler(fakeEvent, ...args));
           // Never ship the host's secrets (admin password, API keys) to a cabin.
           const safe = channel === 'settings:get' ? stripSecretsForNetwork(result) : result;
           return sendJson(res, 200, { ok: true, result: safe });

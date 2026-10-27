@@ -74,6 +74,41 @@ export function ensureDefaultAdmin(db: Database.Database) {
   }
 }
 
+/** The built-in administrator login (the one every clinic starts with). "The admin password" means this login's password AND the Settings lock — one secret. */
+export const ADMIN_USERNAME = 'admin';
+export const MIN_ADMIN_PASSWORD = 8;
+/** Passwords nobody may choose for the administrator (the factory ones and the commonest guesses). */
+const WEAK_ADMIN_PASSWORDS = ['1234', '1918', '12345678', 'password', 'admin123', '123456789', '11111111', '00000000', 'qwertyui', 'admin1234'];
+
+/** Why this password may not be chosen for the administrator — or null when it may. The same rule everywhere the admin password is set. */
+export function adminPasswordChoiceProblem(pw: unknown): string | null {
+  const s = String(pw ?? '');
+  if (s.length < MIN_ADMIN_PASSWORD) return `Password must be at least ${MIN_ADMIN_PASSWORD} characters`;
+  if (WEAK_ADMIN_PASSWORDS.includes(s.toLowerCase())) return 'That password is too easy to guess — choose another.';
+  return null;
+}
+
+/** Does `input` open the built-in Admin login (an ACTIVE account — a switched-off admin account is not a way in)? */
+export function verifyAdminAccount(db: Database.Database, input: string): boolean {
+  const row = db.prepare('SELECT salt, password_hash FROM users WHERE username=? AND is_active=1').get(ADMIN_USERNAME) as { salt: string; password_hash: string } | undefined;
+  if (!row) return false;
+  try { return crypto.timingSafeEqual(Buffer.from(hash(input, row.salt)), Buffer.from(row.password_hash)); } catch { return false; }
+}
+
+/** Is this user the built-in Admin login? */
+export function isAdminAccount(db: Database.Database, userId: number): boolean {
+  const row = db.prepare('SELECT username FROM users WHERE id=?').get(userId) as { username: string } | undefined;
+  return !!row && row.username === ADMIN_USERNAME;
+}
+
+/** Set the built-in Admin login's password (and clear its "must change" flag). False when there is no such account. */
+export function setAdminAccountPassword(db: Database.Database, newPassword: string): boolean {
+  const row = db.prepare('SELECT id FROM users WHERE username=?').get(ADMIN_USERNAME) as { id: number } | undefined;
+  if (!row) return false;
+  changePassword(db, row.id, newPassword);
+  return true;
+}
+
 export function changePassword(db: Database.Database, userId: number, newPassword: string) {
   const salt = crypto.randomBytes(16).toString('hex');
   const password_hash = hash(newPassword, salt);

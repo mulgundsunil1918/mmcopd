@@ -28,6 +28,9 @@
 import { ipcMain } from 'electron';
 import { ipcHandlers, rawHandle } from './ipc-registry';
 import { discoverServers } from './network-discovery';
+import { cacheClinicAdminPassword, verifyLocalAdminPin } from './ipc';
+import { verifyAdminViaHost } from './admin-verify';
+import type { SessionUser } from './auth';
 
 /** Hard ceiling on any single proxied IPC call. Long enough for a big report
  *  query on a slow PC, short enough that a dead host surfaces as an error
@@ -56,6 +59,8 @@ let consecutiveFailures = 0;
 let lastLatencyMs: number | null = null;
 let healthTimer: NodeJS.Timeout | null = null;
 let reconnectAttempts = 0;
+/** Who is signed in on THIS computer, as the main computer is told with every call (see caller-session.ts). null = nobody. Set by a successful sign-in, cleared by sign-out. */
+let clientSession: SessionUser | null = null;
 /** Set by main.ts so the client can push status changes to the renderer. */
 let onStateChange: ((s: ReturnType<typeof networkClientStatus>) => void) | null = null;
 
@@ -112,15 +117,11 @@ const SKIP_PROXY_CHANNELS = new Set([
   'app:copyText',
   // NOTE: settings:get / settings:save are deliberately NOT skipped — they get
   // a custom split-routing proxy below (see STATION_LOCAL_KEYS).
-  // The admin PIN stays LOCAL on purpose: if the host is unreachable, a station
-  // must still be able to unlock Settings and fix its own network configuration.
-  // Staff ACCOUNTS, by contrast, are clinic-wide and proxy to the host (below) —
-  // a client is already useless without the host (see HostOfflineOverlay), so
-  // keeping accounts local bought nothing and forced staff to be recreated on
-  // every PC. auth:login keeps a local emergency fallback; see installProxy().
-  'auth:verifyAdminPassword',
-  'auth:isDefaultAdminPassword',
-  'auth:changeAdminPassword',
+  // The clinic has ONE admin password and the main computer holds it: an extra computer asks the main computer first and keeps a copy for the day the main
+  // computer cannot be reached (so a station can still unlock Settings to fix its own network configuration) — see the admin-password proxies in
+  // installNetworkClient and main/admin-verify.ts. Staff ACCOUNTS are clinic-wide too and proxy to the host (below) — a client is already useless without the
+  // host (see HostOfflineOverlay). auth:login keeps a local emergency fallback.
+  // Signing OUT is this computer's own business (it also forgets who is signed in here, so later calls to the main computer no longer carry them).
   'auth:logout',
 ]);
 
@@ -202,7 +203,7 @@ export function installNetworkClient(serverUrl: string, secret: string): { ok: b
         'Content-Type': 'application/json',
         ...(activeSecret ? { 'Authorization': `Bearer ${activeSecret}` } : {}),
       },
-      body: JSON.stringify({ args }),
+      body: JSON.stringify({ args, session: clientSession }),
     }, REQUEST_TIMEOUT_MS);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -268,8 +269,50 @@ export function installNetworkClient(serverUrl: string, secret: string): { ok: b
     proxied++;
   }
 
+  // ── the clinic's ONE admin password ────────────────────────────────────────
+  const localVerify = ipcHandlers.get('auth:verifyAdminPassword');
+  const localIsDefault = ipcHandlers.get('auth:isDefaultAdminPassword');
+  const localLogout = ipcHandlers.get('auth:logout');
+  const ADMIN_PROXIED = new Set<string>();
+  if (localVerify) {
+    try { ipcMain.removeHandler('auth:verifyAdminPassword'); } catch { /* ignore */ }
+    rawHandle('auth:verifyAdminPassword', (e: any, password: string) => verifyAdminViaHost({
+      askHostEx: (pw) => callRemote('auth:verifyAdminPasswordEx', [pw]),
+      askHostOld: async (pw) => !!(await callRemote('auth:verifyAdminPassword', [pw])),
+      askLocal: async (pw) => verifyLocalAdminPin(pw),
+      remember: (pw, unified) => cacheClinicAdminPassword(pw, unified),
+    }, String(password ?? '')));
+    ADMIN_PROXIED.add('auth:verifyAdminPassword'); proxied++;
+  }
+  {
+    // Changing it is the main computer's job — one password for the whole clinic — so it cannot be done while the main computer is unreachable
+    // (a change made here alone would give this computer a different password from every other).
+    try { ipcMain.removeHandler('auth:changeAdminPassword'); } catch { /* ignore */ }
+    rawHandle('auth:changeAdminPassword', async (_e: any, current: string, next: string) => {
+      let r: any;
+      try { r = await callRemote('auth:changeAdminPassword', [current, next]); }
+      catch { return { ok: false, error: 'The main computer cannot be reached. The admin password is the same on every computer, so it can only be changed while this computer is connected to the main one.' }; }
+      if (r && r.ok) { try { cacheClinicAdminPassword(String(next), true); } catch { /* the main computer has it */ } }
+      return r;
+    });
+    ADMIN_PROXIED.add('auth:changeAdminPassword'); proxied++;
+  }
+  if (localIsDefault) {
+    try { ipcMain.removeHandler('auth:isDefaultAdminPassword'); } catch { /* ignore */ }
+    rawHandle('auth:isDefaultAdminPassword', async (e: any, ...a: any[]) => {
+      try { return await callRemote('auth:isDefaultAdminPassword', a); } catch { return localIsDefault(e, ...a); }
+    });
+    ADMIN_PROXIED.add('auth:isDefaultAdminPassword'); proxied++;
+  }
+  if (localLogout) {
+    try { ipcMain.removeHandler('auth:logout'); } catch { /* ignore */ }
+    rawHandle('auth:logout', (e: any, ...a: any[]) => { clientSession = null; return localLogout(e, ...a); });
+    proxied++;
+  }
+
   for (const channel of ipcHandlers.keys()) {
     if (SKIP_PROXY_CHANNELS.has(channel)) continue;
+    if (ADMIN_PROXIED.has(channel)) continue;
     if (channel === 'settings:get' || channel === 'settings:save') continue;
     try { ipcMain.removeHandler(channel); } catch { /* ignore */ }
     rawHandle(channel, async (_e: any, ...args: any[]) => {
@@ -287,6 +330,7 @@ export function installNetworkClient(serverUrl: string, secret: string): { ok: b
           lastSuccessAt = Date.now();
           consecutiveFailures = 0;
           setState('connected', null);
+          if (result) clientSession = result as SessionUser;      // from now on every call to the main computer says who is signed in here
           return result;
         } catch (err: any) {
           const local = localLogin;
@@ -468,6 +512,9 @@ export function uninstallNetworkClient() {
     try { ipcMain.removeHandler(channel); } catch { /* ignore */ }
     try { rawHandle(channel, handler as any); } catch { /* ignore */ }
   }
+  const ownLogout = ipcHandlers.get('auth:logout');
+  if (ownLogout) { try { ipcMain.removeHandler('auth:logout'); } catch { /* ignore */ } try { rawHandle('auth:logout', ownLogout as any); } catch { /* ignore */ } }
+  clientSession = null;
   installed = false;
   installedFor = null;
   activeUrl = '';

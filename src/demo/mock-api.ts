@@ -228,6 +228,8 @@ function buildAppointmentRow(a: any): any {
 // ============================================================
 //   The mock — shape mirrors src/preload.ts as closely as needed.
 // ============================================================
+let demoAdminUnified = false;          // the showcase starts like a clinic that has not set its ONE admin password yet; changing it in the demo sets it
+
 export function createMockElectronAPI(): any {
   return {
     auth: {
@@ -241,8 +243,9 @@ export function createMockElectronAPI(): any {
     admin: {
       verifyPassword: (pwd: string) => r(pwd === '1234' || pwd === 'Sunil@1918'),
       isDefaultAdminPassword: () => r(false),
-      setInitialAdminPassword: () => r({ ok: true }),
-      changePassword: () => r({ ok: true }),
+      setInitialAdminPassword: () => r({ ok: true, unified: true }),
+      changePassword: () => { demoAdminUnified = true; return r({ ok: true, unified: true }); },
+      passwordState: () => r({ unified: demoAdminUnified, isDefault: false }),
       resetAuditLog: () => r({ ok: true }),
       resetNotificationLog: () => r({ ok: true }),
       deletePatient: () => r({ ok: true }),

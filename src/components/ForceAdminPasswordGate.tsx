@@ -59,7 +59,8 @@ export function ForceAdminPasswordGate() {
         </div>
         <p className="text-[13px] text-gray-600 dark:text-slate-300 mb-4 leading-relaxed">
           This app is still on the default admin password. Set your own <b>admin password</b> now — it guards Settings,
-          staff logins, billing tools and patient-data deletion.
+          staff logins, billing tools and patient-data deletion. It is also the password of the <b>Admin</b> login
+          (username <b>admin</b>), so there is just one to remember — the same on every computer.
         </p>
 
         <label className="label">New admin password</label>
