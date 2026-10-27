@@ -87,7 +87,7 @@ export async function pairWithCode(serverUrl: string, code: string): Promise<{ o
           `Could not reach ${host}. The join code was never checked — this is a network problem, not a wrong code.\n\n` +
           `• Is CureDesk OPEN on the main computer, showing "Hosting on port"? It only accepts connections while running.\n` +
           `• Is ${host} still the main computer's address? It can change when the router restarts — check Settings → Computers & staff there.\n` +
-          `• Are both PCs on the same Wi-Fi/LAN?\n` +
+          `• Are both PCs on the same network (the same router, by cable or Wi-Fi — not a Guest network)?\n` +
           `• On the main computer, allow CureDesk through the firewall for Private networks.`,
       };
     }

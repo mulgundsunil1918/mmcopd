@@ -399,7 +399,8 @@ function HostCodeStep({
         <div className="flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
           <div>
-            If Windows asks <b>"Allow CureDesk HMS to communicate on networks?"</b>, click <b>Allow access</b>. This is one-time and only opens the LAN, not the internet.
+            If Windows asks <b>"Allow CureDesk HMS to communicate on these networks?"</b>, tick <b>Private networks</b> and click <b>Allow access</b> (for one cable straight between two computers, tick <b>Public networks</b> too). This is one-time and only opens your clinic network, not the internet.
+            Also set Windows to treat this network as <b>Private</b> and never sleep — the step-by-step guide in <b>Settings → Computers &amp; staff</b> shows how.
           </div>
         </div>
       </div>
@@ -428,7 +429,7 @@ function ConnectDiscoverStep({
       <div className="mb-6">
         <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100">Find your clinic's host PC</h1>
         <p className="text-sm text-gray-600 dark:text-slate-400 mt-1">
-          Looking for CureDesk servers on this Wi-Fi / LAN…
+          Looking for CureDesk servers on this network (cable or Wi-Fi)…
         </p>
       </div>
 
@@ -436,7 +437,7 @@ function ConnectDiscoverStep({
         <div className="text-center py-10 rounded-lg border-2 border-dashed border-violet-200 dark:border-violet-800 bg-violet-50/40 dark:bg-violet-900/10">
           <Loader2 className="w-8 h-8 animate-spin mx-auto text-violet-600 mb-2" />
           <div className="text-sm text-violet-900 dark:text-violet-200 font-semibold">Scanning the network…</div>
-          <div className="text-[11px] text-violet-700 dark:text-violet-400 mt-1">Make sure both PCs are on the same Wi-Fi.</div>
+          <div className="text-[11px] text-violet-700 dark:text-violet-400 mt-1">Make sure both PCs are on the same router — cable or Wi-Fi.</div>
         </div>
       )}
 
@@ -445,7 +446,7 @@ function ConnectDiscoverStep({
           <Wifi className="w-8 h-8 text-gray-400 mx-auto mb-2" />
           <div className="text-sm text-gray-700 dark:text-slate-300 font-semibold">No clinics found</div>
           <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
-            Make sure the host PC is running CureDesk and on the same Wi-Fi as this PC. Or click <b>Type code manually</b> if you already have a join code.
+            Make sure the host PC is running CureDesk and on the same network as this PC (the same router, by cable or Wi-Fi — not a Guest network). Still nothing? On both computers Windows must have the network set to <b>Private</b> and the firewall question answered <b>Allow access</b> — see <b>Settings → Computers &amp; staff → Connect the computers</b>. Or click <b>Type code manually</b> if you already have a join code.
           </div>
         </div>
       )}

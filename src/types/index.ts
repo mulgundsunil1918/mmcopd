@@ -862,6 +862,8 @@ export interface Settings {
   /** Pinned adapter IP for Server mode — lets the host advertise its wired
    *  address on a PC that also has Wi-Fi. Empty = auto-pick (wired preferred). */
   network_bind_ip: string;
+  /** How THIS computer reaches the others: 'cable' (to a router or switch), 'wifi', 'direct' (one cable between two computers), '' = not chosen. Per computer. */
+  network_connection: '' | 'cable' | 'wifi' | 'direct';
   /** Friendly name for THIS PC, e.g. "Reception Desk", "Cabin 1 — Dr. Patil". */
   station_name: string;
   // QR codes on prescription page 2 (near follow-up box)

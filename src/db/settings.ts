@@ -88,6 +88,8 @@ export function getAllSettings(db: Database.Database): Settings {
     network_secret: map.network_secret || '',
     // Pinned adapter IP for Server mode. Empty = auto-pick (wired preferred).
     network_bind_ip: map.network_bind_ip || '',
+    // How THIS computer reaches the others — 'cable' (to a router or switch), 'wifi', 'direct' (one cable between two computers) — or '' = not chosen. Per computer.
+    network_connection: (map.network_connection === 'cable' || map.network_connection === 'wifi' || map.network_connection === 'direct' ? map.network_connection : '') as any,
     station_name: map.station_name || '',
     qr1_img: map.qr1_img || '',
     qr1_label: map.qr1_label || 'Scan to Pay / Review',

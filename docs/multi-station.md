@@ -1,9 +1,13 @@
 # CureDesk HMS — Multi-Station Setup & Recovery
 
 Field reference for running reception, doctor cabins and pharmacy off one clinic
-database over the LAN / Wi-Fi. Windows & macOS. There's an illustrated,
-printable version at `/multi-station.html` (deployed to GitHub Pages) and inside
-the app at **Settings → Network → Multi-Station Setup Guide**.
+database over your own network — **network cable (best), Wi-Fi, or one cable
+between two computers**. Windows & macOS. There's an illustrated, printable
+version at `/multi-station.html` (deployed to GitHub Pages) and inside the app
+at **Settings → Computers & staff → Connect the computers — step by step**. That
+guide also covers the **Windows settings** every computer needs (network set to
+Private, the firewall question, never sleep, a fixed address, date & time), what
+to buy, and a **Check this computer** button.
 
 ## How it works
 
@@ -26,21 +30,21 @@ and keep the host **awake** (disable sleep). One host, any number of cabins.
 
 ### On the HOST PC (Server) — do this first
 
-1. Open **Settings → Network Mode**, choose **Server**, and Save.
+1. Open **Settings → Computers & staff → Connecting the Computers → Network Mode**, choose **Server**, and Save.
 2. When Windows/macOS asks, click **Allow access** so the firewall doesn't block
    the port.
 3. Confirm the green banner: **"✓ other PCs can reach this host at
    `http://<ip>:4321`"**. If it's amber, fix the firewall / pick the wired
    adapter, then **Re-check**.
-4. Click **Generate join code** — a 6-character code (valid 10 minutes). Read out
+4. Note the **join code** — 5 letters and numbers, capital and small letters are different (valid 10 minutes; **New code** for another). Read out
    the code *and* the host address shown next to it.
 
 ### On each CABIN (Client)
 
 1. Make sure it's on the **same network** as the host.
-2. Open **Settings → Network Mode** and choose **Client**.
+2. Open **Settings → Computers & staff → Connecting the Computers → Network Mode** and choose **Client** (on a fresh install: **"This computer joins a clinic that is already set up"** in the Setup guide).
 3. Pick the host under **"Servers found on your network"**, *or* type the
-   **6-character join code** from the host.
+   **5-character join code** from the host.
 4. It connects and reloads. The sidebar shows a **connected** pill — you're now
    on the shared data.
 
@@ -56,7 +60,7 @@ To take a PC back to standalone, set its Network Mode to **Local**.
 | Cabin screen frozen | Host asleep / lost power | The app times out to a clear error instead of hanging. **Wake the host**, or switch the cabin to **Local** to keep working, then back to Client. |
 | Some PCs can't see the host | Different networks — Guest Wi-Fi, or one wired + one Wi-Fi kept apart | Put everyone on the **same router/switch**. Avoid "Guest" networks and AP-isolation. Wired for the host is most reliable. |
 
-**Always available:** **Settings → Network Mode → Troubleshoot** runs a
+**Always available:** **Settings → Computers & staff → Check this computer** and **Troubleshoot** runs a
 step-by-step check (adapter → same network → port open → server answering →
 token accepted) and tells you, in plain words, which step failed and how to fix
 it.

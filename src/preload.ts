@@ -9,6 +9,7 @@ import type { SupplierAccounts, SupplierStatementResult } from './lib/supplierSt
 import type { ReferralStats } from './lib/referralStats';
 import type { ImportCommit, ImportResult, ParseResult, WaitingGet, WaitingRow } from './lib/billImport/types';
 import type { AdminPatientVisits, PurchaseDeletedSummary } from './types';
+import type { NetFacts } from './lib/connectCheck';
 
 export type LicenseStatusIPC = {
   state: 'valid' | 'grace' | 'locked' | 'invalid' | 'wrong_machine' | 'clock_tampered' | 'none' | 'dev';
@@ -974,6 +975,8 @@ const api = {
       known: boolean; sleepsOnAC: boolean; sleepAfterMinutes: number; preventionActive: boolean; fixCommand: string; detail: string;
     }>,
     disableHostSleep: () => ipcRenderer.invoke('network:disableHostSleep') as Promise<{ ok: boolean; error?: string }>,
+    /** The plain facts about THIS computer's network (cable / Wi-Fi, the Windows network type, sleep, whether the server runs) — judged by lib/connectCheck.ts. Changes nothing. */
+    checkComputer: () => ipcRenderer.invoke('network:checkComputer') as Promise<NetFacts>,
     reconnect: () => ipcRenderer.invoke('network:reconnect') as Promise<{ ok: boolean; latencyMs?: number; error?: string }>,
     forget: () => ipcRenderer.invoke('network:forget') as Promise<{ ok: boolean }>,
     /** Live connection-state pushes from the main process (client mode). */

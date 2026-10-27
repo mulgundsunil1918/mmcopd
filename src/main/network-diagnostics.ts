@@ -104,6 +104,25 @@ export function listNetworkInterfaces(): NetInterface[] {
   return out.sort((a, b) => b.score - a.score || a.address.localeCompare(b.address));
 }
 
+/**
+ * Every IPv4 adapter on this PC — INCLUDING the ones CureDesk ignores (virtual adapters and self-assigned 169.254.x.x addresses) — each marked as such.
+ * listNetworkInterfaces() above is what the server binds to and advertises; this is what "Check this computer" reads, because it has to be able to say
+ * "the cable is in, but nothing gave this computer an address" — which listNetworkInterfaces() never shows (it drops that adapter).
+ */
+export function describeAdapters(): { name: string; address: string; kind: InterfaceKind; apipa: boolean; virtual: boolean }[] {
+  const out: { name: string; address: string; kind: InterfaceKind; apipa: boolean; virtual: boolean; score: number }[] = [];
+  for (const [name, infos] of Object.entries(os.networkInterfaces())) {
+    for (const info of infos || []) {
+      if (info.family !== 'IPv4' || info.internal) continue;
+      const apipa = /^169\.254\./.test(info.address);
+      const virtualName = /(virtual|vmware|hyper-?v|loopback|docker|vethernet|vbox|tailscale|zerotier|utun|tun\d|tap\d)/i.test(name);
+      const kind = classify(name);
+      out.push({ name, address: info.address, kind, apipa, virtual: virtualName || (!apipa && isVirtualSubnet(info.address)), score: scoreOf(kind, info.address) });
+    }
+  }
+  return out.sort((a, b) => b.score - a.score || a.address.localeCompare(b.address)).map(({ score: _s, ...rest }) => rest);
+}
+
 /** Broadcast address for an interface, e.g. 192.168.1.42/255.255.255.0 →
  *  192.168.1.255. Used so UDP discovery reaches BOTH the wired and wireless
  *  subnets instead of only whichever one owns the default route. */

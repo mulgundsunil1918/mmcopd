@@ -86,6 +86,7 @@ const SKIP_PROXY_CHANNELS = new Set([
   'network:diagnose',
   'network:findHosts',   // must run on THIS PC's own network, never proxied to the host
   'network:hostPower',   // asks about THIS PC's power settings
+  'network:checkComputer', // looks at THIS PC's own network, never the host's
   'network:disableHostSleep',
   'network:interfaces',
   'network:reconnect',
@@ -146,7 +147,7 @@ const HOST_ACCOUNT_CHANNELS = new Set([
  */
 const STATION_LOCAL_KEYS = new Set([
   'network_mode', 'network_listen_port', 'network_server_url', 'network_secret',
-  'network_bind_ip', 'station_name', 'station_role', 'sidebar_layout',
+  'network_bind_ip', 'network_connection', 'station_name', 'station_role', 'sidebar_layout',
   'backup_folder', 'backup_reminder_time', 'usb_reminder_weekday', 'usb_reminder_time',
   'keep_all_backups', 'auto_backup_enabled', 'auto_backup_frequency', 'auto_backup_time',
   'auto_launch', 'minimize_to_tray', 'start_minimized',

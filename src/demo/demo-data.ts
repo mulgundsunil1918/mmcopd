@@ -108,6 +108,7 @@ export const DEMO_SETTINGS: Settings = {
   network_server_url: '',
   network_secret: '',
   network_bind_ip: '',
+  network_connection: '',
   station_name: '',
   gst_enabled: false,
   pharmacy_gst_enabled: null,

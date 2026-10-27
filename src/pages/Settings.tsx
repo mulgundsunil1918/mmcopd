@@ -35,6 +35,7 @@ import { AccrualToggle, SectionSaveBar, TabIntro, LockedModule, Explain } from '
 import { SETTINGS_TABS, SETTINGS_GROUPS, SETTINGS_TAB_STORAGE_KEY, tabDef, tabFromStored, BILLING_KEYS, PHARMACY_KEYS, LAB_KEYS, IPD_KEYS, WHATSAPP_KEYS, COMPUTERS_KEYS, type SettingsTabId, type SettingsTabDef } from '../lib/settingsMap';
 import { Pill, BedDouble, ScanLine, MessageSquare, Monitor } from 'lucide-react';
 import { ModeChoice, ReceptionAccessList, SharedDeskDiscountBox, useReceptionAccess } from '../components/computers/ComputersParts';
+import { ConnectGuide } from '../components/computers/ConnectGuide';
 import { computersMode, thisComputer, type ComputersMode } from '../lib/computers';
 import { useWhatsAppTemplates } from '../hooks/useWhatsAppTemplates';
 import { WA_TEMPLATE_TYPES, DEFAULT_WA_TEMPLATES, WA_VARIABLES, resolveWaTemplates, serializeWaTemplates } from '../lib/whatsappTemplates';
@@ -145,6 +146,10 @@ const SETTINGS_SEARCH: { tab: SettingsTab; label: string; hint: string; keywords
   { tab: 'computers', label: 'Sign-in', hint: 'Own login for everyone, idle sign-out', keywords: 'sign in login password security require idle signout user audit' },
   { tab: 'computers', label: 'Who can open what', hint: 'Module access per staff role', keywords: 'role access permission module staff matrix customisable doctor nurse pharmacist lab' },
   { tab: 'computers', label: 'This computer\'s job', hint: 'Pharmacy counter, doctor cabin, lab bench…', keywords: 'this computer station role pharmacy counter reception lab ward menu show hide' },
+  { tab: 'computers', label: 'Connect the computers — step by step', hint: 'Cable, Wi-Fi or direct cable · Windows settings · what to buy', keywords: 'connect network cable lan wifi wi-fi wireless router switch direct tutorial guide windows firewall private public sleep ip address amazon buy ups usb adapter checklist print onboarding multi computer' },
+  { tab: 'computers', label: 'Check the connection', hint: 'Tells you what to fix on this computer', keywords: 'check test connection diagnose network cable wifi private public firewall sleep find main computer' },
+  { tab: 'computers', label: 'Windows settings for the network', hint: 'Private network, firewall, never sleep, fixed address', keywords: 'windows settings private public network profile firewall allow access sleep never power adapter fixed ip address time antivirus' },
+  { tab: 'computers', label: 'What to buy — LAN cable, switch, UPS', hint: 'Search links on Amazon.in', keywords: 'buy shopping amazon lan cable cat6 switch router ups usb lan adapter wifi adapter' },
   { tab: 'computers', label: 'Connecting the computers', hint: 'Main computer, join code, cable or Wi-Fi', keywords: 'network multi station lan server client cabin host connect diagram cable wifi join code' },
   { tab: 'subscription', label: 'Subscription & Modules', hint: 'Active plan, expiry, upgrade / renew', keywords: 'subscription licence license plan modules upgrade renew activate activation code expiry machine id lock unlock' },
   { tab: 'subscription', label: 'App Mode', hint: 'Which modules show in the sidebar', keywords: 'app mode module sidebar reception pharmacy doctor lab ipd' },
@@ -447,7 +452,9 @@ const SETTINGS_HELP: Record<string, React.ReactNode> = {
   'Who can open what': <><p>Which staff roles may open which screens — the matrix behind Doctor / Nurse / Pharmacist / Lab Tech.</p><p>Set it once on the main computer and it applies to every connected computer. Admin always sees everything; Users &amp; Settings stay admin-only so you can never lock yourself out.</p></>,
   "This Computer's Job": <><p>What this one computer is for — reception desk, doctor&rsquo;s cabin, pharmacy counter, lab bench, ward station. Its menu shrinks to match.</p><p>It changes <b>this computer only</b>. Settings and Users are never hidden, so you can always undo it.</p></>,
   'Connecting the Computers': <><p>A live picture of the computers connected right now — which one is the main computer and which are the others — and the join code for a new one.</p><p>If a computer is missing here it cannot reach the main computer: check the cable or Wi-Fi, and that CureDesk is open on the main computer.</p></>,
-  'Multi-Station Setup Guide': <><p>Step-by-step instructions for running CureDesk on several computers: what to buy, how to connect them, how staff accounts work across PCs, and what to do when something breaks.</p><p>Read the sections in order the first time — each takes 2-3 minutes.</p></>,
+  'Multi-Station Setup Guide': <><p>How CureDesk behaves on several computers once they are connected: the day-to-day flow, how staff accounts work across PCs, subscription and backups, what happens when the main computer is off, renaming a computer, and what to do when something breaks.</p><p>To <b>connect</b> the computers — cable, Wi-Fi, the Windows settings, what to buy — use <b>Connect the computers — step by step</b> above.</p></>,
+  'Connect the computers — step by step': <><p>The set-up itself, in eight short steps: choose cable, Wi-Fi or one cable between two computers; what to buy (with links to search for it); plug it in; the Windows settings on every computer; set up the main computer; connect each other computer; <b>check</b> that it works; add the people.</p><p>The <b>Check this computer</b> button looks at the computer you are sitting at and tells you in plain words what to fix. <b>Print the checklist</b> gives two A4 sheets to tick off while you work.</p></>,
+  'Adding more computers later?': <><p>The step-by-step guide for connecting computers is here when you need it. Choosing <b>More than one computer</b> above moves it into the tab permanently; reading it now changes nothing.</p></>,
   'Backup, Restore & Updates': <><p>Where your backups are saved, how often they run automatically, and how to restore one.</p><p><b>Choose a Google Drive or OneDrive folder</b> so a copy also lives outside this computer — a disk failure would otherwise take your records and the backups together. Each backup is a full database copy plus an Excel file readable without CureDesk.</p></>,
   'Startup & Background': <><p>Whether CureDesk opens automatically when the computer starts, and whether it hides in the system tray instead of closing.</p><p>Handy on a reception PC that should always be running.</p></>,
 };
@@ -2692,7 +2699,7 @@ function ClientConnectPanel({
     try {
       const list = await window.electronAPI.network.discover({ timeoutMs: 5_000 });
       setDiscovered(list);
-      if (list.length === 0) setMsg({ ok: false, text: 'No CureDesk servers found on this Wi-Fi. Make sure the host PC is running and on the same network.' });
+      if (list.length === 0) setMsg({ ok: false, text: 'No CureDesk servers found on this network. Make sure the host PC is running and on the same router (cable or Wi-Fi, not a Guest network).' });
     } catch (e: any) {
       setMsg({ ok: false, text: `Scan failed: ${e?.message || e}` });
     } finally {
@@ -2767,7 +2774,7 @@ function ClientConnectPanel({
       <div>
         <div className="text-xs font-bold text-violet-900 dark:text-violet-200 mb-2">Step 1 — Find the host PC</div>
         <button type="button" className="btn-secondary text-xs" onClick={scan} disabled={discovering}>
-          {discovering ? 'Scanning Wi-Fi…' : (discovered.length > 0 ? '🔄 Rescan' : '🔍 Scan for clinic servers on this Wi-Fi')}
+          {discovering ? 'Scanning the network…' : (discovered.length > 0 ? '🔄 Rescan' : '🔍 Scan for clinic servers on this network')}
         </button>
         {discovered.length > 0 && (
           <ul className="mt-3 space-y-1.5">
@@ -2890,8 +2897,8 @@ function NetworkSetupGuide() {
   return (
     <section className="card p-5 space-y-3">
       <div className="text-sm text-gray-700 dark:text-slate-300">
-        New to multi-station? Read the sections below in order. Each step is small enough
-        to do in 2-3 minutes.
+        This part explains how the computers work together once they are connected. To <b>connect</b> them — cable or Wi-Fi, the Windows settings,
+        what to buy — use <b>Connect the computers — step by step</b> above.
       </div>
 
       <button
@@ -2931,8 +2938,8 @@ function NetworkSetupGuide() {
       >
         <ul className="list-disc pl-5 space-y-1">
           <li><b>Windows PCs</b> — one for each station you want to run CureDesk on. Any modern PC works.</li>
-          <li><b>One Wi-Fi router</b> in the clinic. Both PCs must connect to the SAME Wi-Fi (or LAN cable).
-            A normal home/office router is fine — no special hardware needed.</li>
+          <li><b>One router</b> in the clinic. Both PCs must connect to the SAME router — by network cable (best) or by Wi-Fi.
+            A normal home/office router is fine — no special hardware needed. (Only two computers? One cable between them works too.)</li>
           <li><b>One PC chosen as the "main PC"</b> (also called <i>server</i> or <i>host</i>). This is usually
             the reception PC because it stays on all day. All patient data lives here. Other PCs (doctor cabins)
             are <i>clients</i> that connect to it.</li>
@@ -2960,7 +2967,7 @@ function NetworkSetupGuide() {
           <li>Wait 2-3 seconds. The wizard sets up the LAN server, generates a secret, and shows
             a big <b>JOIN CODE</b> like <span className="font-mono font-bold">7K3P-QM</span>.</li>
           <li>Windows asks <b>"Allow CureDesk HMS to communicate on networks?"</b> → click <b>Allow access</b>.
-            (One-time. This only opens your local Wi-Fi, NOT the internet.)</li>
+            (One-time. This only opens your clinic’s own network, NOT the internet.)</li>
           <li>Note down the join code on a piece of paper, or just leave the wizard open while you go to
             the cabin PCs. The code is valid for 10 minutes — if it expires, click <b>"New code"</b> to
             mint a fresh one.</li>
@@ -2982,7 +2989,7 @@ function NetworkSetupGuide() {
             Install + Finish.</li>
           <li>CureDesk launches → Welcome wizard appears.</li>
           <li>Click the violet card: <b>"👤 Connect to existing clinic"</b>.</li>
-          <li>The wizard scans the Wi-Fi for ~5 seconds. The main PC should appear as a clickable card
+          <li>The wizard scans the network (cable or Wi-Fi) for ~5 seconds. The main PC should appear as a clickable card
             (e.g. <span className="font-mono">CureDesk HMS · v0.3.0 · 192.168.1.100:4321</span>). Click it.</li>
           <li>If the scan finds nothing, click <b>"Type code manually"</b> instead and enter the main PC's IP
             (find it on the main PC's join-code screen — bottom row, "This PC's IP").</li>
@@ -3020,7 +3027,7 @@ function NetworkSetupGuide() {
           <li>Pharmacy PC (if you have one) sees the prescription appear in the dispense queue automatically.</li>
         </ol>
         <p className="mt-2">All this happens with <b>no manual file copying</b>, no shared drives — just live data
-          flowing between the PCs over your Wi-Fi.</p>
+          flowing between the PCs over your clinic network.</p>
       </GuideSection>
 
       <GuideSection
@@ -3121,7 +3128,7 @@ function NetworkSetupGuide() {
         <div className="space-y-3">
           <Trouble q="The cabin PC's wizard says 'No clinics found'.">
             <ul className="list-disc pl-5 space-y-1">
-              <li>Make sure both PCs are on the <b>same Wi-Fi</b> (not different floors / different routers).</li>
+              <li>Make sure both PCs are on the <b>same router</b> — cable or Wi-Fi, but not a “Guest” network, and not different routers.</li>
               <li>Check that the main PC's CureDesk is running and showing the join code.</li>
               <li>Some routers block UDP broadcast. Click <b>"Type code manually"</b> in the wizard and enter
                 the main PC's IP (shown on the main PC's join-code screen).</li>
@@ -3140,7 +3147,7 @@ function NetworkSetupGuide() {
           </Trouble>
           <Trouble q="Cabin PC shows the red 'Disconnected from clinic server' banner.">
             <ul className="list-disc pl-5 space-y-1">
-              <li>The main PC may be off, sleeping, or the Wi-Fi dropped. Wait 5 seconds — the cabin auto-reconnects.</li>
+              <li>The main PC may be off, sleeping, or the cable / Wi-Fi dropped. Wait 5 seconds — the cabin auto-reconnects.</li>
               <li>If the banner stays for more than a minute, walk to the main PC and check it's still running.</li>
               <li>Make sure the main PC isn't in <b>Sleep</b> mode (Settings → System → Power → set "Never sleep" while plugged in).</li>
             </ul>
@@ -3168,13 +3175,13 @@ function NetworkSetupGuide() {
         tone="slate"
       >
         <ul className="list-disc pl-5 space-y-1">
-          <li><b>Patient data never leaves your clinic Wi-Fi.</b> No cloud, no internet calls.
+          <li><b>Patient data never leaves your clinic network.</b> No cloud, no internet calls.
             CureDesk only opens an internet connection for daily update checks (which can be turned off).</li>
           <li>The main PC's server requires a <b>shared secret token</b>. Cabin PCs without the token can't
             read or write data. The token is auto-generated and stored on each PC after pairing.</li>
           <li>The 5-character join code is <b>short-lived (10 minutes)</b> and rotates — so even if a code
             is overheard, it can't be used after expiry.</li>
-          <li><b>Anyone on the same Wi-Fi with the token can use any feature.</b> Per-station role enforcement
+          <li><b>Anyone on the same network with the token can use any feature.</b> Per-station role enforcement
             (e.g. "this cabin can only see Dr. X's patients") isn't built yet — keep your clinic Wi-Fi
             password-protected so outsiders can't join.</li>
           <li>Daily backups still run on the main PC and protect against drive failure.</li>
@@ -5629,6 +5636,7 @@ function ComputersTab() {
   const { data: netStatus } = useQuery({ queryKey: ['network-status'], queryFn: () => window.electronAPI.network.status(), staleTime: 15_000 });
   const { draft, set, reset, dirty, saving, save } = useSectionDraft(settings, COMPUTERS_KEYS, { extraInvalidateKeys: [['setup-status'], ['network-status']] });
   const reception = useReceptionAccess();
+  const [previewGuide, setPreviewGuide] = useState(false);
   if (!settings) return <SettingsLoading />;
 
   const isClient = netStatus?.mode === 'client';
@@ -5719,8 +5727,23 @@ function ComputersTab() {
         </SettingsGroup>
       )}
 
+      {!showNetwork && (
+        <SettingsGroup title="Adding more computers later?" subtitle="Cable, Wi-Fi, the Windows settings, what to buy — the step-by-step guide is here whenever you need it.">
+          <div className="card p-5 space-y-3">
+            <div className="text-[12.5px] text-gray-700 dark:text-slate-300">
+              When the clinic gets a second computer, choose <b>“More than one computer”</b> above — the guide then sits in this tab. You can read it now without changing anything.
+            </div>
+            <button type="button" className="btn-secondary text-xs" onClick={() => setPreviewGuide((v) => !v)}>{previewGuide ? 'Hide the guide' : 'Show the step-by-step guide'}</button>
+            {previewGuide && <ConnectGuide />}
+          </div>
+        </SettingsGroup>
+      )}
+
       {showNetwork && (
         <>
+          <SettingsGroup title="Connect the computers — step by step" subtitle="Cable, Wi-Fi or one cable between two computers · the Windows settings on every computer · what to buy · a check that tells you what to fix.">
+            <div className="card p-5"><ConnectGuide showHeader /></div>
+          </SettingsGroup>
           <SettingsGroup title="This Computer's Job" subtitle="What this one computer is for — it changes this computer's menu only (for example a pharmacy counter that shows just the pharmacy).">
             <div className="card p-5"><ThisComputerPanel /></div>
           </SettingsGroup>
@@ -5729,7 +5752,7 @@ function ComputersTab() {
             <RelaunchWizardButton />
             <NetworkModeSettings />
           </SettingsGroup>
-          <SettingsGroup title="Multi-Station Setup Guide" subtitle="Step-by-step — what to buy, how to wire it up, how to connect each PC, and what to do when something breaks.">
+          <SettingsGroup title="Multi-Station Setup Guide" subtitle="How the computers work together day to day — staff accounts, backups, what happens when the main computer is off, renaming, and fixing problems.">
             <NetworkSetupGuide />
           </SettingsGroup>
         </>

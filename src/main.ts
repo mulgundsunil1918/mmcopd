@@ -24,6 +24,8 @@ import splashHtml from './splash.html?raw';
 import { getDb, closeDb } from './db/db';
 import { getAllSettings, saveSettings } from './db/settings';
 import { checkHostPower, disableHostSleep } from './main/host-power';
+import { isAllowedExternalUrl } from './main/external-url';
+import { gatherNetFacts } from './main/network-facts';
 
 // Update mechanism: poll GitHub Releases API on demand and on a daily timer.
 // We ship via NSIS (electron-builder) so Electron's built-in Squirrel autoUpdater
@@ -433,20 +435,7 @@ function createWindow() {
   ipcMain.handle('app:openExternal', async (_e, url: string) => {
     try {
       if (typeof url !== 'string') return { ok: false, error: 'Invalid URL' };
-      const lower = url.toLowerCase();
-      const ok =
-        lower.startsWith('https://wa.me/') ||
-        lower.startsWith('https://api.whatsapp.com/') ||
-        lower.startsWith('tel:') ||
-        lower.startsWith('mailto:') ||
-        lower.startsWith('https://www.google.com/maps') ||
-        lower.startsWith('https://maps.google.com/') ||
-        lower.startsWith('https://curedesk.co.in/') ||
-        lower.startsWith('https://www.curedesk.co.in/') ||
-        lower.startsWith('https://mulgundsunil1918.github.io/mmcopd/') ||
-        lower.startsWith('https://bridgr.co.in/') ||
-        lower.startsWith('https://chatgpt.com/');
-      if (!ok) return { ok: false, error: 'URL not allowed' };
+      if (!isAllowedExternalUrl(url)) return { ok: false, error: 'URL not allowed' };
       await shell.openExternal(url);
       return { ok: true };
     } catch (err: any) {
@@ -633,6 +622,20 @@ function createWindow() {
   ipcMain.handle('network:hostPower', async () => {
     try { return await checkHostPower(); }
     catch (err: any) { return { known: false, sleepsOnAC: false, sleepAfterMinutes: 0, fixCommand: '', detail: err?.message || String(err) }; }
+  });
+
+  /**
+   * "Check this computer": the plain facts about THIS computer's network — adapters (cable / Wi-Fi), the Windows network type, the sleep setting, and (on the
+   * main computer) whether the server is running and who is connected. The judging is done in the window (lib/connectCheck.ts). Changes nothing.
+   */
+  ipcMain.handle('network:checkComputer', async () => {
+    const s = getAllSettings(getDb());
+    const st = networkServerStatus();
+    return gatherNetFacts({
+      hosting: s.network_mode === 'server' ? { running: st.running, port: st.port || s.network_listen_port || 4321, clients: st.clients } : null,
+      lanIp: getLocalLanIP(),
+      readPower: checkHostPower,
+    });
   });
 
   ipcMain.handle('network:disableHostSleep', async () => {

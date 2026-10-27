@@ -5,11 +5,11 @@
 //   1. start the demo:   npx vite --config vite.demo.config.ts --port 5199 --host 127.0.0.1
 //   2. run a scenario:   node_modules/.bin/electron tools/print-check.cjs <scenario> <outDir>
 //        scenarios: billing-invoice | pharmacy-receipt | lab-bill | services-bill | services-bill-long
-//                   opd-slip | radiology-report | radiology-bill | route-only | eval
+//                   opd-slip | radiology-report | radiology-bill | connect-checklist | connect-checklist-setup | route-only | eval
 //   env: TAG=<suffix for the pdf name>, DEMO_URL, SETTINGS_JSON=<file with a settings patch, e.g. a wide
 //        logo + lh_style:"banner">, HASH / WAIT (route-only), EVAL (eval).
 //
-// Expected page counts: every bill / receipt / report = 1, the 45-line bill = 2, the OPD slip = 2.
+// Expected page counts: every bill / receipt / report = 1, the 45-line bill = 2, the OPD slip = 2, the connect checklist = 2.
 //
 const { app, BrowserWindow } = require('electron');
 const fs = require('fs');
@@ -145,6 +145,34 @@ const SCENARIOS = {
     await waitFor(win, `(() => { const b=[...document.querySelectorAll('button')].find(e => /Print bill/.test(e.textContent||'')); if(!b) return false; b.click(); return true; })()`, 'Print bill button');
     await waitFor(win, HAS_TEXT('Authorised Signatory'), 'bill overlay');
     await sleep(600);
+  },
+  // Settings -> Computers & staff -> (more than one computer) -> "Print the checklist": the two A4 sheets for setting up several computers (must stay 2).
+  // CHOICE=cable|wifi|direct picks the way of connecting first (the checklist differs a little).
+  'connect-checklist': async (win) => {
+    await open(win, '#/settings');
+    await waitFor(win, `(() => { const i=document.querySelector('input[type="password"]'); if(!i) return !!document.querySelector('button'); const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; set.call(i,'1234'); i.dispatchEvent(new Event('input',{bubbles:true})); const b=[...document.querySelectorAll('button')].find(b=>/Unlock Admin/.test(b.textContent)); if(!b) return false; b.click(); return true; })()`, 'unlock Settings');
+    await waitFor(win, CLICK('button', 'Computers & staff'), 'Computers & staff tab');
+    await waitFor(win, CLICK('button', 'More than one computer'), 'More than one computer');
+    await waitFor(win, HAS_TEXT('Connect your computers'), 'the guide');
+    if (process.env.CHOICE) {
+      const text = { cable: 'Network cable to the router', wifi: 'Wi-Fi', direct: 'One cable straight between' }[process.env.CHOICE];
+      await waitFor(win, `(() => { const b=[...document.querySelectorAll('button[role="radio"]')].find(e => (e.textContent||'').includes(${JSON.stringify(text)})); if(!b) return false; b.click(); return true; })()`, 'choose ' + process.env.CHOICE);
+      await sleep(600);
+    }
+    await waitFor(win, CLICK('button', 'Print the checklist'), 'Print the checklist');
+    await waitFor(win, HAS_TEXT('Sheet 2 of 2'), 'checklist overlay');
+    await sleep(800);
+  },
+  // The same checklist, opened from the first-start Setup guide's own "step-by-step guide" window (needs DEMO_URL=http://127.0.0.1:5199/demo.html?setup).
+  // That window sits inside a "no-print" page, so this proves the sheet still prints (must stay 2 pages, not blank).
+  'connect-checklist-setup': async (win) => {
+    await open(win, '#/reception');
+    await waitFor(win, CLICK('button', 'More than one computer'), 'More than one computer');
+    await waitFor(win, CLICK('button', 'Open the step-by-step guide'), 'Open the step-by-step guide');
+    await waitFor(win, HAS_TEXT('Print the checklist'), 'the guide window');
+    await waitFor(win, CLICK('button', 'Print the checklist'), 'Print the checklist');
+    await waitFor(win, HAS_TEXT('Sheet 2 of 2'), 'checklist overlay');
+    await sleep(800);
   },
   // Ad-hoc: run JS (env EVAL) on a route and print the result.
   'eval': async (win) => {

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { NumberInput } from './NumberInput';
 import { ChangeLaterNote, ModeChoice, ReceptionAccessList, SharedDeskDiscountBox, useReceptionAccess } from './computers/ComputersParts';
+import { ConnectGuideDialog, ConnectionPicker, useConnectionChoice } from './computers/ConnectGuide';
 import { computersMode, thisComputer, type ComputersMode } from '../lib/computers';
 import { useToast } from '../hooks/useToast';
 import { useLicensedModules } from '../hooks/useLicensedModules';
@@ -269,6 +270,8 @@ function ToggleBox({ label, help, checked, onChange, locked }: { label: string; 
 function ComputersStep({ settings, register, onStartMain, onJoin }: { settings: any; register: Register; onStartMain: () => void; onJoin: () => void }) {
   const { data: net } = useQuery({ queryKey: ['network-status'], queryFn: () => window.electronAPI.network.status(), refetchInterval: 4_000 });
   const [mode, setMode] = useState<ComputersMode | null>(null);
+  const [guide, setGuide] = useState(false);
+  const { choice, choose } = useConnectionChoice();
   useEffect(() => { if (settings && mode === null) setMode(computersMode(settings)); }, [settings, mode]);
   const here = thisComputer({ ...(settings || {}), network_mode: (net as any)?.mode ?? settings?.network_mode });
   const blocked = mode === 'single' && here !== 'alone';                      // already set up as a main computer: going back to one computer is a Settings job
@@ -299,9 +302,17 @@ function ComputersStep({ settings, register, onStartMain, onJoin }: { settings: 
               <button type="button" className="btn-secondary text-xs" onClick={onJoin}>This computer joins a clinic that is already set up</button>
             </div>
           )}
-          <div className="text-[11px] text-gray-500 dark:text-slate-400">The computers can be joined by a LAN cable (the most reliable) or by Wi-Fi. You can also do this later — it is all in Settings → Computers &amp; staff.</div>
+          <div className="border-t border-gray-200 dark:border-slate-700 pt-3 space-y-2">
+            <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">How is this computer connected to the others?</div>
+            <ConnectionPicker compact value={choice} onChange={choose} />
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" className="btn-secondary text-xs" onClick={() => setGuide(true)}>Open the step-by-step guide — the Windows settings, what to buy, check the connection</button>
+            </div>
+          </div>
+          <div className="text-[11px] text-gray-500 dark:text-slate-400">A network cable is the most reliable; Wi-Fi works too, and two computers can share one cable. You can do all of this later — the guide, the Windows settings and the check are in Settings → Computers &amp; staff.</div>
         </div>
       )}
+      {guide && <ConnectGuideDialog onClose={() => setGuide(false)} />}
       <ChangeLaterNote />
     </div>
   );
@@ -599,6 +610,7 @@ function StaffStep({ settings, register, multi }: { settings: any; register: Reg
         You already have an <b>administrator</b> login (the one you chose when you first opened the software). Add logins here for the people who
         will work in the clinic, each with the role that matches their job. What each role is allowed to open can be changed later in
         Settings → Computers &amp; staff.
+        {multi && <> <b>Do this on the main computer</b> — each person is created once and can then sign in on every computer, with their own username and password.</>}
       </div>
       {others.length > 0 && (
         <ul className="flex flex-wrap gap-2">

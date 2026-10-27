@@ -322,9 +322,9 @@ export function createMockElectronAPI(): any {
       // in-memory) so the sign-in gate can be demonstrated in the showcase.
       get: () => {
         try { const m = localStorage.getItem('caredesk-require-login'); if (m !== null) (settings as any).require_login = m === '1'; } catch { /* ignore */ }
-        return r(settings);
+        return r({ ...settings });                       // a COPY, like the real IPC — the same object every time would hide a saved change from the screens
       },
-      save: (patch: any) => { Object.assign(settings, patch); return r(settings); },
+      save: (patch: any) => { Object.assign(settings, patch); return r({ ...settings }); },
     },
     patients: {
       search: (q: string) => r(searchPatients(q || '')),
@@ -965,6 +965,17 @@ export function createMockElectronAPI(): any {
       regenJoinCode: () => r({ ok: false, error: 'Demo build — only available in installed app' }),
       discover: () => r([]),
       pair: () => r({ ok: false, error: 'Demo build — pairing only works in installed app' }),
+      // "Check this computer" — made-up but realistic facts so the guide's check can be tried in the showcase.
+      checkComputer: () => r({
+        platform: 'win32',
+        adapters: [{ name: 'Ethernet', address: '192.168.1.20', kind: 'wired', apipa: false, virtual: false }],
+        profiles: [{ alias: 'Ethernet', category: 'private' }],
+        power: null, hosting: null, lanIp: '192.168.1.20', firewallRule: null,
+      }),
+      findHosts: () => r({ ok: true, hosts: [{ ip: '192.168.1.100', version: DEMO_VERSION, product: 'CureDesk HMS' }] }),
+      interfaces: () => r({ interfaces: [{ name: 'Ethernet', address: '192.168.1.20', netmask: '255.255.255.0', cidr: '192.168.1.20/24', kind: 'wired', score: 105 }], active: '192.168.1.20', pinned: '' }),
+      hostPower: () => r({ known: true, sleepsOnAC: false, sleepAfterMinutes: 0, preventionActive: false, fixCommand: '', detail: 'This PC is set to never sleep — correct for the main computer.' }),
+      disableHostSleep: () => r({ ok: true }),
     },
     finance: {
       summary: () => {

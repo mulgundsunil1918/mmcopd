@@ -105,6 +105,18 @@
   .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle;}
   .dot.a{background:var(--warn)} .dot.b{background:var(--bad)} .dot.c{background:var(--accent-ink)}
 
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+  @media (max-width:760px){.grid3{grid-template-columns:1fr}}
+  ul.plain{list-style:none;margin:8px 0 0;padding:0;font-size:12.8px;}
+  ul.plain li{position:relative;padding:0 0 0 20px;margin:0 0 7px;}
+  ul.plain li.ok::before{content:"✓";position:absolute;left:0;color:var(--good);font-weight:800;}
+  ul.plain li.watch::before{content:"!";position:absolute;left:3px;color:var(--warn);font-weight:800;}
+  ul.plain li:not(.ok):not(.watch)::before{content:"•";position:absolute;left:4px;color:var(--muted);}
+  ol.mini{margin:0;padding-left:18px;font-size:12.3px;}
+  ol.mini li{margin:0 0 5px;}
+  .tagline{font-size:11px;color:var(--muted);}
+  pre.cmd{margin:6px 0;padding:8px 10px;background:var(--accent-soft);color:var(--accent-ink);border-radius:8px;font-family:var(--mono);font-size:11px;white-space:pre-wrap;word-break:break-all;}
+  a{color:var(--accent-ink);}
   .rules{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
   @media (max-width:640px){.rules{grid-template-columns:1fr}}
   .rule{display:flex;gap:11px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);
@@ -133,7 +145,7 @@
     <div class="logo">🖥️</div>
     <div>
       <h1>Multi-Station Setup &amp; Recovery</h1>
-      <div class="sub">CureDesk HMS · reception, doctor cabins &amp; pharmacy sharing one clinic database over the LAN / Wi-Fi</div>
+      <div class="sub">CureDesk HMS · reception, doctor cabins &amp; pharmacy sharing one clinic database over your own network — cable or Wi-Fi</div>
     </div>
     <div class="tag">Field reference<br>Windows &amp; macOS · v0.4</div>
   </header>
@@ -148,7 +160,7 @@
     <div class="arrow">→</div>
     <div class="node">
       <div class="t">🌐 Your router / switch</div>
-      <div class="d">Same Wi-Fi or wired LAN connects everyone. No internet needed.</div>
+      <div class="d">Network cables or Wi-Fi connect everyone to the same router. No internet needed.</div>
     </div>
     <div class="arrow">→</div>
     <div class="node">
@@ -158,16 +170,127 @@
   </div>
   <div class="note warn"><b>Before you start:</b> <span class="ink">put every PC on the <b>same router/switch</b> (avoid “Guest” Wi-Fi — it isolates devices), connect the <b>host by network cable</b> if you can, and keep the host <b>awake</b> (disable sleep). One host, any number of cabins.</span></div>
 
-  <h2><span class="n">2</span> Set it up</h2>
+  <!-- GENERATED:connect-guide (tools/gen-connect-guide-html.mjs — do not edit by hand) -->
+  <h2><span class="n">2</span> Choose how the computers connect</h2>
+  <p class="lead">The computers talk to each other over the clinic’s own network — nothing goes over the internet. Join them by <b>network cable</b> (best), by <b>Wi-Fi</b>, or — with only two computers — by <b>one cable between them</b>. They need not all connect the same way: the main computer on a cable and the others on Wi-Fi works well, as long as everyone is on the same router.</p>
+  <div class="grid3">
+    <div class="card">
+      <div class="role-h">🔌 Network cable to the router or a switch</div>
+      <div class="role-h"><span class="pill cabin">Recommended</span></div>
+      <ul class="plain">
+        <li class="ok">The most reliable — it does not drop out or slow down.</li>
+        <li class="ok">Best for the main computer, which everyone else depends on.</li>
+        <li class="ok">Any number of computers: add a switch when the router runs out of sockets.</li>
+        <li class="watch">One cable from each computer to the router or switch.</li>
+        <li class="watch">Each computer needs a network (LAN) socket — a laptop without one needs a USB-to-LAN adapter.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="role-h">📶 Wi-Fi</div>
+      <div class="role-h"><span class="pill host">No wires</span></div>
+      <ul class="plain">
+        <li class="ok">No cables to run — easy for laptops and far rooms.</li>
+        <li class="ok">Nothing to buy if the clinic already has a Wi-Fi router.</li>
+        <li class="watch">Can drop out or slow down when the signal is weak.</li>
+        <li class="watch">Keep the main computer on a cable if you can; use Wi-Fi for the others.</li>
+        <li class="watch">Every computer must join the same clinic Wi-Fi — not a “Guest” network.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="role-h">↔️ One cable straight between two computers</div>
+      <div class="role-h"><span class="pill host">Only two computers</span></div>
+      <ul class="plain">
+        <li class="ok">No router or switch needed.</li>
+        <li class="ok">Private and fast — nothing else shares the cable.</li>
+        <li class="watch">Exactly two computers. A third one later needs a router or switch.</li>
+        <li class="watch">Both need a network (LAN) socket.</li>
+        <li class="watch">With no router, each computer needs a fixed address — the steps show exactly what to type.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="note warn"><b>One cable between two computers:</b> <span class="ink">give each a fixed address — main computer <code>192.168.77.1</code>, other computer <code>192.168.77.2</code>, subnet mask <code>255.255.255.0</code>, and leave Default gateway and DNS <b>empty</b>.</span></div>
+
+  <h2><span class="n">3</span> Windows settings — on every computer</h2>
+  <p class="lead">Almost every “the other computer can’t find the main one” is a Windows setting, not a CureDesk fault. Do these once, on each computer.</p>
+  <div class="card" style="padding:6px 8px;overflow-x:auto">
+    <table>
+      <thead><tr><th style="width:24%">Setting</th><th style="width:25%">Why</th><th>How — Windows 11</th><th>How — Windows 10</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="sym">Join the same Wi-Fi on every computer</span><br><span class="tagline">Needed · every computer · Wi-Fi</span></td>
+          <td>Computers can only see each other on the same network. A “Guest” Wi-Fi usually keeps computers apart on purpose, so do not use it.</td>
+          <td colspan="2"><ol class="mini"><li>Click the Wi-Fi symbol at the bottom-right of the screen.</li><li>Choose the clinic’s Wi-Fi — the same name on every computer.</li><li>Tick “Connect automatically”, then click Connect.</li><li>Two or more bars of signal at least. If the main computer is far from the router, put it on a cable instead.</li></ol><div class="tagline">Same on Windows 11 and Windows 10.</div></td>
+        </tr>
+        <tr>
+          <td><span class="sym">Set the network to “Private”</span><br><span class="tagline">Needed · every computer · Cable, Wi-Fi</span></td>
+          <td>Windows marks a new network “Public” and then refuses connections from other computers. “Private” tells Windows this is your own clinic network.</td>
+          <td><ol class="mini"><li>Open Settings → Network &amp; internet.</li><li>Cable: click Ethernet.  Wi-Fi: click Wi-Fi, then the properties of the network you are on.</li><li>Under “Network profile type” choose “Private network”.</li></ol></td><td><ol class="mini"><li>Open Settings → Network &amp; Internet → Status.</li><li>Under your connection (Ethernet or your Wi-Fi name) click Properties.</li><li>Under “Network profile” choose “Private”.</li></ol></td>
+        </tr>
+        <tr>
+          <td><span class="sym">Allow CureDesk through the Windows Firewall</span><br><span class="tagline">Needed · every computer · Cable, Wi-Fi, Direct cable</span></td>
+          <td>The Windows Firewall stops other computers from reaching CureDesk unless you allow it. Windows asks once, the first time CureDesk starts — a click on Cancel is the most common reason the computers cannot find each other.</td>
+          <td colspan="2"><ol class="mini"><li>When Windows asks “Allow CureDesk HMS to communicate on these networks?”, tick “Private networks” and click “Allow access”.</li><li>For a cable straight between two computers, also tick “Public networks” — Windows calls that cable a public network.</li><li>Missed the question, or clicked Cancel? Open Windows Security → Firewall &amp; network protection → Allow an app through firewall → Change settings → find “CureDesk HMS” and tick Private (and Public for a direct cable). Or use the two commands below: right-click the Start button → “Terminal (Admin)” or “Windows PowerShell (Admin)”, paste them, press Enter.</li></ol><div class="tagline">Allow CureDesk by hand (paste in PowerShell run as Administrator)</div><pre class="cmd">netsh advfirewall firewall add rule name=&quot;CureDesk HMS server&quot; dir=in action=allow protocol=TCP localport=4321 profile=private,domain
+netsh advfirewall firewall add rule name=&quot;CureDesk HMS finder&quot; dir=in action=allow protocol=UDP localport=4322 profile=private,domain</pre><div class="tagline">For a cable straight between two computers use <code>profile=any</code> instead of <code>profile=private,domain</code>.</div><div class="tagline">Same on Windows 11 and Windows 10.</div></td>
+        </tr>
+        <tr>
+          <td><span class="sym">Never let the main computer sleep</span><br><span class="tagline">Needed · main computer only · Cable, Wi-Fi, Direct cable</span></td>
+          <td>If the main computer goes to sleep, every other computer loses the clinic’s data at once and it looks like the network broke. The screen may still switch off — only “sleep” must be Never.</td>
+          <td><ol class="mini"><li>Open Settings → System → Power &amp; battery.</li><li>Open “Screen and sleep”.</li><li>Set “When plugged in, put my device to sleep after” to Never.</li></ol></td><td><ol class="mini"><li>Open Settings → System → Power &amp; sleep.</li><li>Under Sleep, set “When plugged in, PC goes to sleep after” to Never.</li></ol></td>
+        </tr>
+        <tr>
+          <td><span class="sym">Stop Windows switching off the network card</span><br><span class="tagline">Recommended · main computer only · Cable, Wi-Fi, Direct cable</span></td>
+          <td>To save power Windows can switch the network card off for a moment, and then the main computer looks gone to the others.</td>
+          <td colspan="2"><ol class="mini"><li>Right-click the Start button → Device Manager.</li><li>Open “Network adapters” and double-click the one you use (a cable: “Ethernet”, “GbE” or “Family Controller”; Wi-Fi: “Wireless” or “Wi-Fi”).</li><li>On the Power Management tab, untick “Allow the computer to turn off this device to save power”, then OK.</li></ol><div class="tagline">Same on Windows 11 and Windows 10.</div></td>
+        </tr>
+        <tr>
+          <td><span class="sym">Give the main computer a fixed address</span><br><span class="tagline">Recommended · main computer only · Cable, Wi-Fi</span></td>
+          <td>The other computers find the main one by its address. A router can hand out a different one after it restarts, and then the others lose it. A fixed address never changes.</td>
+          <td colspan="2"><ol class="mini"><li>Best way — in the router: open its settings page (usually 192.168.0.1 or 192.168.1.1; the address and password are on the sticker under the router) and look for “DHCP reservation”, “Address reservation” or “Static lease”. Reserve an address for the main computer.</li><li>Or in Windows: press the Windows key and R together, type “ncpa.cpl” and press Enter.</li><li>Right-click your connection (“Ethernet” for a cable, “Wi-Fi” for Wi-Fi) → Properties.</li><li>Double-click “Internet Protocol Version 4 (TCP/IPv4)”.</li><li>Choose “Use the following IP address”. IP address: the same first three numbers as the router with a last number nobody else uses (for a router at 192.168.1.1, use 192.168.1.200). Subnet mask: 255.255.255.0. Default gateway and DNS server: the router’s address. Click OK.</li></ol><div class="tagline">Same on Windows 11 and Windows 10.</div></td>
+        </tr>
+        <tr>
+          <td><span class="sym">Give each computer its fixed address</span><br><span class="tagline">Needed · every computer · Direct cable</span></td>
+          <td>With one cable and no router nobody hands out addresses, so you give each computer one. Without it Windows waits a minute or more and then picks a number CureDesk cannot use.</td>
+          <td colspan="2"><ol class="mini"><li>Press the Windows key and R together, type “ncpa.cpl” and press Enter.</li><li>Right-click “Ethernet” (the one with the cable) → Properties.</li><li>Double-click “Internet Protocol Version 4 (TCP/IPv4)”.</li><li>Choose “Use the following IP address”. On the main computer type 192.168.77.1; on the other computer type 192.168.77.2. Subnet mask 255.255.255.0 on both.</li><li>Leave “Default gateway” and “DNS server” EMPTY on both. Click OK.</li></ol><div class="tagline">Same on Windows 11 and Windows 10.</div></td>
+        </tr>
+        <tr>
+          <td><span class="sym">Keep the date and time right on every computer</span><br><span class="tagline">Recommended · every computer · Cable, Wi-Fi, Direct cable</span></td>
+          <td>Every bill and visit is stamped with the computer’s clock. A computer with the wrong time puts its entries at the wrong time on all the others.</td>
+          <td><ol class="mini"><li>Open Settings → Time &amp; language → Date &amp; time.</li><li>Turn on “Set time automatically” and “Set time zone automatically” (or choose India Standard Time).</li></ol></td><td><ol class="mini"><li>Open Settings → Time &amp; Language → Date &amp; time.</li><li>Turn on “Set time automatically” and “Set time zone automatically” (or choose India Standard Time).</li></ol></td>
+        </tr>
+        <tr>
+          <td><span class="sym">If you use another antivirus, allow CureDesk in it</span><br><span class="tagline">Recommended · every computer · Cable, Wi-Fi, Direct cable</span></td>
+          <td>Some antivirus programs (Quick Heal, K7, Kaspersky, Norton, McAfee …) have their own firewall that blocks other computers even when the Windows settings are right.</td>
+          <td colspan="2"><ol class="mini"><li>Open the antivirus and find its Firewall (or Network protection) settings.</li><li>Add “CureDesk HMS” to the allowed (trusted) programs, and mark this network as “Home” or “Trusted”.</li></ol><div class="tagline">Same on Windows 11 and Windows 10.</div></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note good"><b>Then check it:</b> <span class="ink">in CureDesk open <span class="path">Settings → Computers &amp; staff → Connect the computers</span> and press <b>Check this computer</b> — it looks at the cable or Wi-Fi, the Windows network type and the sleep setting, and tells you what to fix.</span></div>
+
+  <h2><span class="n">4</span> What to buy</h2>
+  <div class="card">
+    <ul class="plain">
+      <li><b>Network (LAN) cable, Cat6</b> — One for each computer, from the computer to the router or switch (for a direct cable: one cable between the two). Buy it ready-made — no crimping — and measure the route plus a metre or two spare. Any Cat5e or Cat6 cable works; no special “crossover” cable is needed. <a href="https://www.amazon.in/s?k=cat6+lan+cable+10+meter" rel="noopener" target="_blank">Search on Amazon.in</a></li>
+      <li><b>Network switch, 8-port Gigabit</b> — Only if you have more computers than the router has LAN sockets (most routers have four). One cable goes from the router to the switch, and the computers plug into the switch. <a href="https://www.amazon.in/s?k=8+port+gigabit+network+switch" rel="noopener" target="_blank">Search on Amazon.in</a></li>
+      <li><b>Wi-Fi router, dual-band</b> <span class="tagline">(only if you need it)</span> — The box your internet comes from. Any router will do for CureDesk — a better one just gives a steadier signal. Keep it in the middle of the clinic, not in a cupboard. <a href="https://www.amazon.in/s?k=wifi+router+dual+band" rel="noopener" target="_blank">Search on Amazon.in</a></li>
+      <li><b>UPS for the main computer</b> <span class="tagline">(only if you need it)</span> — A short power cut would switch off the main computer — and with it every other computer. A small UPS (also for the router and switch) gives a few minutes to carry on or shut down properly. <a href="https://www.amazon.in/s?k=ups+1kva+for+computer" rel="noopener" target="_blank">Search on Amazon.in</a></li>
+      <li><b>USB-to-LAN adapter, Gigabit</b> <span class="tagline">(only if you need it)</span> — Only for a laptop or small computer with no network (LAN) socket. It plugs into a USB port and gives it one. <a href="https://www.amazon.in/s?k=usb+to+lan+adapter+gigabit" rel="noopener" target="_blank">Search on Amazon.in</a></li>
+      <li><b>USB Wi-Fi adapter</b> <span class="tagline">(only if you need it)</span> — Only for a desktop computer with no Wi-Fi of its own. Most laptops do not need one. <a href="https://www.amazon.in/s?k=usb+wifi+adapter+dual+band" rel="noopener" target="_blank">Search on Amazon.in</a></li>
+    </ul>
+    <div class="tagline" style="margin-top:8px">These are plain Amazon.in searches — choose whatever make, length and price suits you, from any seller.</div>
+  </div>
+<!-- /GENERATED:connect-guide -->
+
+  <h2><span class="n">5</span> Set it up</h2>
   <div class="grid2">
     <div class="card">
       <div class="role-h">🖥️ On the HOST PC <span class="pill host">SERVER</span></div>
       <div class="role-h"><span class="sub">The PC that keeps the data — set this up first.</span></div>
       <ol class="steps">
-        <li>Open <span class="path">Settings → Network Mode</span>, choose <b>Server</b>, and Save.</li>
+        <li>Open <span class="path">Settings → Computers &amp; staff → Connecting the Computers → Network Mode</span>, choose <b>Server</b>, and Save. (First start? The Setup guide does this when you press <b>“This is the main computer”</b>.)</li>
         <li>When Windows/macOS asks, click <b>Allow access</b> so the port isn’t blocked by the firewall.</li>
         <li>Confirm the green banner: <b>“✓ other PCs can reach this host at <code>http://…:4321</code>”</b>. If it’s amber, fix the firewall / pick the wired adapter, then <b>Re-check</b>.</li>
-        <li>Click <b>Generate join code</b> — a 6-character code (valid 10&nbsp;minutes). Read out the code <i>and</i> the host address shown next to it.</li>
+        <li>Note the <b>join code</b> — 5 letters and numbers, capital and small letters are different (valid 10&nbsp;minutes; press <b>New code</b> for another). Read out the code <i>and</i> the host address shown next to it.</li>
       </ol>
     </div>
     <div class="card">
@@ -175,15 +298,15 @@
       <div class="role-h"><span class="sub">Repeat on every doctor / pharmacy / billing PC.</span></div>
       <ol class="steps">
         <li>Make sure it’s on the <b>same network</b> as the host.</li>
-        <li>Open <span class="path">Settings → Network Mode</span> and choose <b>Client</b>.</li>
-        <li>Pick the host under <b>“Servers found on your network”</b>, <i>or</i> type the <b>6-character join code</b> from the host.</li>
+        <li>Open <span class="path">Settings → Computers &amp; staff → Connecting the Computers → Network Mode</span> and choose <b>Client</b> (or, on a fresh install, choose <b>“This computer joins a clinic that is already set up”</b> in the Setup guide).</li>
+        <li>Pick the host under <b>“Servers found on your network”</b>, <i>or</i> type the <b>5-character join code</b> from the host.</li>
         <li>It connects and reloads. The sidebar shows a <b>connected</b> pill — you’re now on the shared data.</li>
       </ol>
     </div>
   </div>
   <div class="note good"><b>✓ That’s it.</b> <span class="ink">Book a patient on a cabin — it appears on the host and every other cabin instantly. To take a PC back to standalone, set its Network Mode to <b>Local</b>.</span></div>
 
-  <h2><span class="n">3</span> When something’s wrong — recovery</h2>
+  <h2><span class="n">6</span> When something’s wrong — recovery</h2>
   <div class="card" style="padding:6px 8px;overflow-x:auto">
     <table>
       <thead><tr><th style="width:29%">Symptom</th><th style="width:30%">Most likely cause</th><th>What to do</th></tr></thead>
@@ -216,9 +339,9 @@
       </tbody>
     </table>
   </div>
-  <div class="note warn"><b>Always available:</b> <span class="ink"><span class="path">Settings → Network Mode → Troubleshoot</span> runs a step-by-step check (adapter → same network → port open → server answering → token accepted) and tells you, in plain words, exactly which step failed and how to fix it.</span></div>
+  <div class="note warn"><b>Always available:</b> <span class="ink"><span class="path">Settings → Computers &amp; staff → Check this computer</span> and <span class="path">Troubleshoot</span> runs a step-by-step check (adapter → same network → port open → server answering → token accepted) and tells you, in plain words, exactly which step failed and how to fix it.</span></div>
 
-  <h2><span class="n">4</span> Golden rules (do these once)</h2>
+  <h2><span class="n">7</span> Golden rules (do these once)</h2>
   <div class="rules">
     <div class="rule"><div class="ic">📌</div><div><div class="t">1 · Give the host a fixed IP</div><div class="d">Add a <b>DHCP reservation</b> for the host on your router (or set a static IP). This stops the address ever changing — the single biggest cause of “it stopped working”.</div></div></div>
     <div class="rule"><div class="ic">☁️</div><div><div class="t">2 · Back up the host</div><div class="d">Only the host holds data. Turn on cloud backup: <span class="path">Settings → Backup → “Back up to my Google Drive”</span>. Cabins need no backup.</div></div></div>

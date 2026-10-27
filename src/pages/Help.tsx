@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { SETTINGS_TABS, SETTINGS_GROUPS } from '../lib/settingsMap';
+import { ConnectGuide } from '../components/computers/ConnectGuide';
 
 type Topic = {
   id: string;
@@ -348,11 +349,16 @@ const TOPICS: Topic[] = [
     ),
   },
   {
-    id: 'multi', icon: Wifi, title: 'Multiple computers (reception + cabin + pharmacy)', tag: 'Multi-station',
+    id: 'connect', icon: Wifi, title: 'Connect your computers — cable, Wi-Fi and the Windows settings', tag: 'Multi-station',
+    keywords: 'connect network cable lan wifi wi-fi wireless router switch direct cable tutorial guide windows settings firewall private public sleep never fixed ip address amazon buy ups usb adapter checklist print onboarding join code check connection find main computer',
+    body: <ConnectGuide />,
+  },
+  {
+    id: 'multi', icon: Wifi, title: 'Multiple computers — how it fits together (reception + cabin + pharmacy)', tag: 'Multi-station',
     keywords: 'multi station network host client server lan multiple computers cabin connect join code',
     body: (
       <>
-        <p className="mb-2">Run CureDesk on several PCs sharing one live patient list.</p>
+        <p className="mb-2">Run CureDesk on several PCs sharing one live patient list. (Cable, Wi-Fi, what to buy and the Windows settings are in <b>Connect your computers</b> above.)</p>
         <ol className="space-y-2">
           <Step n={1}>Pick one PC as the <b>main computer</b> (host) — it holds the data, the licence and the backups.</Step>
           <Step n={2}>On it: <Path>Settings → Computers &amp; staff → Connecting the Computers</Path> → set as Host. Note the <b>join code</b>.</Step>
