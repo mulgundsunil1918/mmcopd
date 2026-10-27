@@ -607,7 +607,7 @@ export function runMigrations(db: Database.Database) {
   // Lab tests get a category (pathology / radiology) so the catalog can be grouped
   // and filtered; existing rows default to pathology.
   addColumnIfMissing(db, 'lab_tests', 'category', "TEXT NOT NULL DEFAULT 'pathology'");
-  // 0.9.9: a syringe, a cannula or a bed sheet is a 'consumable' (no generic name / strength / schedule, may have no expiry, not offered in prescriptions).
+  // 1.0.0: a syringe, a cannula or a bed sheet is a 'consumable' (no generic name / strength / schedule, may have no expiry, not offered in prescriptions).
   // Every drug that exists today is a medicine.
   addColumnIfMissing(db, 'drug_master', 'item_type', "TEXT NOT NULL DEFAULT 'medicine'");
 
@@ -843,7 +843,7 @@ export function runMigrations(db: Database.Database) {
    * rate lives on drug_master; these hold what was actually charged, so a
    * reprint years later shows the tax as it was on the day.
    */
-  // 0.9.9: a discount typed as a PERCENTAGE at the counter is remembered as that percentage (NULL = typed in rupees), so the receipt can say "Discount (5%)".
+  // 1.0.0: a discount typed as a PERCENTAGE at the counter is remembered as that percentage (NULL = typed in rupees), so the receipt can say "Discount (5%)".
   addColumnIfMissing(db, 'pharmacy_sales', 'discount_pct', 'REAL');
   addColumnIfMissing(db, 'pharmacy_sales', 'taxable_total', 'REAL NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'pharmacy_sales', 'exempt_total', 'REAL NOT NULL DEFAULT 0');
