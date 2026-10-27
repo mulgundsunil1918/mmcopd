@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BedDouble, RefreshCw, Settings as SettingsIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../../lib/utils';
+import { rememberSettingsTab } from '../../lib/settingsMap';
 
 /**
  * Colour-coded bed map — the screen the ward station lives on.
@@ -82,8 +83,8 @@ export function WardMap({
         <div className="text-[12px] text-gray-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
           Add your wards and beds first, then patients can be admitted here.
         </div>
-        <button className="btn-primary text-xs mt-4" onClick={() => navigate('/settings')}>
-          <SettingsIcon className="w-3.5 h-3.5" /> Go to Settings → Billing &amp; IPD
+        <button className="btn-primary text-xs mt-4" onClick={() => { rememberSettingsTab('ipd'); navigate('/settings'); }}>
+          <SettingsIcon className="w-3.5 h-3.5" /> Go to Settings → In-Patient (IPD)
         </button>
       </div>
     );

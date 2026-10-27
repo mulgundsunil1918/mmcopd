@@ -937,7 +937,7 @@ export interface SellIn {
    *  Handled by chargeMedicinesToAdmission (ipd-billing-ipc.ts); sellItems itself only knows the resulting 'IPD-bill' mode. */
   ipd_admission_id?: number | null;
   /**
-   * The most, as a percent of the sale, the person making it may discount (their role's limit — Settings → Billing → Discounts
+   * The most, as a percent of the sale, the person making it may discount (their role's limit — Settings → Pharmacy → Discount limits
    * → "At the pharmacy counter"). SET BY THE MAIN PROCESS from the signed-in user; whatever a screen sends here is overwritten.
    * null / undefined = no limit applies.
    */
@@ -1020,7 +1020,7 @@ export function sellItems(db: Database.Database, payload: SellIn, now: Date = ne
     if (discountP > limitP) {
       throw new Error(
         `Your role may give up to ${pct}% off at the pharmacy counter — ${rupees(fromPaise(limitP))} on this ${rupees(fromPaise(subtotalP))} sale. ` +
-        `The discount here is ${rupees(fromPaise(discountP))}. Ask a manager or administrator to give the larger discount, or raise the limit in Settings → Billing → Discounts.`,
+        `The discount here is ${rupees(fromPaise(discountP))}. Ask a manager or administrator to give the larger discount, or raise the limit in Settings → Pharmacy → Discount limits at the counter.`,
       );
     }
   }
@@ -1048,7 +1048,7 @@ export function sellItems(db: Database.Database, payload: SellIn, now: Date = ne
     amountPaidP = 0;                                  // charged on the in-patient bill — nothing is taken at the counter
   } else if (payload.credit) {
     if (!getAllSettings(db).pharmacy_credit_enabled) {
-      throw new Error('Medicines on credit are switched off. Turn them on in Settings → Billing & IPD → Pharmacy, or take the payment now.');
+      throw new Error('Medicines on credit are switched off. Turn them on in Settings → Pharmacy → Credit, or take the payment now.');
     }
     if (!payload.patient_id) {
       throw new Error('A sale on credit needs a registered patient, so it is clear who owes the money. Pick the patient, or take the payment now.');

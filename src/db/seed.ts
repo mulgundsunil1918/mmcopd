@@ -96,7 +96,7 @@ export function seedIfEmpty(db: Database.Database) {
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) upsert.run(k, v);
 
   // Limits on a discount at the pharmacy counter. A NEW install starts with sensible ones (pharmacist 10%, receptionist 5%; everyone
-  // else unlimited, admin always) — change or clear them in Settings → Billing & IPD → Discounts. A clinic that already has ANY activity
+  // else unlimited, admin always) — change or clear them in Settings → Pharmacy → Discount limits at the counter. A clinic that already has ANY activity
   // keeps "no limit" (the key is simply never written), so an update never starts refusing a discount it already gives. Written once:
   // after that the key exists, even if the owner blanks it.
   if (!db.prepare("SELECT 1 FROM settings WHERE key='pharmacy_discount_caps_json'").get()) {

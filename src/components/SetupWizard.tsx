@@ -389,7 +389,7 @@ function DoctorsStep({ settings, register }: { settings: any; register: Register
         </div>
       </div>
       <p className="text-[11px] text-gray-500 dark:text-slate-400">
-        More details — signature, working hours, prescription-slip templates — are in Settings → Doctors whenever you need them.
+        More details — signature, working hours, prescription-slip templates — are in Settings → Doctors & Templates whenever you need them.
       </p>
     </div>
   );
@@ -515,7 +515,7 @@ function StaffStep({ settings, register }: { settings: any; register: Register }
       <div className="rounded-xl border border-gray-200 dark:border-slate-700 px-4 py-3 text-[12px] text-gray-700 dark:text-slate-300 bg-white/60 dark:bg-slate-900/40">
         You already have an <b>administrator</b> login (the one you chose when you first opened the software). Add logins here for the people who
         will work in the clinic, each with the role that matches their job. What each role is allowed to open can be changed later in
-        Settings → Role-Based Access.
+        Settings → System → Role-Based Access.
       </div>
       {others.length > 0 && (
         <ul className="flex flex-wrap gap-2">
@@ -554,7 +554,7 @@ function StaffStep({ settings, register }: { settings: any; register: Register }
         </div>
       </div>
       <ToggleBox label="Everyone must sign in" checked={!!requireLogin} onChange={setRequireLogin}
-        help="From the next time the software starts, each person signs in with their own login, and every bill and sale records who made it. Leave it off for a one-computer clinic where one person does everything — you can switch it on later in Settings → Security." />
+        help="From the next time the software starts, each person signs in with their own login, and every bill and sale records who made it. Leave it off for a one-computer clinic where one person does everything — you can switch it on later in Settings → System → Security & Login." />
     </div>
   );
 }
@@ -586,7 +586,7 @@ function PharmacyStep({ settings, register, ipd }: { settings: any; register: Re
         <ToggleBox label="Allow charging medicines to an admitted patient's bill" checked={f.ipdCharge} onChange={(v) => setF((p: any) => ({ ...p, ipdCharge: v }))}
           help="Medicines for an in-patient can go onto that stay's running bill and are collected with the rest of it at discharge, priced at the batch's selling price (its MRP when none was set), a price that cannot be typed over." />
       )}
-      <p className="text-[11px] text-gray-500 dark:text-slate-400">Both are off unless you tick them, and you can change them any time in Settings → Billing &amp; IPD.</p>
+      <p className="text-[11px] text-gray-500 dark:text-slate-400">Both are off unless you tick them, and you can change them any time in Settings → Pharmacy.</p>
     </div>
   );
 }
@@ -660,7 +660,7 @@ function WardsStep({ register }: { register: Register }) {
           {msg && <span className="text-[12px] text-red-600">{msg}</span>}
         </div>
       </div>
-      <p className="text-[11px] text-gray-500 dark:text-slate-400">Bed and nursing charges are posted to an admitted patient&rsquo;s bill every day by themselves. Edit wards, rates and beds any time in Settings → Billing &amp; IPD.</p>
+      <p className="text-[11px] text-gray-500 dark:text-slate-400">Bed and nursing charges are posted to an admitted patient&rsquo;s bill every day by themselves. Edit wards, rates and beds any time in Settings → In-Patient (IPD).</p>
     </div>
   );
 }

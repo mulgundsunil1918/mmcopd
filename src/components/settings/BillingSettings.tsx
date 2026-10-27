@@ -1,27 +1,13 @@
 import { useState } from 'react';
 import { HelpTip } from '../HelpTip';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Loader2, Info } from 'lucide-react';
+import { Plus, Loader2 } from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
 import { cn } from '../../lib/utils';
 import { pharmacyGstOn } from '../../lib/pharmacyGst';
 import { NumberInput } from '../NumberInput';
-import { COUNTER_DISCOUNT_ROLES, parseCounterCaps } from '../../lib/discountLimit';
+import { Explain } from './shared';
 import type { Settings } from '../../types';
-
-/**
- * A small labelled explanation shown under a control. This module leans on these
- * heavily on purpose: the software ships to many clinics, and the person setting
- * up GST is rarely the person who understands GST.
- */
-function Explain({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-1 flex gap-1.5">
-      <Info className="w-3 h-3 mt-0.5 shrink-0 opacity-70" />
-      <span>{children}</span>
-    </div>
-  );
-}
 
 export function BillingSettings({
   draft, set,
@@ -30,7 +16,9 @@ export function BillingSettings({
   set: <K extends keyof Settings>(k: K, v: Settings[K]) => void;
 }) {
   const gstOn = draft.gst_enabled ?? false;
-  const pharmacyOn = pharmacyGstOn(draft);                       // the pharmacy's own switch (follows the clinic's until it is touched)
+  // The pharmacy's own GST switch lives on the Pharmacy tab now; here it only decides whether the registration details below are needed (read as SAVED).
+  const { data: saved } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const pharmacyOn = saved ? pharmacyGstOn(saved) : false;
   const regType = draft.gst_registration_type ?? 'unregistered';
 
   return (
@@ -61,50 +49,11 @@ export function BillingSettings({
           </div>
         </label>
 
-        <div className="pt-1">
-          <label className="label inline-flex items-center gap-1">GST % a NEW medicine starts with
-            <HelpTip title="GST % for a new medicine"><><p>When you add a medicine to the Drug List, this is the GST % the form starts with.</p><p>The software does not pick one for you — GST depends on the medicine and on your registration. Leave it on <b>Ask me every time</b> and the form makes you choose; or choose one here and every new medicine starts with it (you can still change it on each medicine).</p></></HelpTip>
-          </label>
-          <select className="input w-auto" value={draft.default_drug_gst_rate === null || draft.default_drug_gst_rate === undefined ? '' : String(draft.default_drug_gst_rate)}
-            onChange={(e) => set('default_drug_gst_rate', (e.target.value === '' ? null : Number(e.target.value)) as any)}>
-            <option value="">Ask me every time</option>
-            {[0, 5, 12, 18, 28].map((r) => <option key={r} value={r}>{r}%</option>)}
-          </select>
-          <Explain>You decide. Existing medicines are never changed by the software — to change many at once use Pharmacy → Drug List → <b>Set GST %</b>.</Explain>
-        </div>
-
-        <label className="flex items-start gap-3 cursor-pointer">
-          <input type="checkbox" className="mt-1" checked={pharmacyOn} disabled={regType === 'composition'}
-            onChange={(e) => set('pharmacy_gst_enabled', e.target.checked as any)} />
-          <div>
-            <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">Charge GST on pharmacy sales</div>
-            <Explain>
-              The pharmacy has its <b>own</b> GST switch — the button at the top of the Pharmacy page is the same one. On: each medicine is sold at its
-              MRP with its GST inside it, and the GST on your purchases is claimed back. Off: no GST on pharmacy bills, and the GST on a purchase becomes
-              part of what the stock cost. Consultation, lab and ward bills follow the registration box above, not this one. Until you touch it, it
-              follows the registration box.{regType === 'composition' ? ' (A composition dealer cannot collect GST, so it stays off.)' : ''}
-            </Explain>
+        {pharmacyOn && !gstOn && (
+          <div className="text-[11px] text-gray-500 dark:text-slate-400 rounded-lg bg-gray-50 dark:bg-slate-800/50 px-3 py-2">
+            The pharmacy has its own GST switch (Pharmacy tab) and it is on, so the registration details below are needed for its bills.
           </div>
-        </label>
-
-        <div className="pl-6 grid grid-cols-1 md:grid-cols-3 gap-3 border-l-2 border-emerald-200 dark:border-emerald-900">
-          <div className="md:col-span-3 text-[11px] text-gray-500 dark:text-slate-400">
-            If the pharmacy has its <b>own</b> GSTIN, name or drug licence (different from the clinic's), enter them here — they are printed on pharmacy bills. Leave empty to use the clinic's.
-          </div>
-          <div>
-            <label className="label">Pharmacy GSTIN</label>
-            <input className="input font-mono uppercase" maxLength={15} placeholder="same as the clinic's"
-              value={draft.pharmacy_gstin || ''} onChange={(e) => set('pharmacy_gstin', e.target.value.toUpperCase() as any)} />
-          </div>
-          <div>
-            <label className="label">Pharmacy name on bills</label>
-            <input className="input" placeholder="as registered" value={draft.pharmacy_legal_name || ''} onChange={(e) => set('pharmacy_legal_name', e.target.value as any)} />
-          </div>
-          <div>
-            <label className="label">Pharmacy drug licence no.</label>
-            <input className="input" placeholder="D.L. No." value={draft.pharmacy_drug_license_no || ''} onChange={(e) => set('pharmacy_drug_license_no', e.target.value as any)} />
-          </div>
-        </div>
+        )}
 
         {(gstOn || pharmacyOn) && (
           <div className="pl-6 space-y-4 border-l-2 border-blue-200 dark:border-blue-900">
@@ -146,23 +95,6 @@ export function BillingSettings({
               </div>
             </div>
 
-            {gstOn && regType !== 'composition' && (
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input type="checkbox" className="mt-1" checked={draft.ipd_gst_enabled ?? true}
-                  onChange={(e) => set('ipd_gst_enabled', e.target.checked)} />
-                <div>
-                  <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">
-                    Charge GST on in-patient bills
-                  </div>
-                  <Explain>
-                    On (recommended for a registered clinic): the medicines on an in-patient's bill carry their GST, shown as CGST + SGST inside
-                    the MRP — the patient pays the MRP, never more. Bed, nursing and doctor charges stay exempt unless you mark that charge taxable
-                    below. Off: in-patient bills carry no GST at all. It applies to every bill still open; a bill already closed at discharge keeps what it was.
-                  </Explain>
-                </div>
-              </label>
-            )}
-
             {gstOn && regType === 'regular' && (
               <label className="flex items-start gap-3 cursor-pointer">
                 <input type="checkbox" className="mt-1" checked={draft.healthcare_gst_exempt ?? true}
@@ -187,13 +119,7 @@ export function BillingSettings({
             <label className="label">Invoice number prefix</label>
             <input className="input" value={draft.invoice_prefix || 'INV'}
               onChange={(e) => set('invoice_prefix', e.target.value)} />
-            <Explain>Bills are numbered like <code>{(draft.invoice_prefix || 'INV')}/2026-27/0001</code>, restarting each financial year.</Explain>
-          </div>
-          <div>
-            <label className="label">Admission number prefix</label>
-            <input className="input" value={draft.ip_number_prefix || 'IP'}
-              onChange={(e) => set('ip_number_prefix', e.target.value)} />
-            <Explain>Admissions are numbered like <code>{(draft.ip_number_prefix || 'IP')}/2026-27/0001</code>.</Explain>
+            <Explain>Bills are numbered like <code>{(draft.invoice_prefix || 'INV')}/2026-27/0001</code>, restarting each financial year. (Admissions have their own prefix, under In-Patient.)</Explain>
           </div>
         </div>
 
@@ -370,16 +296,6 @@ function DiscountSettings({
     set('discount_caps_json', JSON.stringify(next));
   };
 
-  // The pharmacy counter has its own limits. Here a role with no number is NOT limited (the counter has never been limited before).
-  const counter = parseCounterCaps(draft.pharmacy_discount_caps_json) ?? {};
-  const setCounterCap = (role: string, raw: string) => {
-    const next = { ...counter };
-    const n = Number(raw);
-    if (raw.trim() === '' || !Number.isFinite(n)) delete next[role];
-    else next[role] = Math.max(0, Math.min(100, n));
-    set('pharmacy_discount_caps_json', Object.keys(next).length ? JSON.stringify(next) : '');
-  };
-
   return (
     <div className="card p-5 space-y-4">
       <div>
@@ -405,25 +321,7 @@ function DiscountSettings({
         bill; a flat-rupee discount is checked against the same limit.
       </Explain>
 
-      <div className="pt-3 border-t border-gray-100 dark:border-slate-800 space-y-2">
-        <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">At the pharmacy counter</div>
-        <Explain>
-          The most each role may take off a <b>medicine sale</b> at the pharmacy counter, as a percent of the sale. A discount above the
-          limit is refused with a message. <b>Leave a role blank for no limit</b> (how the counter has always worked). It follows the
-          person who is signed in, so turn on <b>Require sign-in</b> in Settings → Access for it to know who is selling. Administrators
-          are never limited.
-        </Explain>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
-          {COUNTER_DISCOUNT_ROLES.map((role) => (
-            <div key={role} className="flex items-center gap-3">
-              <div className="w-32 text-[13px] text-gray-900 dark:text-slate-100 capitalize">{role.replace('_', ' ')}</div>
-              <input type="number" min={0} max={100} step="0.5" className="input w-24" placeholder="no limit"
-                value={counter[role] ?? ''} onChange={(e) => setCounterCap(role, e.target.value)} />
-              <span className="text-[12px] text-gray-500">% maximum</span>
-            </div>
-          ))}
-        </div>
-      </div>
+      <Explain>The limit for discounts on <b>medicine sales at the pharmacy counter</b> is set under the Pharmacy tab.</Explain>
 
       <label className="flex items-start gap-3 cursor-pointer pt-2 border-t border-gray-100 dark:border-slate-800">
         <input type="checkbox" className="mt-1" checked={draft.discount_require_reason ?? true}

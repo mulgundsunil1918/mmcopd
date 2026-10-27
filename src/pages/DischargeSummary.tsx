@@ -6,6 +6,7 @@ import { useToast } from '../hooks/useToast';
 import { useAuth } from '../hooks/useAuth';
 import { cn, fmtDate } from '../lib/utils';
 import { DischargeSummaryPrint } from '../components/ipd/DischargeSummaryPrint';
+import { rememberSettingsTab } from '../lib/settingsMap';
 
 /**
  * Dedicated Discharge Summary builder. Pick an admission, start from a saved
@@ -129,7 +130,7 @@ export function DischargeSummary() {
         </div>
         <button
           className="btn-secondary text-xs"
-          onClick={() => { try { localStorage.setItem('caredesk:settings-tab', 'billing'); } catch { /* ignore */ } navigate('/settings'); }}
+          onClick={() => { rememberSettingsTab('ipd'); navigate('/settings'); }}
           title="Add or edit discharge-summary templates in Settings"
         >
           <SlidersHorizontal className="w-3.5 h-3.5" /> Customise templates

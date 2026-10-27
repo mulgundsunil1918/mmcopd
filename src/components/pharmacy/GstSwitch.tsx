@@ -1,11 +1,11 @@
 /**
  * The GST on/off button on the Pharmacy page.
  *
- * It is the PHARMACY's own GST switch — separate from the clinic's "This clinic is GST-registered" in Settings → Billing, so the pharmacy can
+ * It is the PHARMACY's own GST switch — separate from the clinic's "This clinic is GST-registered" in Settings → Billing & GST, so the pharmacy can
  * charge GST while consultations and wards do not (or the other way round). Until it is touched it simply follows the clinic switch.
  *   ON  : medicines are sold at their MRP with the GST inside it, shown on the bill at each medicine's own rate; GST on purchases is claimed back.
  *   OFF : no GST is added or shown on pharmacy sales; the GST on a purchase becomes part of what the stock cost.
- * Only the administrator can flip it (it is a tax setting), and nothing already billed is rewritten. (The same box is in Settings → Billing.)
+ * Only the administrator can flip it (it is a tax setting), and nothing already billed is rewritten. (The same box is in Settings → Pharmacy.)
  */
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -43,7 +43,7 @@ export function GstSwitch() {
         <button type="button"
           onClick={() => {
             if (!adminUnlocked) { toast('Unlock the administrator (the lock at the top) to change GST.', 'info'); return; }
-            if (composition) { toast('This clinic is set as a composition dealer (Settings → Billing), which may not collect GST from patients.', 'info'); return; }
+            if (composition) { toast('This clinic is set as a composition dealer (Settings → Billing & GST), which may not collect GST from patients.', 'info'); return; }
             setAsk(true);
           }}
           className={cn('inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold transition',
@@ -55,7 +55,7 @@ export function GstSwitch() {
         <HelpTip title="Pharmacy GST on / off" align="right">
           <p><b>ON</b> — each medicine is sold at its MRP with its GST inside it (shown on the bill at the medicine’s own rate), and GST on your purchases is claimed back.</p>
           <p><b>OFF</b> — no GST is added or shown on pharmacy bills, and the GST on a purchase becomes part of what the stock cost.</p>
-          <p>This button is the pharmacy’s own — it does not change GST on consultations, lab or ward bills (those follow Settings → Billing). Until you press it, the pharmacy follows the clinic’s setting. Bills already made keep the tax they were made with.</p>
+          <p>This button is the pharmacy’s own — it does not change GST on consultations, lab or ward bills (those follow Settings → Billing & GST). Until you press it, the pharmacy follows the clinic’s setting. Bills already made keep the tax they were made with.</p>
         </HelpTip>
       </div>
       {ask && (
@@ -69,7 +69,7 @@ export function GstSwitch() {
             ) : (
               <>
                 <p>From now on each medicine is sold at its MRP with its <b>GST inside it</b>, shown on the pharmacy bill at the medicine’s own rate (set in the Drug List), and the GST on your purchases is claimed back.</p>
-                <p className="text-xs text-gray-500 dark:text-slate-400">Add your GSTIN under Settings → Billing. Medicines marked 0% carry no GST. Consultation, lab and ward bills are not affected. Bills already made are not changed. You can turn it off again at any time.</p>
+                <p className="text-xs text-gray-500 dark:text-slate-400">Add your GSTIN under Settings → Billing & GST. Medicines marked 0% carry no GST. Consultation, lab and ward bills are not affected. Bills already made are not changed. You can turn it off again at any time.</p>
               </>
             )}
             <div className="flex justify-end gap-2 pt-1">

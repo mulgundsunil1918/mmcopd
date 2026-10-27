@@ -115,7 +115,7 @@ export function TransferBedModal({ admission, onClose, onDone }: {
         {rateChanges && (
           <div className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-2.5 text-[11.5px] text-amber-900 dark:text-amber-100 leading-relaxed">
             <b>The daily rate changes: {formatINR(currentRate)} → {formatINR(newRate)}.</b> How today itself is charged
-            follows your setting in <span className="font-mono">Settings → Billing &amp; IPD → &ldquo;If a patient moves ward mid-day&rdquo;</span>.
+            follows your setting in <span className="font-mono">Settings → In-Patient (IPD) → &ldquo;If a patient moves ward mid-day&rdquo;</span>.
             From tomorrow the new ward&rsquo;s rate applies.
           </div>
         )}

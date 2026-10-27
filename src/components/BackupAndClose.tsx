@@ -221,7 +221,7 @@ export function BackupAndClose() {
             <Cloud className="w-7 h-7 text-blue-600 mb-2" />
             <div className="text-sm font-bold text-blue-900 dark:text-blue-100">Google Drive (sync folder)</div>
             <div className="text-[11px] text-blue-700 dark:text-blue-300 mt-1">
-              Writes to the folder configured in Settings → Backup. Google Drive Desktop syncs it to the cloud automatically.
+              Writes to the folder configured in Settings → System → Backup, Restore & Updates. Google Drive Desktop syncs it to the cloud automatically.
             </div>
           </button>
           <button

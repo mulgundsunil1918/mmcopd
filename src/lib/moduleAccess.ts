@@ -176,13 +176,13 @@ export function explainDenial(reason: DenyReason, opts: { isOwner: boolean; labe
     case 'station':
       return {
         title: `${what} is not shown on this computer`,
-        body: 'This computer is set up for a specific job (reception, pharmacy, lab…). Change what this computer shows in Settings → System → This Computer. It affects only this PC.',
+        body: 'This computer is set up for a specific job (reception, pharmacy, lab…). Change what this computer shows in Settings → Subscription & Modules → This Computer. It affects only this PC.',
         cta: opts.isOwner ? { label: 'Open Settings', to: '/settings' } : undefined,
       };
     case 'app_mode':
       return {
         title: `${what} is not enabled on this computer`,
-        body: 'This computer is set up for a narrower job. An administrator can change what this computer shows in Settings → System → App Mode.',
+        body: 'This computer is set up for a narrower job. An administrator can change what this computer shows in Settings → Subscription & Modules → App Mode.',
         cta: opts.isOwner ? { label: 'Open Settings', to: '/settings' } : undefined,
       };
     case 'owner_only':

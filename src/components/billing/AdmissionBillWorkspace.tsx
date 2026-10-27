@@ -331,7 +331,7 @@ export function AdmissionBillWorkspace({ admissionId, onClose }: { admissionId: 
                     {busy === 'disc' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Apply discount
                   </button>
                   <p className="text-[10.5px] text-gray-400 leading-relaxed">
-                    Your role has a maximum discount set in Settings → Billing. Going over it is refused with the limit named.
+                    Your role has a maximum discount set in Settings → Billing & GST. Going over it is refused with the limit named.
                   </p>
                 </div>
               )}

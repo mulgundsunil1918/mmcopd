@@ -764,7 +764,7 @@ function NewLabRequestModal({ onClose, onCreated }: { onClose: () => void; onCre
         {unpriced.length > 0 && (
           <div className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-2.5 text-[11.5px] text-amber-900 dark:text-amber-100 leading-relaxed">
             <b>{unpriced.length} selected test{unpriced.length === 1 ? ' has' : 's have'} no price</b> — {unpriced.map((t) => t.name).join(', ')}.
-            {' '}They will be carried out but <b>will not appear on the bill</b>. Set a rate in Settings → Laboratory to charge for them.
+            {' '}They will be carried out but <b>will not appear on the bill</b>. Set a rate under Laboratory → Test Catalog to charge for them.
           </div>
         )}
 

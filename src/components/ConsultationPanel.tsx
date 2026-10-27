@@ -722,7 +722,7 @@ function LabOrderPicker({
         <div className="grid grid-cols-2 gap-2 max-h-[45vh] overflow-auto p-1">
           {shown.length === 0 && (
             <div className="col-span-2 text-center py-8 text-xs text-gray-500">
-              No test matches. Clear the search, or add it in Settings → Laboratory.
+              No test matches. Clear the search, or add it under Laboratory → Test Catalog.
             </div>
           )}
           {shown.map((t) => {

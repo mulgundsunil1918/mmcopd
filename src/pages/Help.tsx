@@ -16,6 +16,7 @@ import {
   BedDouble, Receipt, Syringe, Activity, HardDrive, Wifi, ShieldCheck, MessageSquare, Baby, ScanLine,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { SETTINGS_TABS, SETTINGS_GROUPS } from '../lib/settingsMap';
 
 type Topic = {
   id: string;
@@ -56,9 +57,31 @@ const TOPICS: Topic[] = [
           <Step n={2}><b>Add your doctors</b> — <Path>Settings → Doctors</Path>. Name, specialty, room number, consultation fee.</Step>
           <Step n={3}><b>Set the admin password</b> — the app asks on first run. This PIN guards Settings, Users and anything destructive.</Step>
           <Step n={4}><b>Choose a backup folder</b> — the app asks on first run. Pick a Google Drive or OneDrive folder so a copy lives outside this computer.</Step>
-          <Step n={5}><b>Set your fees</b> — <Path>Settings → Fees &amp; Workflow</Path>. Consultation fee, registration fee, free follow-up policy.</Step>
+          <Step n={5}><b>Set your fees</b> — <Path>Settings → Reception &amp; Fees</Path>. Consultation fee, registration fee, free follow-up policy.</Step>
         </ol>
         <div className="mt-2"><Tip>Every settings section has a <b>?</b> beside its heading. Click it for a plain-language explanation of what that section does.</Tip></div>
+      </>
+    ),
+  },
+  {
+    id: 'settings', icon: ShieldCheck, title: 'Settings — where is everything?', tag: 'Getting started',
+    keywords: 'settings where find tab section pharmacy laboratory radiology ipd billing gst fees clinic doctors system backup subscription module locked unlocked search',
+    body: (
+      <>
+        <p>Settings is arranged in <b>three rows of tabs</b>. Each module has <b>one tab with all of its settings</b>, and a module&rsquo;s tab is <b>locked</b> (it shows a small padlock) until the subscription includes that module. The search box at the top jumps straight to any setting.</p>
+        <div className="mt-2 space-y-3">
+          {SETTINGS_GROUPS.map((g) => (
+            <div key={g.id}>
+              <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-slate-500 mb-1">{g.label}</div>
+              <ul className="space-y-1">
+                {SETTINGS_TABS.filter((t) => t.group === g.id).map((t) => (
+                  <li key={t.id}><Path>{t.label}</Path> — {t.blurb}{t.module ? <> <i>(needs the {t.module === 'lab' ? 'Laboratory' : t.module === 'ipd' ? 'In-Patient' : 'Pharmacy'} module.)</i></> : null}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+        <div className="mt-2"><Tip>Not sure where something is? Type a word in the Settings search box — for example <b>GST</b>, <b>discount</b>, <b>backup</b>, <b>ward</b>, <b>credit</b> or <b>scan prices</b>.</Tip></div>
       </>
     ),
   },
@@ -127,11 +150,11 @@ const TOPICS: Topic[] = [
           <Step n={4}><b>Record Sale &amp; Charge</b> → the printable receipt opens with batch numbers and expiry on every line.</Step>
         </ol>
         <div className="mt-2 space-y-2">
-          <Tip><b>Discount limits.</b> The most a role may discount at the counter is set in <Path>Settings → Billing &amp; IPD → Discounts → At the pharmacy counter</Path> (blank = no limit). A discount above your limit is refused — ask a manager or an administrator. It follows who is signed in. Medicines charged to an in-patient are priced at the batch&rsquo;s selling price, and that price is fixed — it cannot be typed over.</Tip>
+          <Tip><b>Discount limits.</b> The most a role may discount at the counter is set in <Path>Settings → Pharmacy → Discount limits at the counter</Path> (blank = no limit). A discount above your limit is refused — ask a manager or an administrator. It follows who is signed in. Medicines charged to an in-patient are priced at the batch&rsquo;s selling price, and that price is fixed — it cannot be typed over.</Tip>
           <Tip><b>The Pharmacy tabs.</b> <b>Drug List</b> is just the drugs, with no stock. <b>Drugs in my clinic</b> is what you actually hold — units, next expiry, cost and price — with filters for low, out of stock, expiring and expired. Then <b>Purchases</b>, <b>Sales</b>, <b>Wholesalers</b> (your suppliers, what you owe each, and <b>Pay supplier</b> to settle their bills oldest-first) and <b>Reports</b> (Schedule H, stock and purchase registers).</Tip>
           <Tip>Stock is deducted automatically using <b>FEFO</b> — first-expiring batch goes out first, so nothing expires on your shelf unnoticed.</Tip>
           <Warn>Schedule H / H1 medicines are flagged on screen and on the receipt. Add stock via <b>Purchases</b> so batch and expiry are recorded for the register.</Warn>
-          <Tip><b>On credit.</b> If <Path>Settings → Billing &amp; IPD → Pharmacy</Path> allows it, a <i>registered</i> patient can take medicines and pay part now (or nothing) and the rest later: choose <b>On credit</b> under &ldquo;How is it paid?&rdquo;. What is still owed shows on the patient&rsquo;s billing page, in Accounts and under <Path>Analytics → Receivables</Path>; take the money with <b>Collect</b> (Pharmacy → Sales, or the patient&rsquo;s billing page). A walk-in guest cannot take credit. For an admitted patient, <b>Charge to IPD bill</b> puts the medicines on that stay&rsquo;s running bill at the same MRP, to be collected at discharge.</Tip>
+          <Tip><b>On credit.</b> If <Path>Settings → Pharmacy → Credit</Path> allows it, a <i>registered</i> patient can take medicines and pay part now (or nothing) and the rest later: choose <b>On credit</b> under &ldquo;How is it paid?&rdquo;. What is still owed shows on the patient&rsquo;s billing page, in Accounts and under <Path>Analytics → Receivables</Path>; take the money with <b>Collect</b> (Pharmacy → Sales, or the patient&rsquo;s billing page). A walk-in guest cannot take credit. For an admitted patient, <b>Charge to IPD bill</b> puts the medicines on that stay&rsquo;s running bill at the same MRP, to be collected at discharge.</Tip>
           <Tip><b>Brands of one medicine stay together.</b> Dolo 650, Crocin 650 and &ldquo;Paracetamol 650 mg Tablet&rdquo; are the same medicine (same ingredient, strength and form). Write the generic name, the strength with its unit (like 650 mg) and the form when you add a brand, and it joins the others by itself. In <Path>Drugs in my clinic</Path> they sit under one heading with the total; low and out of stock are judged for the medicine, not for one brand. When you dispense, a prescription written for the generic is filled from the brand that expires first, and the other brands on your shelf are one click away. The bill and the Schedule H register always name the brand you actually handed over.</Tip>
           <Tip>Stock you typed in by hand carries a cost nobody can vouch for. <Path>Drugs in my clinic → Cost not recorded</Path> clears it, so profit is never worked out from a guess. Stock bought on a supplier bill is never touched.</Tip>
           <Tip><b>Starting the shelf again.</b> A new install begins with the drug list but an <b>empty shelf</b> — stock comes only from your supplier bills. To clear drugs, the administrator or the pharmacy in-charge can <b>tick drugs</b> under <Path>Drugs in my clinic</Path> and choose <b>Delete selected</b>, or use <b>Start fresh</b> to clear every drug, all stock and all batches. A full copy of your data is saved first, and you must type <b>START FRESH</b> to confirm. Patients, bills, past sales, the Schedule H register, supplier bills and what you owe are never touched; a drug that old bills mention is kept as <i>Inactive</i> rather than erased.</Tip>
@@ -174,7 +197,7 @@ const TOPICS: Topic[] = [
     keywords: 'ipd admission ward bed discharge summary nursing vitals medication approve final bill inpatient',
     body: (
       <>
-        <p className="mb-2">Set up your wards and beds first at <Path>Settings → Billing &amp; IPD</Path> — including the per-day bed and nursing rates.</p>
+        <p className="mb-2">Set up your wards and beds first at <Path>Settings → In-Patient (IPD)</Path> — including the per-day bed and nursing rates.</p>
         <ol className="space-y-2">
           <Step n={1}><b>Admit:</b> IPD → ward map → click a free bed → choose the patient and doctor.</Step>
           <Step n={2}><b>During the stay:</b> open the admission for vitals, medications, doctor notes, nursing notes and intake/output. Bed and nursing charges are added to the bill <b>automatically, once per day</b>.</Step>
@@ -199,9 +222,9 @@ const TOPICS: Topic[] = [
           <li><b>IPD bill</b> — Billing → <b>IPD / Admissions</b> tab shows every admission with its balance. Click to open the same bill the IPD screen uses.</li>
           <li><b>Pharmacy receipt</b> — printed right after a sale. A sale under a patient shows with their bills; a sale to a guest is under <b>Pharmacy walk-ins</b>.</li>
           <li><b>Reprint anything</b> — Billing → Billing History → Reprint. <b>Cancel</b> (manager / administrator) takes a wrongly raised bill off the books and records the refund.</li>
-          <li><b>GST</b> — if you are registered, medicines on an in-patient bill carry their GST <i>inside</i> the MRP (CGST + SGST shown); a switch in <Path>Settings → Billing &amp; IPD</Path> turns that on or off.</li>
+          <li><b>GST</b> — if you are registered, medicines on an in-patient bill carry their GST <i>inside</i> the MRP (CGST + SGST shown); a switch in <Path>Settings → In-Patient (IPD)</Path> turns that on or off.</li>
         </ul>
-        <div className="mt-2"><Tip>GST is off by default. If you're registered, switch it on at <Path>Settings → Billing &amp; IPD</Path> and bills become proper tax invoices with CGST/SGST.</Tip></div>
+        <div className="mt-2"><Tip>GST is off by default. If you're registered, switch it on at <Path>Settings → Billing &amp; GST</Path> and bills become proper tax invoices with CGST/SGST.</Tip></div>
       </>
     ),
   },
@@ -215,7 +238,7 @@ const TOPICS: Topic[] = [
           <Step n={2}>Choose the service, enter the amount and payment mode.</Step>
           <Step n={3}><b>Record Charge</b> → the printable bill opens.</Step>
         </ol>
-        <div className="mt-2"><Tip>Edit the list of services you offer at <Path>Settings → Fees &amp; Workflow → Services</Path>.</Tip></div>
+        <div className="mt-2"><Tip>Edit the list of services you offer at <Path>Settings → Reception &amp; Fees → Services</Path>.</Tip></div>
       </>
     ),
   },

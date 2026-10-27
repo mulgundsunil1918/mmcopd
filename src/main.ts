@@ -876,7 +876,7 @@ function consumeResetMarkerIfPresent() {
  *      and can't be casually dragged to the Recycle Bin.
  * Neither blocks the app (it reads the folder programmatically) nor the
  * uninstaller's own data-wipe prompt. This is FRICTION, not security — the real
- * protection against data loss is an off-device backup (Settings → Backup).
+ * protection against data loss is an off-device backup (Settings → System → Backup, Restore & Updates).
  */
 function protectDataFolder() {
   try {
@@ -971,7 +971,7 @@ app.whenReady().then(async () => {
   tickReminder();
 
   /**
-   * Daily IPD accrual at the configured time (Settings → Billing & IPD).
+   * Daily IPD accrual at the configured time (Settings → In-Patient (IPD)).
    *
    * The setting existed with no scheduler behind it, so bed and nursing charges
    * only landed when somebody opened a patient's bill. Checked every minute

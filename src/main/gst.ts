@@ -79,7 +79,7 @@ export function clinicalLineTax(db: Database.Database, chargeHeadId?: number | n
 }
 
 /**
- * Does the PHARMACY charge GST right now? Its own switch (Pharmacy page / Settings → Billing), separate from the clinic's: see lib/pharmacyGst.ts.
+ * Does the PHARMACY charge GST right now? Its own switch (Pharmacy page / Settings → Pharmacy), separate from the clinic's: see lib/pharmacyGst.ts.
  * Medicine sales, the GST claimed on purchases, pharmacy profit and stock value all ask this one function.
  */
 export function pharmacyGstEnabled(db: Database.Database): boolean {

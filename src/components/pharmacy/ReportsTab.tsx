@@ -142,7 +142,7 @@ export function ReportsTab() {
       </div>
 
       <div className="text-[11px] text-gray-500 dark:text-slate-400 italic px-1">
-        💡 For a full data dump (all sheets, every table), use <b>Settings → Backup → Backup Now</b> — the
+        💡 For a full data dump (all sheets, every table), use <b>Settings → System → Backup, Restore &amp; Updates → Backup Now</b> — the
         generated <code>.xlsx</code> includes the Drug List, Batches, Wholesalers, Invoices, Sales, and Dispensing Register sheets.
       </div>
     </section>

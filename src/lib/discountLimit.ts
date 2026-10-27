@@ -1,5 +1,5 @@
 /**
- * Limits on the discount a person may give at the PHARMACY COUNTER, by role (Settings → Billing & IPD → Discounts →
+ * Limits on the discount a person may give at the PHARMACY COUNTER, by role (Settings → Pharmacy → Discount limits at the counter; was Billing & IPD → Discounts →
  * "At the pharmacy counter"). One rule for the main process (which enforces it) and the screens (which only warn early).
  *
  * The limit is a percentage of the sale's value before the discount, kept as a JSON map { role: percent } in the setting

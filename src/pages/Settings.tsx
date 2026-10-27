@@ -30,6 +30,10 @@ import { ClinicalTemplatesEditor } from '../components/settings/ClinicalTemplate
 import { RoleAccessEditor } from '../components/settings/RoleAccessEditor';
 import { ModuleTutorialButton } from '../components/ModuleTutorial';
 import { BillingSettings } from '../components/settings/BillingSettings';
+import { PharmacyGstCard, PharmacyDiscountLimits, PharmacyCredit } from '../components/settings/PharmacySettings';
+import { AccrualToggle, SectionSaveBar, TabIntro, LockedModule, Explain } from '../components/settings/shared';
+import { SETTINGS_TABS, SETTINGS_GROUPS, SETTINGS_TAB_STORAGE_KEY, tabDef, tabFromStored, BILLING_KEYS, PHARMACY_KEYS, LAB_KEYS, IPD_KEYS, type SettingsTabId, type SettingsTabDef } from '../lib/settingsMap';
+import { Pill, BedDouble, ScanLine } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
 import { useLicensedModules } from '../hooks/useLicensedModules';
 import { HelpTip } from '../components/HelpTip';
@@ -75,50 +79,82 @@ import { DOCTOR_COLOR_OPTIONS, colorForDoctor } from '../lib/doctor-colors';
 import type { AppMode, Doctor, ReferringDoctor, Settings } from '../types';
 import { localISO } from '../lib/localDate';
 
-type SettingsTab = 'clinic' | 'doctors' | 'workflow' | 'billing' | 'peds' | 'patients' | 'system' | 'multisystem' | 'subscription';
+type SettingsTab = SettingsTabId;
 
-const SETTINGS_TAB_KEY = 'caredesk:settings-tab';
+const SETTINGS_TAB_KEY = SETTINGS_TAB_STORAGE_KEY;
 
-const TAB_LABEL: Record<SettingsTab, string> = {
-  clinic: 'Clinic', doctors: 'Doctors & Templates', workflow: 'Fees & Workflow', billing: 'Billing & IPD',
-  peds: 'Pediatrics', patients: 'Patients', system: 'System', multisystem: 'Multi-System', subscription: 'Subscription',
+const TAB_LABEL = Object.fromEntries(SETTINGS_TABS.map((t) => [t.id, t.label])) as Record<SettingsTab, string>;
+
+/** The little picture on each tab button. */
+const TAB_ICON: Record<SettingsTab, React.ReactNode> = {
+  clinic: <Building2 className="w-3.5 h-3.5" />, doctors: <Stethoscope className="w-3.5 h-3.5" />, reception: <Wallet className="w-3.5 h-3.5" />,
+  billing: <IndianRupee className="w-3.5 h-3.5" />, pharmacy: <Pill className="w-3.5 h-3.5" />, lab: <FlaskConical className="w-3.5 h-3.5" />,
+  ipd: <BedDouble className="w-3.5 h-3.5" />, peds: <Baby className="w-3.5 h-3.5" />, system: <HardDrive className="w-3.5 h-3.5" />,
+  multisystem: <Wifi className="w-3.5 h-3.5" />, subscription: <ShieldCheck className="w-3.5 h-3.5" />,
 };
 
 /** Flat index of every settings section, so the search box can jump to its tab. */
 const SETTINGS_SEARCH: { tab: SettingsTab; label: string; hint: string; keywords: string }[] = [
-  { tab: 'clinic', label: 'Clinic Identity', hint: 'Name, logo, address, contact', keywords: 'clinic name logo address phone letterhead tagline registration email' },
+  { tab: 'clinic', label: 'Clinic Identity', hint: 'Name, logo, address, contact', keywords: 'clinic name logo address phone tagline registration email' },
+  { tab: 'clinic', label: 'Letterhead & Logo', hint: 'The header printed on every document', keywords: 'letterhead logo header print bill slip lab radiology pharmacy' },
   { tab: 'clinic', label: 'Prescription QR Codes', hint: 'QR codes on prescription page 2', keywords: 'qr code website maps prescription link' },
-  { tab: 'clinic', label: 'App Mode', hint: 'Which modules show in the sidebar', keywords: 'app mode module sidebar reception pharmacy doctor lab ipd' },
   { tab: 'doctors', label: 'Doctors', hint: 'Fees, signature, colour, template', keywords: 'doctor fee signature colour color template room specialty' },
+  { tab: 'doctors', label: 'Referrals', hint: 'Where patients come from', keywords: 'referral referring doctor google self family source' },
   { tab: 'doctors', label: 'OPD Slip Body Templates', hint: 'Consultation & printed-slip sections', keywords: 'opd slip template section body specialty growth layout' },
   { tab: 'doctors', label: 'Patient Language on Printed Slip', hint: 'Second language under each medicine', keywords: 'language kannada hindi tamil telugu malayalam marathi bilingual multilingual print opd slip patient second regional' },
   { tab: 'doctors', label: 'Consultation Quick-Fill Templates', hint: 'One-tap clinical text by department', keywords: 'quick fill template consultation clinical department specialty history examination' },
-  { tab: 'workflow', label: 'Fees, Queue Flow & Display', hint: 'Consultation fee, queue toggle', keywords: 'fee queue flow waiting done pending consultation display badge billing slot' },
-  { tab: 'workflow', label: 'Patient Registration Fee', hint: 'One-time registration fee', keywords: 'registration fee one time' },
-  { tab: 'workflow', label: 'Free Follow-up Policy', hint: 'Same-doctor follow-up window', keywords: 'follow up free policy window revisit' },
-  { tab: 'workflow', label: 'Services', hint: 'Quick-pick service chips', keywords: 'services procedures vaccination chips price' },
-  { tab: 'billing', label: 'Wards & Beds', hint: 'IPD wards and beds', keywords: 'ward bed ipd room admission' },
-  { tab: 'billing', label: 'IPD Charges & Accrual', hint: 'Auto bed/nursing/doctor charges', keywords: 'ipd bed nursing accrual charge doctor visit advance deposit transfer' },
-  { tab: 'billing', label: 'GST & Billing', hint: 'GST, invoice prefix, round-off', keywords: 'gst tax invoice prefix round off discount gstin' },
-  { tab: 'billing', label: 'Insurance / TPA', hint: 'Cashless admissions', keywords: 'tpa insurance cashless claim preauth' },
-  { tab: 'billing', label: 'Discharge Summary', hint: 'Builder + templates', keywords: 'discharge summary template letterhead' },
-  { tab: 'billing', label: 'Admission Requests', hint: 'Doctor requests from OPD', keywords: 'admission request opd reception' },
-  { tab: 'billing', label: 'Lab Auto-Billing', hint: 'Auto-raise a bill when tests are ordered', keywords: 'lab laboratory auto bill billing test order revenue investigation' },
-  { tab: 'billing', label: 'Laboratory catalog', hint: 'Load & manage lab tests + prices', keywords: 'lab laboratory catalog test inventory pathology biochemistry microbiology histopathology radiology price manage load standard investigation' },
+  { tab: 'reception', label: 'Fees, Queue Flow & Display', hint: 'Consultation fee, queue toggle', keywords: 'fee queue flow waiting done pending consultation display badge billing slot' },
+  { tab: 'reception', label: 'Patient Registration Fee', hint: 'One-time registration fee', keywords: 'registration fee one time' },
+  { tab: 'reception', label: 'Free Follow-up Policy', hint: 'Same-doctor follow-up window', keywords: 'follow up free policy window revisit' },
+  { tab: 'reception', label: 'Services', hint: 'Quick-pick service chips', keywords: 'services procedures vaccination chips price' },
+  { tab: 'reception', label: 'Patients & Locations', hint: 'Default state, district, villages', keywords: 'patient location state district village autocomplete' },
+  { tab: 'reception', label: 'List Window (performance)', hint: 'How far back lists show by default', keywords: 'list window performance recent month week reception discharge slow speed pagination lag' },
+  { tab: 'billing', label: 'GST & Invoicing', hint: 'GST registration, GSTIN, invoice prefix, round-off', keywords: 'gst tax invoice prefix round off gstin registration composition regular exempt' },
+  { tab: 'billing', label: 'Charge Heads (price list)', hint: 'Consultation, bed, nursing, procedures', keywords: 'charge head price list rate consultation bed nursing procedure oxygen' },
+  { tab: 'billing', label: 'Discount limits for staff', hint: 'Most each role may take off a bill', keywords: 'discount limit cap role reason receptionist nurse manager' },
+  { tab: 'pharmacy', label: 'GST on pharmacy sales', hint: 'The pharmacy’s own GST switch', keywords: 'pharmacy gst tax switch mrp purchase claim' },
+  { tab: 'pharmacy', label: 'Pharmacy GSTIN, name & drug licence on bills', hint: 'If different from the clinic’s', keywords: 'pharmacy gstin legal name drug licence license dl number bill print' },
+  { tab: 'pharmacy', label: 'GST % a new medicine starts with', hint: 'Default GST for the Drug List', keywords: 'default gst drug medicine new rate 5 12 18 28 percent' },
+  { tab: 'pharmacy', label: 'Discount limits at the pharmacy counter', hint: 'Most each role may give on a medicine sale', keywords: 'pharmacy counter discount limit cap pharmacist receptionist percent' },
+  { tab: 'pharmacy', label: 'Credit — let patients pay later', hint: 'Medicines on credit; charge to the ward bill', keywords: 'credit pay later owed receivable pharmacy ipd bill charge' },
+  { tab: 'lab', label: 'Lab & Radiology Auto-Billing', hint: 'Raise a bill when a test or scan is ordered', keywords: 'lab laboratory radiology scan xray auto bill billing order revenue investigation' },
+  { tab: 'lab', label: 'Laboratory catalogue', hint: 'Load & manage lab tests + prices', keywords: 'lab laboratory catalog catalogue test inventory pathology biochemistry microbiology histopathology price manage load standard investigation' },
+  { tab: 'lab', label: 'Radiology catalogue', hint: 'Load & manage scans + prices', keywords: 'radiology catalogue catalog scan x-ray xray ultrasound usg ct mri price manage load standard' },
+  { tab: 'ipd', label: 'Wards & Beds', hint: 'IPD wards and beds', keywords: 'ward bed ipd room admission' },
+  { tab: 'ipd', label: 'IPD Charges & Accrual', hint: 'Auto bed/nursing/doctor charges, deposits', keywords: 'ipd bed nursing accrual charge doctor visit advance deposit transfer' },
+  { tab: 'ipd', label: 'GST on in-patient bills & admission number', hint: 'Ward bill GST, IP number prefix', keywords: 'ipd in-patient gst tax admission number prefix ip' },
+  { tab: 'ipd', label: 'Insurance / TPA', hint: 'Cashless admissions', keywords: 'tpa insurance cashless claim preauth' },
+  { tab: 'ipd', label: 'Discharge Summary', hint: 'Builder + templates', keywords: 'discharge summary template letterhead' },
+  { tab: 'ipd', label: 'Admission Requests', hint: 'Doctor requests from OPD', keywords: 'admission request opd reception' },
   { tab: 'peds', label: 'Pediatrics Add-on', hint: 'Growth, vaccines, calculators', keywords: 'pediatrics paediatrics growth centile who iap vaccine immunisation calculator bmi head circumference child chart' },
-  { tab: 'patients', label: 'Patients & Locations', hint: 'Default state, district, villages', keywords: 'patient location state district village autocomplete' },
-  { tab: 'patients', label: 'List Window (performance)', hint: 'How far back lists show by default', keywords: 'list window performance recent month week reception discharge slow speed pagination lag' },
-  { tab: 'system', label: 'Security & Login', hint: 'Sign-in, idle sign-out', keywords: 'security login password idle signout user audit' },
+  { tab: 'system', label: 'Security & Login', hint: 'Sign-in, idle sign-out', keywords: 'security login password idle signout user audit require sign-in' },
   { tab: 'system', label: 'Role-Based Access', hint: 'Module access per staff role', keywords: 'role access permission module staff customisable' },
+  { tab: 'system', label: 'Date & Time on this computer', hint: 'Clock and time zone check', keywords: 'date time clock zone timezone ist' },
   { tab: 'system', label: 'Startup & Background', hint: 'Auto-launch, tray', keywords: 'startup background tray autolaunch windows minimize' },
-  { tab: 'multisystem', label: 'Multi-System Connection', hint: 'Host / client, join code, connected PCs', keywords: 'network multi station lan server client cabin host connect diagram' },
   { tab: 'system', label: 'Backup, Restore & Updates', hint: 'Backups, USB, app updates', keywords: 'backup restore update usb sqlite excel auto' },
+  { tab: 'system', label: 'Factory Reset', hint: 'Erase this computer and start fresh', keywords: 'factory reset erase clear test data start fresh' },
+  { tab: 'multisystem', label: 'Multi-System Connection', hint: 'Host / client, join code, connected PCs', keywords: 'network multi station lan server client cabin host connect diagram' },
   { tab: 'subscription', label: 'Subscription & Modules', hint: 'Active plan, expiry, upgrade / renew', keywords: 'subscription licence license plan modules upgrade renew activate activation code expiry machine id lock unlock' },
+  { tab: 'subscription', label: 'App Mode', hint: 'Which modules show in the sidebar', keywords: 'app mode module sidebar reception pharmacy doctor lab ipd' },
+  { tab: 'subscription', label: 'This computer (what this PC is for)', hint: 'Pharmacy counter, reception desk, lab PC…', keywords: 'this computer station role pharmacy counter reception lab ward menu show hide' },
+  { tab: 'subscription', label: 'Modules in use', hint: 'Which modules are on, not in the plan, or hidden', keywords: 'modules in use plan switched off hidden role limited' },
 ];
+
+/** Where closely related things are kept — shown under a tab's one-line description. */
+const TAB_ALSO: Partial<Record<SettingsTab, (go: (t: SettingsTab) => void) => React.ReactNode>> = {
+  billing: (go) => <>Looking for the pharmacy&rsquo;s GST, its discount limit or credit? <LinkBtn onClick={() => go('pharmacy')}>Pharmacy</LinkBtn> · Wards, deposits, admission numbers? <LinkBtn onClick={() => go('ipd')}>In-Patient (IPD)</LinkBtn> · Lab and scan prices? <LinkBtn onClick={() => go('lab')}>Laboratory &amp; Radiology</LinkBtn></>,
+  pharmacy: (go) => <>The clinic&rsquo;s GST registration (regular / composition) and GSTIN are set once under <LinkBtn onClick={() => go('billing')}>Billing &amp; GST</LinkBtn>. Drugs, stock, suppliers and registers are on the Pharmacy page itself.</>,
+  lab: () => <>Tests and scans are added, priced and switched on or off here and on the Laboratory and Radiology pages (Test Catalog / Catalogue &amp; Prices).</>,
+  ipd: (go) => <>The clinic&rsquo;s GST registration is under <LinkBtn onClick={() => go('billing')}>Billing &amp; GST</LinkBtn>; the pharmacy&rsquo;s charge-to-ward-bill switch is under <LinkBtn onClick={() => go('pharmacy')}>Pharmacy</LinkBtn>.</>,
+  reception: () => <>Doctors&rsquo; own fees are set with each doctor under Doctors &amp; Templates.</>,
+};
+function LinkBtn({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return <button type="button" className="font-semibold text-blue-700 dark:text-blue-300 hover:underline" onClick={onClick}>{children}</button>;
+}
 
 export function SettingsPage() {
   const [tab, setTab] = useState<SettingsTab>(() => {
-    try { return (localStorage.getItem(SETTINGS_TAB_KEY) as SettingsTab) || 'clinic'; } catch { return 'clinic'; }
+    try { return tabFromStored(localStorage.getItem(SETTINGS_TAB_KEY)); } catch { return 'clinic'; }
   });
   useEffect(() => { try { localStorage.setItem(SETTINGS_TAB_KEY, tab); } catch { /* ignore */ } }, [tab]);
   const [search, setSearch] = useState('');
@@ -135,6 +171,8 @@ export function SettingsPage() {
   // System tab (network, backup, this-PC station) stays editable on a client.
   const { data: netStatus } = useQuery({ queryKey: ['network-status'], queryFn: () => window.electronAPI.network.status(), staleTime: 15_000 });
   const lockClinic = netStatus?.mode === 'client' && tab !== 'system' && tab !== 'multisystem';
+  /** A module's tab is locked while the subscription does not include the module. */
+  const isLocked = (t: SettingsTabDef) => !!t.module && !has(t.module);
 
   return (
     <AdminGate title="Settings — Administrator area">
@@ -182,17 +220,20 @@ export function SettingsPage() {
           </div>
         )}
 
-        {/* Tab bar */}
-        <div className="flex flex-wrap gap-1 mb-6 p-1 rounded-lg bg-gray-100 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700 sticky top-0 z-10 backdrop-blur">
-          <SettingsTabBtn active={tab === 'clinic'} onClick={() => setTab('clinic')} icon={<Building2 className="w-3.5 h-3.5" />}>Clinic</SettingsTabBtn>
-          <SettingsTabBtn active={tab === 'doctors'} onClick={() => setTab('doctors')} icon={<Stethoscope className="w-3.5 h-3.5" />}>Doctors & Templates</SettingsTabBtn>
-          <SettingsTabBtn active={tab === 'workflow'} onClick={() => setTab('workflow')} icon={<Wallet className="w-3.5 h-3.5" />}>Fees & Workflow</SettingsTabBtn>
-          <SettingsTabBtn active={tab === 'billing'} onClick={() => setTab('billing')} icon={<IndianRupee className="w-3.5 h-3.5" />}>Billing & IPD</SettingsTabBtn>
-          <SettingsTabBtn active={tab === 'peds'} onClick={() => setTab('peds')} icon={<Baby className="w-3.5 h-3.5" />}>Pediatrics</SettingsTabBtn>
-          <SettingsTabBtn active={tab === 'patients'} onClick={() => setTab('patients')} icon={<UserIcon className="w-3.5 h-3.5" />}>Patients</SettingsTabBtn>
-          <SettingsTabBtn active={tab === 'system'} onClick={() => setTab('system')} icon={<HardDrive className="w-3.5 h-3.5" />}>System</SettingsTabBtn>
-          <SettingsTabBtn active={tab === 'multisystem'} onClick={() => setTab('multisystem')} icon={<Wifi className="w-3.5 h-3.5" />}>Multi-System</SettingsTabBtn>
-          <SettingsTabBtn active={tab === 'subscription'} onClick={() => setTab('subscription')} icon={<ShieldCheck className="w-3.5 h-3.5" />}>Subscription</SettingsTabBtn>
+        {/* Tab bar — grouped, so it is clear what is where; a module's tab shows a lock until the subscription includes it */}
+        <div className="mb-4 rounded-lg bg-gray-100 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700 p-1.5 space-y-1">
+          {SETTINGS_GROUPS.map((g) => (
+            <div key={g.id} className="flex flex-wrap items-center gap-1">
+              <span className="w-[122px] shrink-0 pl-1.5 text-[9px] font-bold uppercase tracking-widest text-gray-400 dark:text-slate-500">{g.label}</span>
+              {SETTINGS_TABS.filter((t) => t.group === g.id).map((t) => (
+                <SettingsTabBtn key={t.id} active={tab === t.id} locked={isLocked(t)} onClick={() => setTab(t.id)} icon={TAB_ICON[t.id]}>{t.label}</SettingsTabBtn>
+              ))}
+            </div>
+          ))}
+        </div>
+
+        <div className="mb-5">
+          <TabIntro title={tabDef(tab).label} also={TAB_ALSO[tab]?.(setTab)}>{tabDef(tab).blurb}</TabIntro>
         </div>
 
         {settingsLoading && (
@@ -229,9 +270,6 @@ export function SettingsPage() {
               <SettingsGroup title="Prescription QR Codes" subtitle="Show 1 or 2 QR codes on the prescription page 2 — e.g. website link and Google Maps location.">
                 <PrescriptionQr />
               </SettingsGroup>
-              <SettingsGroup title="App Mode" subtitle="Pick which modules are visible in the sidebar (Reception, Pharmacy, Doctor, Lab, IPD).">
-                <AppModeSelector />
-              </SettingsGroup>
             </>
           )}
 
@@ -255,7 +293,7 @@ export function SettingsPage() {
             </>
           )}
 
-          {tab === 'workflow' && (
+          {tab === 'reception' && (
             <>
               <SettingsGroup title="Fees, Queue Flow & Display" subtitle="Consultation fees, queue toggle, and sidebar visibility for the user badge / Billing module.">
                 <FeesAndFlow />
@@ -269,22 +307,42 @@ export function SettingsPage() {
               <SettingsGroup title="Services" subtitle="Quick-pick chips shown on the Services page (procedures, vaccinations, etc.). Add, remove, or reorder.">
                 <MiscServicesEditor />
               </SettingsGroup>
-            </>
-          )}
-
-          {tab === 'billing' && <BillingIpdTab />}
-
-          {tab === 'subscription' && <SubscriptionTab />}
-
-          {tab === 'peds' && <PediatricsTab />}
-
-          {tab === 'patients' && (
-            <>
               <SettingsGroup title="Patients & Locations" subtitle="Default state, district, and bundled village list shown as autocomplete.">
                 <DefaultLocation />
               </SettingsGroup>
               <SettingsGroup title="List Window (keeps big lists fast)" subtitle="How far back the Reception patient list and Discharge Summary list show by default. Search always finds everyone, however old.">
                 <RecordsWindowSetting />
+              </SettingsGroup>
+            </>
+          )}
+
+          {tab === 'billing' && <BillingTab />}
+
+          {tab === 'pharmacy' && (isLocked(tabDef('pharmacy'))
+            ? <LockedModule name="Pharmacy" what="the pharmacy" onOpenSubscription={() => setTab('subscription')} />
+            : <PharmacyTab goTo={setTab} />)}
+
+          {tab === 'lab' && (isLocked(tabDef('lab'))
+            ? <LockedModule name="Laboratory" what="the lab and the scan desk" onOpenSubscription={() => setTab('subscription')} />
+            : <LabTab />)}
+
+          {tab === 'ipd' && (isLocked(tabDef('ipd'))
+            ? <LockedModule name="In-Patient (IPD)" what="wards, admissions and discharge" onOpenSubscription={() => setTab('subscription')} />
+            : <IpdTab goTo={setTab} />)}
+
+          {tab === 'peds' && <PediatricsTab />}
+
+          {tab === 'subscription' && (
+            <>
+              <SubscriptionTab />
+              <SettingsGroup title="App Mode" subtitle="Pick which modules are visible in the sidebar (Reception, Pharmacy, Doctor, Lab, IPD).">
+                <AppModeSelector />
+              </SettingsGroup>
+              <SettingsGroup title="This Computer & Modules in Use" subtitle="What this one PC is for (it changes this computer's menu only), and a read-out of every module: in use, not in the plan, switched off, or hidden here.">
+                <div className="card p-5 space-y-6">
+                  <ThisComputerPanel />
+                  <div className="border-t border-gray-100 dark:border-slate-800 pt-5"><ModulesInUsePanel /></div>
+                </div>
               </SettingsGroup>
             </>
           )}
@@ -343,12 +401,14 @@ export function SettingsPage() {
 }
 
 function SettingsTabBtn({
-  active, onClick, icon, children,
+  active, onClick, icon, children, locked = false,
 }: {
   active: boolean;
   onClick: () => void;
   icon: React.ReactNode;
   children: React.ReactNode;
+  /** The module is not in the subscription: the tab can still be opened, to say so. */
+  locked?: boolean;
 }) {
   return (
     <button
@@ -363,6 +423,7 @@ function SettingsTabBtn({
     >
       {icon}
       <span>{children}</span>
+      {locked && <Lock className="w-3 h-3 opacity-60" aria-label="locked — not in the subscription" />}
     </button>
   );
 }
@@ -1080,11 +1141,7 @@ function BackupSettings() {
         </div>
       </div>
 
-      {/* This computer */}
-      <ThisComputerPanel />
 
-      {/* What this clinic can use, and what a given role will actually see */}
-      <ModulesInUsePanel />
       <PreviewAsRolePanel />
 
       {/* Coming from paper / another system */}
@@ -3213,7 +3270,7 @@ function MigrationHelper() {
       // there is no `ok` flag on the result.
       const r = await window.electronAPI.backup.now();
       setResult(`Backup written: ${r.bundleDir}`);
-      toast('Backup ready — copy that folder to the server PC, then on the server use Settings → Backup → Restore');
+      toast('Backup ready — copy that folder to the server PC, then on the server use Settings → System → Backup, Restore & Updates → Restore');
     } catch (e: any) {
       toast(e?.message || 'Backup failed', 'error');
     } finally { setBusy(false); }
@@ -4662,7 +4719,7 @@ function ThisComputerPanel() {
   const preview = MENU_PREVIEW.filter((m) => stationShows(m.path, current)).map((m) => m.label);
 
   return (
-    <div className="mt-6 pt-5 border-t border-gray-200 dark:border-slate-700">
+    <div>
       <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">This computer</h3>
       <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-3">
         What is this PC used for? It decides which menu items appear <b>on this computer only</b> —
@@ -4875,7 +4932,7 @@ function ModulesInUsePanel() {
   const live = rows.filter((r) => r.state.allowed).length;
 
   return (
-    <div className="mt-6 pt-5 border-t border-gray-200 dark:border-slate-700">
+    <div>
       <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">
         Modules this clinic uses
         <HelpTip title="Modules this clinic uses">
@@ -5552,57 +5609,80 @@ function SubscriptionTab() {
 }
 
 // =====================================================================
-// Billing & IPD tab
+// Billing & GST, Pharmacy, Laboratory & Radiology, In-Patient — one tab each (they were all inside "Billing & IPD")
 // =====================================================================
-function BillingIpdTab() {
+function SettingsLoading() {
+  return <div className="card p-8 text-center text-sm text-gray-500"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></div>;
+}
+
+/** The clinic's own billing: GST registration, invoice numbers, round-off, the price list, staff discount limits. */
+function BillingTab() {
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
-  const { draft, set, reset, dirty, saving, save } = useSectionDraft(settings, [
-    'gst_enabled', 'pharmacy_gst_enabled', 'pharmacy_gstin', 'pharmacy_legal_name', 'pharmacy_drug_license_no', 'default_drug_gst_rate', 'gst_registration_type', 'clinic_gstin', 'clinic_legal_name', 'clinic_state_code',
-    'healthcare_gst_exempt', 'invoice_prefix', 'ip_number_prefix', 'bill_round_off',
-    'discount_caps_json', 'discount_require_reason', 'pharmacy_discount_caps_json',
-    'ipd_auto_accrue_bed', 'ipd_auto_accrue_nursing', 'ipd_auto_accrue_doctor_visit',
-    'ipd_doctor_visit_mode', 'ipd_transfer_charge_rule', 'ipd_accrual_time', 'ipd_advance_enabled',
-    'tpa_enabled', 'ipd_admission_requests_enabled', 'discharge_summary_enabled', 'lab_auto_bill', 'radiology_auto_bill',
-    'pharmacy_credit_enabled', 'pharmacy_ipd_charge_enabled', 'ipd_gst_enabled',
-  ]);
-  const { has } = useLicensedModules();
-
-  if (!settings) return <div className="card p-8 text-center text-sm text-gray-500"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></div>;
-
+  const { draft, set, reset, dirty, saving, save } = useSectionDraft(settings, BILLING_KEYS);
+  if (!settings) return <SettingsLoading />;
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between sticky top-12 z-[5] bg-white/80 dark:bg-slate-900/80 backdrop-blur py-2 -my-2 px-1 rounded">
-        <div className="text-[11px] text-gray-500 dark:text-slate-400">
-          Changes here apply across the clinic. Wards and beds save on their own; the toggles below need <b>Save</b>.
-        </div>
-        <div className="flex items-center gap-2">
-          {dirty && <button className="btn-ghost text-xs" onClick={reset}>Reset</button>}
-          <button className="btn-primary text-xs" disabled={!dirty || saving} onClick={save}>
-            {saving ? 'Saving…' : dirty ? 'Save changes' : 'All saved'}
-          </button>
-        </div>
+      <SectionSaveBar note={<>Changes here apply across the clinic. The charge list saves on its own; the switches and boxes need <b>Save</b>.</>}
+        dirty={dirty} saving={saving} onReset={reset} onSave={save} />
+      <BillingSettings draft={draft} set={set as any} />
+    </div>
+  );
+}
+
+/** Everything about the pharmacy, in one place. Unlocked only while the subscription includes Pharmacy. */
+function PharmacyTab({ goTo }: { goTo: (t: SettingsTab) => void }) {
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { draft, set, reset, dirty, saving, save } = useSectionDraft(settings, PHARMACY_KEYS);
+  const { has } = useLicensedModules();
+  if (!settings) return <SettingsLoading />;
+  return (
+    <div className="space-y-5">
+      <SectionSaveBar note={<>Every pharmacy setting is on this page. The switches and boxes need <b>Save</b>.</>} dirty={dirty} saving={saving} onReset={reset} onSave={save} />
+      <PharmacyGstCard draft={draft} set={set as any} saved={settings} goBilling={() => goTo('billing')} />
+      <PharmacyDiscountLimits draft={draft} set={set as any} />
+      <PharmacyCredit draft={draft} set={set as any} hasIpd={has('ipd')} />
+    </div>
+  );
+}
+
+/** The lab and the scan desk (radiology rides on the Laboratory module): when a bill is raised, and the two price lists. */
+function LabTab() {
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { draft, set, reset, dirty, saving, save } = useSectionDraft(settings, LAB_KEYS);
+  if (!settings) return <SettingsLoading />;
+  return (
+    <div className="space-y-5">
+      <SectionSaveBar note={<>The two switches need <b>Save</b>. The test and scan lists save on their own.</>} dirty={dirty} saving={saving} onReset={reset} onSave={save} />
+      {/* Lab auto-billing */}
+      <div className="card p-5">
+        <AccrualToggle label="Auto-raise a bill when a lab test is ordered"
+          help="When a doctor or reception orders lab tests, an unpaid bill is created automatically from the test prices, so lab revenue lands in billing instead of being missed. Reception collects it at the counter. Turn off if you bill lab work another way."
+          value={draft.lab_auto_bill ?? true} onChange={(v) => set('lab_auto_bill', v)} />
       </div>
 
-      {has('pharmacy') && (
-        <div className="card p-5 space-y-4">
-          <div>
-            <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5">Credit — let patients pay later<HelpTip title="Medicines on credit"><><p>Lets the pharmacy hand over medicines now and take the money later, for a registered patient.</p><p>What is still owed shows against the patient in Billing, in Accounts and under Analytics → Receivables, and every payment taken later is recorded with who took it and how it was paid.</p></></HelpTip></div>
-            <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
-              Credit appears at the pharmacy counter only while the switch below is ON. Turn it off and the option disappears from every screen (what is already owed can still be collected). Both switches are off until you turn them on.
-            </div>
-          </div>
-          <AccrualToggle label="Allow medicines on credit (the patient pays later)"
-            help="At the pharmacy counter a registered patient can take medicines and pay part now, or nothing, and the rest later. A walk-in guest can never take credit — it must be clear who owes the money."
-            value={draft.pharmacy_credit_enabled ?? false} onChange={(v) => set('pharmacy_credit_enabled', v)} />
-          {has('ipd') && (
-            <AccrualToggle label="Allow charging medicines to an admitted patient's bill"
-              help="At the pharmacy counter, medicines for an in-patient can be put on that stay's running bill instead of being paid for there and then. They are priced at the selling price of the batch they come from (its MRP when no selling price was set) — the price is fixed by the system and cannot be typed over — and are collected with the rest of the bill at discharge."
-              value={draft.pharmacy_ipd_charge_enabled ?? false} onChange={(v) => set('pharmacy_ipd_charge_enabled', v)} />
-          )}
-        </div>
-      )}
+      {/* Radiology auto-billing */}
+      <div className="card p-5">
+        <AccrualToggle label="Auto-raise a bill when a scan is ordered (Radiology)"
+          help="When a doctor or the Radiology desk orders X-Ray, ultrasound, CT or MRI, a bill is created automatically from the scan prices — unpaid if it is to be collected later, or paid on the spot when the desk takes the money while raising the request. Turn off if you bill radiology another way."
+          value={draft.radiology_auto_bill ?? true} onChange={(v) => set('radiology_auto_bill', v)} />
+      </div>
 
-      {has('ipd') && (<>
+      <LabSettingsCard />
+      <RadiologyCatalogCard />
+    </div>
+  );
+}
+
+/** Wards and beds, the daily charges, deposits, numbering, GST on ward bills, insurance, admission requests, the discharge summary. */
+function IpdTab({ goTo }: { goTo: (t: SettingsTab) => void }) {
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { draft, set, reset, dirty, saving, save } = useSectionDraft(settings, IPD_KEYS);
+  if (!settings) return <SettingsLoading />;
+  const clinicGst = !!settings.gst_enabled && (settings.gst_registration_type ?? 'unregistered') !== 'composition';   // the clinic's registration is on the Billing & GST tab: read as saved
+  return (
+    <div className="space-y-5">
+      <SectionSaveBar note={<>Wards and beds save on their own; the switches and boxes below need <b>Save</b>.</>} dirty={dirty} saving={saving} onReset={reset} onSave={save} />
+
       <WardsBedsEditor />
 
       {/* IPD auto-accrual */}
@@ -5664,11 +5744,35 @@ function BillingIpdTab() {
           help="Lets reception take a deposit when admitting, adjusted against the final bill. Refunds are handled at discharge (important for LAMA and death, where money is usually owed back)."
           value={draft.ipd_advance_enabled ?? true} onChange={(v) => set('ipd_advance_enabled', v)} />
       </div>
-      </>)}
 
-      <BillingSettings draft={draft} set={set as any} />
+      {/* Numbering + GST on ward bills */}
+      <div className="card p-5 space-y-4">
+        <div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Admission numbers &amp; GST on ward bills</div>
+        </div>
+        <div className="max-w-xs">
+          <label className="label">Admission number prefix</label>
+          <input className="input" value={draft.ip_number_prefix || 'IP'} onChange={(e) => set('ip_number_prefix', e.target.value)} />
+          <Explain>Admissions are numbered like <code>{(draft.ip_number_prefix || 'IP')}/2026-27/0001</code>.</Explain>
+        </div>
+        {clinicGst ? (
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input type="checkbox" className="mt-1" checked={draft.ipd_gst_enabled ?? true} onChange={(e) => set('ipd_gst_enabled', e.target.checked)} />
+            <div>
+              <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">Charge GST on in-patient bills</div>
+              <Explain>
+                On (recommended for a registered clinic): the medicines on an in-patient's bill carry their GST, shown as CGST + SGST inside
+                the MRP — the patient pays the MRP, never more. Bed, nursing and doctor charges stay exempt unless you mark that charge taxable
+                (Billing &amp; GST → Charge Heads). Off: in-patient bills carry no GST at all. It applies to every bill still open; a bill already closed at discharge keeps what it was.
+              </Explain>
+            </div>
+          </label>
+        ) : (
+          <Explain>GST on in-patient bills is available once the clinic is GST-registered (a regular registration) — set that under{' '}
+            <LinkBtn onClick={() => goTo('billing')}>Billing &amp; GST</LinkBtn>.</Explain>
+        )}
+      </div>
 
-      {has('ipd') && (<>
       {/* TPA */}
       <div className="card p-5">
         <AccrualToggle label="Handle insurance / TPA (cashless) admissions"
@@ -5691,26 +5795,6 @@ function BillingIpdTab() {
           help="A doctor seeing a patient can press “Request Admission”; it appears under IPD → Requests for reception to approve and assign a ward and bed. Turn off if reception admits directly."
           value={draft.ipd_admission_requests_enabled ?? true} onChange={(v) => set('ipd_admission_requests_enabled', v)} />
       </div>
-      </>)}
-
-      {has('lab') && (<>
-      {/* Lab auto-billing */}
-      <div className="card p-5">
-        <AccrualToggle label="Auto-raise a bill when a lab test is ordered"
-          help="When a doctor or reception orders lab tests, an unpaid bill is created automatically from the test prices, so lab revenue lands in billing instead of being missed. Reception collects it at the counter. Turn off if you bill lab work another way."
-          value={draft.lab_auto_bill ?? true} onChange={(v) => set('lab_auto_bill', v)} />
-      </div>
-
-      {/* Radiology auto-billing */}
-      <div className="card p-5">
-        <AccrualToggle label="Auto-raise a bill when a scan is ordered (Radiology)"
-          help="When a doctor or the Radiology desk orders X-Ray, ultrasound, CT or MRI, a bill is created automatically from the scan prices — unpaid if it is to be collected later, or paid on the spot when the desk takes the money while raising the request. Turn off if you bill radiology another way."
-          value={draft.radiology_auto_bill ?? true} onChange={(v) => set('radiology_auto_bill', v)} />
-      </div>
-
-      <LabSettingsCard />
-      </>)}
-
     </div>
   );
 }
@@ -5731,7 +5815,7 @@ function PediatricsTab() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between sticky top-12 z-[5] bg-white/80 dark:bg-slate-900/80 backdrop-blur py-2 -my-2 px-1 rounded">
+      <div className="flex items-center justify-between sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur py-2 -my-2 px-1 rounded">
         <div className="text-[11px] text-gray-500 dark:text-slate-400">
           Turn the paediatrics tools on or off. The toggles below need <b>Save</b>.
         </div>
@@ -5829,7 +5913,7 @@ function LabSettingsCard() {
   return (
     <div className="card p-5 space-y-3">
       <div>
-        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5"><FlaskConical className="w-4 h-4 text-fuchsia-500" /> Laboratory catalog</div>
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5"><FlaskConical className="w-4 h-4 text-fuchsia-500" /> Laboratory catalogue (pathology tests)</div>
         <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
           The tests your lab offers, with prices — used across OPD/IPD orders, billing and analytics.
           {tests.length > 0 ? <> Currently <b>{tests.length}</b> tests · <b>{active}</b> active.</> : <> No tests loaded yet.</>}
@@ -5843,7 +5927,7 @@ function LabSettingsCard() {
         )}
       </div>
       <div className="flex flex-wrap gap-2">
-        <button className="btn-secondary text-xs" disabled={busy} onClick={loadStd} title="Adds the ~160 common Indian pathology + radiology tests (skips ones you already have)">
+        <button className="btn-secondary text-xs" disabled={busy} onClick={loadStd} title="Adds about 160 common Indian pathology tests (skips ones you already have)">
           {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Load standard catalog (~160 tests)
         </button>
         <button className="btn-primary text-xs" onClick={() => navigate('/lab')}>
@@ -5851,9 +5935,57 @@ function LabSettingsCard() {
         </button>
       </div>
       <div className="text-[11px] text-gray-500 dark:text-slate-400">
-        Covers pathology (haematology, biochemistry, serology, microbiology, histopathology…) and radiology. Set prices, enable/disable
-        and add your own tests under <b>Laboratory → Test Catalog</b>.
+        Covers pathology (haematology, biochemistry, serology, microbiology, histopathology…). Scans (X-ray, ultrasound, CT, MRI) have their own catalogue, just below.
+        Set prices, enable/disable and add your own tests under <b>Laboratory → Test Catalog</b>.
       </div>
+    </div>
+  );
+}
+
+/** The scan price list (X-ray, ultrasound, CT, MRI) — a summary and the two things done most: load the standard list, open the page to price it. */
+function RadiologyCatalogCard() {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const { data: scans = [] } = useQuery({ queryKey: ['radiology-tests', false], queryFn: () => window.electronAPI.radiology.listTests(false) });
+  const active = scans.filter((t: any) => t.is_active === 1).length;
+  const unpriced = scans.filter((t: any) => t.is_active === 1 && !(t.price > 0)).length;
+
+  const loadStd = async () => {
+    setBusy(true);
+    try {
+      const r = await window.electronAPI.radiology.loadStandardCatalog();
+      if (r.ok) { qc.invalidateQueries({ queryKey: ['radiology-tests'] }); toast(r.added > 0 ? `Added ${r.added} standard scans — set your prices in the catalogue` : 'The standard catalogue is already loaded', 'success'); }
+      else toast(r.error || 'Could not load the catalogue', 'error');
+    } catch (e: any) { toast(e?.message || 'Failed', 'error'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="card p-5 space-y-3">
+      <div>
+        <div className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-1.5"><ScanLine className="w-4 h-4 text-sky-500" /> Radiology catalogue</div>
+        <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
+          The scans your desk offers — X-ray, ultrasound, CT, MRI — with prices; used across orders, billing and analytics.
+          {scans.length > 0 ? <> Currently <b>{scans.length}</b> scans · <b>{active}</b> active.</> : <> No scans loaded yet.</>}
+        </div>
+        {unpriced > 0 && (
+          <div className="mt-2 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-2.5 text-[11.5px] text-amber-900 dark:text-amber-100 leading-relaxed">
+            <b>{unpriced} active scan{unpriced === 1 ? '' : 's'} still priced at ₹0.</b> A ₹0 scan is carried out but never added to the patient&rsquo;s bill —
+            set your rates for the scans you actually offer, and switch the rest off.
+          </div>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button className="btn-secondary text-xs" disabled={busy} onClick={loadStd} title="Adds about 55 common X-ray, ultrasound, CT and MRI scans (skips ones you already have)">
+          {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Load standard catalogue (~55 scans)
+        </button>
+        <button className="btn-primary text-xs" onClick={() => navigate('/radiology')}>
+          <Pencil className="w-3.5 h-3.5" /> Manage scans &amp; prices
+        </button>
+      </div>
+      <div className="text-[11px] text-gray-500 dark:text-slate-400">Set prices, switch scans on or off and add your own under <b>Radiology → Catalogue &amp; Prices</b>.</div>
     </div>
   );
 }
@@ -6051,16 +6183,3 @@ function SecurityLoginSettings() {
   );
 }
 
-function AccrualToggle({ label, help, value, onChange }: {
-  label: string; help: string; value: boolean; onChange: (v: boolean) => void;
-}) {
-  return (
-    <label className="flex items-start gap-3 cursor-pointer">
-      <input type="checkbox" className="mt-1" checked={value} onChange={(e) => onChange(e.target.checked)} />
-      <div>
-        <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">{label}</div>
-        <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">{help}</div>
-      </div>
-    </label>
-  );
-}

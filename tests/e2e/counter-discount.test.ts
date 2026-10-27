@@ -1,4 +1,4 @@
-// A limit on the discount a person may give at the PHARMACY COUNTER, by role (Settings → Billing & IPD → Discounts → "At the pharmacy
+// A limit on the discount a person may give at the PHARMACY COUNTER, by role (Settings → Pharmacy → Discount limits at the counter; it was Billing & IPD → Discounts → "At the pharmacy
 // counter"). The rule lives in the main process: the limit comes from WHO IS SIGNED IN, never from what a screen sends; a role with no
 // number is not limited (so an update changes nothing for a clinic that never set one); admin is never limited; a broken setting
 // must not grant more than the owner meant. Real handlers on a temporary database.
@@ -24,7 +24,7 @@ const db = getDb();
   /** One counter sale of `qty` × ₹`rate` with a flat ₹`discount`. */
   const sell = (discount: number, extra: Record<string, any> = {}, rate = 100, qty = 2) =>
     attempt('pharmacy:sell', { client_ref: `cap-sale-${++n}`, items: [{ drug_master_id: drug.id, drug_name: 'Cap Tablet', qty, rate }], discount, payment_mode: 'Cash', ...extra });
-  const refused = (r: any) => r.ok === false && /may give up to|Settings → Billing → Discounts/.test(r.error);
+  const refused = (r: any) => r.ok === false && /may give up to|Settings → Pharmacy → Discount limits/.test(r.error);
 
   // ============================================================================================================
   section('0 · a NEW install starts with sensible limits');

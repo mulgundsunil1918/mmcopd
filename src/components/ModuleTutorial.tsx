@@ -27,7 +27,7 @@ export const MODULE_TUTORIALS: Record<AppMode, Tutorial> = {
     setup: [
       'Fill Settings → Clinic with your clinic name, address, phone and logo — these print on every slip and bill.',
       'Add your doctors under Settings → Doctors & Templates so appointments can be booked under them.',
-      'Set the consultation fee and registration fee under Settings → Fees & Workflow.',
+      'Set the consultation fee and registration fee under Settings → Reception & Fees.',
     ],
     workflow: [
       'Register a walk-in patient (a UHID is generated automatically).',
@@ -36,8 +36,8 @@ export const MODULE_TUTORIALS: Record<AppMode, Tutorial> = {
       'Track the day’s collection under Accounts.',
     ],
     configure: [
-      'Fees & Workflow → consultation and registration fees, free follow-up policy.',
-      'Billing & IPD → GST, invoice number format, discount limits per role.',
+      'Reception & Fees → consultation and registration fees, free follow-up policy.',
+      'Billing & GST → GST, invoice number format, discount limits per role.',
     ],
   },
   reception_pharmacy: {
@@ -55,7 +55,7 @@ export const MODULE_TUTORIALS: Record<AppMode, Tutorial> = {
     ],
     configure: [
       'Each drug’s GST rate drives the tax on pharmacy bills (when GST is enabled).',
-      'Billing & IPD → enable GST and enter your GSTIN to print tax invoices.',
+      'Billing & GST → enable GST and enter your GSTIN to print tax invoices.',
     ],
   },
   reception_doctor: {
@@ -73,7 +73,7 @@ export const MODULE_TUTORIALS: Record<AppMode, Tutorial> = {
     ],
     configure: [
       'Doctors & Templates → per-specialty slip layouts.',
-      'Fees & Workflow → free follow-up window so repeat visits are handled automatically.',
+      'Reception & Fees → free follow-up window so repeat visits are handled automatically.',
     ],
   },
   reception_pharmacy_doctor: {
@@ -88,8 +88,8 @@ export const MODULE_TUTORIALS: Record<AppMode, Tutorial> = {
       'Schedule H compliance is maintained automatically.',
     ],
     configure: [
-      'Billing & IPD → charge heads (consultation, procedures) with colours.',
-      'Fees & Workflow and Doctors & Templates as above.',
+      'Billing & GST → charge heads (consultation, procedures) with colours.',
+      'Reception & Fees and Doctors & Templates as above.',
     ],
   },
   reception_pharmacy_doctor_lab: {
@@ -115,9 +115,9 @@ export const MODULE_TUTORIALS: Record<AppMode, Tutorial> = {
     forWho: 'A hospital with in-patient admissions — wards, beds, ward care and discharge.',
     setup: [
       'Everything above, plus:',
-      'Settings → Billing & IPD → Wards & Beds: add each ward with its daily rate, then its beds (a range like G-01..G-10 adds ten at once).',
+      'Settings → In-Patient (IPD) → Wards & Beds: add each ward with its daily rate, then its beds (a range like G-01..G-10 adds ten at once).',
       'Add nurse and ward-in-charge logins under Users & Access.',
-      'Set which charges auto-post each day (bed, nursing, doctor visit) under Billing & IPD.',
+      'Set which charges auto-post each day (bed, nursing, doctor visit) under In-Patient (IPD).',
     ],
     workflow: [
       'A doctor requests an admission from OPD, or reception admits directly from the ward map.',
@@ -126,8 +126,8 @@ export const MODULE_TUTORIALS: Record<AppMode, Tutorial> = {
       'On discharge, pick the outcome (discharged / LAMA / DAMA / death / referred), the bill is finalised, and the discharge summary prints.',
     ],
     configure: [
-      'Billing & IPD → wards, bed rates, accrual rules, transfer charge rule.',
-      'Billing & IPD → Pediatrics add-on if you see children.',
+      'In-Patient (IPD) → wards, bed rates, accrual rules, transfer charge rule.',
+      'Pediatrics → growth charts, vaccines and calculators if you see children.',
       'Discharge summary templates (department / doctor-wise) so summaries are one click.',
     ],
   },

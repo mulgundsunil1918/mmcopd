@@ -84,7 +84,7 @@ export function ForceAdminPasswordGate() {
         </button>
 
         <p className="text-[11px] text-gray-400 mt-3 text-center leading-relaxed">
-          Change it later in Settings → Security. Keep it safe — but if it’s ever lost,
+          Change it later in Settings → System → Security & Login. Keep it safe — but if it’s ever lost,
           CureDesk support can issue a one-time reset code for this computer.
         </p>
         <div className="text-center mt-1">

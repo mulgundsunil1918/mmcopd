@@ -8,6 +8,7 @@ import { cn, formatINR, fmtDateTime } from '../lib/utils';
 import { BillPrint } from '../components/billing/BillPrint';
 import type { Doctor, Patient, PaymentMode } from '../types';
 import { localISO } from '../lib/localDate';
+import { rememberSettingsTab } from '../lib/settingsMap';
 
 const PAYMENT_MODES: PaymentMode[] = ['Cash', 'Card', 'UPI'];
 
@@ -220,7 +221,7 @@ export function Miscellaneous() {
           rightAction={
             <button
               type="button"
-              onClick={() => navigate('/settings#misc-services')}
+              onClick={() => { rememberSettingsTab('reception'); navigate('/settings#misc-services'); }}
               className="text-[11px] inline-flex items-center gap-1 text-pink-700 hover:text-pink-800 dark:text-pink-300 dark:hover:text-pink-200 font-semibold"
               title="Customize the service list in Settings"
             >
@@ -246,7 +247,7 @@ export function Miscellaneous() {
             ))}
             <button
               type="button"
-              onClick={() => navigate('/settings#misc-services')}
+              onClick={() => { rememberSettingsTab('reception'); navigate('/settings#misc-services'); }}
               className="px-3 py-1.5 text-xs rounded-md border-2 border-dashed border-pink-400 dark:border-pink-700 text-pink-700 dark:text-pink-300 hover:bg-pink-50 dark:hover:bg-pink-900/20 inline-flex items-center gap-1"
               title="Add a new service in Settings"
             >

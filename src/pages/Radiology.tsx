@@ -419,7 +419,7 @@ function BillStrip({ order, onChanged, onPrintBill }: { order: RadiologyOrderDet
   if (!order.bill_id) {
     return (
       <div className="rounded-lg bg-gray-50 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700 px-3 py-2 text-[12px] text-gray-500 dark:text-slate-400">
-        No bill for this order — none of its scans has a price (or auto-billing is off in Settings).
+        No bill for this order — none of its scans has a price (or auto-billing is off under Settings → Laboratory & Radiology).
       </div>
     );
   }

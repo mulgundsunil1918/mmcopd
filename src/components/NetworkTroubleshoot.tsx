@@ -60,7 +60,7 @@ export function NetworkTroubleshoot({ mode }: { mode: 'local' | 'server' | 'clie
       if (s?.state) setLiveState(s.state);
       qc.invalidateQueries({ queryKey: ['network-status-troubleshoot'] });
     });
-    return () => { off?.(); };
+    return () => { if (typeof off === 'function') off(); };      // (a stand-in API, like the demo's, may hand back something else)
   }, [qc]);
 
   const state: ConnState = (liveState ?? status?.client?.state ?? 'idle') as ConnState;

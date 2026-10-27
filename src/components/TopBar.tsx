@@ -6,6 +6,7 @@ import { format } from 'date-fns';
 import { QuickBillModal } from './billing/QuickBillModal';
 import { clockInfo } from '../lib/clock';
 import { localISO } from '../lib/localDate';
+import { rememberSettingsTab } from '../lib/settingsMap';
 
 export function TopBar() {
   const [billOpen, setBillOpen] = useState(false);
@@ -149,7 +150,7 @@ export function TopBar() {
         {!zone.isIndia && !zoneChipHidden && (
           <button
             type="button"
-            onClick={() => navigate('/settings')}
+            onClick={() => { rememberSettingsTab('system'); navigate('/settings'); }}
             title={`This PC's time zone is ${zone.zone || 'not India'} (${zone.offsetLabel}), not India Standard Time (UTC+05:30). All times shown and printed follow this PC's clock — if that looks wrong, fix the time zone in Windows → Settings → Time & language → Date & time. Click to open Settings.`}
             className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800"
           >

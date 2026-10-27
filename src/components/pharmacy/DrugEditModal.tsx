@@ -86,7 +86,7 @@ export function DrugEditModal({ drug, onClose, brandOf }: { drug: Partial<DrugMa
               {editing.gst_rate === undefined && <option value="">— choose the GST % —</option>}
               {[0, 5, 12, 18, 28].map((r) => <option key={r} value={r}>{r}%</option>)}
             </select>
-            {editing.gst_rate === undefined && <div className="text-[10px] text-red-600 dark:text-red-400 mt-0.5">You decide the GST % — nothing is assumed. (Pharmacy → Settings → Billing can set a starting rate.)</div>}
+            {editing.gst_rate === undefined && <div className="text-[10px] text-red-600 dark:text-red-400 mt-0.5">You decide the GST % — nothing is assumed. (Settings → Pharmacy can set a starting rate.)</div>}
           </Field>
           <Field label="Barcode (EAN/UPC)"><input className="input" placeholder="optional" value={editing.barcode || ''} onChange={(e) => setEditing({ ...editing, barcode: e.target.value })} /></Field>
           <Field label="Low-stock Threshold"><input type="number" className="input" value={editing.low_stock_threshold ?? 10} onChange={(e) => setEditing({ ...editing, low_stock_threshold: Number(e.target.value) })} /></Field>

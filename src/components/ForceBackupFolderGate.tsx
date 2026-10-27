@@ -118,7 +118,7 @@ export function ForceBackupFolderGate() {
 
         <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100 dark:border-slate-800">
           <span className="text-[11px] text-gray-400 inline-flex items-center gap-1.5">
-            <HardDrive className="w-3.5 h-3.5" /> You can change this any time in Settings → System.
+            <HardDrive className="w-3.5 h-3.5" /> You can change this any time in Settings → System → Backup, Restore & Updates.
           </span>
           <button type="button" onClick={snooze} className="text-[11px] text-gray-500 hover:underline">Remind me later</button>
         </div>

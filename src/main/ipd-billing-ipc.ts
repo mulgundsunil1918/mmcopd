@@ -118,7 +118,7 @@ export function accrueStayCharges(db: Database.Database, admissionId: number, by
   /**
    * Honour the clinic's own switches.
    *
-   * Settings → Billing & IPD offers "Charge the bed rate automatically each day"
+   * Settings → In-Patient (IPD) offers "Charge the bed rate automatically each day"
    * and the same for nursing, but nothing ever read them: a clinic that turned
    * bed accrual off still got a bed line posted every night, and had to delete it
    * by hand each morning. A rate of zero here means "do not post this one".
@@ -305,7 +305,7 @@ export function chargeMedicinesToAdmission(db: Database.Database, payload: SellI
     if (hit) return hit as any;
   }
   if (!getAllSettings(db).pharmacy_ipd_charge_enabled) {
-    throw new Error('Charging medicines to the in-patient bill is switched off. Turn it on in Settings → Billing & IPD → Pharmacy, or take the payment now.');
+    throw new Error('Charging medicines to the in-patient bill is switched off. Turn it on in Settings → Pharmacy → Credit, or take the payment now.');
   }
   const aid = requireId(payload.ipd_admission_id, 'Admission');
   const adm = db.prepare(
@@ -666,7 +666,7 @@ export function registerIpdBillingIpc() {
         const advance = Number(input.advance_amount ?? 0);
         if (advance > 0) {
           if (!s.ipd_advance_enabled) {
-            throw new Error('Advance collection is switched off in Settings → IPD, but an advance amount was supplied.');
+            throw new Error('Advance collection is switched off in Settings → In-Patient (IPD), but an advance amount was supplied.');
           }
           d.prepare(
             `INSERT INTO advances (patient_id, admission_id, amount, payment_mode, received_by, notes)
@@ -1402,7 +1402,7 @@ export function registerIpdBillingIpc() {
         return fail(`Discount must be zero or more, received ${JSON.stringify(discount)}.`);
       }
       if (s.discount_require_reason && amount > 0 && !reason) {
-        return fail('A reason is required for every discount. Settings → Billing → Discounts controls this.');
+        return fail('A reason is required for every discount. Settings → Billing & GST → Discounts controls this.');
       }
       const bill = d.prepare('SELECT id, subtotal, status, finalized_at FROM bills WHERE id=?').get(bid) as any;
       if (!bill) return fail(`Bill #${bid} was not found.`);
@@ -1429,7 +1429,7 @@ export function registerIpdBillingIpc() {
       if (asPercent > cap) {
         return fail(
           `This discount is ${asPercent.toFixed(1)}% but the "${effectiveRole}" role is limited to ${cap}%. ` +
-          `Ask an administrator, or raise the limit in Settings → Billing → Discounts.`
+          `Ask an administrator, or raise the limit in Settings → Billing & GST → Discounts.`
         );
       }
 

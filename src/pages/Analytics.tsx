@@ -1131,7 +1131,7 @@ function BackupsBlock() {
         </button>
       </div>
       <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-3">
-        Auto-backup runs on schedule (configurable in Settings → Backup, Restore & Updates). Each backup writes a
+        Auto-backup runs on schedule (configurable in Settings → System → Backup, Restore & Updates). Each backup writes a
         SQLite snapshot + a single Excel file with all tables as sheets. To back up right now, use the
         <b> Backup</b> button in the sidebar.
       </p>
