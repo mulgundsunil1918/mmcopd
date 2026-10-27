@@ -42,7 +42,7 @@ export function HelpTip({ title, children, align = 'left' }: {
     <span className="relative inline-flex" ref={boxRef}>
       <button
         type="button"
-        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen((v) => !v); }}
         aria-label={title ? `What is ${title}?` : 'What does this do?'}
         title="What does this do?"
         className="inline-flex items-center justify-center w-4 h-4 rounded-full text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition align-middle"
@@ -55,11 +55,17 @@ export function HelpTip({ title, children, align = 'left' }: {
           className={`absolute z-[300] top-6 ${align === 'right' ? 'right-0' : 'left-0'} w-[320px] max-w-[85vw]
             rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl p-3 text-left
             whitespace-normal normal-case tracking-normal font-normal break-words`}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            // A click on the explanation's own text must not be handed on by the label we sit inside (it would "click" the "?" and shut the popup).
+            if (!(e.target as HTMLElement).closest('a, input, select, textarea, button')) e.preventDefault();
+          }}
         >
           <div className="flex items-start justify-between gap-2 mb-1">
             {title && <div className="text-[12px] font-bold text-gray-900 dark:text-slate-100">{title}</div>}
-            <button type="button" onClick={() => setOpen(false)} aria-label="Close" title="Close"
+            {/* preventDefault: the popup lives inside a <label>. When the cross removes the popup, the browser (Chromium 130, the app's engine) no longer finds the
+                clicked button inside the label, takes the click for a click on the label itself and passes it to the "?" — which opens the popup again. */}
+            <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); }} aria-label="Close" title="Close"
               className="text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-slate-800 rounded p-1.5 -m-1.5 shrink-0 ml-auto">
               <X className="w-4 h-4" />
             </button>
