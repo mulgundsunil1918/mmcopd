@@ -27,7 +27,7 @@ export function PurchaseRegisterPrint({
     queryFn: () => window.electronAPI.purchasesReport.register({ from, to }),
   });
 
-  const PAGE_ROWS = 22;
+  const PAGE_ROWS = 14;      // measured: after the header + totals boxes a page holds ~800px of rows; a bill row is ~49px (more when the supplier name wraps)
   const pages: typeof rows[] = [];
   for (let i = 0; i < Math.max(1, rows.length); i += PAGE_ROWS) {
     pages.push(rows.slice(i, i + PAGE_ROWS));
@@ -108,63 +108,65 @@ export function PurchaseRegisterPrint({
               </div>
             )}
 
-            <table className="w-full text-[10px]" style={{ borderCollapse: 'collapse', flex: 1 }}>
-              <thead>
-                <tr style={{ background: '#eff6ff', color: '#1e3a8a' }}>
-                  <th style={cellHead(4, 'left')}>Sl</th>
-                  <th style={cellHead(9, 'left')}>Inv. Date</th>
-                  <th style={cellHead(11, 'left')}>Invoice #</th>
-                  <th style={cellHead(18, 'left')}>Wholesaler (Drug License)</th>
-                  <th style={cellHead(5, 'right')}>Lines</th>
-                  <th style={cellHead(9, 'right')}>Subtotal ₹</th>
-                  <th style={cellHead(7, 'right')}>Disc. ₹</th>
-                  <th style={cellHead(7, 'right')}>GST ₹</th>
-                  <th style={cellHead(10, 'right')}>Total ₹</th>
-                  <th style={cellHead(9, 'right')}>Paid ₹</th>
-                  <th style={cellHead(11, 'right')}>Still owed ₹</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pageRows.length === 0 ? (
-                  <tr><td colSpan={11} style={{ border: '1px solid #cbd5e1', padding: '20px', textAlign: 'center', color: '#94a3b8' }}>No purchase invoices in this period.</td></tr>
-                ) : pageRows.map((r, idx) => (
-                  <tr key={r.id}>
-                    <td style={cellBody(4, 'left')}>{pIdx * PAGE_ROWS + idx + 1}</td>
-                    <td style={cellBody(9, 'left', { fontSize: 9 })}>{fmtDate(r.invoice_date)}</td>
-                    <td style={cellBody(11, 'left', { fontFamily: 'monospace', fontSize: 9 })}>{r.invoice_number}</td>
-                    <td style={cellBody(18, 'left')}>
-                      <div style={{ fontWeight: 600 }}>{r.wholesaler_name}</div>
-                      <div style={{ fontSize: 9, color: '#64748b', fontFamily: 'monospace' }}>{r.wholesaler_license_no}</div>
-                    </td>
-                    <td style={cellBody(5, 'right')}>{r.line_count}</td>
-                    <td style={cellBody(9, 'right')}>{formatINR(r.subtotal)}</td>
-                    <td style={cellBody(7, 'right', { fontSize: 9 })}>{(r.discount || 0) > 0 ? formatINR(r.discount) : '—'}</td>
-                    <td style={cellBody(7, 'right', { fontSize: 9 })}>{formatINR((r.cgst || 0) + (r.sgst || 0) + (r.igst || 0))}</td>
-                    <td style={cellBody(10, 'right', { fontWeight: 700 })}>{formatINR(r.total)}</td>
-                    <td style={cellBody(9, 'right')}>{r.amount_paid == null ? '?' : formatINR(r.amount_paid)}</td>
-                    <td style={cellBody(11, 'right', { fontWeight: 700 })}>
-                      {(() => {
-                        const b = balanceOf(r);
-                        if (b === null) return <span style={{ color: '#92400e' }} title="Marked part-paid before payments were tracked">unknown</span>;
-                        return b > 0.004 ? <span style={{ color: '#991b1b' }}>{formatINR(b)}</span> : <span style={{ color: '#166534', fontWeight: 600, fontSize: 9 }}>Paid</span>;
-                      })()}
-                    </td>
+            <div style={{ flex: 1 }}>   {/* takes the rest of the page so the signatures sit at the bottom — the table itself keeps its natural row height */}
+              <table className="w-full text-[10px]" style={{ borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#eff6ff', color: '#1e3a8a' }}>
+                    <th style={cellHead(4, 'left')}>Sl</th>
+                    <th style={cellHead(9, 'left')}>Inv. Date</th>
+                    <th style={cellHead(11, 'left')}>Invoice #</th>
+                    <th style={cellHead(18, 'left')}>Wholesaler (Drug License)</th>
+                    <th style={cellHead(5, 'right')}>Lines</th>
+                    <th style={cellHead(9, 'right')}>Subtotal ₹</th>
+                    <th style={cellHead(7, 'right')}>Disc. ₹</th>
+                    <th style={cellHead(7, 'right')}>GST ₹</th>
+                    <th style={cellHead(10, 'right')}>Total ₹</th>
+                    <th style={cellHead(9, 'right')}>Paid ₹</th>
+                    <th style={cellHead(11, 'right')}>Still owed ₹</th>
                   </tr>
-                ))}
-              </tbody>
-              {pIdx === totalPages - 1 && (
-                <tfoot>
-                  <tr style={{ background: '#f8fafc', fontWeight: 700 }}>
-                    <td colSpan={6} style={{ ...cellBody(0, 'right'), padding: '6px' }}>Totals</td>
-                    <td style={{ ...cellBody(0, 'right'), padding: '6px' }}>{formatINR(totalDiscount)}</td>
-                    <td style={{ ...cellBody(0, 'right'), padding: '6px' }}>{formatINR(totalGst)}</td>
-                    <td style={{ ...cellBody(0, 'right', { fontSize: 11 }), padding: '6px' }}>{formatINR(totalSpend)}</td>
-                    <td style={{ ...cellBody(0, 'right'), padding: '6px' }}>{formatINR(totalPaid)}</td>
-                    <td style={{ ...cellBody(0, 'right', { fontSize: 11 }), padding: '6px' }}>{formatINR(totalBalance)}</td>
-                  </tr>
-                </tfoot>
-              )}
-            </table>
+                </thead>
+                <tbody>
+                  {pageRows.length === 0 ? (
+                    <tr><td colSpan={11} style={{ border: '1px solid #cbd5e1', padding: '20px', textAlign: 'center', color: '#94a3b8' }}>No purchase invoices in this period.</td></tr>
+                  ) : pageRows.map((r, idx) => (
+                    <tr key={r.id}>
+                      <td style={cellBody(4, 'left')}>{pIdx * PAGE_ROWS + idx + 1}</td>
+                      <td style={cellBody(9, 'left', { fontSize: 9 })}>{fmtDate(r.invoice_date)}</td>
+                      <td style={cellBody(11, 'left', { fontFamily: 'monospace', fontSize: 9 })}>{r.invoice_number}</td>
+                      <td style={cellBody(18, 'left')}>
+                        <div style={{ fontWeight: 600 }}>{r.wholesaler_name}</div>
+                        <div style={{ fontSize: 9, color: '#64748b', fontFamily: 'monospace' }}>{r.wholesaler_license_no}</div>
+                      </td>
+                      <td style={cellBody(5, 'right')}>{r.line_count}</td>
+                      <td style={cellBody(9, 'right')}>{formatINR(r.subtotal)}</td>
+                      <td style={cellBody(7, 'right', { fontSize: 9 })}>{(r.discount || 0) > 0 ? formatINR(r.discount) : '—'}</td>
+                      <td style={cellBody(7, 'right', { fontSize: 9 })}>{formatINR((r.cgst || 0) + (r.sgst || 0) + (r.igst || 0))}</td>
+                      <td style={cellBody(10, 'right', { fontWeight: 700 })}>{formatINR(r.total)}</td>
+                      <td style={cellBody(9, 'right')}>{r.amount_paid == null ? '?' : formatINR(r.amount_paid)}</td>
+                      <td style={cellBody(11, 'right', { fontWeight: 700 })}>
+                        {(() => {
+                          const b = balanceOf(r);
+                          if (b === null) return <span style={{ color: '#92400e' }} title="Marked part-paid before payments were tracked">unknown</span>;
+                          return b > 0.004 ? <span style={{ color: '#991b1b' }}>{formatINR(b)}</span> : <span style={{ color: '#166534', fontWeight: 600, fontSize: 9 }}>Paid</span>;
+                        })()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                {pIdx === totalPages - 1 && (
+                  <tfoot>
+                    <tr style={{ background: '#f8fafc', fontWeight: 700 }}>
+                      <td colSpan={6} style={{ ...cellBody(0, 'right'), padding: '6px' }}>Totals</td>
+                      <td style={{ ...cellBody(0, 'right'), padding: '6px' }}>{formatINR(totalDiscount)}</td>
+                      <td style={{ ...cellBody(0, 'right'), padding: '6px' }}>{formatINR(totalGst)}</td>
+                      <td style={{ ...cellBody(0, 'right', { fontSize: 11 }), padding: '6px' }}>{formatINR(totalSpend)}</td>
+                      <td style={{ ...cellBody(0, 'right'), padding: '6px' }}>{formatINR(totalPaid)}</td>
+                      <td style={{ ...cellBody(0, 'right', { fontSize: 11 }), padding: '6px' }}>{formatINR(totalBalance)}</td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
 
             {pIdx === totalPages - 1 && (
               <div className="mt-4 grid grid-cols-2 gap-8" style={{ fontSize: '11px' }}>

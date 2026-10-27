@@ -35,7 +35,7 @@ export function DispensingRegisterPrint({
   });
 
   // Paginate at ~22 rows per page so each A4 sheet stays clean.
-  const PAGE_ROWS = 22;
+  const PAGE_ROWS = 16;      // measured: a page holds ~870px of rows after the header; a row is 37-58px, and the signature block (71px) must fit under the last page's rows
   const pages: typeof rows[] = [];
   for (let i = 0; i < Math.max(1, rows.length); i += PAGE_ROWS) {
     pages.push(rows.slice(i, i + PAGE_ROWS));
@@ -100,55 +100,57 @@ export function DispensingRegisterPrint({
             </div>
 
             {/* Table */}
-            <table className="w-full text-[10px]" style={{ borderCollapse: 'collapse', flex: 1 }}>
-              <thead>
-                <tr style={{ background: '#eff6ff', color: '#1e3a8a' }}>
-                  <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '6%', textAlign: 'left' }}>Sl</th>
-                  <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '14%', textAlign: 'left' }}>Date / Time</th>
-                  <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '18%', textAlign: 'left' }}>Patient (UHID)</th>
-                  <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '20%', textAlign: 'left' }}>Drug (composition)</th>
-                  <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '10%', textAlign: 'left' }}>Batch</th>
-                  <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '8%', textAlign: 'left' }}>Expiry</th>
-                  <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '6%', textAlign: 'right' }}>Qty</th>
-                  <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '12%', textAlign: 'left' }}>Doctor</th>
-                  <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '6%', textAlign: 'center' }}>Sch</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pageRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} style={{ border: '1px solid #cbd5e1', padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
-                      No dispenses in this period.
-                    </td>
+            <div style={{ flex: 1 }}>   {/* takes the rest of the page so the signatures sit at the bottom — the table itself keeps its natural row height */}
+              <table className="w-full text-[10px]" style={{ borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#eff6ff', color: '#1e3a8a' }}>
+                    <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '6%', textAlign: 'left' }}>Sl</th>
+                    <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '14%', textAlign: 'left' }}>Date / Time</th>
+                    <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '18%', textAlign: 'left' }}>Patient (UHID)</th>
+                    <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '20%', textAlign: 'left' }}>Drug (composition)</th>
+                    <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '10%', textAlign: 'left' }}>Batch</th>
+                    <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '8%', textAlign: 'left' }}>Expiry</th>
+                    <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '6%', textAlign: 'right' }}>Qty</th>
+                    <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '12%', textAlign: 'left' }}>Doctor</th>
+                    <th style={{ border: '1px solid #cbd5e1', padding: '4px 6px', width: '6%', textAlign: 'center' }}>Sch</th>
                   </tr>
-                ) : (
-                  pageRows.map((r, idx) => (
-                    <tr key={r.id}>
-                      <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px' }}>{pIdx * PAGE_ROWS + idx + 1}</td>
-                      <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px' }}>{fmtDateTime(r.dispensed_at)}</td>
-                      <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px' }}>
-                        {r.patient_name || '—'}
-                        <div style={{ fontSize: 9, color: '#64748b' }}>{(r as any).patient_uhid || ''}</div>
+                </thead>
+                <tbody>
+                  {pageRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} style={{ border: '1px solid #cbd5e1', padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
+                        No dispenses in this period.
                       </td>
-                      <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px' }}>
-                        {r.drug_name || `#${r.drug_master_id}`}
-                        {(() => {
-                          const what = [r.generic_name, r.form, r.strength].filter((x) => x && x !== '—').join(' · ');
-                          return what ? <div style={{ fontSize: 8, color: '#64748b' }}>{what}</div> : null;
-                        })()}
-                      </td>
-                      <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px', fontFamily: 'monospace', fontSize: 9 }}>{r.batch_no}</td>
-                      <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px', fontSize: 9 }}>
-                        {isNoExpiry(r.expiry) ? 'No expiry' : (() => { try { return format(parseISO(r.expiry), 'MMM yy'); } catch { return r.expiry; } })()}
-                      </td>
-                      <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px', textAlign: 'right', fontWeight: 600 }}>{r.qty}</td>
-                      <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px', fontSize: 9 }}>{r.doctor_name || '—'}</td>
-                      <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px', textAlign: 'center', fontWeight: 700 }}>{r.schedule}</td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    pageRows.map((r, idx) => (
+                      <tr key={r.id}>
+                        <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px' }}>{pIdx * PAGE_ROWS + idx + 1}</td>
+                        <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px' }}>{fmtDateTime(r.dispensed_at)}</td>
+                        <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px' }}>
+                          {r.patient_name || '—'}
+                          <div style={{ fontSize: 9, color: '#64748b' }}>{(r as any).patient_uhid || ''}</div>
+                        </td>
+                        <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px' }}>
+                          {r.drug_name || `#${r.drug_master_id}`}
+                          {(() => {
+                            const what = [r.generic_name, r.form, r.strength].filter((x) => x && x !== '—').join(' · ');
+                            return what ? <div style={{ fontSize: 8, color: '#64748b' }}>{what}</div> : null;
+                          })()}
+                        </td>
+                        <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px', fontFamily: 'monospace', fontSize: 9 }}>{r.batch_no}</td>
+                        <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px', fontSize: 9 }}>
+                          {isNoExpiry(r.expiry) ? 'No expiry' : (() => { try { return format(parseISO(r.expiry), 'MMM yy'); } catch { return r.expiry; } })()}
+                        </td>
+                        <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px', textAlign: 'right', fontWeight: 600 }}>{r.qty}</td>
+                        <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px', fontSize: 9 }}>{r.doctor_name || '—'}</td>
+                        <td style={{ border: '1px solid #cbd5e1', padding: '3px 6px', textAlign: 'center', fontWeight: 700 }}>{r.schedule}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
 
             {/* Footer (only on last page) */}
             {pIdx === totalPages - 1 && (

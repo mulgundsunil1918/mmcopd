@@ -28,7 +28,7 @@ export function StockRegisterPrint({
     queryFn: () => window.electronAPI.stock.register({ includeExpired }),
   });
 
-  const PAGE_ROWS = 26;
+  const PAGE_ROWS = 12;      // measured: after the header + counters a page holds ~800px of rows; a stock row is 3-5 lines (name, composition, maker) = 50-75px
   const pages: typeof rows[] = [];
   for (let i = 0; i < Math.max(1, rows.length); i += PAGE_ROWS) {
     pages.push(rows.slice(i, i + PAGE_ROWS));
@@ -125,86 +125,88 @@ export function StockRegisterPrint({
               </div>
             )}
 
-            <table className="w-full text-[10px]" style={{ borderCollapse: 'collapse', flex: 1 }}>
-              <thead>
-                <tr style={{ background: '#eff6ff', color: '#1e3a8a' }}>
-                  <th style={cellHead(4, 'left')}>Sl</th>
-                  <th style={cellHead(25, 'left')}>Medicine (composition · maker)</th>
-                  <th style={cellHead(4, 'center')}>Sch</th>
-                  <th style={cellHead(9, 'left')}>Batch</th>
-                  <th style={cellHead(7, 'left')}>Expiry</th>
-                  <th style={cellHead(5, 'right')}>Qty</th>
-                  <th style={cellHead(7, 'right')} title="What one unit cost you">Paid ₹</th>
-                  <th style={cellHead(7, 'right')}>MRP ₹</th>
-                  <th style={cellHead(7, 'right')}>Sell ₹</th>
-                  <th style={cellHead(9, 'right')}>Profit / unit</th>
-                  <th style={cellHead(8, 'right')}>Value ₹</th>
-                  <th style={cellHead(8, 'left')}>Mfg.Lic</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pageRows.length === 0 ? (
-                  <tr><td colSpan={12} style={{ border: '1px solid #cbd5e1', padding: '20px', textAlign: 'center', color: '#94a3b8' }}>No batches in stock.</td></tr>
-                ) : pageRows.map((r, idx) => {
-                  const expired = r.days_to_expiry < 0;
-                  const expiringSoon = r.days_to_expiry >= 0 && r.days_to_expiry <= 90;
-                  const tone = expired ? '#fee2e2' : expiringSoon ? '#fef3c7' : undefined;
-                  return (
-                    <tr key={r.id} style={{ background: tone }}>
-                      <td style={cellBody(4, 'left')}>{pIdx * PAGE_ROWS + idx + 1}</td>
-                      <td style={cellBody(25, 'left')}>
-                        <div style={{ fontWeight: 600 }}>{r.drug_name}</div>
-                        <div style={{ fontSize: 9, color: '#475569' }}>
-                          {[r.generic_name, r.form, r.strength].filter((x) => x && x !== '—').join(' · ') || '—'}
-                        </div>
-                        {r.manufacturer && <div style={{ fontSize: 8, color: '#64748b' }}>{r.manufacturer}</div>}
-                      </td>
-                      <td style={cellBody(4, 'center', { fontWeight: 700 })}>{r.schedule}</td>
-                      <td style={cellBody(9, 'left', { fontFamily: 'monospace' })}>{r.batch_no}</td>
-                      <td style={cellBody(7, 'left', { fontSize: 9 })}>
-                        {isNoExpiry(r.expiry) ? 'No expiry' : (() => { try { return format(new Date(r.expiry), 'MMM yy'); } catch { return r.expiry; } })()}
-                        {expired && <div style={{ fontSize: 8, fontWeight: 700, color: '#991b1b' }}>EXPIRED</div>}
-                        {expiringSoon && <div style={{ fontSize: 8, color: '#92400e' }}>in {r.days_to_expiry}d</div>}
-                      </td>
-                      <td style={cellBody(5, 'right', { fontWeight: 600 })}>{r.qty_remaining}</td>
-                      <td style={cellBody(7, 'right')}>{unitCostOf(r) != null ? formatINR(unitCostOf(r) as number) : <span style={{ color: '#94a3b8' }} title="Typed in by hand: no cost on record">—</span>}</td>
-                      <td style={cellBody(7, 'right')}>{formatINR(r.mrp)}</td>
-                      <td style={cellBody(7, 'right')}>{formatINR(r.selling_price ?? r.mrp)}</td>
-                      <td style={cellBody(9, 'right', { fontWeight: 600 })}>
-                        {(() => {
-                          const m = moneyPerUnit(r);
-                          if (!m) return <span style={{ color: '#94a3b8' }}>—</span>;
-                          return (
-                            <>
-                              <div style={{ color: m.profit < 0 ? '#991b1b' : undefined }}>{formatINR(m.profit)}</div>
-                              {m.marginPct !== null && <div style={{ fontSize: 8, fontWeight: 400, color: m.marginPct < 10 ? '#991b1b' : '#64748b' }}>{m.marginPct.toFixed(1)}%</div>}
-                            </>
-                          );
-                        })()}
-                      </td>
-                      <td style={cellBody(8, 'right', { fontWeight: 600 })}>{formatINR((r.qty_remaining || 0) * (r.mrp || 0))}</td>
-                      <td style={cellBody(8, 'left', { fontSize: 8, fontFamily: 'monospace', color: '#64748b' })}>
-                        {r.manufacturer_license_no || '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              {pIdx === totalPages - 1 && (
-                <tfoot>
-                  <tr style={{ background: '#f8fafc', fontWeight: 700 }}>
-                    <td colSpan={10} style={{ ...cellBody(0, 'right'), padding: '6px' }}>
-                      Total stock value at MRP
-                      <div style={{ fontSize: 9, fontWeight: 400, color: '#64748b' }}>
-                        at what you paid: {formatINR(totalAtCost)}{noCostUnits > 0 ? ` (${noCostUnits.toLocaleString('en-IN')} unit${noCostUnits === 1 ? '' : 's'} with no cost on record are not in this)` : ''}
-                      </div>
-                    </td>
-                    <td style={{ ...cellBody(0, 'right', { fontSize: 11 }), padding: '6px' }}>{formatINR(totalValue)}</td>
-                    <td style={cellBody(0, 'left')} />
+            <div style={{ flex: 1 }}>   {/* takes the rest of the page so the signatures sit at the bottom — the table itself keeps its natural row height */}
+              <table className="w-full text-[10px]" style={{ borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#eff6ff', color: '#1e3a8a' }}>
+                    <th style={cellHead(4, 'left')}>Sl</th>
+                    <th style={cellHead(25, 'left')}>Medicine (composition · maker)</th>
+                    <th style={cellHead(4, 'center')}>Sch</th>
+                    <th style={cellHead(9, 'left')}>Batch</th>
+                    <th style={cellHead(7, 'left')}>Expiry</th>
+                    <th style={cellHead(5, 'right')}>Qty</th>
+                    <th style={cellHead(7, 'right')} title="What one unit cost you">Paid ₹</th>
+                    <th style={cellHead(7, 'right')}>MRP ₹</th>
+                    <th style={cellHead(7, 'right')}>Sell ₹</th>
+                    <th style={cellHead(9, 'right')}>Profit / unit</th>
+                    <th style={cellHead(8, 'right')}>Value ₹</th>
+                    <th style={cellHead(8, 'left')}>Mfg.Lic</th>
                   </tr>
-                </tfoot>
-              )}
-            </table>
+                </thead>
+                <tbody>
+                  {pageRows.length === 0 ? (
+                    <tr><td colSpan={12} style={{ border: '1px solid #cbd5e1', padding: '20px', textAlign: 'center', color: '#94a3b8' }}>No batches in stock.</td></tr>
+                  ) : pageRows.map((r, idx) => {
+                    const expired = r.days_to_expiry < 0;
+                    const expiringSoon = r.days_to_expiry >= 0 && r.days_to_expiry <= 90;
+                    const tone = expired ? '#fee2e2' : expiringSoon ? '#fef3c7' : undefined;
+                    return (
+                      <tr key={r.id} style={{ background: tone }}>
+                        <td style={cellBody(4, 'left')}>{pIdx * PAGE_ROWS + idx + 1}</td>
+                        <td style={cellBody(25, 'left')}>
+                          <div style={{ fontWeight: 600 }}>{r.drug_name}</div>
+                          <div style={{ fontSize: 9, color: '#475569' }}>
+                            {[r.generic_name, r.form, r.strength].filter((x) => x && x !== '—').join(' · ') || '—'}
+                          </div>
+                          {r.manufacturer && <div style={{ fontSize: 8, color: '#64748b' }}>{r.manufacturer}</div>}
+                        </td>
+                        <td style={cellBody(4, 'center', { fontWeight: 700 })}>{r.schedule}</td>
+                        <td style={cellBody(9, 'left', { fontFamily: 'monospace' })}>{r.batch_no}</td>
+                        <td style={cellBody(7, 'left', { fontSize: 9 })}>
+                          {isNoExpiry(r.expiry) ? 'No expiry' : (() => { try { return format(new Date(r.expiry), 'MMM yy'); } catch { return r.expiry; } })()}
+                          {expired && <div style={{ fontSize: 8, fontWeight: 700, color: '#991b1b' }}>EXPIRED</div>}
+                          {expiringSoon && <div style={{ fontSize: 8, color: '#92400e' }}>in {r.days_to_expiry}d</div>}
+                        </td>
+                        <td style={cellBody(5, 'right', { fontWeight: 600 })}>{r.qty_remaining}</td>
+                        <td style={cellBody(7, 'right')}>{unitCostOf(r) != null ? formatINR(unitCostOf(r) as number) : <span style={{ color: '#94a3b8' }} title="Typed in by hand: no cost on record">—</span>}</td>
+                        <td style={cellBody(7, 'right')}>{formatINR(r.mrp)}</td>
+                        <td style={cellBody(7, 'right')}>{formatINR(r.selling_price ?? r.mrp)}</td>
+                        <td style={cellBody(9, 'right', { fontWeight: 600 })}>
+                          {(() => {
+                            const m = moneyPerUnit(r);
+                            if (!m) return <span style={{ color: '#94a3b8' }}>—</span>;
+                            return (
+                              <>
+                                <div style={{ color: m.profit < 0 ? '#991b1b' : undefined }}>{formatINR(m.profit)}</div>
+                                {m.marginPct !== null && <div style={{ fontSize: 8, fontWeight: 400, color: m.marginPct < 10 ? '#991b1b' : '#64748b' }}>{m.marginPct.toFixed(1)}%</div>}
+                              </>
+                            );
+                          })()}
+                        </td>
+                        <td style={cellBody(8, 'right', { fontWeight: 600 })}>{formatINR((r.qty_remaining || 0) * (r.mrp || 0))}</td>
+                        <td style={cellBody(8, 'left', { fontSize: 8, fontFamily: 'monospace', color: '#64748b' })}>
+                          {r.manufacturer_license_no || '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                {pIdx === totalPages - 1 && (
+                  <tfoot>
+                    <tr style={{ background: '#f8fafc', fontWeight: 700 }}>
+                      <td colSpan={10} style={{ ...cellBody(0, 'right'), padding: '6px' }}>
+                        Total stock value at MRP
+                        <div style={{ fontSize: 9, fontWeight: 400, color: '#64748b' }}>
+                          at what you paid: {formatINR(totalAtCost)}{noCostUnits > 0 ? ` (${noCostUnits.toLocaleString('en-IN')} unit${noCostUnits === 1 ? '' : 's'} with no cost on record are not in this)` : ''}
+                        </div>
+                      </td>
+                      <td style={{ ...cellBody(0, 'right', { fontSize: 11 }), padding: '6px' }}>{formatINR(totalValue)}</td>
+                      <td style={cellBody(0, 'left')} />
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
 
             {pIdx === totalPages - 1 && (
               <div className="mt-4 grid grid-cols-2 gap-8" style={{ fontSize: '11px' }}>
