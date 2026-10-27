@@ -13,7 +13,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   BookOpen, Search, ChevronDown, Users, Calendar, Stethoscope, Pill, FlaskConical,
-  BedDouble, Receipt, Syringe, Activity, HardDrive, Wifi, ShieldCheck, MessageSquare, Baby, ScanLine,
+  BedDouble, Receipt, Syringe, Activity, HardDrive, Wifi, ShieldCheck, MessageSquare, Baby, ScanLine, Monitor,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { SETTINGS_TABS, SETTINGS_GROUPS } from '../lib/settingsMap';
@@ -318,6 +318,36 @@ const TOPICS: Topic[] = [
     ),
   },
   {
+    id: 'computers', icon: Monitor, title: 'One computer or several? — Settings → Computers & staff', tag: 'Setup',
+    keywords: 'how many computers single one multi several reception admin sign in login roles what can reception do main computer shared desk',
+    body: (
+      <>
+        <p className="mb-2">When CureDesk is first set up it asks <b>one question: how many computers will this clinic or hospital use?</b> The answer decides how sign-in and access work. You can change it at any time in <Path>Settings → Computers &amp; staff</Path> — it is the same card as in the setup guide.</p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="rounded-lg border border-gray-200 dark:border-slate-700 p-3">
+            <div className="font-semibold text-gray-900 dark:text-slate-100 mb-1">One computer</div>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>The computer opens as <b>Reception</b> — nobody signs in.</li>
+              <li>Settings, Users &amp; Access and deleting are locked behind the <b>admin password</b>.</li>
+              <li>The admin chooses what Reception may open: <Path>Settings → Computers &amp; staff → What can Reception do?</Path> (doctor consultation is included by default, and there is no discount limit unless you set one there).</li>
+            </ul>
+          </div>
+          <div className="rounded-lg border border-gray-200 dark:border-slate-700 p-3">
+            <div className="font-semibold text-gray-900 dark:text-slate-100 mb-1">More than one computer</div>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>One <b>main computer</b> holds the clinic’s data; the others connect to it.</li>
+              <li><b>Everyone signs in</b> with their own login, and sees what their role allows.</li>
+              <li>The admin can sign in on any computer. <b>Only the main computer</b> changes the clinic’s Settings.</li>
+            </ul>
+          </div>
+        </div>
+        <div className="mt-2 space-y-2">
+          <Tip>Changing from <b>one</b> to <b>more than one</b> turns sign-in on — make sure every person has a login in <Path>Users &amp; Access</Path> first. You can always sign in as <b>admin</b> to add or fix logins.</Tip>
+        </div>
+      </>
+    ),
+  },
+  {
     id: 'multi', icon: Wifi, title: 'Multiple computers (reception + cabin + pharmacy)', tag: 'Multi-station',
     keywords: 'multi station network host client server lan multiple computers cabin connect join code',
     body: (
@@ -325,15 +355,15 @@ const TOPICS: Topic[] = [
         <p className="mb-2">Run CureDesk on several PCs sharing one live patient list.</p>
         <ol className="space-y-2">
           <Step n={1}>Pick one PC as the <b>main computer</b> (host) — it holds the data, the licence and the backups.</Step>
-          <Step n={2}>On it: <Path>Settings → Multi-System → Network Mode</Path> → set as Host. Note the <b>join code</b>.</Step>
+          <Step n={2}>On it: <Path>Settings → Computers &amp; staff → Connecting the Computers</Path> → set as Host. Note the <b>join code</b>.</Step>
           <Step n={3}>On each other PC: install CureDesk → in the wizard choose <b>"This is an extra computer"</b> → enter the join code.</Step>
-          <Step n={4}>Give each PC its job — <Path>Settings → System → This computer</Path> (Reception desk / Pharmacy counter / Lab bench…). Its menu shrinks to match.</Step>
+          <Step n={4}>Give each PC its job — <Path>Settings → Computers &amp; staff → This Computer’s Job</Path> (Reception desk / Pharmacy counter / Lab bench…). Its menu shrinks to match.</Step>
         </ol>
         <div className="mt-2 space-y-2">
           <Tip><b>One subscription covers the whole clinic.</b> Stations never ask for a licence key — they inherit the host's.</Tip>
           <Warn>Keep the main computer switched on during clinic hours and set it to never sleep. If it's unreachable, stations show "Can't reach the main computer" and wait, reconnecting automatically.</Warn>
         </div>
-        <p className="mt-2 text-[12px]">Full step-by-step, including troubleshooting: <Path>Settings → Multi-System → Multi-Station Setup Guide</Path>.</p>
+        <p className="mt-2 text-[12px]">Full step-by-step, including troubleshooting: <Path>Settings → Computers &amp; staff → Multi-Station Setup Guide</Path>.</p>
       </>
     ),
   },
@@ -349,7 +379,7 @@ const TOPICS: Topic[] = [
         </ul>
         <ol className="space-y-2">
           <Step n={1}>Create people at <Path>Users &amp; Access → Add User</Path> and give each a role.</Step>
-          <Step n={2}><b>Turn on sign-in</b> — <Path>Settings → System → Security &amp; Login</Path>. <b>Until you do this, roles have no effect</b> and everyone shares one session.</Step>
+          <Step n={2}><b>Turn on sign-in</b> — <Path>Settings → Computers &amp; staff</Path> (it is on automatically when the clinic uses more than one computer). <b>Until sign-in is on, roles have no effect</b>: a one-computer clinic opens as <b>Reception</b>.</Step>
           <Step n={3}>Each person then signs in with their own username; they see only what their role allows, and their name is recorded against what they do.</Step>
         </ol>
         <div className="mt-2 space-y-2">

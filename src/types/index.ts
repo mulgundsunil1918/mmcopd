@@ -963,6 +963,10 @@ export interface Settings {
   // ===== Access / login =====
   /** When true, everyone must sign in as themselves — no shared default session. */
   require_login: boolean;
+  /** How many computers the clinic runs on ('' = never answered: read from the network setting). Settings → Computers & staff. */
+  computers_mode: '' | 'single' | 'multi';
+  /** One-computer clinic: the most Reception (the shared desk) may take off a medicine sale at the counter, in percent. null = no limit. */
+  shared_desk_discount_pct: number | null;
   /** Auto sign-out after this many minutes idle (0 = never). Only when require_login. */
   session_timeout_minutes: number;
 }

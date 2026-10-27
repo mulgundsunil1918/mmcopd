@@ -10,7 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { boot, call } from './harness';
-import { SETTINGS_TABS, SETTINGS_GROUPS, BILLING_KEYS, PHARMACY_KEYS, LAB_KEYS, IPD_KEYS, WHATSAPP_KEYS, LEGACY_UNUSED_KEYS, owningTabOfKey, tabFromStored } from '../../src/lib/settingsMap';
+import { SETTINGS_TABS, SETTINGS_GROUPS, BILLING_KEYS, PHARMACY_KEYS, LAB_KEYS, IPD_KEYS, WHATSAPP_KEYS, COMPUTERS_KEYS, LEGACY_UNUSED_KEYS, owningTabOfKey, tabFromStored } from '../../src/lib/settingsMap';
 import { ok, eq, section, finish } from './lib';
 
 boot();
@@ -28,7 +28,7 @@ const OLD_BILLING_IPD_KEYS = [
 (async () => {
   const saved = await call('settings:get');
   const keysOfSaved = Object.keys(saved);
-  const lists: Record<string, string[]> = { billing: BILLING_KEYS as string[], pharmacy: PHARMACY_KEYS as string[], lab: LAB_KEYS as string[], ipd: IPD_KEYS as string[], whatsapp: WHATSAPP_KEYS as string[] };
+  const lists: Record<string, string[]> = { billing: BILLING_KEYS as string[], pharmacy: PHARMACY_KEYS as string[], lab: LAB_KEYS as string[], ipd: IPD_KEYS as string[], whatsapp: WHATSAPP_KEYS as string[], computers: COMPUTERS_KEYS as string[] };
 
   // ============================================================================================================
   section('1 · a setting with a module\'s name on it is saved by that module\'s tab');
@@ -50,7 +50,7 @@ const OLD_BILLING_IPD_KEYS = [
 
   // ============================================================================================================
   section('2 · nothing the old Billing & IPD tab saved was dropped');
-  const now = new Set([...seen.entries()].filter(([, tab]) => tab !== 'whatsapp').map(([k]) => k));     // the four tabs the old one was split into
+  const now = new Set([...seen.entries()].filter(([, tab]) => tab !== 'whatsapp' && tab !== 'computers').map(([k]) => k));     // the four tabs the old one was split into
   const lost = OLD_BILLING_IPD_KEYS.filter((k) => !now.has(k));
   eq(lost.length, 0, `all ${OLD_BILLING_IPD_KEYS.length} settings are still saved by some tab${lost.length ? ' — LOST: ' + lost.join(', ') : ''}`);
   const added = [...now].filter((k) => !OLD_BILLING_IPD_KEYS.includes(k));
@@ -65,6 +65,7 @@ const OLD_BILLING_IPD_KEYS = [
   ok(SETTINGS_TABS.every((t) => t.blurb.length > 20), 'every tab says in a sentence what lives in it');
   eq(tabFromStored('workflow'), 'reception', 'a remembered "Fees & Workflow" tab opens Reception & Fees');
   eq(tabFromStored('patients'), 'reception', 'a remembered "Patients" tab opens Reception & Fees');
+  eq(tabFromStored('multisystem'), 'computers', 'a remembered "Multi-System" tab opens Computers & staff');
   eq(tabFromStored('pharmacy'), 'pharmacy', 'a current tab name is kept');
   eq(tabFromStored('nonsense'), 'clinic', 'an unknown name opens the first tab, not a blank page');
   eq(tabFromStored(null), 'clinic', 'nothing remembered opens the first tab');

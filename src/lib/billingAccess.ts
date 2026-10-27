@@ -31,7 +31,7 @@ export interface MoneyAccessCtx {
   role: string | undefined;
   /** True once the admin password has been entered this session. */
   adminUnlocked: boolean;
-  /** What this computer is set up for (Settings → This Computer). */
+  /** What this computer is set up for (Settings → Computers & staff → This Computer’s Job). */
   stationRole: string | undefined;
 }
 

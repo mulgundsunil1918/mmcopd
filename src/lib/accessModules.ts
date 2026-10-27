@@ -1,7 +1,7 @@
 import type { Role } from '../hooks/useAuth';
 
 /**
- * The modules whose access can be customised per role in Settings → Role-Based
+ * The modules whose access can be customised per role in Settings → Computers & staff → Who can open what (was Role-Based
  * Access. Each entry's `defaults` are the built-in roles used when the admin
  * hasn't overridden that module. Admin always sees everything, and Users &
  * Settings are intentionally NOT here — they stay admin-only so nobody can lock

@@ -71,8 +71,9 @@ export default function App() {
   // but tested a clinic name that always reads "CureDesk HMS" by default, so it never did; the setup guide below owns
   // the first run now.)
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardStart, setWizardStart] = useState<'pick' | 'host' | 'join'>('pick');      // the setup guide's "main computer" / "join" buttons skip the first picker
   useEffect(() => {
-    const open = () => setWizardOpen(true);
+    const open = (e: Event) => { setWizardStart((e as CustomEvent)?.detail?.start ?? 'pick'); setWizardOpen(true); };
     window.addEventListener('caredesk:openWelcomeWizard', open);
     return () => window.removeEventListener('caredesk:openWelcomeWizard', open);
   }, []);
@@ -130,7 +131,7 @@ export default function App() {
   // Wizard renders ABOVE the login gate so a fresh install shows the host /
   // client picker immediately — user doesn't have to log in first. The setup
   // banner reminds them on every page after login if clinic isn't configured.
-  const wizardOverlay = wizardOpen ? <WelcomeWizard onClose={() => setWizardOpen(false)} /> : null;
+  const wizardOverlay = wizardOpen ? <WelcomeWizard start={wizardStart} onClose={() => setWizardOpen(false)} /> : null;
 
   /*
    * Connection facts, read from the MAIN PROCESS (not the renderer socket), so
@@ -180,7 +181,7 @@ export default function App() {
       <ForceBackupFolderGate />
       {wizardOverlay}
       {setupStatus?.show && setupAllowed && !isClient && !wizardOpen && (
-        <SetupWizard status={setupStatus} onJoinExisting={() => setWizardOpen(true)} />
+        <SetupWizard status={setupStatus} onJoinExisting={() => { setWizardStart('join'); setWizardOpen(true); }} onStartMain={() => { setWizardStart('host'); setWizardOpen(true); }} />
       )}
       {setupStatus?.reminder && !setupStatus.show && setupAllowed && !isClient && !wizardOpen && (
         <SetupReminder

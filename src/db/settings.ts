@@ -169,6 +169,10 @@ export function getAllSettings(db: Database.Database): Settings {
     // Default OFF so existing single-user installs keep working without setting
     // up passwords; a clinic turns it on for real multi-user sign-in.
     require_login: map.require_login === 'true',
+    // How many computers the clinic runs on: 'single' | 'multi', or '' = never answered (then it is read from the network setting — see lib/computers.ts).
+    computers_mode: (map.computers_mode === 'single' || map.computers_mode === 'multi' ? map.computers_mode : '') as any,
+    // The most Reception may take off a medicine sale at the counter on a ONE-computer clinic (no sign-in), as a percent. null = no limit (how it has always worked).
+    shared_desk_discount_pct: map.shared_desk_discount_pct === undefined || map.shared_desk_discount_pct === '' || !Number.isFinite(Number(map.shared_desk_discount_pct)) ? null : Math.max(0, Math.min(100, Number(map.shared_desk_discount_pct))),
     session_timeout_minutes: parseInt(map.session_timeout_minutes || '0', 10),
   };
 }

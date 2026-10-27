@@ -147,6 +147,8 @@ export const DEMO_SETTINGS: Settings = {
   sidebar_layout: '',
   station_role: 'everything',
   require_login: false,
+  computers_mode: 'single',
+  shared_desk_discount_pct: null,
   session_timeout_minutes: 0,
   qr1_img: '',
   qr1_label: 'Scan to Pay / Review',

@@ -322,7 +322,7 @@ export function installNetworkClient(serverUrl: string, secret: string): { ok: b
               ? `Host did not respond within ${REQUEST_TIMEOUT_MS / 1000}s`
               : (err2?.message || String(err2));
             setState('offline', msg);
-            throw new Error(`${msg} — the clinic server at ${activeUrl} is not reachable. Settings → Network Mode → Troubleshoot to diagnose, or switch this PC to Local mode.`);
+            throw new Error(`${msg} — the clinic server at ${activeUrl} is not reachable. Settings → Computers & staff → Troubleshoot to diagnose, or switch this PC to Local mode.`);
           }
         }
         setState('degraded', err?.message || String(err));

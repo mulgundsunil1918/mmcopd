@@ -32,8 +32,10 @@ import { ModuleTutorialButton } from '../components/ModuleTutorial';
 import { BillingSettings } from '../components/settings/BillingSettings';
 import { PharmacyGstCard, PharmacyDiscountLimits, PharmacyCredit } from '../components/settings/PharmacySettings';
 import { AccrualToggle, SectionSaveBar, TabIntro, LockedModule, Explain } from '../components/settings/shared';
-import { SETTINGS_TABS, SETTINGS_GROUPS, SETTINGS_TAB_STORAGE_KEY, tabDef, tabFromStored, BILLING_KEYS, PHARMACY_KEYS, LAB_KEYS, IPD_KEYS, WHATSAPP_KEYS, type SettingsTabId, type SettingsTabDef } from '../lib/settingsMap';
-import { Pill, BedDouble, ScanLine, MessageSquare } from 'lucide-react';
+import { SETTINGS_TABS, SETTINGS_GROUPS, SETTINGS_TAB_STORAGE_KEY, tabDef, tabFromStored, BILLING_KEYS, PHARMACY_KEYS, LAB_KEYS, IPD_KEYS, WHATSAPP_KEYS, COMPUTERS_KEYS, type SettingsTabId, type SettingsTabDef } from '../lib/settingsMap';
+import { Pill, BedDouble, ScanLine, MessageSquare, Monitor } from 'lucide-react';
+import { ModeChoice, ReceptionAccessList, SharedDeskDiscountBox, useReceptionAccess } from '../components/computers/ComputersParts';
+import { computersMode, thisComputer, type ComputersMode } from '../lib/computers';
 import { useWhatsAppTemplates } from '../hooks/useWhatsAppTemplates';
 import { WA_TEMPLATE_TYPES, DEFAULT_WA_TEMPLATES, WA_VARIABLES, resolveWaTemplates, serializeWaTemplates } from '../lib/whatsappTemplates';
 import { WHATSAPP_PLACEHOLDERS, renderTemplate } from '../lib/whatsapp';
@@ -93,7 +95,7 @@ const TAB_ICON: Record<SettingsTab, React.ReactNode> = {
   clinic: <Building2 className="w-3.5 h-3.5" />, doctors: <Stethoscope className="w-3.5 h-3.5" />, reception: <Wallet className="w-3.5 h-3.5" />,
   billing: <IndianRupee className="w-3.5 h-3.5" />, pharmacy: <Pill className="w-3.5 h-3.5" />, lab: <FlaskConical className="w-3.5 h-3.5" />,
   ipd: <BedDouble className="w-3.5 h-3.5" />, whatsapp: <MessageSquare className="w-3.5 h-3.5" />, peds: <Baby className="w-3.5 h-3.5" />, system: <HardDrive className="w-3.5 h-3.5" />,
-  multisystem: <Wifi className="w-3.5 h-3.5" />, subscription: <ShieldCheck className="w-3.5 h-3.5" />,
+  computers: <Monitor className="w-3.5 h-3.5" />, subscription: <ShieldCheck className="w-3.5 h-3.5" />,
 };
 
 /** Flat index of every settings section, so the search box can jump to its tab. */
@@ -134,16 +136,18 @@ const SETTINGS_SEARCH: { tab: SettingsTab; label: string; hint: string; keywords
   { tab: 'whatsapp', label: 'Country code for phone numbers', hint: 'Added in front of a patient number (91 for India)', keywords: 'whatsapp country code 91 phone number prefix' },
   { tab: 'whatsapp', label: 'WhatsApp Pro automation', hint: 'Status of the automatic reminders (AiSensy)', keywords: 'whatsapp pro automation aisensy reminders inbox campaigns connected' },
   { tab: 'peds', label: 'Pediatrics Add-on', hint: 'Growth, vaccines, calculators', keywords: 'pediatrics paediatrics growth centile who iap vaccine immunisation calculator bmi head circumference child chart' },
-  { tab: 'system', label: 'Security & Login', hint: 'Sign-in, idle sign-out', keywords: 'security login password idle signout user audit require sign-in' },
-  { tab: 'system', label: 'Role-Based Access', hint: 'Module access per staff role', keywords: 'role access permission module staff customisable' },
   { tab: 'system', label: 'Date & Time on this computer', hint: 'Clock and time zone check', keywords: 'date time clock zone timezone ist' },
   { tab: 'system', label: 'Startup & Background', hint: 'Auto-launch, tray', keywords: 'startup background tray autolaunch windows minimize' },
   { tab: 'system', label: 'Backup, Restore & Updates', hint: 'Backups, USB, app updates', keywords: 'backup restore update usb sqlite excel auto' },
   { tab: 'system', label: 'Factory Reset', hint: 'Erase this computer and start fresh', keywords: 'factory reset erase clear test data start fresh' },
-  { tab: 'multisystem', label: 'Multi-System Connection', hint: 'Host / client, join code, connected PCs', keywords: 'network multi station lan server client cabin host connect diagram' },
+  { tab: 'computers', label: 'How many computers', hint: 'One computer, or a main computer with others', keywords: 'computers single multi one more than one main computer host client station reception shared desk' },
+  { tab: 'computers', label: 'What can Reception do?', hint: 'Which screens the front desk can open', keywords: 'reception access permission screens menu shared desk switch off discount limit one computer' },
+  { tab: 'computers', label: 'Sign-in', hint: 'Own login for everyone, idle sign-out', keywords: 'sign in login password security require idle signout user audit' },
+  { tab: 'computers', label: 'Who can open what', hint: 'Module access per staff role', keywords: 'role access permission module staff matrix customisable doctor nurse pharmacist lab' },
+  { tab: 'computers', label: 'This computer\'s job', hint: 'Pharmacy counter, doctor cabin, lab bench…', keywords: 'this computer station role pharmacy counter reception lab ward menu show hide' },
+  { tab: 'computers', label: 'Connecting the computers', hint: 'Main computer, join code, cable or Wi-Fi', keywords: 'network multi station lan server client cabin host connect diagram cable wifi join code' },
   { tab: 'subscription', label: 'Subscription & Modules', hint: 'Active plan, expiry, upgrade / renew', keywords: 'subscription licence license plan modules upgrade renew activate activation code expiry machine id lock unlock' },
   { tab: 'subscription', label: 'App Mode', hint: 'Which modules show in the sidebar', keywords: 'app mode module sidebar reception pharmacy doctor lab ipd' },
-  { tab: 'subscription', label: 'This computer (what this PC is for)', hint: 'Pharmacy counter, reception desk, lab PC…', keywords: 'this computer station role pharmacy counter reception lab ward menu show hide' },
   { tab: 'subscription', label: 'Modules in use', hint: 'Which modules are on, not in the plan, or hidden', keywords: 'modules in use plan switched off hidden role limited' },
 ];
 
@@ -178,7 +182,7 @@ export function SettingsPage() {
   // Client PCs get clinic config FROM the host, so it's read-only here. Only the
   // System tab (network, backup, this-PC station) stays editable on a client.
   const { data: netStatus } = useQuery({ queryKey: ['network-status'], queryFn: () => window.electronAPI.network.status(), staleTime: 15_000 });
-  const lockClinic = netStatus?.mode === 'client' && tab !== 'system' && tab !== 'multisystem';
+  const lockClinic = netStatus?.mode === 'client' && tab !== 'system' && tab !== 'computers';
   /** A module's tab is locked while the subscription does not include the module. */
   const isLocked = (t: SettingsTabDef) => !!t.module && !has(t.module);
 
@@ -350,25 +354,14 @@ export function SettingsPage() {
               <SettingsGroup title="App Mode" subtitle="Pick which modules are visible in the sidebar (Reception, Pharmacy, Doctor, Lab, IPD).">
                 <AppModeSelector />
               </SettingsGroup>
-              <SettingsGroup title="This Computer & Modules in Use" subtitle="What this one PC is for (it changes this computer's menu only), and a read-out of every module: in use, not in the plan, switched off, or hidden here.">
-                <div className="card p-5 space-y-6">
-                  <ThisComputerPanel />
-                  <div className="border-t border-gray-100 dark:border-slate-800 pt-5"><ModulesInUsePanel /></div>
-                </div>
+              <SettingsGroup title="Modules in Use" subtitle="A read-out of every module: in use, not in the plan, switched off, or hidden on this computer. (What this one computer is for is under Computers & staff.)">
+                <div className="card p-5"><ModulesInUsePanel /></div>
               </SettingsGroup>
             </>
           )}
 
           {tab === 'system' && (
             <>
-              <SettingsGroup title="Security & Login" subtitle="Require each person to sign in as themselves, and auto sign-out an idle station.">
-                <SecurityLoginSettings />
-              </SettingsGroup>
-              <SettingsGroup title="Role-Based Access" subtitle="Choose exactly which modules each staff role can open — applies across all connected computers. Fully customisable — admin always sees everything.">
-                {netStatus?.mode === 'client'
-                  ? <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-800 text-[13px] text-amber-800 dark:text-amber-300 flex items-start gap-2"><Lock className="w-4 h-4 shrink-0 mt-0.5" /><span><b>Managed on the main computer.</b> Staff role permissions are set on the Host PC and apply to every connected computer.</span></div>
-                  : <RoleAccessEditor />}
-              </SettingsGroup>
               <SettingsGroup title="Date & Time on this computer" subtitle="Every time CureDesk shows or prints — registration, bills, lab and radiology reports — comes from this computer's clock and time zone.">
                 <ClockCheck />
               </SettingsGroup>
@@ -384,27 +377,7 @@ export function SettingsPage() {
             </>
           )}
 
-          {tab === 'multisystem' && (
-            <>
-              <SettingsGroup title="Your Clinic Network" subtitle="Which computers are connected right now, and how this PC fits in.">
-                <NetworkDiagram />
-              </SettingsGroup>
-              <SettingsGroup title="What Each Computer Can Do" subtitle="Each connected PC shows only what its logged-in staff role allows — set once on the host, applies everywhere.">
-                <div className="rounded-xl border border-gray-200 dark:border-slate-700 p-4 text-[13px] text-gray-600 dark:text-slate-300 space-y-2">
-                  <p>A computer's access follows the <b>role of whoever signs in</b> there — Reception, Doctor, Nurse, Pharmacist or Lab Tech. The lab PC (lab tech signed in) shows only Lab; the reception PC shows reception; and so on.</p>
-                  <p>To choose <b>which role can open which module</b>, edit the permission matrix on the host — it applies to every connected computer.</p>
-                  <button className="btn-secondary text-xs" onClick={() => setTab('system')}>Open Role-Based Access →</button>
-                </div>
-              </SettingsGroup>
-              <SettingsGroup title="Network Mode (multi-station)" subtitle="Run reception + doctor cabins as separate PCs sharing one CureDesk. Pick a Host PC; others connect over the LAN.">
-                <RelaunchWizardButton />
-                <NetworkModeSettings />
-              </SettingsGroup>
-              <SettingsGroup title="Multi-Station Setup Guide" subtitle="Step-by-step — what to buy, how to wire it up, how to connect each PC, and what to do when something breaks.">
-                <NetworkSetupGuide />
-              </SettingsGroup>
-            </>
-          )}
+          {tab === 'computers' && <ComputersTab />}
 
         </fieldset>
       </div>
@@ -463,16 +436,17 @@ const SETTINGS_HELP: Record<string, React.ReactNode> = {
   'OPD Slip Body Templates': <><p>Controls what the printed OPD slip / prescription looks like below the letterhead — which sections appear and in what order.</p><p>Each doctor can be given a different template, so a paediatrician's slip can differ from an orthopaedic one.</p></>,
   'Prescription QR Codes': <><p>Up to two QR codes printed on your slips — typically a UPI payment code and a Google review link.</p><p>Patients scan to pay or to leave a review, without you printing anything separately.</p></>,
   'List Window (keeps big lists fast)': <><p>How far back the Reception and Discharge lists load by default — a week, a month, a quarter, or everything.</p><p>A clinic with years of history stays fast on a modest PC by loading a shorter window. Searching always reaches every record regardless of this setting.</p></>,
-  'App Mode': <><p>A layout preset for the <b>base</b> modules — Reception, Pharmacy, Doctor, Lab.</p><p><b>Note:</b> paid add-ons you've activated (Laboratory, Pharmacy, IPD, Communication) always show regardless of this. To shape one computer's menu, use <b>This computer</b> in the System tab instead — it's clearer and applies per-PC.</p></>,
+  'App Mode': <><p>A layout preset for the <b>base</b> modules — Reception, Pharmacy, Doctor, Lab.</p><p><b>Note:</b> paid add-ons you've activated (Laboratory, Pharmacy, IPD, Communication) always show regardless of this. To shape one computer's menu, use <b>This Computer&rsquo;s Job</b> in Settings → Computers &amp; staff instead — it&rsquo;s clearer and applies per-PC.</p></>,
   'Modules': <><p>Which parts of CureDesk your subscription includes. Green = active, locked = not in your plan.</p><p>Locked modules aren't crippled trials — they're simply not part of what you bought. Adding one takes a minute and never touches your data.</p></>,
   'Subscription & Modules': <><p>Your current plan, when it expires, and this computer's Machine ID.</p><p>To add a module or renew, share the Machine ID with us and paste back the code we send. New modules unlock instantly; patients, bills and records are untouched.</p></>,
   'Your Plan': <><p>What this clinic is licensed for and until when.</p><p>The <b>Machine ID</b> identifies this computer — a licence key is tied to it, so a key issued for one PC won't work on another. That's what stops one purchased key being shared between clinics.</p></>,
   'Need to upgrade or renew?': <><p>How to get more modules or extend your licence: call us with your Machine ID, and enter the code we send.</p><p>No reinstall, no data migration, no downtime.</p></>,
-  'Security & Login': <><p><b>Require everyone to sign in</b> is the switch that makes staff accounts and roles actually do something.</p><p>Leave it OFF for a single shared PC where everyone is trusted. Turn it ON to give each person their own username, restrict what they can open, and attribute every action to a name in the audit trail.</p><p><b>Until this is on, the roles you assign have no effect.</b></p></>,
-  'Role-Based Access': <><p>Which staff roles may open which screens — the matrix behind Reception / Doctor / Nurse / Pharmacist / Lab Tech.</p><p>Only meaningful when staff sign-in is on. Set it once on the main computer and it applies to every connected station.</p></>,
-  'What Each Computer Can Do': <><p>In a multi-PC clinic, what someone sees depends on two things: <b>which computer</b> they're at, and <b>who signed in</b>.</p><p>Set the computer's job under System → This computer; set the person's powers with roles here.</p></>,
-  'Your Clinic Network': <><p>A live picture of the computers connected right now — which one is the main computer (host) and which are stations.</p><p>If a station is missing here, it can't reach the host: check that both are on the same Wi-Fi and the host is switched on.</p></>,
-  'Network Mode (multi-station)': <><p>Whether this PC runs alone (<b>Local</b>), acts as the <b>main computer</b> other PCs connect to, or is a <b>station</b> connecting to one.</p><p>Only one computer should be the main computer. It holds all the data, the licence and the backups — keep it switched on during clinic hours.</p></>,
+  'How many computers?': <><p>The one answer that decides how sign-in and access work — it is the same question the setup guide asks when CureDesk is first installed.</p><p><b>One computer:</b> it opens as <b>Reception</b> and nobody signs in; Settings, Users &amp; Access and deleting are locked behind the admin password. <b>More than one:</b> one main computer holds the data, the others connect to it, and everyone signs in with their own login.</p><p>Change it whenever the clinic changes. Going from one computer to several turns sign-in on.</p></>,
+  'Sign-in': <><p><b>Everyone signs in with their own login</b> is the switch that makes staff accounts and roles actually do something. It is required when the clinic uses more than one computer.</p><p>With one computer leave it off: the computer opens as Reception and the admin password locks the admin screens.</p><p><b>Until sign-in is on, the roles you assign have no effect.</b></p></>,
+  'What can Reception do?': <><p>With one computer nobody signs in — it opens as <b>Reception</b>. These switches decide which screens Reception can open (the doctor&rsquo;s consultation screen is on by default). Each switch saves at once.</p><p>The administrator always sees everything, and Settings, Users &amp; Access and deleting stay behind the admin password whatever you choose. The discount box limits what Reception may take off a medicine sale at the counter (blank = no limit).</p></>,
+  'Who can open what': <><p>Which staff roles may open which screens — the matrix behind Doctor / Nurse / Pharmacist / Lab Tech.</p><p>Set it once on the main computer and it applies to every connected computer. Admin always sees everything; Users &amp; Settings stay admin-only so you can never lock yourself out.</p></>,
+  "This Computer's Job": <><p>What this one computer is for — reception desk, doctor&rsquo;s cabin, pharmacy counter, lab bench, ward station. Its menu shrinks to match.</p><p>It changes <b>this computer only</b>. Settings and Users are never hidden, so you can always undo it.</p></>,
+  'Connecting the Computers': <><p>A live picture of the computers connected right now — which one is the main computer and which are the others — and the join code for a new one.</p><p>If a computer is missing here it cannot reach the main computer: check the cable or Wi-Fi, and that CureDesk is open on the main computer.</p></>,
   'Multi-Station Setup Guide': <><p>Step-by-step instructions for running CureDesk on several computers: what to buy, how to connect them, how staff accounts work across PCs, and what to do when something breaks.</p><p>Read the sections in order the first time — each takes 2-3 minutes.</p></>,
   'Backup, Restore & Updates': <><p>Where your backups are saved, how often they run automatically, and how to restore one.</p><p><b>Choose a Google Drive or OneDrive folder</b> so a copy also lives outside this computer — a disk failure would otherwise take your records and the backups together. Each backup is a full database copy plus an Excel file readable without CureDesk.</p></>,
   'Startup & Background': <><p>Whether CureDesk opens automatically when the computer starts, and whether it hides in the system tray instead of closing.</p><p>Handy on a reception PC that should always be running.</p></>,
@@ -2852,7 +2826,7 @@ function ClientConnectPanel({
             </button>
           </div>
           <div className="text-[10px] text-gray-500 mt-1">
-            On the host PC: Settings → System → Network Mode → big blue "Join Code" panel.
+            On the host PC: Settings → Computers & staff → Connecting the Computers → big blue "Join Code" panel.
           </div>
         </div>
       )}
@@ -3058,9 +3032,9 @@ function NetworkSetupGuide() {
           at <b>any</b> station — reception, cabin, pharmacy, lab.</p>
         <div className="mt-2 rounded-lg border border-violet-200 dark:border-violet-800 p-3 space-y-1.5">
           <div><b>To add a staff member:</b> on the MAIN PC → Users &amp; Access → <b>Add User</b> → pick their role.</div>
-          <div><b>To let them actually sign in:</b> Settings → System → <b>Security &amp; Login</b> → turn on
-            <b> "Require everyone to sign in"</b>. Until this is on, every computer shares one anonymous
-            session and roles do nothing — this is the single most common point of confusion.</div>
+          <div><b>To let them actually sign in:</b> Settings → <b>Computers &amp; staff</b> → turn on
+            <b> "Everyone signs in with their own login"</b> (it is on automatically when the clinic uses more than one computer). Until this is on,
+            the computer opens as Reception and roles do nothing — this is the single most common point of confusion.</div>
           <div><b>To remove someone:</b> set their status to Inactive on the main PC. It applies everywhere at once.</div>
         </div>
         <p className="mt-2"><b>If the main computer is unreachable</b>, a station can still sign in with an account
@@ -3077,7 +3051,7 @@ function NetworkSetupGuide() {
       >
         <p>A pharmacy counter doesn't need the IPD ward map; a lab bench doesn't need Accounts. Tell each PC
           what it's for and its menu shrinks to match.</p>
-        <p className="mt-2"><b>Where:</b> Settings → System → <b>This computer</b> → pick a card
+        <p className="mt-2"><b>Where:</b> Settings → Computers &amp; staff → <b>This Computer&rsquo;s Job</b> → pick a card
           (Everything / Reception desk / Doctor cabin / Pharmacy counter / Lab bench / Ward station).
           A live preview shows exactly what that PC will show before you commit.</p>
         <div className="mt-2 rounded-lg bg-blue-50/60 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-3 space-y-1">
@@ -3127,15 +3101,15 @@ function NetworkSetupGuide() {
         title="Renaming a station / re-pairing later"
         tone="slate"
       >
-        <p><b>To rename this PC:</b> Settings → System → Network Mode → edit the <b>"Station / room name"</b>
+        <p><b>To rename this PC:</b> Settings → Computers &amp; staff → Connecting the Computers → edit the <b>"Station / room name"</b>
           field at the top → click Save changes. Sidebar pill updates immediately.</p>
         <p className="mt-2"><b>To add a NEW cabin PC later:</b></p>
         <ol className="list-decimal pl-5 space-y-1 mt-1">
-          <li>On the MAIN PC, open Settings → System → Network Mode. Find the big rotating join code panel.</li>
+          <li>On the MAIN PC, open Settings → Computers &amp; staff → Connecting the Computers. Find the big rotating join code panel.</li>
           <li>If the code has expired, click <b>"New code"</b>.</li>
           <li>On the new cabin PC, install CureDesk → in the wizard pick "Connect to existing clinic" → enter the code.</li>
         </ol>
-        <p className="mt-2"><b>To switch a cabin to a different role:</b> Settings → System → Network Mode → click
+        <p className="mt-2"><b>To switch a cabin to a different role:</b> Settings → Computers &amp; staff → Connecting the Computers → click
           another mode card (Local / Server / Client) → save → restart the app.</p>
       </GuideSection>
 
@@ -3177,12 +3151,12 @@ function NetworkSetupGuide() {
               The losing user just refreshes (F5 or click another tab and back) and re-applies their change.</p>
           </Trouble>
           <Trouble q="I want to STOP using multi-station and go back to one PC.">
-            <p>On every cabin PC: Settings → System → Network Mode → click <b>Local</b> → Save → restart app.
+            <p>On every cabin PC: Settings → Computers &amp; staff → Connecting the Computers → click <b>Local</b> → Save → restart app.
               On the main PC: do the same. Each PC's local data stays put. (To consolidate the cabin's local
               data into the main PC's DB, use the export/import flow under "Bringing existing data to the server PC".)</p>
           </Trouble>
           <Trouble q="The main PC's join-code screen disappeared.">
-            <p>It's still active. Open Settings → System → Network Mode → scroll to the big rotating code panel.
+            <p>It's still active. Open Settings → Computers &amp; staff → Connecting the Computers → scroll to the big rotating code panel.
               The code is the same as long as it hasn't expired; click "New code" if needed.</p>
           </Trouble>
         </div>
@@ -5647,6 +5621,123 @@ function PharmacyTab({ goTo }: { goTo: (t: SettingsTab) => void }) {
   );
 }
 
+/** Computers & staff: how many computers, who signs in, what each person (or the shared Reception desk) may open, and how the computers connect. */
+function ComputersTab() {
+  const navigate = useNavigate();
+  const toast = useToast();
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const { data: netStatus } = useQuery({ queryKey: ['network-status'], queryFn: () => window.electronAPI.network.status(), staleTime: 15_000 });
+  const { draft, set, reset, dirty, saving, save } = useSectionDraft(settings, COMPUTERS_KEYS, { extraInvalidateKeys: [['setup-status'], ['network-status']] });
+  const reception = useReceptionAccess();
+  if (!settings) return <SettingsLoading />;
+
+  const isClient = netStatus?.mode === 'client';
+  const here = thisComputer(settings);
+  const savedMode = computersMode(settings);
+  const mode: ComputersMode = draft.computers_mode === 'single' || draft.computers_mode === 'multi' ? draft.computers_mode : savedMode;
+  const signIn = !!draft.require_login;
+
+  const pick = (m: ComputersMode) => {
+    if (m === mode) return;
+    if (m === 'single' && here === 'main') {
+      toast('This computer is the main computer of a network. To go back to one computer, first switch it to stand-alone under “Connecting the computers” below — the other computers will stop working.', 'error');
+      return;
+    }
+    set('computers_mode', m as any);
+    if (m === 'multi') set('require_login', true as any);                       // more than one computer = everyone signs in with their own login
+    if (m === 'single' && savedMode === 'multi') set('require_login', false as any);   // back to one computer: nobody has to sign in
+  };
+  const onSave = () => {
+    const loginChanged = signIn !== !!settings.require_login;
+    if (loginChanged && signIn && !window.confirm('Turn on sign-in?\n\nEveryone will need their own username and password from now on. Make sure you know the Admin login (username: admin) before continuing.')) return;
+    try { localStorage.setItem('caredesk-require-login', signIn ? '1' : '0'); } catch { /* the setting itself is what counts */ }
+    save();
+    if (loginChanged) setTimeout(() => window.location.reload(), 500);          // sign-in changes the app's entry gate
+  };
+  const showNetwork = mode === 'multi' || here !== 'alone';
+
+  return (
+    <div className="space-y-5">
+      <SectionSaveBar note={<>These are the same questions asked when the clinic was first set up — change them whenever the clinic changes.</>} dirty={dirty} saving={saving} onReset={reset} onSave={onSave} />
+
+      <SettingsGroup title="How many computers?" subtitle="This one answer decides how sign-in, access and the network work.">
+        <div className="card p-5 space-y-3">
+          <ModeChoice value={mode} onChange={pick} disabled={isClient}
+            disabledWhy={isClient ? 'This is an extra computer — how many computers the clinic uses is decided on the main computer.' : undefined} />
+          <div className="text-[12px] text-gray-600 dark:text-slate-300">
+            <b>This computer is:</b> {here === 'alone' ? 'the only computer' : here === 'main' ? 'the main computer (the others connect to it)' : 'an extra computer, connected to the main computer'}.
+          </div>
+        </div>
+      </SettingsGroup>
+
+      {!isClient && (
+        <SettingsGroup title="Sign-in" subtitle="Whether people sign in with their own login.">
+          <div className="card p-5 space-y-3">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input type="checkbox" className="mt-1" checked={signIn} disabled={mode === 'multi' && !!settings.require_login} onChange={(e) => set('require_login', e.target.checked as any)} />
+              <div>
+                <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">Everyone signs in with their own login{mode === 'multi' ? ' — required with more than one computer' : ''}</div>
+                <Explain>
+                  Each person has a username, a password and a role. They see only what their role allows, and every bill and sale records who made it. The Admin login can sign in on any computer.
+                  {mode === 'single' && !signIn ? ' With one computer this is not needed: the computer opens as Reception and the admin password locks the admin screens.' : ''}
+                </Explain>
+              </div>
+            </label>
+            {signIn && (
+              <div className="pl-7 border-l-2 border-blue-200 dark:border-blue-900">
+                <label className="label">Sign out automatically after idle (minutes)</label>
+                <input type="number" min={0} max={240} className="input max-w-[140px]" value={draft.session_timeout_minutes ?? 0}
+                  onChange={(e) => set('session_timeout_minutes', Math.max(0, Number(e.target.value) || 0) as any)} />
+                <Explain>0 = never. Useful on a shared reception computer.</Explain>
+              </div>
+            )}
+            {signIn && !settings.require_login && (
+              <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 text-[11px] text-amber-800 dark:text-amber-200">
+                Before saving, make sure every person has a login under <b>Users &amp; Access</b>. You can always sign in as <b>admin</b> to add or fix logins.
+              </div>
+            )}
+            <div><button className="btn-secondary text-xs" onClick={() => navigate('/users')}>Open Users &amp; Access (staff logins, admin password)</button></div>
+          </div>
+        </SettingsGroup>
+      )}
+
+      {!isClient && mode === 'single' && !signIn && (
+        <SettingsGroup title="What can Reception do?" subtitle="This computer opens as Reception. Switch off any screen Reception should not open — each switch saves at once.">
+          <div className="card p-5 space-y-4">
+            <ReceptionAccessList roleAccessJson={reception.json} onToggle={reception.toggle} disabled={!reception.ready} />
+            <div className="border-t border-gray-100 dark:border-slate-800 pt-3">
+              <SharedDeskDiscountBox value={draft.shared_desk_discount_pct} onChange={(v) => set('shared_desk_discount_pct', v as any)} />
+              <Explain>Needs <b>Save</b>. Discounts on bills follow Billing &amp; GST → Discounts.</Explain>
+            </div>
+          </div>
+        </SettingsGroup>
+      )}
+
+      {!isClient && (signIn || mode === 'multi') && (
+        <SettingsGroup title="Who can open what" subtitle="Which module each staff role can open — applies on every connected computer. The admin always sees everything.">
+          <RoleAccessEditor />
+        </SettingsGroup>
+      )}
+
+      {showNetwork && (
+        <>
+          <SettingsGroup title="This Computer's Job" subtitle="What this one computer is for — it changes this computer's menu only (for example a pharmacy counter that shows just the pharmacy).">
+            <div className="card p-5"><ThisComputerPanel /></div>
+          </SettingsGroup>
+          <SettingsGroup title="Connecting the Computers" subtitle="Which computers are connected right now, which one is the main computer, and the join code for a new one.">
+            <NetworkDiagram />
+            <RelaunchWizardButton />
+            <NetworkModeSettings />
+          </SettingsGroup>
+          <SettingsGroup title="Multi-Station Setup Guide" subtitle="Step-by-step — what to buy, how to wire it up, how to connect each PC, and what to do when something breaks.">
+            <NetworkSetupGuide />
+          </SettingsGroup>
+        </>
+      )}
+    </div>
+  );
+}
+
 /** WhatsApp: the wording of the one-click messages, the Google review link, the country code for patients' numbers, and the Pro automation status. */
 function WhatsAppTab() {
   const navigate = useNavigate();
@@ -6224,56 +6315,4 @@ function SlipSectionRow({ s, idx, updateSection, removeSection }: {
   );
 }
 
-function SecurityLoginSettings() {
-  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
-  const { draft, set, reset, dirty, saving, save } = useSectionDraft(settings, ['require_login', 'session_timeout_minutes']);
-  if (!settings) return <div className="card p-8 text-center text-sm text-gray-500"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></div>;
-
-  return (
-    <div className="card p-5 space-y-4">
-      <AccrualToggle
-        label="Require everyone to sign in"
-        help="Each person logs in with their own username and password, and their actions are attributed to them in the audit trail. Turn off for a single shared PC where no login is needed. When on, sign-out returns to the login screen instead of a shared session."
-        value={draft.require_login ?? false}
-        onChange={(v) => set('require_login', v)}
-      />
-      {draft.require_login && (
-        <div className="pl-7 border-l-2 border-blue-200 dark:border-blue-900">
-          <label className="label">Auto sign-out after idle (minutes)</label>
-          <input
-            type="number" min={0} max={240} className="input max-w-[140px]"
-            value={draft.session_timeout_minutes ?? 0}
-            onChange={(e) => set('session_timeout_minutes', Math.max(0, Number(e.target.value) || 0))}
-          />
-          <div className="text-[11px] text-gray-500 mt-1">
-            Signs a user out automatically after this many minutes with no mouse or keyboard activity — useful for a shared reception PC. Set 0 to never auto sign-out.
-          </div>
-        </div>
-      )}
-      {draft.require_login && (
-        <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 text-[11px] text-amber-800 dark:text-amber-200">
-          Before turning this on, make sure every staff member has an account under <b>Users &amp; Access</b> with a password they know. You can always sign in as <b>admin</b> to manage accounts.
-        </div>
-      )}
-      <div className="flex items-center gap-2">
-        {dirty && <button className="btn-ghost text-xs" onClick={reset}>Reset</button>}
-        <button
-          className="btn-primary text-xs"
-          disabled={!dirty || saving}
-          onClick={() => {
-            const loginChanged = (draft.require_login ?? false) !== (settings.require_login ?? false);
-            // Update the synchronous mirror so the gate re-evaluates correctly.
-            try { localStorage.setItem('caredesk-require-login', draft.require_login ? '1' : '0'); } catch { /* ignore */ }
-            save();
-            // Turning the requirement on or off changes the app's entry gate, so
-            // reload to apply it cleanly (the setting itself is already saved).
-            if (loginChanged) setTimeout(() => window.location.reload(), 500);
-          }}
-        >
-          {saving ? 'Saving…' : dirty ? 'Save changes' : 'All saved'}
-        </button>
-      </div>
-    </div>
-  );
-}
 

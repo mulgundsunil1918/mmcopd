@@ -291,7 +291,7 @@ export async function runDiagnostics(serverUrl: string, secret: string, hostSelf
           ? `Listening on port ${selfPort}`
           : `Nothing is listening on port ${selfPort} on this PC`,
         hint: self.ok ? undefined
-          : 'This PC is set as the main computer but its server is not running. Make sure CureDesk is OPEN (it only accepts connections while running) and that Settings → Multi-System still shows "Hosting". Closing the app disconnects every other computer.',
+          : 'This PC is set as the main computer but its server is not running. Make sure CureDesk is OPEN (it only accepts connections while running) and that Settings → Computers & staff still shows "Hosting". Closing the app disconnects every other computer.',
       });
     }
   }
@@ -372,7 +372,7 @@ export async function runDiagnostics(serverUrl: string, secret: string, hostSelf
         detail: ok ? 'Token verified by host' : 'Host rejected the token (HTTP 401)',
         ms: Date.now() - t0,
         hint: ok ? undefined
-          : 'This PC\'s saved token no longer matches the host. Click "Forget this server" below and re-pair using a fresh join code from the host PC (Settings → Network Mode → join code panel).',
+          : 'This PC\'s saved token no longer matches the host. Click "Forget this server" below and re-pair using a fresh join code from the host PC (Settings → Computers & staff → join code panel).',
       });
     } catch (e: any) {
       push({ id: 'auth', label: 'Access token accepted', ok: false, detail: e?.message || String(e) });

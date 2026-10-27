@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { cn } from '../lib/utils';
 import { useTheme } from '../hooks/useTheme';
 import { useAuth, canAnyRole, type Role } from '../hooks/useAuth';
-import { parseRoleAccess, effectiveRoles, ACCESS_MODULES } from '../lib/accessModules';
+import { parseRoleAccess, effectiveRoles, ACCESS_MODULES, ASSIGNABLE_ROLES } from '../lib/accessModules';
 import { ROUTE_MODULE } from '../lib/licenseModules';
 import { moduleState } from '../lib/moduleAccess';
 import { BackupAndClose } from './BackupAndClose';
@@ -78,18 +78,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   const billingHidden = settings?.show_billing_module === false;
   const originHidden = settings?.show_patient_origin === false;
 
-  // Human-readable label for the user identity badge — derived from the
-  // configured app mode, NOT the user's static role (which used to show
-  // 'Reception + Doctor' even when the admin had picked 'Reception only').
-  const MODE_LABELS: Record<AppMode, string> = {
-    reception: 'Reception only',
-    reception_pharmacy: 'Reception + Pharmacy',
-    reception_doctor: 'Reception + Doctor',
-    reception_pharmacy_doctor: 'Reception + Pharmacy + Doctor',
-    reception_pharmacy_doctor_lab: 'Reception + Pharmacy + Doctor + Lab',
-    full: 'Full HMS',
-  };
-  const modeLabel = MODE_LABELS[currentMode] || currentMode;
   // Admin-customised role → module access (from Settings). Empty = built-in defaults.
   const accessOverrides = parseRoleAccess(settings?.role_access_json);
 
@@ -340,7 +328,8 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
             <div className="flex-1 min-w-0">
               <div className="text-xs font-semibold truncate">{user.display_name || user.username}</div>
               <div className="text-[10px] opacity-80 uppercase tracking-wider">
-                {modeLabel}
+                {/* WHO is using the computer and in WHICH role (the clinic's App Mode is under Settings → Subscription & Modules) */}
+                {(user.role === 'admin' ? 'Admin' : user.role === 'staff' ? 'Shared desk' : (ASSIGNABLE_ROLES.find((r) => r.role === user.role)?.label ?? user.role)) + (adminUnlocked ? ' · admin unlocked' : '')}
               </div>
             </div>
           </div>

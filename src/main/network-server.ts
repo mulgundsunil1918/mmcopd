@@ -6,7 +6,7 @@
  * silently drops it from the main-process bundle, causing a white-screen
  * launch in the installed app. Built-in http has zero external deps.
  *
- * When the user sets Settings → Network Mode → Server, this module spins up:
+ * When the user sets Settings → Computers & staff → Network Mode → Server, this module spins up:
  *   - An HTTP server on the configured port that accepts /api/health,
  *     /api/info, /api/pair, and /ipc/:channel from other CureDesk clients
  *     on the LAN.

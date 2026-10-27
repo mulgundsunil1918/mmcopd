@@ -217,7 +217,7 @@ export interface ManualPharmacy {
 }
 
 /** First-run setup guide — where a freshly installed clinic stands (see main/setup.ts). */
-export type SetupStepKey = 'clinic' | 'doctors' | 'fees' | 'staff' | 'pharmacy' | 'inpatient';
+export type SetupStepKey = 'computers' | 'clinic' | 'doctors' | 'fees' | 'staff' | 'pharmacy' | 'inpatient';
 export interface SetupStatus {
   show: boolean;
   status: 'pending' | 'skipped' | 'done';

@@ -61,13 +61,13 @@ export function canAnyRole(user: SessionUser | null, roles: Role[], adminUnlocke
   return roles.includes(user.role);
 }
 
-// Default: logged in as staff (receptionist + doctor combined). Admin actions require password unlock.
-// display_name is generic so the sidebar tile can derive the actual mode label from settings.app_mode.
+// Default (a one-computer clinic, nobody signs in): the shared desk, called RECEPTION. Internally it keeps the pseudo-role 'staff' (it acts for the front
+// desk and the doctor on one PC); what it may open is the Reception column of the role matrix (lib/moduleAccess.ts). Admin actions require the admin password.
 const DEFAULT_SESSION: SessionUser = {
   id: 0,
-  username: 'staff',
+  username: 'reception',
   role: 'staff',
-  display_name: 'Clinic Staff',
+  display_name: 'Reception',
   doctor_id: null,
 };
 
@@ -96,7 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // A genuine sign-in is always honoured. A stale default/staff session is
         // not a login — under require_login it must not grant access.
         if (isRealLogin(parsed)) return parsed;
-        return requireLoginInitial ? null : parsed;
+        return requireLoginInitial ? null : DEFAULT_SESSION;      // (an older copy of the shared session was called "Clinic Staff")
       }
     } catch { /* ignore */ }
     return requireLoginInitial ? null : DEFAULT_SESSION;

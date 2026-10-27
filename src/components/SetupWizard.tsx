@@ -13,9 +13,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowLeft, ArrowRight, BedDouble, Check, CheckCircle2, Hospital, Loader2, Pill, Plus, Receipt, SkipForward, Stethoscope, UserPlus, Users, X,
+  ArrowLeft, ArrowRight, BedDouble, Check, CheckCircle2, Hospital, Loader2, Monitor, Pill, Plus, Receipt, SkipForward, Stethoscope, UserPlus, Users, X,
 } from 'lucide-react';
 import { NumberInput } from './NumberInput';
+import { ChangeLaterNote, ModeChoice, ReceptionAccessList, SharedDeskDiscountBox, useReceptionAccess } from './computers/ComputersParts';
+import { computersMode, thisComputer, type ComputersMode } from '../lib/computers';
 import { useToast } from '../hooks/useToast';
 import { useLicensedModules } from '../hooks/useLicensedModules';
 import { cn, formatINR } from '../lib/utils';
@@ -25,6 +27,7 @@ type StepId = SetupStepKey | 'finish';
 interface StepDef { id: StepId; title: string; icon: typeof Hospital; blurb: string }
 
 const ALL_STEPS: StepDef[] = [
+  { id: 'computers', title: 'Your computers', icon: Monitor, blurb: 'One computer or several — this decides how sign-in and access work.' },
   { id: 'clinic', title: 'Your clinic', icon: Hospital, blurb: 'The name and contact details that print on every bill, slip and report.' },
   { id: 'doctors', title: 'Doctors', icon: Stethoscope, blurb: 'Who sees patients here, and what each charges.' },
   { id: 'fees', title: 'Fees & billing', icon: Receipt, blurb: 'Registration fee, free follow-ups, bill numbering and GST.' },
@@ -45,16 +48,23 @@ const WARD_TYPES = [
 
 const clean = (s: string) => s.trim().replace(/\s+/g, ' ');
 
-export function SetupWizard({ status, onJoinExisting }: { status: SetupStatus; onJoinExisting: () => void }) {
+export function SetupWizard({ status, onJoinExisting, onStartMain }: { status: SetupStatus; onJoinExisting: () => void; onStartMain: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
   const { has } = useLicensedModules();
 
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const mode = computersMode(settings as any);
   const defs = useMemo(
-    () => ALL_STEPS.filter((s) => (s.id === 'pharmacy' ? has('pharmacy') : s.id === 'inpatient' ? has('ipd') : true)),
+    () => ALL_STEPS.filter((s) => (s.id === 'pharmacy' ? has('pharmacy') : s.id === 'inpatient' ? has('ipd') : true)).map((s) => (
+      // With ONE computer there are no personal logins: this step is where the administrator chooses what the front desk (Reception) can open.
+      s.id === 'staff' && mode === 'single'
+        ? { ...s, title: 'What Reception can do', blurb: 'This computer opens as Reception. Choose which screens it can open — the admin screens stay behind the admin password.' }
+        : s.id === 'staff' ? { ...s, blurb: 'A login for each person — reception, pharmacy, nurses. With more than one computer everyone signs in with their own login.' } : s
+    )),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [has('pharmacy'), has('ipd')],
+    [has('pharmacy'), has('ipd'), mode],
   );
   // Start at the first step not yet saved (so a restarted or reopened guide resumes where it left off); all saved → the summary.
   const firstOpen = defs.findIndex((d) => d.id !== 'finish' && status.steps[d.id as SetupStepKey] !== 'done');
@@ -63,8 +73,6 @@ export function SetupWizard({ status, onJoinExisting }: { status: SetupStatus; o
   const [err, setErr] = useState<string | null>(null);
   const cur = defs[Math.min(idx, defs.length - 1)];
   const stepState = (id: StepId) => (id === 'finish' ? 'todo' : status.steps[id as SetupStepKey]);
-
-  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
 
   const refresh = async () => {
     await Promise.all(['setup-status', 'settings', 'clinic-name-title', 'doctors', 'wards', 'users'].map((k) => qc.invalidateQueries({ queryKey: [k] })));
@@ -175,10 +183,13 @@ export function SetupWizard({ status, onJoinExisting }: { status: SetupStatus; o
 
         {/* ===== the step ===== */}
         <div className="px-6 py-5 overflow-y-auto flex-1">
+          {cur.id === 'computers' && <ComputersStep settings={settings} register={setSaver} onStartMain={onStartMain} onJoin={onJoinExisting} />}
           {cur.id === 'clinic' && <ClinicStep status={status} settings={settings} register={setSaver} onJoin={onJoinExisting} />}
           {cur.id === 'doctors' && <DoctorsStep settings={settings} register={setSaver} />}
           {cur.id === 'fees' && <FeesStep settings={settings} register={setSaver} />}
-          {cur.id === 'staff' && <StaffStep settings={settings} register={setSaver} />}
+          {cur.id === 'staff' && (mode === 'single'
+            ? <ReceptionStep settings={settings} register={setSaver} />
+            : <StaffStep settings={settings} register={setSaver} multi={mode === 'multi'} />)}
           {cur.id === 'pharmacy' && <PharmacyStep settings={settings} register={setSaver} ipd={has('ipd')} />}
           {cur.id === 'inpatient' && <WardsStep register={setSaver} />}
           {cur.id === 'finish' && <FinishStep defs={defs} status={status} onOpen={(id) => open(defs.findIndex((d) => d.id === id))} has={has} />}
@@ -236,15 +247,87 @@ function Field({ label, hint, children, required }: { label: string; hint?: stri
   );
 }
 
-function ToggleBox({ label, help, checked, onChange }: { label: string; help: string; checked: boolean; onChange: (v: boolean) => void }) {
+function ToggleBox({ label, help, checked, onChange, locked }: { label: string; help: string; checked: boolean; onChange: (v: boolean) => void; locked?: boolean }) {
   return (
     <label className="flex items-start gap-3 cursor-pointer rounded-lg border border-gray-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/40 px-3 py-2.5">
-      <input type="checkbox" className="mt-1 w-4 h-4 accent-blue-600" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <input type="checkbox" className="mt-1 w-4 h-4 accent-blue-600" checked={checked} disabled={locked} onChange={(e) => onChange(e.target.checked)} />
       <div>
         <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">{label}</div>
         <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">{help}</div>
       </div>
     </label>
+  );
+}
+
+/* ================================================================= 0 · computers */
+
+/**
+ * The first question. One computer: it opens as Reception, nobody signs in. More than one: a main computer plus others, everyone signs in with their own
+ * login. It saves the answer; "main computer" and "join" hand over to the connection wizard (which finds the main computer, or shows the join code).
+ * The same question, with the same words, is in Settings → Computers & staff.
+ */
+function ComputersStep({ settings, register, onStartMain, onJoin }: { settings: any; register: Register; onStartMain: () => void; onJoin: () => void }) {
+  const { data: net } = useQuery({ queryKey: ['network-status'], queryFn: () => window.electronAPI.network.status(), refetchInterval: 4_000 });
+  const [mode, setMode] = useState<ComputersMode | null>(null);
+  useEffect(() => { if (settings && mode === null) setMode(computersMode(settings)); }, [settings, mode]);
+  const here = thisComputer({ ...(settings || {}), network_mode: (net as any)?.mode ?? settings?.network_mode });
+  const blocked = mode === 'single' && here !== 'alone';                      // already set up as a main computer: going back to one computer is a Settings job
+  useEffect(() => {
+    register({
+      ready: mode !== null && !blocked,
+      run: async () => { await window.electronAPI.settings.save({ computers_mode: mode as ComputersMode }); return true; },
+    });
+  }, [mode, blocked]);  // eslint-disable-line react-hooks/exhaustive-deps
+  if (mode === null) return <div className="py-10 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto text-gray-400" /></div>;
+  return (
+    <div className="space-y-4">
+      <div className="text-[14px] font-semibold text-gray-900 dark:text-slate-100">How many computers will you use for this clinic or hospital?</div>
+      <ModeChoice value={mode} onChange={setMode} />
+      {blocked && (
+        <div className="text-[12px] rounded-lg border border-amber-200 bg-amber-50 text-amber-900 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-100 px-3 py-2">
+          This computer is already set up as the main computer of a network. To use just one computer, change that under Settings → Computers &amp; staff.
+        </div>
+      )}
+      {mode === 'multi' && (
+        <div className="rounded-xl border border-gray-200 dark:border-slate-700 p-4 space-y-3 bg-white/60 dark:bg-slate-900/40">
+          <div className="text-[13px] font-semibold text-gray-900 dark:text-slate-100">Which computer is this?</div>
+          {here === 'main' ? (
+            <div className="text-[13px] text-emerald-800 dark:text-emerald-200 inline-flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> This is the <b>main computer</b>. The others connect to it — the join code is in Settings → Computers &amp; staff.</div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="btn-primary text-xs" onClick={onStartMain}>This is the main computer — set it up now</button>
+              <button type="button" className="btn-secondary text-xs" onClick={onJoin}>This computer joins a clinic that is already set up</button>
+            </div>
+          )}
+          <div className="text-[11px] text-gray-500 dark:text-slate-400">The computers can be joined by a LAN cable (the most reliable) or by Wi-Fi. You can also do this later — it is all in Settings → Computers &amp; staff.</div>
+        </div>
+      )}
+      <ChangeLaterNote />
+    </div>
+  );
+}
+
+/** One computer: no logins. This is where the administrator chooses what Reception — the shared desk — can open, and its discount limit. */
+function ReceptionStep({ settings, register }: { settings: any; register: Register }) {
+  const reception = useReceptionAccess();
+  const [limit, setLimit] = useState<number | null | undefined>(undefined);
+  useEffect(() => { if (settings && limit === undefined) setLimit(settings.shared_desk_discount_pct ?? null); }, [settings, limit]);
+  useEffect(() => {
+    register({
+      ready: limit !== undefined && reception.ready,
+      run: async () => { await window.electronAPI.settings.save({ shared_desk_discount_pct: limit as number | null, require_login: false }); return true; },
+    });
+  }, [limit, reception.ready]);  // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-gray-200 dark:border-slate-700 px-4 py-3 text-[12px] text-gray-700 dark:text-slate-300 bg-white/60 dark:bg-slate-900/40">
+        With one computer nobody signs in: it opens as <b>Reception</b>. Settings, Users &amp; Access and deleting are locked behind the <b>admin password</b> (the one you chose when you first opened the software).
+        Everything below is a switch — each one saves at once.
+      </div>
+      <ReceptionAccessList roleAccessJson={reception.json} onToggle={reception.toggle} disabled={!reception.ready} />
+      <div className="border-t border-gray-200 dark:border-slate-700 pt-3"><SharedDeskDiscountBox value={limit} onChange={setLimit} /></div>
+      <ChangeLaterNote />
+    </div>
   );
 }
 
@@ -467,13 +550,13 @@ function FeesStep({ settings, register }: { settings: any; register: Register })
 
 /* ================================================================= 4 · staff */
 
-function StaffStep({ settings, register }: { settings: any; register: Register }) {
+function StaffStep({ settings, register, multi }: { settings: any; register: Register; multi?: boolean }) {
   const qc = useQueryClient();
   const toast = useToast();
   const { data: users = [] } = useQuery({ queryKey: ['users'], queryFn: () => window.electronAPI.auth.listUsers() });
   const { data: doctors = [] } = useQuery({ queryKey: ['doctors', 'all'], queryFn: () => window.electronAPI.doctors.list(false) });
   const [requireLogin, setRequireLogin] = useState<boolean | null>(null);
-  useEffect(() => { if (settings && requireLogin === null) setRequireLogin(!!settings.require_login); }, [settings, requireLogin]);
+  useEffect(() => { if (settings && requireLogin === null) setRequireLogin(multi ? true : !!settings.require_login); }, [settings, requireLogin, multi]);
   const blank = { display: '', username: '', password: '', role: 'receptionist', doctor_id: '' };
   const [f, setF] = useState(blank);
   const [busy, setBusy] = useState(false);
@@ -515,7 +598,7 @@ function StaffStep({ settings, register }: { settings: any; register: Register }
       <div className="rounded-xl border border-gray-200 dark:border-slate-700 px-4 py-3 text-[12px] text-gray-700 dark:text-slate-300 bg-white/60 dark:bg-slate-900/40">
         You already have an <b>administrator</b> login (the one you chose when you first opened the software). Add logins here for the people who
         will work in the clinic, each with the role that matches their job. What each role is allowed to open can be changed later in
-        Settings → System → Role-Based Access.
+        Settings → Computers &amp; staff.
       </div>
       {others.length > 0 && (
         <ul className="flex flex-wrap gap-2">
@@ -553,8 +636,10 @@ function StaffStep({ settings, register }: { settings: any; register: Register }
           {msg && <span className="text-[12px] text-red-600">{msg}</span>}
         </div>
       </div>
-      <ToggleBox label="Everyone must sign in" checked={!!requireLogin} onChange={setRequireLogin}
-        help="From the next time the software starts, each person signs in with their own login, and every bill and sale records who made it. Leave it off for a one-computer clinic where one person does everything — you can switch it on later in Settings → System → Security & Login." />
+      <ToggleBox label="Everyone must sign in" checked={!!requireLogin} onChange={setRequireLogin} locked={!!multi}
+        help={multi
+          ? 'Required with more than one computer: from the next time the software starts, each person signs in with their own login, and every bill and sale records who made it. The Admin login can sign in on any computer. You can change this later in Settings → Computers & staff.'
+          : 'From the next time the software starts, each person signs in with their own login, and every bill and sale records who made it. Leave it off for a one-computer clinic where one person does everything — you can switch it on later in Settings → Computers & staff.'} />
     </div>
   );
 }

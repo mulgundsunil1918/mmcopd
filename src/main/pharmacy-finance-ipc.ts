@@ -242,7 +242,10 @@ export function registerPharmacyFinanceIpc() {
       }
       // The limit on the discount comes from WHO IS SIGNED IN (their role's number in Settings), never from the screen: whatever the
       // screen sent in max_discount_pct is overwritten here. Nobody signed in (shared-PC mode) = no identity to limit.
-      const cap = counterDiscountCap(getAllSettings(getDb()).pharmacy_discount_caps_json, actor()?.role ?? null);
+      // Signed in: that person's role. Nobody signed in because the clinic runs one shared desk (Reception): the Reception limit, if the administrator set one.
+      const st = getAllSettings(getDb());
+      const who = actor();
+      const cap = who ? counterDiscountCap(st.pharmacy_discount_caps_json, who.role) : (st.require_login ? null : st.shared_desk_discount_pct);
       sale = fin.sellItems(getDb(), { ...payload, sold_by: soldBy, max_discount_pct: cap });
       if (sale?.on_credit && !repeat) audit('pharmacy.credit_sale', 'pharmacy_sales', sale.id, { patient: sale.patient_id, total: sale.total, paid_now: sale.amount_paid });
     }

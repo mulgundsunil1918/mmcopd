@@ -21,10 +21,11 @@ import { STATION_ROLES, STATION_LABEL, type StationRole } from '../lib/moduleAcc
 
 type Step = 'pick' | 'host-name' | 'host-bootstrap' | 'host-show-code' | 'connect-discover' | 'connect-enter-code' | 'connect-name' | 'connect-success' | 'station';
 
-export function WelcomeWizard({ onClose }: { onClose: () => void }) {
+export function WelcomeWizard({ onClose, start = 'pick' }: { onClose: () => void; start?: 'pick' | 'host' | 'join' }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const [step, setStep] = useState<Step>('pick');
+  // `start` lets the setup guide ("This is the main computer" / "This computer joins…") skip the first picker — the answer is already known.
+  const [step, setStep] = useState<Step>(start === 'host' ? 'host-name' : start === 'join' ? 'connect-discover' : 'pick');
   const [busy, setBusy] = useState(false);
   const [discovered, setDiscovered] = useState<{ ip: string; port: number; version: string }[]>([]);
   const [pickedServer, setPickedServer] = useState<{ ip: string; port: number } | null>(null);
@@ -46,6 +47,7 @@ export function WelcomeWizard({ onClose }: { onClose: () => void }) {
       // Switch to Server mode with default port; main process auto-mints secret + join code.
       await window.electronAPI.settings.save({
         network_mode: 'server',
+        computers_mode: 'multi',
         network_listen_port: 4321,
         station_name: stationName.trim() || 'Reception Desk',
         ...(clinicName.trim() ? { clinic_name: clinicName.trim() } : {}),

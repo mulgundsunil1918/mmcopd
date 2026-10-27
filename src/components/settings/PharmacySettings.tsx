@@ -97,7 +97,7 @@ export function PharmacyDiscountLimits({ draft, set }: { draft: Partial<Settings
         <Explain>
           The most each role may take off a <b>medicine sale</b> at the pharmacy counter, as a percent of the sale. A discount above the
           limit is refused with a message. <b>Leave a role blank for no limit</b> (how the counter has always worked). It follows the
-          person who is signed in, so turn on <b>Require sign-in</b> under System → Security &amp; Login for it to know who is selling. Administrators
+          person who is signed in, so turn on sign-in under Settings → Computers &amp; staff for it to know who is selling (on a one-computer clinic every sale is Reception’s, and the Reception limit is set there). Administrators
           are never limited. (The discount boxes on the counter and dispense screens take a percentage.)
         </Explain>
       </div>

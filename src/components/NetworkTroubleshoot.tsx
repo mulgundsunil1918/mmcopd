@@ -270,7 +270,7 @@ export function NetworkTroubleshoot({ mode }: { mode: 'local' | 'server' | 'clie
           {found.length === 0 ? (
             <div className="text-[12px] text-blue-900 dark:text-blue-100 leading-relaxed">
               <b>No CureDesk host found on this network.</b> That means no computer here is currently accepting
-              connections. On the main computer: open CureDesk, go to Settings → Multi-System, and check it says
+              connections. On the main computer: open CureDesk, go to Settings → Computers & staff, and check it says
               <b> &ldquo;Hosting on port 4321&rdquo;</b> — it only accepts connections while the app is open. Also make
               sure both computers are on the same Wi-Fi, and allow CureDesk through the firewall on the main PC.
             </div>

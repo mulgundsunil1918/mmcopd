@@ -147,8 +147,11 @@ export function moduleState(path: string, ctx: AccessCtx): ModuleState {
   // The owner may open anything that survived steps 1-3.
   if (ctx.user.role === 'admin' || ctx.adminUnlocked) return { allowed: true, reason: 'ok' };
 
-  // 5. Role.
-  return canAnyRole(ctx.user as any, effectiveRoles(path, ctx.defaults, ctx.overrides), ctx.adminUnlocked)
+  // 5. Role. The shared desk (nobody signed in) is the clinic's RECEPTION and follows the Reception column of the matrix only, so what the
+  //    administrator switches off for Reception is really off — even for a screen a doctor could open (the desk used to count as "reception OR doctor").
+  const roles = effectiveRoles(path, ctx.defaults, ctx.overrides);
+  if (ctx.user.role === 'staff') return roles.includes('receptionist') ? { allowed: true, reason: 'ok' } : { allowed: false, reason: 'role' };
+  return canAnyRole(ctx.user as any, roles, ctx.adminUnlocked)
     ? { allowed: true, reason: 'ok' }
     : { allowed: false, reason: 'role' };
 }
@@ -176,7 +179,7 @@ export function explainDenial(reason: DenyReason, opts: { isOwner: boolean; labe
     case 'station':
       return {
         title: `${what} is not shown on this computer`,
-        body: 'This computer is set up for a specific job (reception, pharmacy, lab…). Change what this computer shows in Settings → Subscription & Modules → This Computer. It affects only this PC.',
+        body: 'This computer is set up for a specific job (reception, pharmacy, lab…). Change what this computer shows in Settings → Computers & staff → This Computer’s Job. It affects only this PC.',
         cta: opts.isOwner ? { label: 'Open Settings', to: '/settings' } : undefined,
       };
     case 'app_mode':

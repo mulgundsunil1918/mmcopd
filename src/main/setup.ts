@@ -19,7 +19,9 @@
 
 import type Database from 'better-sqlite3';
 
-export const SETUP_STEPS = ['clinic', 'doctors', 'fees', 'staff', 'pharmacy', 'inpatient'] as const;
+export const SETUP_STEPS = ['computers', 'clinic', 'doctors', 'fees', 'staff', 'pharmacy', 'inpatient'] as const;
+/** The steps whose being undone keeps the "setup is not finished" reminder showing. The 'computers' question is not one: it has a safe default (read from the network setting). */
+const REMINDER_STEPS = SETUP_STEPS.filter((k) => k !== 'computers');
 export type SetupStepKey = (typeof SETUP_STEPS)[number];
 export type SetupStepState = 'todo' | 'done' | 'skipped';
 export type SetupGuideStatus = 'pending' | 'skipped' | 'done';
@@ -123,7 +125,7 @@ export function setupStatus(db: Database.Database): SetupStatus {
   }
   const status: SetupGuideStatus = stored.status;
   const steps = stepMap(stored);
-  const incomplete = SETUP_STEPS.some((k) => steps[k] !== 'done');
+  const incomplete = REMINDER_STEPS.some((k) => steps[k] !== 'done');
   return {
     show: status === 'pending',
     status,

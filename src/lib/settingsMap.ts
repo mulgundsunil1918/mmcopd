@@ -12,7 +12,7 @@ import type { Settings } from '../types';
 export type SettingsTabId =
   | 'clinic' | 'doctors' | 'reception' | 'billing'
   | 'pharmacy' | 'lab' | 'ipd' | 'whatsapp' | 'peds'
-  | 'system' | 'multisystem' | 'subscription';
+  | 'system' | 'computers' | 'subscription';
 
 export type SettingsGroupId = 'clinic' | 'modules' | 'computer';
 
@@ -46,14 +46,14 @@ export const SETTINGS_TABS: SettingsTabDef[] = [
   { id: 'whatsapp', label: 'WhatsApp', group: 'modules', module: 'whatsapp', blurb: 'What patients receive on WhatsApp: the wording of each message, the Google review link, the country code for phone numbers, and the Pro automation status.' },
   { id: 'peds', label: 'Pediatrics', group: 'modules', blurb: 'Growth charts, vaccines and calculators for paediatric patients.' },
   { id: 'system', label: 'System', group: 'computer', blurb: 'Sign-in and security, who can open what, this computer’s clock, start-up, backups and updates, reset.' },
-  { id: 'multisystem', label: 'Multi-System', group: 'computer', blurb: 'Connecting several computers in the clinic — which one is the main computer.' },
+  { id: 'computers', label: 'Computers & staff', group: 'computer', blurb: 'How many computers the clinic uses, who signs in, what each person (or the shared Reception desk) may open, and how the computers connect.' },
   { id: 'subscription', label: 'Subscription & Modules', group: 'computer', blurb: 'Your plan and its expiry, renewing or adding a module, and which modules this computer shows.' },
 ];
 
 export const tabDef = (id: SettingsTabId): SettingsTabDef => SETTINGS_TABS.find((t) => t.id === id) ?? SETTINGS_TABS[0];
 
 /** Tab names an older version remembered in the browser's storage, and the tab they were merged into. */
-export const OLD_TAB_IDS: Record<string, SettingsTabId> = { workflow: 'reception', patients: 'reception' };
+export const OLD_TAB_IDS: Record<string, SettingsTabId> = { workflow: 'reception', patients: 'reception', multisystem: 'computers' };
 
 export const SETTINGS_TAB_STORAGE_KEY = 'caredesk:settings-tab';
 /** Make Settings open on this tab the next time it is shown (what a "go to Settings" button does just before it navigates there). */
@@ -94,6 +94,9 @@ export const IPD_KEYS: K[] = [
   'ipd_transfer_charge_rule', 'ipd_accrual_time', 'ipd_advance_enabled', 'tpa_enabled', 'ipd_admission_requests_enabled', 'discharge_summary_enabled',
 ];
 
+/** Computers & staff — how many computers, the sign-in requirement (+ idle sign-out), and the one-computer Reception desk's discount limit. (The role matrix, the Reception list and the network settings save on their own.) */
+export const COMPUTERS_KEYS: K[] = ['computers_mode', 'require_login', 'session_timeout_minutes', 'shared_desk_discount_pct'];
+
 /** WhatsApp — the wording of the one-click messages, the country code for patients' numbers, the Google review link (was also typed into Clinic Info). */
 export const WHATSAPP_KEYS: K[] = ['whatsapp_templates_json', 'whatsapp_country_code', 'google_review_url'];
 
@@ -109,6 +112,7 @@ export const LEGACY_UNUSED_KEYS = ['whatsapp_enabled', 'whatsapp_api_url', 'what
  */
 export function owningTabOfKey(key: string): SettingsTabId | null {
   if (LEGACY_UNUSED_KEYS.includes(key)) return null;
+  if (['computers_mode', 'require_login', 'session_timeout_minutes', 'shared_desk_discount_pct'].includes(key)) return 'computers';
   if (/^whatsapp_/.test(key) || key === 'google_review_url') return 'whatsapp';
   if (/^pharmacy_/.test(key) || key === 'default_drug_gst_rate') return 'pharmacy';
   if (/^(lab|radiology)_/.test(key)) return 'lab';
