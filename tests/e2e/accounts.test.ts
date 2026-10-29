@@ -107,8 +107,15 @@ const one = (sql: string, ...p: any[]) => db.prepare(sql).get(...p) as any;
   near(after.doctors[0].paid, 0, 'a cancelled voucher pays nothing'); near(after.doctors[0].balance, 40 + 70 + 20, 'all days are due again');
   ok(!(await call('accounts:cancelVoucher', pay1.voucher.id, 'again')).ok, 'it cannot be cancelled twice');
 
+  // any days the clinic likes — one day, a week, a month, or days that are not next to each other
+  const rnd = await call('accounts:createVoucher', { type: 'doctor_payment', date: d0, payee_kind: 'doctor', payee_ref: String(docA.id), payee_name: docA.name, gross: 100, pay_mode: 'Cash', days: [d0, d2] });
+  eq(rnd.voucher.voucher_no, 'DOC-0002', 'a payment for chosen days is numbered like any other'); eq(rnd.voucher.period_from, d2, '…and its period runs from the first chosen day'); eq(rnd.voucher.period_to, d0, '…to the last');
+  near(rnd.unused, 40, 'the chosen days were owed 40 + 20 = 60, so 40 of the 100 settles no day');
+  after = await call('accounts:doctorDays', { from: d2, to: d0, doctorId: docA.id });
+  eq([a(d2).status, a(d1).status, a(d0).status].join(','), 'paid,to_pay,paid', 'only the days chosen are paid; the day in between is still to pay'); near(a(d1).balance, 70, '…and still owes all 70');
+  await call('accounts:cancelVoucher', rnd.voucher.id, 'test: back to all due');
   const pay2 = await call('accounts:createVoucher', { type: 'doctor_payment', date: d0, payee_kind: 'doctor', payee_ref: String(docA.id), payee_name: docA.name, gross: 200, deduction: 20, deduction_kind: 'tds', deduction_label: 'TDS 10%', pay_mode: 'Bank transfer', period_from: d2, period_to: d0 });
-  eq(pay2.voucher.voucher_no, 'DOC-0002', 'the cancelled number is not reused'); near(pay2.voucher.net_amount, 180, 'a 20 deduction → 180 paid out'); near(pay2.unused, 70, 'more than was due: 70 is recorded but settles no day');
+  eq(pay2.voucher.voucher_no, 'DOC-0003', 'cancelled numbers are not reused'); near(pay2.voucher.net_amount, 180, 'a 20 deduction → 180 paid out'); near(pay2.unused, 70, 'more than was due: 70 is recorded but settles no day');
   after = await call('accounts:doctorDays', { from: d2, to: d0, doctorId: docA.id });
   near(after.doctors[0].balance, 0, 'everything due is settled'); ok(after.days.filter((x: any) => x.earned > 0).every((x: any) => x.status === 'paid'), 'every earning day is marked PAID');
 

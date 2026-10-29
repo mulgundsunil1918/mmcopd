@@ -49,6 +49,14 @@ const labTests = LAB_CATALOG.map((t, i) => ({
 // Mutable copies — UI mutations land here.
 const settings = { ...DEMO_SETTINGS };
 let doctors = [...DEMO_DOCTORS];
+let slipTemplates: any[] = [
+        { id: 1, name: 'General', specialty_hint: 'General medicine / default', sections: [
+          { key: 'history', title: 'Chief Complaints / History', type: 'textarea', height_mm: 55, printed: true },
+          { key: 'examination', title: 'Examination', type: 'textarea', height_mm: 60, printed: true },
+          { key: 'impression', title: 'Impression / Diagnosis', type: 'textarea', height_mm: 22, printed: true },
+          { key: 'advice', title: 'Advice / Prescription (Rx)', type: 'textarea', height_mm: 60, printed: true },
+        ]},
+      ];
 let patients = [...DEMO_PATIENTS];
 let appointments = [...DEMO_APPOINTMENTS];
 let bills = [...DEMO_BILLS];
@@ -509,15 +517,9 @@ export function createMockElectronAPI(): any {
       }),
     },
     templates: {
-      list: () => r([
-        { id: 1, name: 'General', specialty_hint: 'General medicine / default', sections: [
-          { key: 'history', title: 'Chief Complaints / History', type: 'textarea', height_mm: 55, printed: true },
-          { key: 'examination', title: 'Examination', type: 'textarea', height_mm: 60, printed: true },
-          { key: 'impression', title: 'Impression / Diagnosis', type: 'textarea', height_mm: 22, printed: true },
-          { key: 'advice', title: 'Advice / Prescription (Rx)', type: 'textarea', height_mm: 60, printed: true },
-        ]},
-      ]),
-      saveAll: () => r({ ok: true }),
+      // Stateful (like the real settings): the print-check harness and the Settings screen can save a template and see it on the slip.
+      list: () => r(slipTemplates),
+      saveAll: (t: any[]) => { slipTemplates = t; return r({ ok: true }); },
     },
     misc: {
       create: (input: any) => {

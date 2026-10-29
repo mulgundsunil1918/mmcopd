@@ -1,4 +1,4 @@
-import { SettingsLink } from '../components/Feature';
+import { SettingsLink, FieldBox } from '../components/Feature';
 import { useEffect, useState } from 'react';
 import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -195,7 +195,7 @@ export function Miscellaneous() {
                 </div>
               )}
             </div>
-            <div>
+            <FieldBox id="services.field.performed_by">
               <label className="label flex items-center gap-1.5"><Stethoscope className="w-3.5 h-3.5" /> Performed by (optional)</label>
               <select
                 className="input"
@@ -208,7 +208,7 @@ export function Miscellaneous() {
                 ))}
               </select>
               <div className="text-[10px] text-gray-500 mt-1">Used for doctor-wise revenue reports.</div>
-            </div>
+            </FieldBox>
           </div>
         </FormSection>
 

@@ -1,3 +1,4 @@
+import { FieldBox } from '../Feature';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BedDouble, Loader2, Check, X, Clock, AlertTriangle } from 'lucide-react';
@@ -77,18 +78,18 @@ function RequestModal({ patient, doctorId, onClose }: { patient: any; doctorId?:
               <option value="routine">Routine</option><option value="urgent">Urgent</option><option value="emergency">Emergency</option>
             </select>
           </div>
-          <div>
+          <FieldBox id="ipd.field.suggested_ward">
             <label className="label">Suggested ward (optional)</label>
             <select className="input" value={wardId} onChange={(e) => setWardId(e.target.value ? Number(e.target.value) : '')}>
               <option value="">— any —</option>
               {wards.map((w: any) => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
-          </div>
+          </FieldBox>
         </div>
-        <div>
+        <FieldBox id="ipd.field.notes">
           <label className="label">Notes for reception (optional)</label>
           <textarea className="input" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
-        </div>
+        </FieldBox>
         <div className="flex gap-2">
           <button className="btn-primary" disabled={busy} onClick={submit}>{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <BedDouble className="w-4 h-4" />} Send request</button>
           <button className="btn-ghost" onClick={onClose}>Cancel</button>

@@ -65,3 +65,8 @@ export function RupeeFigure({ label, value, sub, to = '/accounts?tab=in', where 
     </div>
   );
 }
+
+/** The box around one optional form field (its label and its input). Settings → What to show can hide it; what was already saved is never touched. */
+export function FieldBox({ id, className, children }: { id: string; className?: string; children: React.ReactNode }) {
+  return useFeature(id) ? <div className={className}>{children}</div> : null;
+}

@@ -1,3 +1,4 @@
+import { FieldBox } from '../Feature';
 import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2, Search, X } from 'lucide-react';
@@ -119,14 +120,14 @@ export function NewRadiologyRequest({
 
         {/* Doctors */}
         <div className="grid grid-cols-2 gap-3">
-          <div>
+          <FieldBox id="radiology.field.consulting_doctor">
             <label className="label">Consulting doctor <span className="text-gray-400 font-normal">(optional)</span></label>
             <select className="input" value={doctorId} onChange={(e) => setDoctorId(e.target.value ? Number(e.target.value) : '')}>
               <option value="">— none —</option>
               {doctors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
-          </div>
-          <div>
+          </FieldBox>
+          <FieldBox id="radiology.field.referral">
             <label className="label">Referral <span className="text-gray-400 font-normal">(optional)</span></label>
             {referredOther ? (
               <div className="flex items-center gap-2">
@@ -142,7 +143,7 @@ export function NewRadiologyRequest({
                 <option value="__other__">Other (type a name)…</option>
               </select>
             )}
-          </div>
+          </FieldBox>
         </div>
 
         {/* Scans */}

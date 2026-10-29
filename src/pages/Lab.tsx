@@ -1,4 +1,4 @@
-import { SettingsLink } from '../components/Feature';
+import { SettingsLink, FieldBox } from '../components/Feature';
 import { useState } from 'react';
 import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -724,13 +724,13 @@ function NewLabRequestModal({ onClose, onCreated }: { onClose: () => void; onCre
           </div>
         )}
 
-        <div>
+        <FieldBox id="lab.field.referring_doctor">
           <label className="label">Referring doctor (optional)</label>
           <select className="input" value={doctorId} onChange={(e) => setDoctorId(e.target.value ? Number(e.target.value) : '')}>
             <option value="">— none —</option>
             {doctors.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
-        </div>
+        </FieldBox>
 
         <div>
           <div className="flex items-center justify-between mb-1">
@@ -757,10 +757,10 @@ function NewLabRequestModal({ onClose, onCreated }: { onClose: () => void; onCre
           )}
         </div>
 
-        <div>
+        <FieldBox id="lab.field.notes">
           <label className="label">Notes (optional)</label>
           <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} />
-        </div>
+        </FieldBox>
 
         {unpriced.length > 0 && (
           <div className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-2.5 text-[11.5px] text-amber-900 dark:text-amber-100 leading-relaxed">

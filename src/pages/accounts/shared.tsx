@@ -6,9 +6,9 @@ import { localISO } from '../../lib/localDate';
 
 export const inr = (n: number | null | undefined) => formatINR(Number(n) || 0);
 export const MUTED = 'text-xs text-gray-500 dark:text-slate-400';
-export type PeriodId = 'today' | 'yesterday' | '7d' | 'month' | 'lastmonth' | 'custom';
+export type PeriodId = 'today' | 'yesterday' | 'week' | '7d' | 'month' | 'lastmonth' | 'custom';
 export const PERIODS: { id: PeriodId; label: string }[] = [
-  { id: 'today', label: 'Today' }, { id: 'yesterday', label: 'Yesterday' }, { id: '7d', label: 'Last 7 days' },
+  { id: 'today', label: 'Today' }, { id: 'yesterday', label: 'Yesterday' }, { id: 'week', label: 'This week' }, { id: '7d', label: 'Last 7 days' },
   { id: 'month', label: 'This month' }, { id: 'lastmonth', label: 'Last month' }, { id: 'custom', label: 'Pick days' },
 ];
 const addDays = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return localISO(d); };
@@ -17,6 +17,7 @@ export function rangeOf(id: PeriodId, custom: { from: string; to: string }): { f
   switch (id) {
     case 'today': return { from: t, to: t };
     case 'yesterday': return { from: addDays(-1), to: addDays(-1) };
+    case 'week': { const d = new Date(); const back = (d.getDay() + 6) % 7; return { from: addDays(-back), to: t }; }          // Monday to today
     case '7d': return { from: addDays(-6), to: t };
     case 'month': return { from: t.slice(0, 8) + '01', to: t };
     case 'lastmonth': { const d = new Date(); d.setDate(1); d.setDate(0); const e = localISO(d); return { from: e.slice(0, 8) + '01', to: e }; }

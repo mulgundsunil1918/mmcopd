@@ -46,6 +46,16 @@ export const FEATURES: FeatureDef[] = [
   F('consultation.vital.weight', 'Weight', 'reception', 'Consultation vitals', 'Doctor → Consultation → Vitals'),
   F('consultation.vital.height', 'Height', 'reception', 'Consultation vitals', 'Doctor → Consultation → Vitals'),
   F('consultation.vital.followup', 'Follow-up date', 'reception', 'Consultation vitals', 'Doctor → Consultation → Vitals'),
+  F('consultation.field.notes', 'Notes', 'reception', 'Consultation form', 'Doctor → Consultation → Notes'),
+  F('booking.field.referral', 'Referral', 'reception', 'Booking form', 'Appointments → Book → Referral'),
+  F('booking.field.group', 'Patient group', 'reception', 'Booking form', 'Appointments → Book → Patient group'),
+  F('services.field.performed_by', 'Performed by', 'reception', 'Services form', 'Services → New service → Performed by'),
+  F('lab.field.referring_doctor', 'Referring doctor', 'lab', 'Lab order form', 'Laboratory → New order → Referring doctor'),
+  F('lab.field.notes', 'Notes', 'lab', 'Lab order form', 'Laboratory → New order → Notes'),
+  F('radiology.field.consulting_doctor', 'Consulting doctor', 'lab', 'Radiology request form', 'Radiology → New request → Consulting doctor'),
+  F('radiology.field.referral', 'Referral', 'lab', 'Radiology request form', 'Radiology → New request → Referral'),
+  F('ipd.field.suggested_ward', 'Suggested ward', 'ipd', 'Admission request form', 'IPD → Request admission → Suggested ward'),
+  F('ipd.field.notes', 'Notes for reception', 'ipd', 'Admission request form', 'IPD → Request admission → Notes'),
 
   // ── Accounts ──
   F('accounts.tab.overview', 'Overview tab', 'accounts', 'Accounts tabs', 'Accounts → Overview'),

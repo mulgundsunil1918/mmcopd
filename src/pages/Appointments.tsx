@@ -1,4 +1,4 @@
-import { SettingsLink } from '../components/Feature';
+import { SettingsLink, FieldBox } from '../components/Feature';
 import { useEffect, useMemo, useState } from 'react';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { PageHelp } from '../components/PageHelp';
@@ -1112,7 +1112,7 @@ function BookAppointmentModal({
 
         {/* Referral — where this patient came from (Google, Self, Family, a doctor's name…). Managed list in
             Settings; prints on the OPD slip under the consulting doctor exactly as typed. */}
-        <div>
+        <FieldBox id="booking.field.referral">
           <label className="label">Referral <span className="text-gray-400 font-normal">(optional)</span></label>
           {referredByOther ? (
             <div className="flex items-center gap-2">
@@ -1150,10 +1150,10 @@ function BookAppointmentModal({
           <div className="text-[10px] text-gray-500 mt-0.5">
             Prints on the OPD slip below the consulting doctor, exactly as written. Manage this list in Settings → Doctors &amp; Templates → Referrals.
           </div>
-        </div>
+        </FieldBox>
 
         <div className="grid grid-cols-2 gap-3">
-          <div>
+          <FieldBox id="booking.field.group">
             <label className="label">Patient Group <span className="text-gray-400 font-normal">(optional)</span></label>
             <select className="input" value={patientGroup} onChange={(e) => setPatientGroup(e.target.value)}>
               <option value="">— none —</option>
@@ -1161,7 +1161,7 @@ function BookAppointmentModal({
                 <option key={g} value={g}>{g}</option>
               ))}
             </select>
-          </div>
+          </FieldBox>
           <div>
             <label className="label">Procedure Tags <span className="text-gray-400 font-normal">(comma-separated)</span></label>
             <input className="input" value={procedureTags} onChange={(e) => setProcedureTags(e.target.value)} placeholder="e.g. Dressing, Injection, ECG" />

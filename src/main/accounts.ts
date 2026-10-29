@@ -333,7 +333,11 @@ export interface VoucherRow {
 export type VoucherResult = { ok: true; voucher: VoucherRow; unused: number } | { ok: false; error: string };
 
 /** Raise a voucher. For a doctor / referrer payment the amount settles that person's oldest unpaid days (inside the chosen period) first. */
-export function createVoucher(db: Database.Database, v: VoucherInput & { client_ref?: string | null }, who: { name: string; role: string }): VoucherResult {
+export function createVoucher(db: Database.Database, input: VoucherInput & { client_ref?: string | null; days?: string[] }, who: { name: string; role: string }): VoucherResult {
+  // Paying for chosen days (one day, a week, a month, or any days that are not next to each other): the period becomes first..last of them and only those days are settled.
+  const picked = Array.isArray(input.days) ? [...new Set(input.days.filter(isDay))].sort() : [];
+  const v = picked.length ? { ...input, period_from: picked[0], period_to: picked[picked.length - 1] } : input;
+  const pickedSet = new Set(picked);
   const gross = money2(Number(v.gross)); const ded = money2(Number(v.deduction || 0));
   const bad = voucherProblem({ ...v, gross, deduction: ded }); if (bad) return { ok: false, error: bad };
   const ref = v.client_ref ? String(v.client_ref) : null;
@@ -355,8 +359,8 @@ export function createVoucher(db: Database.Database, v: VoucherInput & { client_
       v.period_from || null, v.period_to || null, who.name || null, who.role || null, ref).lastInsertRowid);
     if ((v.payee_kind === 'doctor' || v.payee_kind === 'referrer') && v.payee_ref && v.period_from && v.period_to) {
       const due = v.payee_kind === 'doctor'
-        ? doctorDays(db, { from: v.period_from, to: v.period_to, doctorId: Number(v.payee_ref), pay }).days.filter((d) => d.balance > 0.004).map((d) => ({ day: d.day, due: d.balance, earned: d.earned }))
-        : referrerDays(db, { from: v.period_from, to: v.period_to, pay }).days.filter((d) => d.key === v.payee_ref && d.balance > 0.004).map((d) => ({ day: d.day, due: d.balance, earned: d.earned }));
+        ? doctorDays(db, { from: v.period_from, to: v.period_to, doctorId: Number(v.payee_ref), pay }).days.filter((d) => d.balance > 0.004 && (!picked.length || pickedSet.has(d.day))).map((d) => ({ day: d.day, due: d.balance, earned: d.earned }))
+        : referrerDays(db, { from: v.period_from, to: v.period_to, pay }).days.filter((d) => d.key === v.payee_ref && d.balance > 0.004 && (!picked.length || pickedSet.has(d.day))).map((d) => ({ day: d.day, due: d.balance, earned: d.earned }));
       const plan = settleOldestFirst(due, gross); unused = plan.unused;
       const ins = db.prepare('INSERT INTO acct_voucher_days (voucher_id, payee_kind, payee_ref, day, amount, earned_then) VALUES (?,?,?,?,?,?)');
       for (const a of plan.allocations) ins.run(newId, v.payee_kind, String(v.payee_ref), a.day, a.amount, due.find((d) => d.day === a.day)!.earned);

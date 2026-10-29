@@ -1,4 +1,4 @@
-import { useFeature } from './Feature';
+import { useFeature, FieldBox } from './Feature';
 import { useEffect, useMemo, useState } from 'react';
 import { formatINR } from '../lib/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -757,10 +757,10 @@ function LabOrderPicker({
           })}
         </div>
 
-        <div>
+        <FieldBox id="consultation.field.notes">
           <label className="label">Notes (optional)</label>
           <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} />
-        </div>
+        </FieldBox>
         <div className="flex justify-end gap-2 items-center">
           {selectedCount > 0 && (
             <span className="text-[12px] text-gray-600 dark:text-slate-300 mr-auto">

@@ -31,6 +31,7 @@ const read = (rel: string) => fs.readFileSync(path.join(root, rel), 'utf8');
   for (const m of all.matchAll(/<Feature\s+id="([^"]+)"/g)) used.add(m[1]);
   for (const m of all.matchAll(/(?:useFeature|featureOn)\([^)]*?['"]([a-z][^'"]*)['"]\)/g)) used.add(m[1]);
   for (const m of all.matchAll(/feature:\s*'([^']+)'/g)) used.add(m[1]);
+  for (const m of all.matchAll(/<FieldBox\s+id="([^"]+)"/g)) used.add(m[1]);                   // an optional form field: <FieldBox id="…">
   for (const m of all.matchAll(/feature="([a-z][^"]*)"/g)) used.add(m[1]);                 // a form field that can be hidden: <Field feature="…">
   const analytics = read('src/pages/Analytics.tsx');
   if (analytics.includes('`analytics.tab.${')) for (const m of analytics.matchAll(/\{\s*id:\s*'([a-z]+)',\s*label:/g)) used.add(`analytics.tab.${m[1]}`);   // the tab strip builds these ids

@@ -5903,6 +5903,8 @@ function LabTab() {
 
       <LabSettingsCard />
       <RadiologyCatalogCard />
+
+      <div data-settings-group="What to show"><WhatToShow tab="lab" /></div>
     </div>
   );
 }
@@ -6029,6 +6031,8 @@ function IpdTab({ goTo }: { goTo: (t: SettingsTab) => void }) {
           help="A doctor seeing a patient can press “Request Admission”; it appears under IPD → Requests for reception to approve and assign a ward and bed. Turn off if reception admits directly."
           value={draft.ipd_admission_requests_enabled ?? true} onChange={(v) => set('ipd_admission_requests_enabled', v)} />
       </div>
+
+      <div data-settings-group="What to show"><WhatToShow tab="ipd" /></div>
     </div>
   );
 }

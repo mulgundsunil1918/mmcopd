@@ -190,12 +190,16 @@ let mainWindowRef: BrowserWindow | null = null;
 let trayRef: Tray | null = null;
 let allowQuit = false;
 
-// 16x16 white plus on transparent — base64 PNG, used as fallback tray icon
-// (Windows uses 16x16 icons in the system tray.)
+// The CureDesk mark (32px PNG, tools/make-icon.py) — the tray icon until the clinic uploads its own logo. Electron scales it to the tray's size.
 const FALLBACK_TRAY_ICON_B64 =
-  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAU0lEQVR42u3OsQ2AMAxE0RtA' +
-  'gZ4FsgFTwACMABuwQiqWoaIK8h+gIE5HRPm+bF8gIqJ/jACMAQzPArwBHIBvAR4ANwAVgF6A' +
-  'Ej0KcvkCAJyJB1RsBUVNAAAAAElFTkSuQmCC';
+  'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAFVElEQVR4nL1XTYwURRT+XlX39M7uirARjSIYje66YUPQRRITTTx5NUoGo5EE40FPHowYjAkbhINH9ehBPTMGiCf25MELohOjcAAhBgKIWSAIy87OT1c986q6e3p6e2fHRK2k0931972f7716BRRarcYa/1Er25v6/uZY4SBZAGrr3uuzzJgkNlUYk01RMppr2Y4m/e7NlR6FyrLm+PzJ+oM/AbBzc6wOeoyCADXWqJOZeuOPXTocPaBIbVN6BMS9ifLtFiTvbCz755IxBpsWYO1pY5c+PlXf/I1Yol4n0xOgdkSjvttM7bnyUThy/2GYNri7JFtYki3TTQeA+34u9JH0ETErrcdIqwid5YUDPxzbcqhWO6Lr9d2GUmmm91x9SVc3Hrft2zHYkhL7DQTL9UvHGnNh2RApDsN1Qad1/ZWTx7YcE2wCM82+3QiarU2ndTA+aeOmVSAN5sHgea1XdUn/P7M1gR5VJl463750babRmI0ViHhx6aHtOhib4m6Tveb/InhGMoYoZuMmB3p0srrpgadllnLMJkwrPeJ8vqbZc+CKAE39oEVw38dZH0BW6xEmstMO24eWiYhBbuKQ4PLdbDLabS/ISl6k3x68XxiS3ygTQMiRWGk4cAbiLrBzpoLHHg7Q6fSEWA08LyDlMFU+IaT+WsvsrTZj+tEAXx6awGcfbsBIhcDWuXIgeCpg9kZegIKEqxFOFkhi3DihhKu4Z4wwXiVYk6xdS/O0P2mB50BPskGap6QLFMACSJLg/Dwt4SPSSeaziZIlhObkrU1OgGF8vtxip6WA3Flk9+8aA3eXGIuLFqHsZoGoAlQCr2ceXJrKZUxpPQHyZsqDA4hjxrYnQkysU+5/uc3YPlVx6yoh4fnZCM1lm3Hg0uUY1xZMnxClXEDBAn3vxOwSas9sreCrwxMoa+NjhE8+WN/Xd/OWxavvXM+iIyO345FXqk8AXRQil+HE37cXLS5ejbFuPOEsA2FIjoBCRBmXtxWSEnDuQtdZrXgq5i2d8i7IW0DOrjy4kElC7OKVGK+/fxOjI+RIKD4Xs4vmAv7WvhuOF+IOtoy7d/0eMrf0lCxaAMJop1m/lKkQUejD7M4ddiQUwonP0yUCLqBxbN24rA0DclGSOnwFD5KmUheIiYqpOG8JmRjq5Am8qV39wZ6IJmbMzlTw9af34eC+9YhCWdfbr+wYzwRwJuDyVNxnNu7FeaB9Hogi7xY5E958bRxPPh7ixReq2PlUhGbT+sOqBDzlnRqUissOFseLEPj9Yow/Fwx+OdPBX7ctogrhu+9baHcYl6/G+O1Cx6foVLGSSCsh4WDwNJOJySXO97x7A92uF2qsSvj2RBO/nmk7johQ6Rmx4oQtCsAspd9wR2qaRKKA0Gr5OBd3SAasRoTLV2JoTauC+1gDKPaYgR/QbWJ2JeSwR6oMpYwXcCGwmFtc4aaWaZ6GjbATaPdcQHyWTctVry4XZMQrB+/bME1cJdFTNhfMypoWGWPPJiRkwoaFn23cPKf1KLnq9Z+Ap7ljiLmwriglKUpv3brZEGxVq0E1vtjRZcP7tYpIKhWpXovaZK7J9w8L7txkjSLFgsFM+xuNHV3BVnInkEvCqaObjsulQer2QI9KZSwFagxwDObszeCYGDEl/yRP+u3G/FzfD7+WrQ10VVeCe+VOMDc/v/mov5hQYu3k4igdz758qab12AFFeka7qxmVaJUrx1fTPPu2sKYlMpwxpnlofv6RI+mtKCV71noXx5p+btfnOzSrSbammr9wppVM2la9rMqYAZTSy9aa8ydOvPcjUDfFy+mK9n9fz/8GpHFUD9+/69AAAAAASUVORK5CYII=';
+
+/** The app icon for the window (title bar / taskbar): shipped beside the app when packaged, in build/ while developing. Missing file = the exe's own icon. */
+function appIconPath(): string | undefined {
+  const name = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
+  const file = app.isPackaged ? path.join(process.resourcesPath, name) : path.join(app.getAppPath(), 'build', name);
+  return fs.existsSync(file) ? file : undefined;
+}
 
 function makeTrayIcon(): Electron.NativeImage {
   // Try to use the clinic logo first (user-uploaded base64 in settings)
@@ -206,7 +210,7 @@ function makeTrayIcon(): Electron.NativeImage {
       if (!img.isEmpty()) return img.resize({ width: 16, height: 16 });
     }
   } catch { /* ignore */ }
-  return nativeImage.createFromBuffer(Buffer.from(FALLBACK_TRAY_ICON_B64, 'base64'));
+  return nativeImage.createFromBuffer(Buffer.from(FALLBACK_TRAY_ICON_B64, 'base64')).resize({ width: 16, height: 16 });
 }
 
 function showWindow() {
@@ -346,6 +350,7 @@ function createWindow() {
     minWidth: 1100,
     minHeight: 700,
     title: settings.clinic_name || 'CureDesk HMS',
+    icon: appIconPath(),
     backgroundColor: '#ffffff',
     show: false,
     webPreferences: {

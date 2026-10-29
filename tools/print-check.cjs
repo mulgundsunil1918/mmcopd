@@ -94,16 +94,25 @@ const SCENARIOS = {
   'opd-slip': async (win) => {
     await open(win, '#/appointments');
     await sleep(2500);
+    // SLIP_SECTIONS=impression,advice  keeps only those body sections (the rest are "deleted"); SLIP_PAGES=1|2 sets the layout's page count; SLIP_EXTRA_MM=120 adds one tall extra section.
+    if (process.env.SLIP_SECTIONS || process.env.SLIP_PAGES || process.env.SLIP_EXTRA_MM) {
+      await win.webContents.executeJavaScript(`(async () => {
+        const keep = ${JSON.stringify((process.env.SLIP_SECTIONS || '').split(',').filter(Boolean))}; const pages = ${Number(process.env.SLIP_PAGES || 0)};
+        const list = await window.electronAPI.templates.list();
+        await window.electronAPI.templates.saveAll(list.map(t => ({ ...t, sections: (keep.length ? t.sections.filter(s => keep.includes(s.key)) : t.sections).concat(${Number(process.env.SLIP_EXTRA_MM || 0)} ? [{ key: 'plan', title: 'Plan', type: 'textarea', height_mm: ${Number(process.env.SLIP_EXTRA_MM || 0)}, printed: true }] : []), layout: { ...(t.layout || {}), ...(pages ? { pages } : {}) } })));
+        return true;
+      })()`, true);
+    }
     // The demo has no visits "today": jump the page's date filter to a day that has some.
     await win.webContents.executeJavaScript(`(async () => {
       const all = await window.electronAPI.appointments.list({});
-      const d = (all.find(a => a.status !== 'Cancelled') || all[0]).appointment_date;
+      const d = (all.find(a => a.status === 'Done' || a.status === 'Ready for Print') || all.find(a => a.status !== 'Cancelled') || all[0]).appointment_date;
       const inp = document.querySelector('input[type=date]');
       const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
       set.call(inp, d); inp.dispatchEvent(new Event('input', { bubbles: true }));
       return d;
     })()`, true);
-    await waitFor(win, `(() => { const b=[...document.querySelectorAll('button')].filter(e => /^(Slip|Print)$/.test((e.textContent||'').trim())); if(!b.length) return false; b[0].click(); return true; })()`, 'row Slip button');
+    await waitFor(win, `(() => { const b=[...document.querySelectorAll('button')].filter(e => /^(Slip|Print|Consultation)$/.test((e.textContent||'').trim())); if(!b.length) return false; b[0].click(); return true; })()`, 'row Slip button');
     await waitFor(win, HAS_TEXT('OPD Slip preview'), 'slip overlay');
     await sleep(1500);
   },

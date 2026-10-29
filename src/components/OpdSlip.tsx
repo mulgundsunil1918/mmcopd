@@ -1,7 +1,7 @@
 import { format, parseISO } from 'date-fns';
 import { PREVIEW_APPOINTMENT_ID } from '../db/slip-templates';
 import { Printer, X, MapPin, Phone, Mail, HeartPulse } from 'lucide-react';
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState, useLayoutEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ageStringFull, fmt12h, fmtDateTime } from '../lib/utils';
 import { rxLangLine, type PatientLang } from '../lib/rxLang';
@@ -158,7 +158,27 @@ export function OpdSlip({
     return splitSectionsWithLayout(base, layout);
   }, [template, layout, FALLBACK_TEMPLATE]);
 
-  const totalPages = layout.pages;
+  // A 2-page layout whose FIRST page would hold no body section at all (the doctor deleted History / Examination to make the slip shorter) used to print a
+  // nearly empty first sheet and everything on the second, headed "Continued — Page 2 of 2". Such a slip is ONE page: show that, measured on the real
+  // content, and only if it does not fit fall back to two pages with the sections shared between them. A layout that has something on page 1 is untouched.
+  const firstPageEmpty = layout.pages === 2 && pageOneSections.length === 0 && pageTwoSections.length > 0;
+  const [overflowed, setOverflowed] = useState(false);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const trial = firstPageEmpty && !overflowed;
+  useLayoutEffect(() => {
+    if (!trial) return;
+    const check = () => { const el = sheetRef.current; if (el && el.scrollHeight > el.clientHeight + 2) setOverflowed(true); };
+    check();
+    const timers = [250, 800, 2000].map((ms) => window.setTimeout(check, ms));      // the logo and fonts arrive a moment later
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, [trial, rxItems.length, labOrders.length, consultation]);
+  const [p1Sections, p2Sections] = useMemo(() => {
+    if (!(firstPageEmpty && overflowed)) return [pageOneSections, pageTwoSections] as const;
+    const k = Math.ceil(pageTwoSections.length / 2);
+    return [pageTwoSections.slice(0, k), pageTwoSections.slice(k)] as const;
+  }, [firstPageEmpty, overflowed, pageOneSections, pageTwoSections]);
+
+  const totalPages = layout.pages === 1 || trial ? 1 : 2;
   const printLabel = totalPages === 1 ? 'Print' : 'Print Both Pages';
 
   return (
@@ -171,7 +191,7 @@ export function OpdSlip({
 
       <div className="p-6 pb-28 flex flex-col items-center gap-4">
         {totalPages === 1 ? (
-          <Page fontSize={layout.fontSize}>
+          <Page fontSize={layout.fontSize} innerRef={sheetRef}>
             <SinglePageContent
               appointment={appointment} consultation={consultation} doctor={doctor}
               settings={settings} vitals={v} rxItems={rxItems} labOrders={labOrders}
@@ -182,11 +202,11 @@ export function OpdSlip({
         ) : (
           <>
             <Page fontSize={layout.fontSize}>
-              <PageOne appointment={appointment} consultation={consultation} doctor={doctor} settings={settings} vitals={v} sections={pageOneSections} layout={layout} />
+              <PageOne appointment={appointment} consultation={consultation} doctor={doctor} settings={settings} vitals={v} sections={p1Sections} layout={layout} />
               <PageFooter pageNum={1} totalPages={2} clinicName={settings.clinic_name} />
             </Page>
             <Page fontSize={layout.fontSize}>
-              <PageTwo appointment={appointment} consultation={consultation} doctor={doctor} settings={settings} rxItems={rxItems} labOrders={labOrders} followup={followup} sections={pageTwoSections} layout={layout} />
+              <PageTwo appointment={appointment} consultation={consultation} doctor={doctor} settings={settings} rxItems={rxItems} labOrders={labOrders} followup={followup} sections={p2Sections} layout={layout} />
               <PageFooter pageNum={2} totalPages={2} clinicName={settings.clinic_name} />
             </Page>
           </>
@@ -217,9 +237,10 @@ export function OpdSlip({
 }
 
 /** A single A4 page sized container. Print CSS forces a sheet break between pages. */
-function Page({ children, fontSize = 13 }: { children: React.ReactNode; fontSize?: number }) {
+function Page({ children, fontSize = 13, innerRef }: { children: React.ReactNode; fontSize?: number; innerRef?: React.Ref<HTMLDivElement> }) {
   return (
     <div
+      ref={innerRef}
       className="print-area print-page bg-white shadow-2xl"
       style={{
         width: '210mm',

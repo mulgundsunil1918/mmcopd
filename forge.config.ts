@@ -33,18 +33,24 @@ const config: ForgeConfig = {
       unpack: '**/*.node',
     },
     name: 'CureDesk HMS',
+    // The CureDesk mark (tools/make-icon.py draws it): the packager picks build/icon.ico for Windows and build/icon.icns for macOS.
+    icon: 'build/icon',
+    // Shipped beside the app so the window (title bar / taskbar) can use the same icon whatever the exe's resources say.
+    extraResource: ['build/icon.ico', 'build/icon.png'],
   },
   rebuildConfig: {},
   makers: [
     new MakerSquirrel({
       name: 'curedesk_hms',
       setupExe: 'CureDesk-HMS-Setup.exe',
+      setupIcon: 'build/icon.ico',
     }),
     new MakerDMG({
       // Versioned filename → CureDesk-HMS-<version>.dmg (matches the Windows
       // installer's naming); `title` keeps the mounted volume name clean.
       name: `CureDesk-HMS-${APP_VERSION}`,
       title: 'CureDesk HMS',
+      icon: 'build/icon.icns',
       format: 'ULFO',
     }, ['darwin']),
     // ZIP fallback for Windows + macOS — extract the zip and run the .exe

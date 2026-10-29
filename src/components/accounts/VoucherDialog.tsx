@@ -11,7 +11,7 @@ import { DEDUCTION_KINDS, PAY_MODES, VOUCHER_TYPES, voucherType, type PayeeKind 
 import { referralKey } from '../../lib/referralStats';
 import { fmtDate } from '../../lib/utils';
 import { localISO } from '../../lib/localDate';
-import { inr, MUTED, usePermissions, dayLabel } from '../../pages/accounts/shared';
+import { inr, MUTED, usePermissions, dayLabel, rangeOf, type PeriodId } from '../../pages/accounts/shared';
 import type { VoucherRow } from '../../main/accounts';
 
 export interface VoucherPreset {
@@ -56,8 +56,15 @@ export function VoucherDialog({ open, onClose, preset = {}, onDone }: { open: bo
       const r = await window.electronAPI.accounts.referrerDays({ from: f.period_from, to: f.period_to }, pw || undefined); return r.days.filter((d) => d.key === f.payee_ref && d.balance > 0.004).map((d) => ({ day: d.day, due: d.balance }));
     },
   });
-  const due = dueQ.data ?? []; const dueTotal = Math.round(due.reduce((a, d) => a + d.due, 0) * 100) / 100;
+  const due = dueQ.data ?? [];
+  // Which of the owed days are being paid. Every day is ticked to begin with; untick a day (or tick only some) to pay for days that are not next to each other.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  useEffect(() => { setPicked(new Set((dueQ.data ?? []).map((d) => d.day))); }, [dueQ.data]);
+  const dueTotal = Math.round(due.filter((d) => picked.has(d.day)).reduce((a, d) => a + d.due, 0) * 100) / 100;
+  const nothingPicked = owes && due.length > 0 && picked.size === 0;
+  const flip = (day: string) => setPicked((cur) => { const n = new Set(cur); if (n.has(day)) n.delete(day); else n.add(day); return n; });
   useEffect(() => { if (open && owes && dueQ.data && preset.gross === undefined) set({ gross: dueTotal }); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [dueTotal, open]);
+  const quick: { id: PeriodId; label: string }[] = [{ id: 'today', label: 'Today' }, { id: 'yesterday', label: 'Yesterday' }, { id: 'week', label: 'This week' }, { id: 'month', label: 'This month' }, { id: 'lastmonth', label: 'Last month' }];
 
   const sugg = useQuery({ queryKey: ['acct-salary', f.payee_ref, f.month], enabled: open && f.type === 'staff_salary' && !!f.payee_ref, queryFn: () => window.electronAPI.accounts.salarySuggestion(Number(f.payee_ref), f.month) });
   const person = useMemo(() => staff.find((s) => String(s.id) === f.payee_ref), [staff, f.payee_ref]);
@@ -75,6 +82,7 @@ export function VoucherDialog({ open, onClose, preset = {}, onDone }: { open: bo
         deduction_kind: Number(f.deduction) > 0 ? f.deduction_kind : null, deduction_label: Number(f.deduction) > 0 ? (f.deduction_label || DEDUCTION_KINDS.find((d) => d.id === f.deduction_kind)?.label || '') : null,
         pay_mode: f.pay_mode, reference: f.reference || null,
         period_from: month ? `${f.month}-01` : f.period_from || null, period_to: month ? `${f.month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}` : f.period_to || null, client_ref: ref,
+        days: owes && due.length > 0 ? due.filter((d) => picked.has(d.day)).map((d) => d.day) : undefined,
       }, pw || undefined);
       if (!r.ok) { setErr(r.error); return; }
       toast(`${r.voucher.voucher_no} raised`);
@@ -128,13 +136,19 @@ export function VoucherDialog({ open, onClose, preset = {}, onDone }: { open: bo
 
         {owes && (
           <div className="rounded-lg border border-gray-200 dark:border-slate-700 p-3 space-y-2">
-            <div className="flex flex-wrap items-center gap-2"><L help="The days you are paying for. The amount below settles the OLDEST of these days first; anything not covered stays “to pay”.">Days being paid</L>
-              <input type="date" className="input w-auto py-1" value={f.period_from} onChange={(e) => set({ period_from: e.target.value })} /><span className={MUTED}>to</span>
-              <input type="date" className="input w-auto py-1" value={f.period_to} onChange={(e) => set({ period_to: e.target.value })} /></div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <L help="Pay for one day, a week, a month, or any days you like — even days that are not next to each other (tick only those below). The amount you pay settles the OLDEST ticked day first; anything not covered stays “to pay”.">Days being paid</L>
+              {quick.map((q) => <button key={q.id} type="button" className="px-2 py-0.5 rounded-full text-xs border border-gray-300 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-800"
+                onClick={() => { const r = rangeOf(q.id, { from: f.period_from, to: f.period_to }); set({ period_from: r.from, period_to: r.to }); }}>{q.label}</button>)}
+              <span className="inline-flex items-center gap-1.5 ml-1"><input type="date" className="input w-auto py-1" value={f.period_from} onChange={(e) => set({ period_from: e.target.value })} /><span className={MUTED}>to</span>
+                <input type="date" className="input w-auto py-1" value={f.period_to} onChange={(e) => set({ period_to: e.target.value })} /></span>
+            </div>
             {!f.payee_ref ? <div className={MUTED}>Choose who is being paid.</div> : dueQ.isLoading ? <div className={MUTED}>Working out what is due…</div> : due.length === 0 ? <div className={MUTED}>Nothing is due for these days.</div> : (
               <>
-                <div className="max-h-28 overflow-auto text-xs grid grid-cols-2 gap-x-6">{due.map((d) => <div key={d.day} className="flex justify-between"><span>{dayLabel(d.day)}</span><span className="tabular-nums">{inr(d.due)}</span></div>)}</div>
-                <div className="flex items-center justify-between text-sm"><span>Due in total <b>{inr(dueTotal)}</b></span><button type="button" className="text-blue-600 hover:underline text-xs" onClick={() => set({ gross: dueTotal })}>Pay all of it</button></div>
+                <div className="max-h-32 overflow-auto text-xs grid grid-cols-2 gap-x-6 gap-y-0.5">{due.map((d) => (
+                  <label key={d.day} className="flex items-center justify-between gap-2 cursor-pointer"><span className="inline-flex items-center gap-1.5"><input type="checkbox" checked={picked.has(d.day)} onChange={() => flip(d.day)} />{dayLabel(d.day)}</span><span className="tabular-nums">{inr(d.due)}</span></label>))}</div>
+                <div className="flex items-center justify-between text-sm"><span>{picked.size === due.length ? 'Due in total' : `Due for the ${picked.size} ticked day${picked.size === 1 ? '' : 's'}`} <b>{inr(dueTotal)}</b></span>
+                  <span className="text-xs space-x-3"><button type="button" className="text-blue-600 hover:underline" onClick={() => setPicked(new Set(due.map((d) => d.day)))}>Tick all</button><button type="button" className="text-blue-600 hover:underline" onClick={() => setPicked(new Set())}>Tick none</button><button type="button" className="text-blue-600 hover:underline" onClick={() => set({ gross: dueTotal })}>Pay all of it</button></span></div>
               </>)}
           </div>
         )}
@@ -156,7 +170,7 @@ export function VoucherDialog({ open, onClose, preset = {}, onDone }: { open: bo
           </div>
         )}
         {err && <div className="text-sm text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-900/20 rounded-lg px-3 py-2">{err}</div>}
-        <div className="flex justify-end gap-2"><button className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary" disabled={busy || !f.gross || (needPw && !pw)} onClick={submit}>{busy ? 'Saving…' : 'Raise voucher'}</button></div>
+        <div className="flex justify-end gap-2"><button className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary" disabled={busy || !f.gross || nothingPicked || (needPw && !pw)} onClick={submit}>{busy ? 'Saving…' : 'Raise voucher'}</button></div>
         {f.type !== 'doctor_payment' && f.date !== today && <div className={MUTED}>Dated {fmtDate(f.date)}.</div>}
       </div>
     </Modal>

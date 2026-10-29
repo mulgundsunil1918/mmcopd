@@ -8,6 +8,7 @@ directories:
   output: dist-installer
 
 win:
+  icon: build/icon.ico                # the CureDesk mark (installer, uninstaller, shortcuts); tools/make-icon.py draws it
   target:
     - target: nsis
       arch:
@@ -27,6 +28,8 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: CureDesk HMS
   menuCategory: CureDesk
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
   installerSidebar: null                # use NSIS default sidebar (no custom asset needed)
   uninstallDisplayName: CureDesk HMS ${version}
   runAfterFinish: true
