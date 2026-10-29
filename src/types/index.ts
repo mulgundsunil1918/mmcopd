@@ -957,6 +957,12 @@ export interface Settings {
   // which roles may open each module. Empty = use built-in defaults. Admin always
   // sees everything; Users & Settings stay admin-only regardless.
   role_access_json: string;
+  /** Accounts: voucher prefixes, opening cash, who may raise / cancel vouchers (JSON). */
+  acct_settings_json: string;
+  /** Doctors' pay rules and cuts, and outside referrers' cuts (JSON). */
+  pay_rules_json: string;
+  /** Screens, cards and fields the clinic switched OFF (JSON; only the off ones are listed). */
+  feature_switches_json: string;
   /** JSON array of { to, hidden } — the user's custom sidebar order + hidden items. */
   sidebar_layout: string;
   /** What this computer is for. Local to the PC, never synced from the host. */

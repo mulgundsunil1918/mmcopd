@@ -84,6 +84,8 @@ import { KARNATAKA_PLACES, ALL_NEARBY_PLACES } from '../lib/places';
 import { DOCTOR_COLOR_OPTIONS, colorForDoctor } from '../lib/doctor-colors';
 import type { AppMode, Doctor, ReferringDoctor, Settings } from '../types';
 import { localISO } from '../lib/localDate';
+import { AccountsSettingsTab, DoctorPayAndCuts, WhatToShow } from '../components/settings/AccountsSettings';
+import { SETTINGS_GROUP_KEY } from '../components/Feature';
 
 type SettingsTab = SettingsTabId;
 
@@ -96,7 +98,7 @@ const TAB_ICON: Record<SettingsTab, React.ReactNode> = {
   clinic: <Building2 className="w-3.5 h-3.5" />, doctors: <Stethoscope className="w-3.5 h-3.5" />, reception: <Wallet className="w-3.5 h-3.5" />,
   billing: <IndianRupee className="w-3.5 h-3.5" />, pharmacy: <Pill className="w-3.5 h-3.5" />, lab: <FlaskConical className="w-3.5 h-3.5" />,
   ipd: <BedDouble className="w-3.5 h-3.5" />, whatsapp: <MessageSquare className="w-3.5 h-3.5" />, peds: <Baby className="w-3.5 h-3.5" />, system: <HardDrive className="w-3.5 h-3.5" />,
-  computers: <Monitor className="w-3.5 h-3.5" />, subscription: <ShieldCheck className="w-3.5 h-3.5" />,
+  computers: <Monitor className="w-3.5 h-3.5" />, subscription: <ShieldCheck className="w-3.5 h-3.5" />, accounts: <ListChecks className="w-3.5 h-3.5" />,
 };
 
 /** Flat index of every settings section, so the search box can jump to its tab. */
@@ -109,6 +111,9 @@ const SETTINGS_SEARCH: { tab: SettingsTab; label: string; hint: string; keywords
   { tab: 'doctors', label: 'OPD Slip Body Templates', hint: 'Consultation & printed-slip sections', keywords: 'opd slip template section body specialty growth layout' },
   { tab: 'doctors', label: 'Patient Language on Printed Slip', hint: 'Second language under each medicine', keywords: 'language kannada hindi tamil telugu malayalam marathi bilingual multilingual print opd slip patient second regional' },
   { tab: 'doctors', label: 'Consultation Quick-Fill Templates', hint: 'One-tap clinical text by department', keywords: 'quick fill template consultation clinical department specialty history examination' },
+  { tab: 'accounts', label: 'Staff and salaries', hint: 'Who the clinic pays, monthly salary, attendance', keywords: 'staff salary salaries attendance employee nurse helper payroll' },
+  { tab: 'accounts', label: 'Vouchers and who may raise them', hint: 'Numbers, cash in hand, roles and limits', keywords: 'voucher expense maintenance opening cash day book raise cancel limit' },
+  { tab: 'doctors', label: 'Pay and Cuts', hint: 'How each doctor and referrer is paid', keywords: 'doctor pay salary cut commission margin share percent referral lab pharmacy radiology services' },
   { tab: 'reception', label: 'Fees, Queue Flow & Display', hint: 'Consultation fee, queue toggle', keywords: 'fee queue flow waiting done pending consultation display badge billing slot' },
   { tab: 'reception', label: 'Patient Registration Fee', hint: 'One-time registration fee', keywords: 'registration fee one time' },
   { tab: 'reception', label: 'Free Follow-up Policy', hint: 'Same-doctor follow-up window', keywords: 'follow up free policy window revisit' },
@@ -175,6 +180,19 @@ export function SettingsPage() {
   });
   useEffect(() => { try { localStorage.setItem(SETTINGS_TAB_KEY, tab); } catch { /* ignore */ } }, [tab]);
   const [search, setSearch] = useState('');
+  // A "Settings" link on another page can ask for one group: scroll to it once it is drawn (the admin gate may still be showing for a moment).
+  useEffect(() => {
+    let want: string | null = null;
+    try { want = sessionStorage.getItem(SETTINGS_GROUP_KEY); } catch { /* none */ }
+    if (!want) return;
+    let tries = 0;
+    const timer = window.setInterval(() => {
+      const el = Array.from(document.querySelectorAll('[data-settings-group]')).find((e) => e.getAttribute('data-settings-group') === want);
+      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); try { sessionStorage.removeItem(SETTINGS_GROUP_KEY); } catch { /* ignore */ } window.clearInterval(timer); }
+      else if (++tries > 40) window.clearInterval(timer);
+    }, 300);
+    return () => window.clearInterval(timer);
+  }, [tab]);
 
   // Pre-load settings at the page level so every sub-component's useQuery
   // returns synchronously from cache — no blank-flash on any tab.
@@ -307,6 +325,9 @@ export function SettingsPage() {
               <SettingsGroup title="Consultation Quick-Fill Templates" subtitle="One-tap clinical text for a consultation. Shared for the clinic, or saved under a doctor’s name so only that doctor sees it.">
                 <ClinicalTemplatesEditor />
               </SettingsGroup>
+              <SettingsGroup title="Pay and Cuts" subtitle="How each doctor (and each outside referrer) is paid: a fixed amount, per visit, or a share — plus a cut on the services, medicines, tests and scans their patients use.">
+                <DoctorPayAndCuts />
+              </SettingsGroup>
             </>
           )}
 
@@ -330,10 +351,15 @@ export function SettingsPage() {
               <SettingsGroup title="List Window (keeps big lists fast)" subtitle="How far back the Reception patient list and Discharge Summary list show by default. Search always finds everyone, however old.">
                 <RecordsWindowSetting />
               </SettingsGroup>
+              <SettingsGroup title="What to show" subtitle="Hide a page you do not use. Nothing is deleted — tick it again and it is back.">
+                <WhatToShow tab="reception" />
+              </SettingsGroup>
             </>
           )}
 
           {tab === 'billing' && <BillingTab />}
+
+          {tab === 'accounts' && <AccountsSettingsTab />}
 
           {tab === 'pharmacy' && (isLocked(tabDef('pharmacy'))
             ? <LockedModule name="Pharmacy" what="the pharmacy" onOpenSubscription={() => setTab('subscription')} />
@@ -462,7 +488,7 @@ const SETTINGS_HELP: Record<string, React.ReactNode> = {
 function SettingsGroup({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   const help = SETTINGS_HELP[title];
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-settings-group={title}>
       <div className="px-1">
         <div className="text-[11px] font-bold uppercase tracking-widest text-blue-700 dark:text-blue-300 flex items-center gap-1.5">
           {title}

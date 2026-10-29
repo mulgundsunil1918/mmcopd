@@ -1,3 +1,4 @@
+import { SettingsLink } from '../components/Feature';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -126,7 +127,7 @@ export function DischargeSummary() {
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <FileText className="w-5 h-5 text-sky-500" />
-          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Discharge Summary</h1>
+          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Discharge Summary<span className="ml-3 font-normal inline-flex align-middle"><SettingsLink tab="ipd" /></span></h1>
         </div>
         <button
           className="btn-secondary text-xs"

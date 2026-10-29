@@ -8,6 +8,7 @@ import { registerIpdBillingIpc, runDailyAccrual } from './main/ipd-billing-ipc';
 import { registerRadiologyIpc } from './main/radiology-ipc';
 import { registerPharmacyFinanceIpc } from './main/pharmacy-finance-ipc';
 import { registerBillingPortalIpc } from './main/billing-portal-ipc';
+import { registerAccountsIpc } from './main/accounts-ipc';
 import { registerSetupIpc } from './main/setup-ipc';
 import { registerBillCancelIpc } from './main/bill-cancel';
 import { registerPedsIpc } from './main/peds-ipc';
@@ -932,6 +933,7 @@ app.whenReady().then(async () => {
   registerRadiologyIpc();
   registerPharmacyFinanceIpc();
   registerBillingPortalIpc();
+  registerAccountsIpc();
   registerSetupIpc();
   registerBillCancelIpc();
   registerPedsIpc();

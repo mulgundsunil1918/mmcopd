@@ -1,3 +1,4 @@
+import { SettingsLink } from '../components/Feature';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -49,7 +50,7 @@ export function Radiology() {
         <div>
           <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5">
             <ScanLine className="w-5 h-5 text-sky-500" /> Radiology<PageHelp page="radiology" />
-          </h1>
+          <span className="ml-3 font-normal inline-flex align-middle"><SettingsLink tab="lab" /></span></h1>
           <p className="text-xs text-gray-500 dark:text-slate-400">X-Ray, ultrasound, CT, MRI — orders, billing, and written reports.</p>
         </div>
         <div className="flex gap-2 bg-gray-100 dark:bg-slate-700 p-1 rounded-lg">

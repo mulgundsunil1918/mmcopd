@@ -43,7 +43,7 @@ const NAV: NavItem2[] = [
   { to: '/print-jobs', label: 'Print Jobs', icon: Printer, color: 'text-blue-500', modes: ALL_MODES, roles: ['receptionist', 'doctor', 'nurse'] },
   { to: '/tpa', label: 'Insurance / TPA', icon: ShieldCheck, color: 'text-teal-500', modes: ALL_MODES, roles: ['receptionist'] },
   { to: '/patient-log', label: 'Patient Log', icon: History, color: 'text-cyan-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
-  { to: '/origin', label: 'Patient Origin', icon: MapPin, color: 'text-rose-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
+  // Patient Origin is now a tab inside Analytics (the old /origin address still works: it opens that tab).
   { to: '/billing', label: 'Billing', icon: Receipt, color: 'text-amber-500', modes: ALL_MODES, roles: ['receptionist'] },
   { to: '/miscellaneous', label: 'Services', icon: Syringe, color: 'text-pink-500', modes: ALL_MODES, roles: ['receptionist', 'doctor'] },
   { to: '/accounts', label: 'Accounts', icon: Wallet, color: 'text-teal-500', modes: ALL_MODES, roles: ['receptionist'] },
@@ -76,7 +76,6 @@ export function Sidebar({ onCollapse }: { onCollapse?: () => void } = {}) {
   });
   const appVersion = updateState?.appVersion || '—';
   const billingHidden = settings?.show_billing_module === false;
-  const originHidden = settings?.show_patient_origin === false;
 
   // Admin-customised role → module access (from Settings). Empty = built-in defaults.
   const accessOverrides = parseRoleAccess(settings?.role_access_json);

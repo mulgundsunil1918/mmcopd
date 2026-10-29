@@ -1,3 +1,5 @@
+import { SettingsLink } from '../components/Feature';
+import { RupeeFigure } from '../components/Feature';
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { format, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfDay, subDays } from 'date-fns';
@@ -102,7 +104,7 @@ export function PatientLog() {
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Patient Log</h1>
+          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Patient Log<span className="ml-3 font-normal inline-flex align-middle"><SettingsLink tab="reception" group="List Window (keeps big lists fast)" /></span></h1>
           <p className="text-xs text-gray-500 dark:text-slate-400">Day / Week / Month history of everyone seen, with details & insights.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -159,7 +161,7 @@ export function PatientLog() {
           <IntelCard label="Total visits" value={intel.totalVisits} icon={<Users className="w-4 h-4" />} tone="indigo" />
           <IntelCard label="Unique patients" value={intel.uniquePatients} icon={<Sparkles className="w-4 h-4" />} tone="emerald" />
           <IntelCard label="Repeat visits" value={intel.repeatVisits} icon={<Repeat className="w-4 h-4" />} tone="amber" />
-          <IntelCard label="Revenue" value={formatINR(intel.revenue)} icon={<TrendingUp className="w-4 h-4" />} tone="pink" />
+          <RupeeFigure label="Revenue" value={formatINR(intel.revenue)} />
           <IntelCard label="Avg / day" value={intel.avgPerDay} icon={<CalendarDays className="w-4 h-4" />} tone="blue" />
           <IntelCard
             label="Peak day"

@@ -3293,7 +3293,7 @@ export function registerIpc() {
     // workbook. The .sqlite copy already has everything; this keeps the readable
     // Excel complete too. Secrets/internal tables stay in the .sqlite backup only.
     try {
-      const CURATED = new Set(['patients', 'doctors', 'appointments', 'consultations', 'prescription_items', 'bills', 'lab_orders', 'lab_order_items', 'lab_tests', 'pharmacy_sales', 'pharmacy_sale_items', 'pharmacy_sale_payments', 'drug_inventory', 'drug_master', 'drug_stock_batches', 'wholesalers', 'purchase_invoices', 'purchase_invoice_items', 'purchase_payments', 'dispensing_register', 'ip_admissions', 'wards', 'beds', 'bed_transfers', 'ip_vitals', 'ip_medication_orders', 'ip_medication_admin', 'ip_progress_notes', 'ip_nursing_notes', 'ip_intake_output', 'ip_diet_orders', 'ip_cross_consultations', 'mlc_register', 'admission_requests', 'bill_items', 'bill_payments', 'advances', 'charge_heads', 'tpa_master', 'tpa_claims', 'discharge_templates', 'peds_growth_measurements', 'peds_vaccine_records', 'patient_allergies', 'patient_conditions', 'patient_family_history', 'radiology_orders', 'radiology_order_items', 'radiology_tests']);
+      const CURATED = new Set(['acct_vouchers', 'acct_voucher_days', 'acct_staff', 'acct_attendance', 'acct_categories', 'patients', 'doctors', 'appointments', 'consultations', 'prescription_items', 'bills', 'lab_orders', 'lab_order_items', 'lab_tests', 'pharmacy_sales', 'pharmacy_sale_items', 'pharmacy_sale_payments', 'drug_inventory', 'drug_master', 'drug_stock_batches', 'wholesalers', 'purchase_invoices', 'purchase_invoice_items', 'purchase_payments', 'dispensing_register', 'ip_admissions', 'wards', 'beds', 'bed_transfers', 'ip_vitals', 'ip_medication_orders', 'ip_medication_admin', 'ip_progress_notes', 'ip_nursing_notes', 'ip_intake_output', 'ip_diet_orders', 'ip_cross_consultations', 'mlc_register', 'admission_requests', 'bill_items', 'bill_payments', 'advances', 'charge_heads', 'tpa_master', 'tpa_claims', 'discharge_templates', 'peds_growth_measurements', 'peds_vaccine_records', 'patient_allergies', 'patient_conditions', 'patient_family_history', 'radiology_orders', 'radiology_order_items', 'radiology_tests']);
       const SKIP = new Set(['sqlite_sequence', 'schema_meta', 'settings', 'users']); // secrets/internal → .sqlite backup only
       for (const t of listUserTables(db)) {
         if (CURATED.has(t) || SKIP.has(t)) continue;
@@ -3551,6 +3551,12 @@ export function registerIpc() {
                n.type, n.message, n.status, n.sent_at, n.created_at
         FROM notification_log n LEFT JOIN patients p ON p.id = n.patient_id
         ORDER BY n.created_at DESC` },
+      // ── Accounts (1.0.2): vouchers, the days each doctor/referrer payment settled, staff, attendance, expense heads.
+      { sheet: 'Vouchers', sql: `SELECT * FROM acct_vouchers ORDER BY voucher_date DESC, id DESC` },
+      { sheet: 'Voucher Days Settled', sql: `SELECT d.*, v.voucher_no FROM acct_voucher_days d LEFT JOIN acct_vouchers v ON v.id=d.voucher_id ORDER BY d.voucher_id DESC, d.day` },
+      { sheet: 'Accounts Staff', sql: `SELECT * FROM acct_staff ORDER BY is_active DESC, name` },
+      { sheet: 'Staff Attendance', sql: `SELECT a.*, s.name AS staff_name FROM acct_attendance a LEFT JOIN acct_staff s ON s.id=a.staff_id ORDER BY a.day DESC, s.name` },
+      { sheet: 'Expense Heads', sql: `SELECT * FROM acct_categories ORDER BY sort_order, name` },
       { sheet: 'Audit Log', sql: `SELECT id, at, username, role, action, entity, entity_id, details FROM audit_log ORDER BY at DESC` },
       { sheet: 'Users', sql: `SELECT id, username, role, display_name, doctor_id, is_active, last_login_at, created_at FROM users ORDER BY created_at DESC` },
       { sheet: 'Settings', sql: `SELECT key, value FROM settings WHERE key NOT IN ('admin_password', 'clinic_logo') ORDER BY key` },

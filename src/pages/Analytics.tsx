@@ -1,18 +1,22 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHelp } from '../components/PageHelp';
 import { useQuery } from '@tanstack/react-query';
 import {
   BarChart3, Wallet, MapPin, FileText, Users as UsersIcon, Pill,
   TrendingUp, AlertTriangle, Calendar, Activity, RefreshCw,
   Download, Database, FolderOpen, Syringe,
-  BedDouble, Layers, Megaphone,
+  BedDouble, Megaphone, Stethoscope,
 } from 'lucide-react';
+import { Feature, RupeeFigure, SeeMore, SettingsLink } from '../components/Feature';
+import { DoctorsTab, ReferrerPayCard } from '../components/analytics/DoctorsTab';
+import { featureOn } from '../lib/features';
+import { useAccessGuard } from '../components/RouteGuard';
 import { IpdAnalyticsTab } from '../components/analytics/IpdAnalyticsTab';
 import { DonutChart, VBarChart, TrendChart } from '../components/analytics/Charts';
 import { Kpi, SectionTitle } from '../components/analytics/Kpi';
 import { useDrugDetails } from '../hooks/useDrugDetails';
-import { PharmacyChecksSection, PharmacyProfitSection, PharmacyValuationSection, SupplierSection } from '../components/analytics/PharmacyProfit';
-import { DiscountsSection, ReceivablesSection, UnbilledWorkSection } from '../components/analytics/Receivables';
+import { PharmacyChecksSection } from '../components/analytics/PharmacyProfit';
 import { ManualPharmacySection } from '../components/analytics/ManualPharmacy';
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { cn, fmt12h, fmtDate, fmtDateTime, formatINR, todayISO } from '../lib/utils';
@@ -20,7 +24,20 @@ import { colorForDoctor } from '../lib/doctor-colors';
 import type { Doctor } from '../types';
 import { localISO } from '../lib/localDate';
 
-type Tab = 'overview' | 'finance' | 'modules' | 'ipd' | 'demographics' | 'origin' | 'referrals' | 'pharmacy' | 'services' | 'operations';
+type Tab = 'overview' | 'doctors' | 'ipd' | 'demographics' | 'origin' | 'referrals' | 'pharmacy' | 'services' | 'operations';
+
+/** The tabs, in order. Money views (finance, module P&L) moved to Accounts; Patient Origin and the old Reports page moved in here. */
+const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+  { id: 'overview', label: 'Overview', icon: <Activity className="w-3.5 h-3.5" /> },
+  { id: 'doctors', label: 'Doctors', icon: <Stethoscope className="w-3.5 h-3.5" /> },
+  { id: 'ipd', label: 'IPD', icon: <BedDouble className="w-3.5 h-3.5" /> },
+  { id: 'demographics', label: 'Demographics', icon: <UsersIcon className="w-3.5 h-3.5" /> },
+  { id: 'origin', label: 'Patient Origin', icon: <MapPin className="w-3.5 h-3.5" /> },
+  { id: 'referrals', label: 'Referrals', icon: <Megaphone className="w-3.5 h-3.5" /> },
+  { id: 'pharmacy', label: 'Pharmacy', icon: <Pill className="w-3.5 h-3.5" /> },
+  { id: 'services', label: 'Services', icon: <Syringe className="w-3.5 h-3.5" /> },
+  { id: 'operations', label: 'Reports', icon: <FileText className="w-3.5 h-3.5" /> },
+];
 
 /**
  * Unified Analytics page — consolidates the metrics that previously lived in
@@ -32,7 +49,20 @@ type Tab = 'overview' | 'finance' | 'modules' | 'ipd' | 'demographics' | 'origin
  * intact in the sidebar — Analytics is a new, additional consolidated view.
  */
 export function Analytics() {
-  const [tab, setTab] = useState<Tab>('overview');
+  const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => window.electronAPI.settings.get() });
+  const asked = params.get('tab') || 'overview';
+  // Old addresses: Finance and Modules P&L are money, so they now live in Accounts.
+  useEffect(() => {
+    if (asked === 'finance') navigate('/accounts?tab=in', { replace: true });
+    if (asked === 'modules') navigate('/accounts?tab=pnl', { replace: true });
+  }, [asked, navigate]);
+  // The Patient Origin tab keeps the old Patient Origin page's rules: the role matrix row and the "show Patient Origin" setting still decide who sees it.
+  const { canAccess } = useAccessGuard();
+  const shown = TABS.filter((t) => featureOn(settings, `analytics.tab.${t.id}`) && !(t.id === 'origin' && !canAccess('/origin')));
+  const tab: Tab | undefined = (shown.find((t) => t.id === asked) ?? shown[0])?.id;
+  const setTab = (t: Tab) => setParams({ tab: t });
   const [from, setFrom] = useState(daysAgo(30));
   const [to, setTo] = useState(todayISO());
 
@@ -44,12 +74,12 @@ export function Analytics() {
             <BarChart3 className="w-5 h-5 text-indigo-600" /> Analytics
             <PageHelp page="analytics" />
           </h1>
-          <p className="text-xs text-gray-500 dark:text-slate-400">
-            One place for finance, demographics, geography, pharmacy, and operational reports.
-            The original pages stay in the sidebar — this is the consolidated view.
+          <p className="text-xs text-gray-500 dark:text-slate-400 flex items-center gap-3 flex-wrap">
+            People, visits and time: how each doctor is doing, who comes from where, what the clinic sees. Money is in Accounts.
+            <SeeMore to="/accounts" label="Open Accounts" /><SettingsLink tab="accounts" group="What to show" />
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        {tab !== 'doctors' && <div className="flex items-center gap-2">
           <input type="date" className="input w-auto" value={from} onChange={(e) => setFrom(e.target.value)} />
           <span className="text-xs text-gray-500">to</span>
           <input type="date" className="input w-auto" value={to} onChange={(e) => setTo(e.target.value)} />
@@ -59,34 +89,35 @@ export function Analytics() {
           <button className="btn-ghost text-xs" onClick={() => { setFrom(daysAgo(90)); setTo(todayISO()); }}>90d</button>
           <button className="btn-ghost text-xs" title="From the 1st of this month to today" onClick={() => { setFrom(format(startOfMonth(new Date()), 'yyyy-MM-dd')); setTo(todayISO()); }}>This month</button>
           <button className="btn-ghost text-xs" title="The whole of last month" onClick={() => { const m = subMonths(new Date(), 1); setFrom(format(startOfMonth(m), 'yyyy-MM-dd')); setTo(format(endOfMonth(m), 'yyyy-MM-dd')); }}>Last month</button>
-        </div>
+        </div>}
       </div>
 
       {/* Tab strip */}
       <div className="flex gap-1 bg-gray-100 dark:bg-slate-700 p-1 rounded-lg flex-wrap">
-        <TabBtn active={tab === 'overview'} onClick={() => setTab('overview')} icon={<Activity className="w-3.5 h-3.5" />}>Overview</TabBtn>
-        <TabBtn active={tab === 'finance'} onClick={() => setTab('finance')} icon={<Wallet className="w-3.5 h-3.5" />}>Finance</TabBtn>
-        <TabBtn active={tab === 'modules'} onClick={() => setTab('modules')} icon={<Layers className="w-3.5 h-3.5" />}>Modules P&amp;L</TabBtn>
-        <TabBtn active={tab === 'ipd'} onClick={() => setTab('ipd')} icon={<BedDouble className="w-3.5 h-3.5" />}>IPD</TabBtn>
-        <TabBtn active={tab === 'demographics'} onClick={() => setTab('demographics')} icon={<UsersIcon className="w-3.5 h-3.5" />}>Demographics</TabBtn>
-        <TabBtn active={tab === 'origin'} onClick={() => setTab('origin')} icon={<MapPin className="w-3.5 h-3.5" />}>Patient Origin</TabBtn>
-        <TabBtn active={tab === 'referrals'} onClick={() => setTab('referrals')} icon={<Megaphone className="w-3.5 h-3.5" />}>Referrals</TabBtn>
-        <TabBtn active={tab === 'pharmacy'} onClick={() => setTab('pharmacy')} icon={<Pill className="w-3.5 h-3.5" />}>Pharmacy</TabBtn>
-        <TabBtn active={tab === 'services'} onClick={() => setTab('services')} icon={<Syringe className="w-3.5 h-3.5" />}>Services</TabBtn>
-        <TabBtn active={tab === 'operations'} onClick={() => setTab('operations')} icon={<FileText className="w-3.5 h-3.5" />}>Operational Reports</TabBtn>
+        {shown.map((t) => <TabBtn key={t.id} active={tab === t.id} onClick={() => setTab(t.id)} icon={t.icon}>{t.label}</TabBtn>)}
       </div>
 
-      {tab === 'overview' && <OverviewTab />}
-      {tab === 'finance' && <FinanceTab from={from} to={to} />}
+      {tab === 'overview' && <><OverviewTab /><Feature id="analytics.busy"><BusyTimes /></Feature></>}
+      {tab === 'doctors' && <DoctorsTab from={from} to={to} />}
       {tab === 'ipd' && <IpdAnalyticsTab from={from} to={to} />}
       {tab === 'demographics' && <DemographicsTab />}
       {tab === 'origin' && <OriginTab from={from} to={to} />}
-      {tab === 'referrals' && <ReferralsTab from={from} to={to} />}
-      {tab === 'modules' && <ModulesTab from={from} to={to} />}
+      {tab === 'referrals' && <><ReferralsTab from={from} to={to} /><ReferrerPayCard from={from} to={to} /></>}
       {tab === 'pharmacy' && <PharmacyTab from={from} to={to} />}
       {tab === 'services' && <ServicesTab from={from} to={to} />}
       {tab === 'operations' && <OperationsTab from={from} to={to} />}
     </div>
+  );
+}
+
+/** When the clinic is busy — visits by weekday and hour (this used to sit inside Finance; it is about people and time, so it stays in Analytics). */
+function BusyTimes() {
+  const { data: heatmap = [] } = useQuery({ queryKey: ['analytics-weekday-hour'], queryFn: () => window.electronAPI.analytics.weekdayHourHeatmap() });
+  return (
+    <section>
+      <SectionTitle icon={<Calendar className="w-4 h-4 text-indigo-600" />} title="Busiest day × hour" subtitle="Last 90 days of appointments. Cell intensity scales with visit count." />
+      <WeekdayHourHeatmap rows={heatmap} />
+    </section>
   );
 }
 
@@ -134,7 +165,7 @@ function OverviewTab() {
         <SectionTitle icon={<Calendar className="w-4 h-4" />} title="Today" subtitle={fmtDate(localISO())} />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Kpi label="Visits today" value={ov.todayVisits} sub={`${ov.todayDone} done`} tone="blue" />
-          <Kpi label="Revenue today" value={formatINR(ov.todayRevenue)} tone="emerald" />
+          <RupeeFigure label="Revenue today" value={formatINR(ov.todayRevenue)} />
           <Kpi label="Active doctors" value={ov.activeDoctors} tone="violet" />
           <Kpi label="Pending Rx" value={ov.pendingRx} sub="across last 7 days" tone={ov.pendingRx > 0 ? 'amber' : 'gray'} />
         </div>
@@ -144,9 +175,9 @@ function OverviewTab() {
       <section>
         <SectionTitle icon={<TrendingUp className="w-4 h-4" />} title="This Month" subtitle={fmtDate(new Date().toISOString().slice(0, 8) + '01') + ' onwards'} />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Kpi label="OPD revenue" value={formatINR(ov.monthRevenue)} tone="emerald" />
-          <Kpi label="Pharmacy revenue" value={formatINR(ov.pharmacyMonthRevenue)}
-            sub={`${formatINR(ov.pharmacyMonthPatientRevenue ?? 0)} under patients · ${formatINR(ov.pharmacyMonthGuestRevenue ?? 0)} walk-in`} tone="emerald" />
+          <RupeeFigure label="OPD revenue (month)" value={formatINR(ov.monthRevenue)} to="/accounts?tab=pnl" />
+          <RupeeFigure label="Pharmacy revenue (month)" value={formatINR(ov.pharmacyMonthRevenue)} to="/accounts?tab=pnl"
+            sub={`${formatINR(ov.pharmacyMonthPatientRevenue ?? 0)} under patients · ${formatINR(ov.pharmacyMonthGuestRevenue ?? 0)} walk-in`} />
           <Kpi label="New patients" value={ov.patientsThisMonth} tone="blue" />
           <Kpi label="Total patients" value={ov.totalPatients.toLocaleString('en-IN')} sub="all-time" tone="indigo" />
         </div>
@@ -209,84 +240,6 @@ function OverviewTab() {
 /* ============================================================
    FINANCE — finance.summary + weekday×hour heatmap + doctor color bars
    ============================================================ */
-function FinanceTab({ from, to }: { from: string; to: string }) {
-  const { data: f, isLoading } = useQuery({
-    queryKey: ['finance', from, to],
-    queryFn: () => window.electronAPI.finance.summary({ from, to }),
-  });
-  const { data: heatmap = [] } = useQuery({
-    queryKey: ['analytics-weekday-hour'],
-    queryFn: () => window.electronAPI.analytics.weekdayHourHeatmap(),
-  });
-  const { data: doctors = [] } = useQuery({
-    queryKey: ['doctors-all-active'],
-    queryFn: () => window.electronAPI.doctors.list(false),
-  });
-
-  if (isLoading || !f) return <div className="text-xs text-gray-500 dark:text-slate-400 p-4">Loading…</div>;
-
-  // Build name → color map so we can color-code the byDoctor bars to match
-  // the doctor color tags shown elsewhere in the app.
-  const doctorColorByName = new Map<string, string>();
-  for (const d of doctors as Doctor[]) {
-    doctorColorByName.set(d.name, colorForDoctor(d));
-  }
-
-  return (
-    <div className="space-y-5">
-      <section>
-        <SectionTitle icon={<Wallet className="w-4 h-4" />} title="Revenue snapshot" subtitle="OPD bills + Pharmacy" />
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Kpi label="Today" value={formatINR(f.today?.total ?? 0)} sub={f.today?.delta != null ? `${f.today.delta > 0 ? '+' : ''}${Math.round(f.today.delta * 100)}% vs yesterday` : undefined} tone="emerald" />
-          <Kpi label="This week" value={formatINR(f.week?.total ?? 0)} tone="emerald" />
-          <Kpi label="This month" value={formatINR(f.month?.total ?? 0)} tone="emerald" />
-          <Kpi label="All-time" value={formatINR(f.allTime?.total ?? 0)} tone="indigo" />
-        </div>
-      </section>
-
-      <ReceivablesSection />
-      <UnbilledWorkSection />
-      <DiscountsSection from={from} to={to} />
-
-      {/* Weekday × Hour heatmap */}
-      <section>
-        <SectionTitle icon={<Calendar className="w-4 h-4 text-indigo-600" />} title="Busiest day × hour" subtitle="Last 90 days of appointments. Cell intensity scales with visit count." />
-        <WeekdayHourHeatmap rows={heatmap} />
-      </section>
-
-      <TrendChart
-        title="Revenue by day" subtitle="Daily collection trend — peak day marked" full
-        color="#059669"
-        rows={(f.byDay || []).map((r: any) => ({ label: r.day, value: r.total }))}
-        formatValue={formatINR}
-      />
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <VBarChart title="Revenue by month" rows={(f.byMonth || []).map((r: any) => ({ label: r.month, value: r.total }))} formatValue={formatINR} />
-        <DonutChart title="By payment mode" subtitle="Share of billing" rows={(f.byMode || []).map((r: any) => ({ label: r.payment_mode || r.mode || '(none)', value: r.total }))} formatValue={formatINR} />
-        <VBarChart title="Busiest weekday (last 90 days)" rows={(f.byWeekday || []).map((r: any) => ({ label: r.wd !== undefined ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][Number(r.wd)] ?? String(r.wd) : r.weekday, value: r.total }))} formatValue={formatINR} />
-        <VBarChart title="Peak hours" singleColor="#4f46e5" colorful={false} rows={(f.byHour || []).map((r: any) => ({ label: `${Number(r.hr ?? r.hour)}h`, value: r.total }))} formatValue={formatINR} />
-        <BarListCard
-          title="By doctor (all-time) — colored by tag"
-          rows={(f.byDoctor || []).map((r: any) => ({
-            label: r.doctor,
-            value: r.total,
-            color: doctorColorByName.get(r.doctor),
-          }))}
-          formatValue={formatINR}
-        />
-        <BarListCard title="Revenue by place (90 days)" rows={(f.byPlace || []).map((r: any) => ({ label: r.place || '(unknown)', value: r.total }))} formatValue={formatINR} />
-        <BarListCard
-          title="Top 10 patients by revenue"
-          rows={(f.topPatients || []).map((r: any) => ({ label: `${r.name} · ${r.uhid}`, value: r.total }))}
-          formatValue={formatINR}
-          full
-        />
-      </div>
-    </div>
-  );
-}
-
 function WeekdayHourHeatmap({ rows }: { rows: { weekday: number; hour: number; visits: number }[] }) {
   const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   // Pivot sparse rows into a 7×24 grid.
@@ -766,81 +719,6 @@ function ReferralsTab({ from, to }: { from: string; to: string }) {
 /* ============================================================
    PHARMACY — top drugs, sales mix, schedule mix, low-stock + expiring
    ============================================================ */
-function ModulesTab({ from, to }: { from: string; to: string }) {
-  const { data, isLoading } = useQuery({
-    queryKey: ['analytics-modules', from, to],
-    queryFn: () => window.electronAPI.analytics.modules(from, to),
-  });
-  if (isLoading || !data) return <div className="text-xs text-gray-500 dark:text-slate-400 p-4">Loading…</div>;
-  const mods = data.modules || [];
-  const t = data.totals || { revenue: 0, collected: 0, outstanding: 0, count: 0 };
-  const MODULE_HEX: Record<string, string> = { ipd: '#3b82f6', pharmacy: '#10b981', lab: '#d946ef', radiology: '#0ea5e9', opd: '#8b5cf6', misc: '#f59e0b', other: '#64748b' };
-  const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
-
-  return (
-    <div className="space-y-5">
-      <SectionTitle icon={<Layers className="w-4 h-4" />} title="Module-wise P&L" subtitle={`Revenue, collections and dues by clinical module · ${fmtDate(from)} — ${fmtDate(to)}`} />
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Kpi label="Total revenue" value={formatINR(t.revenue)} tone="blue" />
-        <Kpi label="Collected" value={formatINR(t.collected)} sub={`${pct(t.collected, t.revenue)}% of billed`} tone="emerald" />
-        <Kpi label="Outstanding" value={formatINR(t.outstanding)} tone="rose" />
-        <Kpi label="Transactions" value={t.count} tone="indigo" />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <DonutChart
-          title="Revenue share by module" subtitle="Where revenue comes from"
-          rows={mods.map((m) => ({ label: m.label, value: m.revenue, color: MODULE_HEX[m.key] }))}
-          formatValue={formatINR} maxSlices={8}
-        />
-        <VBarChart
-          title="Revenue by module"
-          rows={mods.map((m) => ({ label: m.label, value: m.revenue, color: MODULE_HEX[m.key] }))}
-          formatValue={formatINR}
-        />
-      </div>
-
-      <div className="card p-4 overflow-x-auto">
-        <table className="w-full text-[12px] min-w-[520px]">
-          <thead>
-            <tr className="text-left text-[10px] uppercase text-gray-500 border-b dark:border-slate-700">
-              <th className="py-1.5">Module</th>
-              <th className="py-1.5 text-right">Txns</th>
-              <th className="py-1.5 text-right">Revenue</th>
-              <th className="py-1.5 text-right">Collected</th>
-              <th className="py-1.5 text-right">Outstanding</th>
-              <th className="py-1.5 text-right">Collection %</th>
-            </tr>
-          </thead>
-          <tbody>
-            {mods.map((m) => (
-              <tr key={m.key} className="border-b border-gray-50 dark:border-slate-800/50">
-                <td className="py-1.5"><span className="inline-flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: MODULE_HEX[m.key] || '#94a3b8' }} />{m.label}</span></td>
-                <td className="py-1.5 text-right tabular-nums">{m.count}</td>
-                <td className="py-1.5 text-right tabular-nums font-medium">{formatINR(m.revenue)}</td>
-                <td className="py-1.5 text-right tabular-nums text-emerald-600">{formatINR(m.collected)}</td>
-                <td className="py-1.5 text-right tabular-nums text-red-600">{formatINR(m.outstanding)}</td>
-                <td className="py-1.5 text-right tabular-nums text-gray-500">{pct(m.collected, m.revenue)}%</td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="border-t-2 dark:border-slate-700 font-bold">
-              <td className="py-1.5">Total</td>
-              <td className="py-1.5 text-right tabular-nums">{t.count}</td>
-              <td className="py-1.5 text-right tabular-nums">{formatINR(t.revenue)}</td>
-              <td className="py-1.5 text-right tabular-nums text-emerald-600">{formatINR(t.collected)}</td>
-              <td className="py-1.5 text-right tabular-nums text-red-600">{formatINR(t.outstanding)}</td>
-              <td className="py-1.5 text-right tabular-nums">{pct(t.collected, t.revenue)}%</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    </div>
-  );
-}
-
 function PharmacyTab({ from, to }: { from: string; to: string }) {
   const { data: p, isLoading } = useQuery({
     queryKey: ['analytics-pharmacy', from, to],
@@ -860,7 +738,7 @@ function PharmacyTab({ from, to }: { from: string; to: string }) {
         <SectionTitle icon={<Pill className="w-4 h-4" />} title="Pharmacy overview" subtitle={`${fmtDate(from)} — ${fmtDate(to)}`} />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Kpi label="Sales (count)" value={p.totalSales} tone="blue" />
-          <Kpi label="Revenue" value={formatINR(p.totalRevenue)} tone="emerald" />
+          <RupeeFigure label="Pharmacy revenue" value={formatINR(p.totalRevenue)} to="/accounts?tab=pnl" />
           <Kpi label="Items dispensed" value={p.totalDispensed} tone="indigo" />
           <Kpi label="Schedule H/H1 entries" value={p.scheduleHCount} sub="legal register" tone="violet" />
         </div>
@@ -907,11 +785,8 @@ function PharmacyTab({ from, to }: { from: string; to: string }) {
         </section>
       )}
 
-      {/* Realised profit on medicines already sold (reports A–H) */}
-      <PharmacyProfitSection from={from} to={to} />
-
-      {/* Stock on hand at four different prices — a snapshot, not profit already made */}
-      <PharmacyValuationSection />
+      {/* Profit on medicines sold, stock value and supplier accounts are money, so they moved to Accounts → Profit and loss */}
+      <div className="card p-3 text-xs text-gray-600 dark:text-slate-400 flex items-center gap-3">Pharmacy profit, the value of the stock on the shelves and what is owed to suppliers are in Accounts. <SeeMore to="/accounts?tab=pnl" label="Open Profit and loss" /></div>
 
       {/* Average basket size — units & ₹ per sale, monthly trend */}
       <section>
@@ -999,7 +874,6 @@ function PharmacyTab({ from, to }: { from: string; to: string }) {
       {/* Bills typed by hand: their own analysis, never mixed into the stock figures above */}
       <ManualPharmacySection from={from} to={to} />
 
-      <SupplierSection from={from} to={to} />
       <PharmacyChecksSection />
     </div>
   );
@@ -1275,9 +1149,9 @@ function ServicesTab({ from, to }: { from: string; to: string }) {
       <section>
         <SectionTitle icon={<Syringe className="w-4 h-4 text-pink-600" />} title="Services Overview" subtitle={`${from} to ${to}`} />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Kpi label="Total revenue" value={formatINR(summary.revenue)} tone="rose" />
+          <RupeeFigure label="Services revenue" value={formatINR(summary.revenue)} to="/accounts?tab=pnl" />
           <Kpi label="Services rendered" value={summary.count} tone="rose" />
-          <Kpi label="Avg per service" value={formatINR(Math.round(avgPerService))} tone="indigo" />
+          <RupeeFigure label="Avg per service" value={formatINR(Math.round(avgPerService))} to="/accounts?tab=pnl" />
           <Kpi label="Unique categories" value={uniqueServices} sub="distinct service types" tone="violet" />
         </div>
       </section>

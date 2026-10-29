@@ -10,6 +10,7 @@
  * crash if it calls something we haven't bothered to mock.
  */
 
+import { makeAccountsMock } from './mock-accounts';
 import {
   DEMO_SETTINGS, DEMO_DOCTORS, DEMO_PATIENTS, DEMO_APPOINTMENTS, DEMO_BILLS,
   DEMO_DRUG_MASTER, DEMO_BATCHES, DEMO_WHOLESALERS, DEMO_PURCHASES,
@@ -1021,6 +1022,7 @@ export function createMockElectronAPI(): any {
         byState: [{ name: 'Karnataka', visits: 95, patients: 50 }],
       }),
     },
+    accounts: makeAccountsMock({ doctors: () => doctors, appointments: () => appointments, bills: () => bills, settings }),
     analytics: {
       // Who sent the patients — the same function the real app uses (lib/referralStats.ts), fed from the demo's visits and bills.
       referrals: (_f: { from: string; to: string }) => {

@@ -1,3 +1,4 @@
+import { SettingsLink } from '../components/Feature';
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -34,7 +35,7 @@ export function DoctorSelect() {
     <div className="p-6">
       <div className="mb-6 flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Doctors</h1>
+          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Doctors<span className="ml-3 font-normal inline-flex align-middle"><SettingsLink tab="doctors" group="Doctors" /></span></h1>
           <p className="text-xs text-gray-500 dark:text-slate-400">Click a doctor to open their dashboard. Pending count shows today's remaining queue.</p>
         </div>
         <div className="flex items-center gap-3 text-xs text-gray-600 dark:text-slate-300">

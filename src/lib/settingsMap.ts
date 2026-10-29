@@ -10,7 +10,7 @@
 import type { Settings } from '../types';
 
 export type SettingsTabId =
-  | 'clinic' | 'doctors' | 'reception' | 'billing'
+  | 'clinic' | 'doctors' | 'reception' | 'billing' | 'accounts'
   | 'pharmacy' | 'lab' | 'ipd' | 'whatsapp' | 'peds'
   | 'system' | 'computers' | 'subscription';
 
@@ -40,6 +40,7 @@ export const SETTINGS_TABS: SettingsTabDef[] = [
   { id: 'doctors', label: 'Doctors & Templates', group: 'clinic', blurb: 'Your doctors (fees, signature, slip), where patients come from, and the text templates doctors use.' },
   { id: 'reception', label: 'Reception & Fees', group: 'clinic', blurb: 'The front desk: consultation and registration fees, the queue, the follow-up rule, service shortcuts and patient locations.' },
   { id: 'billing', label: 'Billing & GST', group: 'clinic', blurb: 'How the clinic bills: GST registration, invoice numbers, round-off, the price list (charge heads) and staff discount limits.' },
+  { id: 'accounts', label: 'Accounts & Analytics', group: 'clinic', blurb: 'Money in the clinic: staff and salaries, who may raise vouchers, expense heads, opening cash — and which Accounts and Analytics screens to show.' },
   { id: 'pharmacy', label: 'Pharmacy', group: 'modules', module: 'pharmacy', blurb: 'Everything about the pharmacy in one place: its GST and licence on bills, the discount limit at the counter, credit.' },
   { id: 'lab', label: 'Laboratory & Radiology', group: 'modules', module: 'lab', blurb: 'Everything about the lab and the scan desk: when a bill is raised, and the test and scan price lists.' },
   { id: 'ipd', label: 'In-Patient (IPD)', group: 'modules', module: 'ipd', blurb: 'Wards and beds, the daily charges, deposits, insurance (TPA), admission requests and the discharge summary.' },
@@ -78,6 +79,9 @@ export const BILLING_KEYS: K[] = [
   'gst_enabled', 'gst_registration_type', 'clinic_gstin', 'clinic_legal_name', 'clinic_state_code', 'healthcare_gst_exempt',
   'invoice_prefix', 'bill_round_off', 'discount_caps_json', 'discount_require_reason',
 ];
+
+/** Accounts & Analytics — voucher numbering, opening cash, who may raise and cancel vouchers. (Staff, expense heads and the "what to show" switches save as you go.) */
+export const ACCOUNTS_KEYS: K[] = ['acct_settings_json'];
 
 /** Pharmacy — its own GST switch and the identity printed on its bills, the starting GST % of a new medicine, the counter discount limits, credit. */
 export const PHARMACY_KEYS: K[] = [

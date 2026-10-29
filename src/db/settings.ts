@@ -160,6 +160,9 @@ export function getAllSettings(db: Database.Database): Settings {
     pharmacy_credit_enabled: map.pharmacy_credit_enabled === 'true',
     pharmacy_ipd_charge_enabled: map.pharmacy_ipd_charge_enabled === 'true',
     role_access_json: map.role_access_json || '',
+    acct_settings_json: map.acct_settings_json || '',
+    pay_rules_json: map.pay_rules_json || '',
+    feature_switches_json: map.feature_switches_json || '',
     // Per-install sidebar customisation: JSON array of { to, hidden } in the
     // user's chosen order. Empty = default order, nothing hidden.
     sidebar_layout: map.sidebar_layout || '',

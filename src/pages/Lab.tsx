@@ -1,3 +1,4 @@
+import { SettingsLink } from '../components/Feature';
 import { useState } from 'react';
 import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -40,7 +41,7 @@ export function Lab() {
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5">Laboratory<PageHelp page="lab" /></h1>
+          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5">Laboratory<PageHelp page="lab" /><span className="ml-3 font-normal inline-flex align-middle"><SettingsLink tab="lab" /></span></h1>
           <p className="text-xs text-gray-500 dark:text-slate-400">Test catalog, orders, sample collection, and result entry.</p>
         </div>
         <div className="flex gap-2 bg-gray-100 dark:bg-slate-700 p-1 rounded-lg">

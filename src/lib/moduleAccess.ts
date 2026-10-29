@@ -26,6 +26,7 @@ import type { Role } from '../hooks/useAuth';
 import { canAnyRole } from '../hooks/useAuth';
 import { effectiveRoles } from '../lib/accessModules';
 import { ROUTE_MODULE, routeLicensed } from '../lib/licenseModules';
+import { pageFeatureOff } from './features';
 
 /**
  * What a computer is for. This is the layer that replaces "App Mode" in a clinic's
@@ -103,6 +104,7 @@ export interface AccessCtx {
 /** Is this module switched off for the clinic (Settings toggles)? */
 export function moduleSwitchedOff(path: string, s: any): boolean {
   if (!s) return false;
+  if (pageFeatureOff(path, s)) return true;
   if (path === '/billing' && s.show_billing_module === false) return true;
   if (path === '/origin' && s.show_patient_origin === false) return true;
   if (path === '/pediatrics' && s.peds_enabled !== true) return true;

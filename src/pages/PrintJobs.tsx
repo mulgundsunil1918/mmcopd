@@ -1,3 +1,4 @@
+import { SettingsLink } from '../components/Feature';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Printer, Loader2, Check, X, Clock } from 'lucide-react';
@@ -42,7 +43,7 @@ export function PrintJobs() {
     <div className="p-6 max-w-4xl mx-auto space-y-4">
       <div className="flex items-center gap-2">
         <Printer className="w-5 h-5 text-blue-500" />
-        <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Print Jobs</h1>
+        <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Print Jobs<span className="ml-3 font-normal inline-flex align-middle"><SettingsLink tab="reception" group="What to show" /></span></h1>
         {jobs.length > 0 && <span className="px-2 py-0.5 rounded-full bg-red-500 text-white text-[11px] font-bold">{jobs.length}</span>}
       </div>
       <p className="text-[12px] text-gray-500 dark:text-slate-400">Documents doctors have sent to reception to print. Open one, print it on the letterhead, then mark it printed.</p>

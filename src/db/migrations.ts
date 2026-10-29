@@ -6,6 +6,7 @@ import { createSchema, SCHEMA_VERSION } from './schema';
 import { cleanForWhatsApp, hasEmojiOrBrokenText } from '../lib/messageText';
 import { DEFAULT_SLIP_TEMPLATES } from './slip-templates';
 import { CATALOGUE_FLAG, SCHEDULE_FLAG, correctSchedules, refreshCatalogue } from './catalogue';
+import { ensureAccountsSchema } from './accountsSchema';
 
 /** The factory password created by ensureDefaultAdmin() on a fresh install. */
 const FACTORY_PASSWORD = 'admin123';
@@ -585,6 +586,7 @@ function setSettingIfEmpty(db: Database.Database, key: string, value: string) {
 
 export function runMigrations(db: Database.Database) {
   createSchema(db);
+  ensureAccountsSchema(db);          // 1.0.2: staff, vouchers, attendance (only ever ADDS tables)
   addColumnIfMissing(db, 'doctors', 'signature', 'TEXT');
   addColumnIfMissing(db, 'doctors', 'qualifications', 'TEXT');
   addColumnIfMissing(db, 'doctors', 'registration_no', 'TEXT');

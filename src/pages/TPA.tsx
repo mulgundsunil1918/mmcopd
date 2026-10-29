@@ -1,3 +1,4 @@
+import { SettingsLink } from '../components/Feature';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ShieldPlus, Plus, Building2, FileText, Loader2, X, Search } from 'lucide-react';
@@ -26,7 +27,7 @@ export function TPA() {
     <div className="p-6 max-w-5xl mx-auto space-y-4">
       <div className="flex items-center gap-2">
         <ShieldPlus className="w-5 h-5 text-teal-500" />
-        <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Insurance / TPA</h1>
+        <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Insurance / TPA<span className="ml-3 font-normal inline-flex align-middle"><SettingsLink tab="ipd" /></span></h1>
       </div>
       <div className="flex gap-1 p-1 rounded-lg bg-gray-100 dark:bg-slate-800/60 w-fit">
         <button onClick={() => setTab('claims')} className={cn('px-3 py-1.5 rounded-md text-[12px] font-semibold', tab === 'claims' ? 'bg-white dark:bg-slate-900 text-teal-700 shadow-sm' : 'text-gray-600')}><FileText className="w-3.5 h-3.5 inline mr-1" />Claims</button>

@@ -1,3 +1,4 @@
+import { useFeature } from './Feature';
 import { useEffect, useMemo, useState } from 'react';
 import { formatINR } from '../lib/utils';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -343,14 +344,14 @@ export function ConsultationPanel({
           </button>
         </div>
         <div className="grid grid-cols-4 gap-2">
-          <VInput label="Temp (°F)" value={vitals.temp} placeholder="98.4" isDefault={defaulted.has('temp')} onChange={(v) => setVital('temp', v)} />
-          <VInput label="Pulse" value={vitals.pulse} placeholder="78" isDefault={defaulted.has('pulse')} onChange={(v) => setVital('pulse', v)} />
-          <VInput label="RR" value={vitals.rr} placeholder="16" isDefault={defaulted.has('rr')} onChange={(v) => setVital('rr', v)} />
-          <VInput label="SpO₂ (%)" value={vitals.spo2} placeholder="98" isDefault={defaulted.has('spo2')} onChange={(v) => setVital('spo2', v)} />
-          <VInput label="BP (mmHg)" value={vitals.bp} placeholder="120/80" isDefault={defaulted.has('bp')} onChange={(v) => setVital('bp', v)} />
-          <VInput label="Weight (kg)" value={vitals.weight} placeholder="65" onChange={(v) => setVital('weight', v)} />
-          <VInput label="Height (cm)" value={vitals.height} placeholder="170" onChange={(v) => setVital('height', v)} />
-          <VInput label="Follow-up Date" value={followUp} placeholder="" type="date" onChange={setFollowUp} />
+          <VInput feature="consultation.vital.temp" label="Temp (°F)" value={vitals.temp} placeholder="98.4" isDefault={defaulted.has('temp')} onChange={(v) => setVital('temp', v)} />
+          <VInput feature="consultation.vital.pulse" label="Pulse" value={vitals.pulse} placeholder="78" isDefault={defaulted.has('pulse')} onChange={(v) => setVital('pulse', v)} />
+          <VInput feature="consultation.vital.rr" label="RR" value={vitals.rr} placeholder="16" isDefault={defaulted.has('rr')} onChange={(v) => setVital('rr', v)} />
+          <VInput feature="consultation.vital.spo2" label="SpO₂ (%)" value={vitals.spo2} placeholder="98" isDefault={defaulted.has('spo2')} onChange={(v) => setVital('spo2', v)} />
+          <VInput feature="consultation.vital.bp" label="BP (mmHg)" value={vitals.bp} placeholder="120/80" isDefault={defaulted.has('bp')} onChange={(v) => setVital('bp', v)} />
+          <VInput feature="consultation.vital.weight" label="Weight (kg)" value={vitals.weight} placeholder="65" onChange={(v) => setVital('weight', v)} />
+          <VInput feature="consultation.vital.height" label="Height (cm)" value={vitals.height} placeholder="170" onChange={(v) => setVital('height', v)} />
+          <VInput feature="consultation.vital.followup" label="Follow-up Date" value={followUp} placeholder="" type="date" onChange={setFollowUp} />
         </div>
         {defaulted.size > 0 && (
           <div className="text-[11px] text-amber-700 dark:text-amber-300 mt-1">
@@ -847,9 +848,11 @@ function RadiologyOrderPicker({
 }
 
 function VInput({
-  label, value, onChange, placeholder, type = 'text', isDefault = false,
+  label, value, onChange, placeholder, type = 'text', isDefault = false, feature,
 }: {
   label: string;
+  /** Catalogue id: this field can be hidden in Settings → Reception & Fees → What to show. */
+  feature?: string;
   value?: string;
   onChange: (v: string) => void;
   placeholder?: string;
@@ -857,6 +860,8 @@ function VInput({
   /** Filled by "Load default vitals" and not yet changed. */
   isDefault?: boolean;
 }) {
+  const shown = useFeature(feature ?? '');
+  if (!shown) return null;
   return (
     <div>
       <label className="label" style={{ fontSize: 10 }}>{label}</label>

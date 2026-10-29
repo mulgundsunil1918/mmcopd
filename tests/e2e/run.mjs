@@ -28,6 +28,8 @@ const ZONES = {
   'supplier-pay': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   'supplier-statement': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   'referral-analytics': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
+  // Doctors' earnings are counted on the visit's day and the bill's local day: the far-behind and far-ahead zones are the hard cases.
+  accounts: ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   // An imported bill is dated by the PC's own calendar day, and its expiry window is counted from it.
   'bill-import': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],
   'bill-import-samples': ['Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Auckland'],

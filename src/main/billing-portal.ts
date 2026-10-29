@@ -37,7 +37,7 @@ const KIND_TITLE: Record<PortalKind, string> = {
   pharmacy: 'Pharmacy (on credit)', pharmacy_manual: 'Pharmacy bill (hand-typed)', ipd: 'In-patient bill',
 };
 
-function kindOfBill(b: { bill_type: string | null; bill_kind: string | null; admission_id: number | null }): PortalKind {
+export function kindOfBill(b: { bill_type: string | null; bill_kind: string | null; admission_id: number | null }): PortalKind {
   if (b.admission_id || b.bill_type === 'ipd') return 'ipd';
   switch (b.bill_type) {
     case 'lab': return 'lab';

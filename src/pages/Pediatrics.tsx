@@ -1,3 +1,4 @@
+import { SettingsLink } from '../components/Feature';
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Baby, Search, Ruler, Syringe, Calculator, Loader2, Plus, Check, TrendingUp, RefreshCw } from 'lucide-react';
@@ -40,7 +41,7 @@ export function Pediatrics() {
     <div className="p-6 max-w-5xl mx-auto space-y-4">
       <div className="flex items-center gap-2">
         <Baby className="w-5 h-5 text-pink-500" />
-        <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Pediatrics</h1>
+        <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Pediatrics<span className="ml-3 font-normal inline-flex align-middle"><SettingsLink tab="peds" /></span></h1>
       </div>
 
       {/* Patient picker */}

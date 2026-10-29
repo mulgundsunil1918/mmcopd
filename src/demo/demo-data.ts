@@ -157,6 +157,9 @@ export const DEMO_SETTINGS: Settings = {
   qr2_label: 'Scan to Pay / Review',
   anthropic_api_key: '',
   google_review_url: '',
+  acct_settings_json: '',
+  pay_rules_json: JSON.stringify({ doctors: { '1': { basis: 'percent_of_fees', percent: 10 } } }),
+  feature_switches_json: '',
 };
 
 // ---------- Doctors ----------

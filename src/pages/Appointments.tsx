@@ -1,3 +1,4 @@
+import { SettingsLink } from '../components/Feature';
 import { useEffect, useMemo, useState } from 'react';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { PageHelp } from '../components/PageHelp';
@@ -139,7 +140,7 @@ export function Appointments() {
       {/* Top bar */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5">Appointments<PageHelp page="appointments" /></h1>
+          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5">Appointments<PageHelp page="appointments" /><span className="ml-3 font-normal inline-flex align-middle"><SettingsLink tab="reception" group="Fees, Queue Flow & Display" /></span></h1>
           <p className="text-xs text-gray-500 dark:text-slate-400">Manage today's queue across all doctors.</p>
         </div>
         <div className="flex items-center gap-2">

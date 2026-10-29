@@ -8,7 +8,6 @@ import { DoctorDashboard } from './pages/DoctorDashboard';
 import { Billing } from './pages/Billing';
 import { Accounts } from './pages/Accounts';
 import { PatientLog } from './pages/PatientLog';
-import { PatientOrigin } from './pages/PatientOrigin';
 import { Lab } from './pages/Lab';
 import { Radiology } from './pages/Radiology';
 import { Pharmacy } from './pages/Pharmacy';
@@ -20,7 +19,6 @@ import { Notifications } from './pages/Notifications';
 import { Help } from './pages/Help';
 import { SettingsPage } from './pages/Settings';
 import { UsersPage } from './pages/Users';
-import { Reports } from './pages/Reports';
 import { Analytics } from './pages/Analytics';
 import { Miscellaneous } from './pages/Miscellaneous';
 import { WhatsApp } from './pages/WhatsApp';
@@ -203,7 +201,8 @@ export default function App() {
         <Route path="/miscellaneous" element={<Guard path="/miscellaneous"><Miscellaneous /></Guard>} />
         <Route path="/accounts" element={<Guard path="/accounts"><Accounts /></Guard>} />
         <Route path="/patient-log" element={<Guard path="/patient-log"><PatientLog /></Guard>} />
-        <Route path="/origin" element={<Guard path="/origin"><PatientOrigin /></Guard>} />
+        {/* Patient Origin and the old Reports page now live inside Analytics; the old addresses open the right tab. */}
+        <Route path="/origin" element={<Navigate to="/analytics?tab=origin" replace />} />
         <Route path="/lab" element={<Guard path="/lab"><Lab /></Guard>} />
         <Route path="/radiology" element={<Guard path="/radiology"><Radiology /></Guard>} />
         <Route path="/pharmacy" element={<Guard path="/pharmacy"><Pharmacy /></Guard>} />
@@ -219,7 +218,7 @@ export default function App() {
             are intentionally NOT route-guarded (a redirect would hide that gate). */}
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/users" element={<UsersPage />} />
-        <Route path="/reports" element={<Guard path="/analytics"><Reports /></Guard>} />
+        <Route path="/reports" element={<Navigate to="/analytics?tab=operations" replace />} />
         <Route path="/analytics" element={<Guard path="/analytics"><Analytics /></Guard>} />
       </Route>
       <Route path="*" element={<Navigate to="/reception" replace />} />

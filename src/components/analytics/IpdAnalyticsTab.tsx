@@ -1,3 +1,4 @@
+import { RupeeFigure } from '../Feature';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2, BedDouble, TrendingUp, Clock, Activity, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -47,7 +48,7 @@ export function IpdAnalyticsTab({ from, to }: { from: string; to: string }) {
         <Kpi icon={BedDouble} label="Occupancy" value={`${ipd.occupancyPct}%`} sub={`${ipd.occupiedBeds}/${ipd.totalBeds} beds`} colour="text-blue-600" />
         <Kpi icon={TrendingUp} label="Admissions" value={ipd.admissions} sub={`${ipd.discharges} discharged`} colour="text-emerald-600" />
         <Kpi icon={Clock} label="Avg stay" value={`${ipd.alosDays}d`} sub="length of stay" colour="text-violet-600" />
-        <Kpi icon={Activity} label="IPD revenue" value={inr(ipd.ipdRevenue)} sub="this period" colour="text-amber-600" />
+        <RupeeFigure label="IPD revenue" value={inr(ipd.ipdRevenue)} sub="this period" to="/accounts?tab=pnl" />
       </div>
 
       {/* Quality indicators */}

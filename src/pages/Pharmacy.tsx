@@ -1,3 +1,4 @@
+import { SettingsLink } from '../components/Feature';
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { PageHelp } from '../components/PageHelp';
@@ -99,7 +100,7 @@ export function Pharmacy() {
     <div className="p-6 space-y-5">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5">Pharmacy<PageHelp page="pharmacy" /></h1>
+          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5">Pharmacy<PageHelp page="pharmacy" /><span className="ml-3 font-normal inline-flex align-middle"><SettingsLink tab="pharmacy" /></span></h1>
           <p className="text-xs text-gray-500 dark:text-slate-400">
             Batch-tracked stock · FEFO dispensing · Schedule H register · Purchase invoices
           </p>

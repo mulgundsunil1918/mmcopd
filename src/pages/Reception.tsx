@@ -1,3 +1,4 @@
+import { SettingsLink, useFeature } from '../components/Feature';
 import { useEffect, useRef, useState } from 'react';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { PageHelp } from '../components/PageHelp';
@@ -123,7 +124,7 @@ export function Reception() {
       {/* LEFT: search */}
       <section className="w-[380px] border-r border-gray-200 flex flex-col bg-white">
         <div className="p-4 border-b border-gray-200">
-          <h1 className="text-lg font-bold text-gray-900 mb-3 inline-flex items-center gap-1.5">Reception<PageHelp page="reception" /></h1>
+          <h1 className="text-lg font-bold text-gray-900 mb-3 inline-flex items-center gap-1.5">Reception<PageHelp page="reception" /><span className="ml-3 font-normal inline-flex align-middle"><SettingsLink tab="reception" group="Fees, Queue Flow & Display" /></span></h1>
           <div className="relative">
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
@@ -464,19 +465,19 @@ function PatientForm({
               watch={watch}
             />
           </Field>
-          <Field label="Email (optional)" error={errors.email?.message}>
+          <Field feature="reception.field.email" label="Email (optional)" error={errors.email?.message}>
             <input className="input" type="email" {...register('email')} />
           </Field>
-          <Field label="Blood Group (optional)" error={errors.blood_group?.message}>
+          <Field feature="reception.field.blood_group" label="Blood Group (optional)" error={errors.blood_group?.message}>
             <select className="input" {...register('blood_group')}>
               <option value="">—</option>
               {['A+','A-','B+','B-','AB+','AB-','O+','O-'].map((b) => <option key={b} value={b}>{b}</option>)}
             </select>
           </Field>
-          <Field label="Address (optional)" error={errors.address?.message}>
+          <Field feature="reception.field.address" label="Address (optional)" error={errors.address?.message}>
             <input className="input" {...register('address')} />
           </Field>
-          <Field label="Profession (optional)" error={errors.profession?.message}>
+          <Field feature="reception.field.profession" label="Profession (optional)" error={errors.profession?.message}>
             <input
               className="input"
               list="professions-list"
@@ -495,7 +496,7 @@ function PatientForm({
             <span className="text-[11px] text-gray-500 dark:text-slate-400">Used for patient origin stats</span>
           </div>
           <div className="grid grid-cols-3 gap-4">
-            <Field label="Village / Town / Place">
+            <Field feature="reception.field.place" label="Village / Town / Place">
               <input
                 className="input"
                 list="known-places-list"
@@ -513,7 +514,7 @@ function PatientForm({
                 ))}
               </datalist>
             </Field>
-            <Field label="District">
+            <Field feature="reception.field.district" label="District">
               <input
                 className="input"
                 list="known-districts-list"
@@ -527,7 +528,7 @@ function PatientForm({
                   .map((v) => <option key={v} value={v!} />)}
               </datalist>
             </Field>
-            <Field label="State">
+            <Field feature="reception.field.state" label="State">
               <select className="input" {...register('state')}>
                 <option value="">—</option>
                 {INDIAN_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -640,7 +641,9 @@ function PhoneField({ register, setValue, watch }: { register: any; setValue: an
   );
 }
 
-function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
+function Field({ label, error, children, feature }: { label: string; error?: string; children: React.ReactNode; feature?: string }) {
+  const shown = useFeature(feature ?? '');          // '' is never switched off; a named field can be hidden in Settings → Reception & Fees → What to show
+  if (!shown) return null;
   return (
     <div>
       <label className="label">{label}</label>

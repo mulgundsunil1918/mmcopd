@@ -1,3 +1,4 @@
+import { SettingsLink } from '../components/Feature';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Bell } from 'lucide-react';
@@ -17,7 +18,7 @@ export function Notifications() {
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Notifications</h1>
+          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Notifications<span className="ml-3 font-normal inline-flex align-middle"><SettingsLink tab="reception" group="What to show" /></span></h1>
           <p className="text-xs text-gray-500 dark:text-slate-400">All SMS/WhatsApp messages logged from the app.</p>
         </div>
         <select

@@ -1,3 +1,4 @@
+import { SettingsLink } from '../components/Feature';
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { PageHelp } from '../components/PageHelp';
@@ -51,7 +52,7 @@ export function Billing() {
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-lg font-bold text-gray-900 inline-flex items-center gap-1.5">Billing<PageHelp page="billing" /></h1>
+          <h1 className="text-lg font-bold text-gray-900 inline-flex items-center gap-1.5">Billing<PageHelp page="billing" /><span className="ml-3 font-normal inline-flex align-middle"><SettingsLink tab="billing" /></span></h1>
           <p className="text-xs text-gray-500">Generate and reprint invoices. Pick a patient to see all their billing in one place, or open an admission to edit its charges and take payment.</p>
         </div>
         <div className="flex gap-2 bg-gray-100 dark:bg-slate-800 p-1 rounded-lg">

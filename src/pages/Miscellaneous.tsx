@@ -1,3 +1,4 @@
+import { SettingsLink } from '../components/Feature';
 import { useEffect, useState } from 'react';
 import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -113,7 +114,7 @@ export function Miscellaneous() {
       <header>
         <div className="flex items-center gap-2">
           <Syringe className="w-5 h-5 text-pink-600" />
-          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5">Services<PageHelp page="services" /></h1>
+          <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100 inline-flex items-center gap-1.5">Services<PageHelp page="services" /><span className="ml-3 font-normal inline-flex align-middle"><SettingsLink tab="reception" group="Services" /></span></h1>
         </div>
         <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
           Procedures, vaccinations, nebulizations, dressings, injections — anything not handled by an appointment bill. Reflects in patient log, doctor revenue, and analytics.

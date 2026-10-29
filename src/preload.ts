@@ -10,6 +10,8 @@ import type { ReferralStats } from './lib/referralStats';
 import type { ImportCommit, ImportResult, ParseResult, WaitingGet, WaitingRow } from './lib/billImport/types';
 import type { AdminPatientVisits, PurchaseDeletedSummary } from './types';
 import type { NetFacts } from './lib/connectCheck';
+import type { DayBookDay, DoctorDay, DoctorSummary, OutLine, ProfitLoss, ReferrerDay, ReferrerSummary, StaffRow, VoucherResult, VoucherRow } from './main/accounts';
+import type { VoucherInput } from './lib/accountsRules';
 
 export type LicenseStatusIPC = {
   state: 'valid' | 'grace' | 'locked' | 'invalid' | 'wrong_machine' | 'clock_tampered' | 'none' | 'dev';
@@ -772,6 +774,26 @@ const api = {
   finance: {
     summary: (filter: { from?: string; to?: string } = {}) =>
       ipcRenderer.invoke('finance:summary', filter) as Promise<any>,
+  },
+  /** Accounts: vouchers (money out), staff and attendance, day book, profit and loss, and what each doctor / referrer earned and was paid. */
+  accounts: {
+    permissions: (adminPassword?: string) => ipcRenderer.invoke('accounts:permissions', adminPassword) as Promise<{ role: string; name: string; can_raise: boolean; can_cancel: boolean; can_see_money: boolean; limit: number | null; reason: string }>,
+    moneyOut: (from: string, to: string) => ipcRenderer.invoke('accounts:moneyOut', from, to) as Promise<{ lines: OutLine[]; total: number; vouchers: number; suppliers: number; refunds: number }>,
+    vouchers: (f?: { from?: string; to?: string; type?: string; status?: string; payee_kind?: string; payee_ref?: string }) => ipcRenderer.invoke('accounts:vouchers', f || {}) as Promise<VoucherRow[]>,
+    voucher: (id: number) => ipcRenderer.invoke('accounts:voucher', id) as Promise<VoucherRow | null>,
+    dayBook: (from: string, to: string) => ipcRenderer.invoke('accounts:dayBook', from, to) as Promise<{ days: DayBookDay[]; opening_cash_set: boolean }>,
+    profitLoss: (from: string, to: string) => ipcRenderer.invoke('accounts:profitLoss', from, to) as Promise<ProfitLoss>,
+    staff: (month?: string) => ipcRenderer.invoke('accounts:staff', month) as Promise<StaffRow[]>,
+    attendance: (staffId: number, ym: string) => ipcRenderer.invoke('accounts:attendance', staffId, ym) as Promise<{ day: string; status: string; note: string | null }[]>,
+    salarySuggestion: (staffId: number, ym: string) => ipcRenderer.invoke('accounts:salarySuggestion', staffId, ym) as Promise<{ monthly: number; keep_attendance: boolean; amount: number; cutDays: number; marked: number; days: number } | null>,
+    categories: () => ipcRenderer.invoke('accounts:categories') as Promise<{ id: number; name: string; is_active: number; sort_order: number }[]>,
+    doctorDays: (f: { from: string; to: string; doctorId?: number }, adminPassword?: string) => ipcRenderer.invoke('accounts:doctorDays', f, adminPassword) as Promise<{ money: boolean; days: DoctorDay[]; doctors: DoctorSummary[] }>,
+    referrerDays: (f: { from: string; to: string }, adminPassword?: string) => ipcRenderer.invoke('accounts:referrerDays', f, adminPassword) as Promise<{ money: boolean; days: ReferrerDay[]; referrers: ReferrerSummary[] }>,
+    createVoucher: (input: VoucherInput & { client_ref?: string }, adminPassword?: string) => ipcRenderer.invoke('accounts:createVoucher', input, adminPassword) as Promise<VoucherResult>,
+    cancelVoucher: (id: number, reason: string, adminPassword?: string) => ipcRenderer.invoke('accounts:cancelVoucher', id, reason, adminPassword) as Promise<{ ok: true; voucher: VoucherRow } | { ok: false; error: string }>,
+    saveStaff: (s: { id?: number; name: string; job?: string; phone?: string; monthly_salary?: number; keep_attendance?: boolean; is_active?: boolean; joined_on?: string }) => ipcRenderer.invoke('accounts:saveStaff', s) as Promise<{ ok: true; id: number } | { ok: false; error: string }>,
+    saveCategory: (c: { id?: number; name?: string; is_active?: boolean }) => ipcRenderer.invoke('accounts:saveCategory', c) as Promise<{ ok: true } | { ok: false; error: string }>,
+    setAttendance: (staffId: number, day: string, status: string | null, note?: string) => ipcRenderer.invoke('accounts:setAttendance', staffId, day, status, note) as Promise<{ ok: true } | { ok: false; error: string }>,
   },
   analytics: {
     /** Who sent the patients: the Referral typed on each visit, grouped (Google, Self, Family, a doctor…) with visits, new vs returning and revenue. */

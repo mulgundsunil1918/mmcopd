@@ -100,11 +100,12 @@ const HELP: Record<PageKey, { title: string; body: React.ReactNode }> = {
     ),
   },
   accounts: {
-    title: 'Accounts & Finance',
+    title: 'Accounts',
     body: (
       <>
-        <p>What the clinic earned and what it spent. Collections come in from every module automatically; expenses are what you enter here.</p>
-        <p>Use it to see a day&rsquo;s or a month&rsquo;s cash position without adding up bills by hand. <b>Still to collect</b> is every bill not fully paid; <b>Collected today</b> is money actually received, by how it was paid.</p>
+        <p>All the clinic&rsquo;s <b>money</b> in one place. <b>Money in</b> is what was collected (by day, month, doctor, payment mode) and what is still to collect. <b>Money out</b> is every payment: you raise a <b>voucher</b> for anything the clinic pays for &mdash; a hand wash for &#8377;45, rent, a salary, a doctor&rsquo;s pay &mdash; and supplier payments and patient refunds are listed there automatically.</p>
+        <p>A voucher is numbered (CM-0001, SAL-0001 &hellip;), can be printed, and cannot be edited once saved: cancel it with a reason and raise it again. <b>Staff and salaries</b> pays salaries, gives advances and (if you keep attendance) suggests the salary from the days worked. The <b>Day book</b> shows cash in hand day by day; <b>Profit and loss</b> shows what is left after medicines, expenses, salaries and doctors&rsquo; pay.</p>
+        <p>Who may raise or cancel vouchers, the staff list, expense heads and the cash you start counting from are set in <b>Settings &rarr; Accounts &amp; Analytics</b>.</p>
       </>
     ),
   },
@@ -112,10 +113,9 @@ const HELP: Record<PageKey, { title: string; body: React.ReactNode }> = {
     title: 'Analytics',
     body: (
       <>
-        <p>The patterns behind the day-to-day — patient numbers, revenue by department, busiest hours, which doctors see the most.</p>
-        <p>Figures come from real recorded activity, so they are only as good as what staff enter. A quiet-looking module usually means it isn&rsquo;t being used, not that it isn&rsquo;t earning.</p>
-        <p><b>Pharmacy</b> shows <i>profit already made</i> (revenue minus what those units cost, after discounts), <i>stock on the shelf</i> at cost, MRP and your selling price, and what you owe each supplier. <b>Margin</b> is profit &divide; revenue; <b>markup</b> is profit &divide; cost &mdash; ₹50 cost sold at ₹100 is a 50% margin and a 100% markup.</p>
-        <p><b>Finance</b> also shows what is <i>still to collect</i> &mdash; by department, by patient and by how long it has been owed (unpaid bills sorted by age, so you can chase the oldest first) &mdash; and <b>Pharmacy</b> splits sales between registered patients and walk-in guests, shows medicines given on credit, and keeps bills typed by hand in a section of their own.</p>
+        <p>The <b>people, visits and time</b> side of the clinic &mdash; patient numbers, busiest hours, where patients come from, which doctors see the most. Money is in <b>Accounts</b>; each page here keeps one small figure and a link to it.</p>
+        <p><b>Doctors</b> shows, for today, yesterday, any days you pick, how many visits each doctor had: <i>new patient</i> (new to that doctor), <i>free follow-up</i> and <i>paid repeat visit</i>. People allowed to raise vouchers also see what each doctor <i>earned</i> (worked out from what was collected, by the rule in Settings &rarr; Doctors &amp; Templates &rarr; Pay and Cuts), what was paid and what is still to pay &mdash; and can pay them with a voucher. <b>Referrals</b> does the same for outside referring doctors.</p>
+        <p>Figures come from real recorded activity, so they are only as good as what staff enter. A quiet-looking module usually means it isn&rsquo;t being used, not that it isn&rsquo;t earning. <b>Pharmacy</b> splits sales between registered patients and walk-in guests, shows medicines given on credit, and keeps bills typed by hand in a section of their own; its profit, stock value and supplier accounts are in <b>Accounts &rarr; Profit and loss</b>.</p>
         <p>Days and months are counted on the clock of this computer, so a bill made at 1 a.m. belongs to that day.</p>
       </>
     ),
