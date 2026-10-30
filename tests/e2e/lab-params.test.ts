@@ -258,6 +258,32 @@ const one = (sql: string, ...p: any[]) => db.prepare(sql).get(...p) as any;
   eq(rowOf((await call('lab:recalcRanges', W.o.id, W.sheet.item_id)).item, /WBC/).range_text, '5,000 - 15,500', 'after “Reset to standard values” a re-apply brings the standard child range');
   ok(!(await call('lab:recalcRanges', orderM.id, W.sheet.item_id)).ok, 'a test of another order is refused');
   const fresh = await mk(kid); const nr = await call('lab:recalcRanges', fresh.o.id, fresh.sheet.item_id); ok(!nr.ok && /Nothing has been saved/.test(nr.error), 'a test with nothing saved yet says so in words');
+  section('14 · the standard test list is wide and sound (what other laboratories run)');
+  const normName = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const CATS = ['haematology', 'biochemistry', 'serology', 'microbiology', 'clinical_pathology', 'histopathology'];
+  const seenName = new Map<string, string>(); const listProblems: string[] = [];
+  for (const p of LAB_PANELS) {
+    if (!CATS.includes(p.category)) listProblems.push(`${p.test}: category “${p.category}”`);
+    if (!p.params.length) listProblems.push(`${p.test}: no parameters`);
+    const pn = new Set<string>(); for (const l of p.params) { if (pn.has(l[0])) listProblems.push(`${p.test}: “${l[0]}” twice`); pn.add(l[0]);
+      const sp = parseRangeSpec(l[2].replace(/^~/, '')); if (!hasNumbers(sp) && !sp.ref_text && l[2].replace(/^~/, '') !== '') listProblems.push(`${p.test}: “${l[0]}” range “${l[2]}” is not understood`);
+      for (const [a, b] of [[sp.low, sp.high], [sp.m_low, sp.m_high], [sp.f_low, sp.f_high]] as [any, any][]) if (a != null && b != null && a > b) listProblems.push(`${p.test}: “${l[0]}” is backwards`); }
+    for (const n of [p.test, ...(p.aliases ?? [])]) { const k = normName(n); if (seenName.has(k) && seenName.get(k) !== p.test) listProblems.push(`“${n}” names both ${seenName.get(k)} and ${p.test}`); seenName.set(k, p.test); }
+  }
+  eq(listProblems.length, 0, `every standard test has a valid category, parameters, understood ranges and a name of its own${listProblems.length ? ': ' + listProblems.slice(0, 5).join('; ') : ''}`);
+  ok(LAB_PANELS.length >= 150, `${LAB_PANELS.length} standard tests (${LAB_PANELS.reduce((n, p) => n + p.params.length, 0)} results with normal values)`);
+  const want = ['C-Reactive Protein (CRP)', 'hs-CRP', 'HbA1c', 'Vitamin D (25-OH)', 'Vitamin B12', 'Serum Ferritin', 'Procalcitonin', 'D-Dimer', 'Troponin I', 'CPK (Total)', 'NT-proBNP', 'Free T3 (FT3)', 'Free T4 (FT4)', 'Prolactin', 'FSH', 'LH', 'Testosterone (Total)', 'Beta hCG (Quantitative)', 'Cortisol (Morning)',
+    'Fasting Insulin', 'Oral Glucose Tolerance Test (OGTT 75 g)', 'Arterial Blood Gas (ABG)', 'CA-125', 'CEA', 'AFP (Alpha Fetoprotein)', 'PSA (Prostate Specific Antigen)', 'ASO Titre', 'Anti-CCP', 'ANA (Antinuclear Antibody)', 'Dengue IgM & IgG', 'Dengue NS1 Antigen', 'Malaria Parasite (Smear)',
+    'Reticulocyte Count', 'Peripheral Blood Smear', 'Urine Culture & Sensitivity', 'Blood Culture & Sensitivity', 'Sputum for AFB', 'CSF Analysis', 'Urine Microalbumin', 'Serum Sodium', 'Serum Potassium', 'Total Cholesterol', 'HDL Cholesterol', 'LDL Cholesterol', 'Triglycerides'];
+  const have = new Set(LAB_PANELS.map((p) => p.test)); const missing = want.filter((w) => !have.has(w)); eq(missing.length, 0, `the usual tests are all there${missing.length ? ' — MISSING: ' + missing.join(', ') : ''}`);
+  const crp = one("SELECT id FROM lab_tests WHERE name = 'C-Reactive Protein (CRP)'"); const crpP = (await call('lab:getParams', crp.id)).params;
+  eq(`${crpP[0].name} ${crpP[0].unit} ${crpP[0].high}`, 'C-reactive protein (CRP) mg/L 6', 'CRP arrives with its unit and normal range (below 6 mg/L)');
+  const sodium = one("SELECT id FROM lab_tests WHERE name = 'Serum Potassium'"); eq((await call('lab:getParams', sodium.id)).params[0].ranges.length, 2, 'a single test shares the children’s ranges of its parameter (potassium: newborn and infant)');
+  const cultOrder = await mk(await mkPt('Culture pt', '1985-03-03', 'F'), one("SELECT id FROM lab_tests WHERE name = 'Urine Culture & Sensitivity'"));
+  const cultSave = await call('lab:saveResultValues', cultOrder.o.id, cultOrder.sheet.item_id, [{ key: rowOf(cultOrder.sheet, /Culture result/).key, value: 'E. coli > 100000 CFU/mL' }]);
+  eq(rowOf(cultSave.item, /Culture result/).flag, 'A', 'a culture result other than “No growth” is marked Abnormal');
+  const trop = await mk(await mkPt('Trop pt', '1960-03-03', 'M'), one("SELECT id FROM lab_tests WHERE name = 'Troponin I'"));
+  const trSave = await call('lab:saveResultValues', trop.o.id, trop.sheet.item_id, [{ key: trop.sheet.rows[0].key, value: '0.8' }]); eq(trSave.item.rows[0].flag, 'H', 'a troponin I of 0.8 ng/mL is High');
   near(Number(one('SELECT COUNT(*) n FROM lab_test_params').n) > 100 ? 1 : 0, 1, 'the defaults hold well over 100 parameters');
   finish();
 })().catch((e) => { console.error(e); process.exit(1); });
