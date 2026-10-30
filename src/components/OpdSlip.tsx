@@ -158,13 +158,18 @@ export function OpdSlip({
     return splitSectionsWithLayout(base, layout);
   }, [template, layout, FALLBACK_TEMPLATE]);
 
-  // A 2-page layout whose FIRST page would hold no body section at all (the doctor deleted History / Examination to make the slip shorter) used to print a
-  // nearly empty first sheet and everything on the second, headed "Continued — Page 2 of 2". Such a slip is ONE page: show that, measured on the real
-  // content, and only if it does not fit fall back to two pages with the sections shared between them. A layout that has something on page 1 is untouched.
+  // A 2-page layout prints on ONE sheet when the whole slip fits on one (owner, 2026-10-29: "if it fits in one page, one page"); a longer slip prints on two as
+  // designed. Always so when the FIRST page would hold no body section at all (the doctor deleted History / Examination: that used to print an almost empty page 1
+  // and everything on page 2, headed "Continued — Page 2 of 2"). Sections the doctor pinned to a page keep their two pages while page 1 has something on it,
+  // and Settings → slip layout can switch the fitting off. It is measured on the real content, so what is shown is what prints.
   const firstPageEmpty = layout.pages === 2 && pageOneSections.length === 0 && pageTwoSections.length > 0;
+  const pinned = layout.page1Keys.length > 0 || layout.page2Keys.length > 0;
+  const tryOnePage = layout.pages === 2 && (firstPageEmpty || (layout.fitOnePage !== false && !pinned));
   const [overflowed, setOverflowed] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
-  const trial = firstPageEmpty && !overflowed;
+  const trial = tryOnePage && !overflowed;
+  // new content (a medicine added, the follow-up note arriving, another layout) → try the one-page version again
+  useEffect(() => { setOverflowed(false); }, [rxItems.length, labOrders.length, consultation, layout, followup]);
   useLayoutEffect(() => {
     if (!trial) return;
     const check = () => { const el = sheetRef.current; if (el && el.scrollHeight > el.clientHeight + 2) setOverflowed(true); };

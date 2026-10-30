@@ -94,12 +94,12 @@ const SCENARIOS = {
   'opd-slip': async (win) => {
     await open(win, '#/appointments');
     await sleep(2500);
-    // SLIP_SECTIONS=impression,advice  keeps only those body sections (the rest are "deleted"); SLIP_PAGES=1|2 sets the layout's page count; SLIP_EXTRA_MM=120 adds one tall extra section.
-    if (process.env.SLIP_SECTIONS || process.env.SLIP_PAGES || process.env.SLIP_EXTRA_MM) {
+    // SLIP_SECTIONS=impression,advice  keeps only those body sections (the rest are "deleted"); SLIP_PAGES=1|2 sets the layout's page count; SLIP_EXTRA_MM=120 adds one tall extra section; SLIP_HEIGHT_MM=20 sets every kept section's height; SLIP_FIT=0 switches "print on one page when it fits" off.
+    if (process.env.SLIP_SECTIONS || process.env.SLIP_PAGES || process.env.SLIP_EXTRA_MM || process.env.SLIP_HEIGHT_MM || process.env.SLIP_FIT) {
       await win.webContents.executeJavaScript(`(async () => {
         const keep = ${JSON.stringify((process.env.SLIP_SECTIONS || '').split(',').filter(Boolean))}; const pages = ${Number(process.env.SLIP_PAGES || 0)};
         const list = await window.electronAPI.templates.list();
-        await window.electronAPI.templates.saveAll(list.map(t => ({ ...t, sections: (keep.length ? t.sections.filter(s => keep.includes(s.key)) : t.sections).concat(${Number(process.env.SLIP_EXTRA_MM || 0)} ? [{ key: 'plan', title: 'Plan', type: 'textarea', height_mm: ${Number(process.env.SLIP_EXTRA_MM || 0)}, printed: true }] : []), layout: { ...(t.layout || {}), ...(pages ? { pages } : {}) } })));
+        await window.electronAPI.templates.saveAll(list.map(t => ({ ...t, sections: (keep.length ? t.sections.filter(s => keep.includes(s.key)) : t.sections).map(s => (${Number(process.env.SLIP_HEIGHT_MM || 0)} ? { ...s, height_mm: ${Number(process.env.SLIP_HEIGHT_MM || 0)} } : s)).concat(${Number(process.env.SLIP_EXTRA_MM || 0)} ? [{ key: 'plan', title: 'Plan', type: 'textarea', height_mm: ${Number(process.env.SLIP_EXTRA_MM || 0)}, printed: true }] : []), layout: { ...(t.layout || {}), ...(pages ? { pages } : {}), ...(${process.env.SLIP_FIT === '0' ? 'true' : 'false'} ? { fitOnePage: false } : {}) } })));
         return true;
       })()`, true);
     }
@@ -115,6 +115,9 @@ const SCENARIOS = {
     await waitFor(win, `(() => { const b=[...document.querySelectorAll('button')].filter(e => /^(Slip|Print|Consultation)$/.test((e.textContent||'').trim())); if(!b.length) return false; b[0].click(); return true; })()`, 'row Slip button');
     await waitFor(win, HAS_TEXT('OPD Slip preview'), 'slip overlay');
     await sleep(1500);
+    if (process.env.SLIP_PROBE) {       // SLIP_PROBE=1: print how full each sheet is (scrollHeight vs clientHeight) and the page count the preview claims
+      console.log('PROBE', await win.webContents.executeJavaScript(`JSON.stringify({ sheets: [...document.querySelectorAll('.print-page')].map(e => [e.scrollHeight, e.clientHeight]), pill: (document.body.innerText.match(/OPD Slip preview[^\\n]*/) || [''])[0] })`, true));
+    }
   },
   // Services -> a service bill -> BillPrint overlay (min-height 297mm sheet).
   'services-bill': async (win) => {

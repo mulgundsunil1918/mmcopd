@@ -79,6 +79,8 @@ export interface SlipTemplateSection {
 }
 export interface SlipLayout {
   pages: 1 | 2;
+  /** With 2 pages chosen: print on ONE sheet when the whole slip fits on it (default on). Off = always two sheets. */
+  fitOnePage?: boolean;
   logoSize: 'none' | 'small' | 'medium' | 'large';
   headerStyle: 'full' | 'compact';
   fontSize: number;

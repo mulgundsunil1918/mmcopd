@@ -3762,6 +3762,13 @@ function SlipTemplatesEditor() {
                       </button>
                     ))}
                   </div>
+                  {layout.pages === 2 && (
+                    <label className="mt-2 flex items-center gap-2 text-xs text-gray-700 dark:text-slate-300 cursor-pointer">
+                      <input type="checkbox" checked={layout.fitOnePage !== false} onChange={(e) => updateLayout({ fitOnePage: e.target.checked })} />
+                      Print on one page when everything fits
+                      <HelpTip title="One page when it fits">With 2 pages chosen, a slip whose whole content fits on one sheet (a few medicines, short notes) prints on ONE sheet instead of a mostly empty second page. A longer slip still prints on two. Untick to always print two sheets.</HelpTip>
+                    </label>
+                  )}
                 </div>
 
                 {/* Logo on this template. Size and the wide-logo option are clinic-wide —
