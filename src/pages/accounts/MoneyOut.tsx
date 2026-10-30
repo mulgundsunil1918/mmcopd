@@ -9,7 +9,7 @@ import { HelpTip } from '../../components/HelpTip';
 import { useToast } from '../../hooks/useToast';
 import { VOUCHER_TYPES } from '../../lib/accountsRules';
 import { fmtDate } from '../../lib/utils';
-import { inr, MUTED, Tile, usePeriod, usePermissions } from './shared';
+import { getMoneyPw, inr, MUTED, Tile, usePeriod, usePermissions } from './shared';
 import type { VoucherRow } from '../../main/accounts';
 
 const SOURCE: Record<string, string> = { voucher: 'Voucher', supplier: 'Supplier payment', refund: 'Patient refund' };
@@ -18,12 +18,12 @@ export function MoneyOutTab({ initialNew }: { initialNew?: boolean }) {
   const qc = useQueryClient(); const toast = useToast();
   const { range, ui } = usePeriod('month');
   const { data: perm } = usePermissions();
-  const { data } = useQuery({ queryKey: ['acct-money-out', range.from, range.to], queryFn: () => window.electronAPI.accounts.moneyOut(range.from, range.to) });
+  const { data } = useQuery({ queryKey: ['acct-money-out', range.from, range.to], queryFn: () => window.electronAPI.accounts.moneyOut(range.from, range.to, getMoneyPw()) });
   const [dlg, setDlg] = useState<VoucherPreset | null>(initialNew ? {} : null);
   const [print, setPrint] = useState<VoucherRow | null>(null);
   const [cancel, setCancel] = useState<{ id: number; no: string } | null>(null);
   const [reason, setReason] = useState(''); const [pw, setPw] = useState(''); const [err, setErr] = useState('');
-  const open = async (id: number) => { const v = await window.electronAPI.accounts.voucher(id); if (v) setPrint(v); };
+  const open = async (id: number) => { const v = await window.electronAPI.accounts.voucher(id, getMoneyPw()); if (v) setPrint(v); };
   const doCancel = async () => {
     if (!cancel) return; setErr('');
     const r = await window.electronAPI.accounts.cancelVoucher(cancel.id, reason, pw || undefined);

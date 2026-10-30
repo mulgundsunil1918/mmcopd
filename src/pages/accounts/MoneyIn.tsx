@@ -75,7 +75,7 @@ export function MoneyInTab() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <p className="text-xs text-gray-500 dark:text-slate-400">Money that came in — filter the range, compare periods, drill down by doctor, day, place.</p>
+        <p className="text-xs text-gray-500 dark:text-slate-400">Revenue — what was BILLED — compared across periods, by doctor, day and place. What was actually received is under “Collected today, by payment mode”, and in Overview and Profit and loss.</p>
         <div className="flex items-center gap-2">
           <input type="date" className="input w-auto" value={from} onChange={(e) => setFrom(e.target.value)} />
           <span className="text-xs text-gray-500">to</span>
@@ -88,7 +88,7 @@ export function MoneyInTab() {
       <Feature id="accounts.in.kpis">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard
-          label="Today"
+          label="Billed today"
           value={formatINR(data.today.total)}
           sub={`${data.today.count} bills`}
           change={dayChange}
@@ -97,7 +97,7 @@ export function MoneyInTab() {
           tone="emerald"
         />
         <KpiCard
-          label="This Week"
+          label="Billed this week"
           value={formatINR(data.week.total)}
           sub={`${data.week.count} bills`}
           change={weekChange}
@@ -106,7 +106,7 @@ export function MoneyInTab() {
           tone="blue"
         />
         <KpiCard
-          label="This Month"
+          label="Billed this month"
           value={formatINR(data.month.total)}
           sub={`${data.month.count} bills`}
           change={monthChange}
@@ -115,7 +115,7 @@ export function MoneyInTab() {
           tone="purple"
         />
         <KpiCard
-          label="All time"
+          label="Billed, all time"
           value={formatINR(data.allTime.total)}
           sub={`${data.allTime.count} bills · avg ${formatINR(data.allTime.avg)} · max ${formatINR(data.allTime.max)}`}
           icon={<TrendingUp className="w-5 h-5" />}

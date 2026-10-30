@@ -11,7 +11,7 @@ import { DEDUCTION_KINDS, PAY_MODES, VOUCHER_TYPES, voucherType, type PayeeKind 
 import { referralKey } from '../../lib/referralStats';
 import { fmtDate } from '../../lib/utils';
 import { localISO } from '../../lib/localDate';
-import { inr, MUTED, usePermissions, dayLabel, rangeOf, type PeriodId } from '../../pages/accounts/shared';
+import { getMoneyPw, inr, MUTED, usePermissions, dayLabel, rangeOf, type PeriodId } from '../../pages/accounts/shared';
 import type { VoucherRow } from '../../main/accounts';
 
 export interface VoucherPreset {
@@ -41,7 +41,7 @@ export function VoucherDialog({ open, onClose, preset = {}, onDone }: { open: bo
   const set = (p: Partial<typeof f>) => setF((x) => ({ ...x, ...p }));
   const vt = voucherType(f.type); const kind: PayeeKind = (vt?.payee ?? 'other') as PayeeKind;
 
-  const { data: staff = [] } = useQuery({ queryKey: ['acct-staff'], queryFn: () => window.electronAPI.accounts.staff(), enabled: open && kind === 'staff' });
+  const { data: staff = [] } = useQuery({ queryKey: ['acct-staff', 'dialog', !!pw], queryFn: () => window.electronAPI.accounts.staff(undefined, pw || getMoneyPw()), enabled: open && kind === 'staff' });
   const { data: doctors = [] } = useQuery({ queryKey: ['doctors-all'], queryFn: () => window.electronAPI.doctors.list(false), enabled: open && kind === 'doctor' });
   const { data: refs = [] } = useQuery({ queryKey: ['referring-doctors-all'], queryFn: () => window.electronAPI.referringDoctors.list(false), enabled: open && kind === 'referrer' });
   const { data: cats = [] } = useQuery({ queryKey: ['acct-categories'], queryFn: () => window.electronAPI.accounts.categories(), enabled: open && kind === 'other' });
@@ -66,7 +66,7 @@ export function VoucherDialog({ open, onClose, preset = {}, onDone }: { open: bo
   useEffect(() => { if (open && owes && dueQ.data && preset.gross === undefined) set({ gross: dueTotal }); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [dueTotal, open]);
   const quick: { id: PeriodId; label: string }[] = [{ id: 'today', label: 'Today' }, { id: 'yesterday', label: 'Yesterday' }, { id: 'week', label: 'This week' }, { id: 'month', label: 'This month' }, { id: 'lastmonth', label: 'Last month' }];
 
-  const sugg = useQuery({ queryKey: ['acct-salary', f.payee_ref, f.month], enabled: open && f.type === 'staff_salary' && !!f.payee_ref, queryFn: () => window.electronAPI.accounts.salarySuggestion(Number(f.payee_ref), f.month) });
+  const sugg = useQuery({ queryKey: ['acct-salary', f.payee_ref, f.month], enabled: open && f.type === 'staff_salary' && !!f.payee_ref, queryFn: () => window.electronAPI.accounts.salarySuggestion(Number(f.payee_ref), f.month, pw || getMoneyPw()) });
   const person = useMemo(() => staff.find((s) => String(s.id) === f.payee_ref), [staff, f.payee_ref]);
   const net = Math.max(0, (Number(f.gross) || 0) - (Number(f.deduction) || 0));
   const needPw = !!perm && !perm.can_raise;
@@ -156,7 +156,7 @@ export function VoucherDialog({ open, onClose, preset = {}, onDone }: { open: bo
         <div className="grid grid-cols-3 gap-3">
           <div><L help={owes ? 'How much is being paid now. If it is less than what is due, the rest stays “to pay”.' : 'The full amount, before any deduction.'}>Amount</L>
             <input className="input" inputMode="decimal" value={f.gross || ''} onChange={(e) => set({ gross: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} placeholder="₹" /></div>
-          <div><L help="Money kept back from this payment — tax deducted at source, or an advance being recovered. The amount paid out is the amount less this.">Deduction (optional)</L>
+          <div><L help="Money kept back from this payment — tax deducted at source, or an advance being recovered. The amount paid out is the amount less this. Profit and loss counts the full amount as the cost; when you later deposit held-back tax with the government, raise an Expense under the heading “TDS deposit” and it is left out of the cost (it was already counted).">Deduction (optional)</L>
             <input className="input" inputMode="decimal" value={f.deduction || ''} onChange={(e) => set({ deduction: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} placeholder="₹ 0" /></div>
           {f.deduction > 0 ? <div><L>Deduction is</L><select className="input" value={f.deduction_kind} onChange={(e) => set({ deduction_kind: e.target.value })}>{DEDUCTION_KINDS.filter((d) => d.id !== 'none').map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}</select></div>
             : <div><L>Cheque / reference no.</L><input className="input" value={f.reference} onChange={(e) => set({ reference: e.target.value })} placeholder="optional" /></div>}

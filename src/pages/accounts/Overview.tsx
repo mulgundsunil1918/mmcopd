@@ -8,18 +8,18 @@ import { VoucherPrint } from '../../components/accounts/VoucherPrint';
 import { SeeMore } from '../../components/Feature';
 import { VOUCHER_TYPES } from '../../lib/accountsRules';
 import { fmtDate, todayISO } from '../../lib/utils';
-import { inr, MUTED, Tile, usePeriod } from './shared';
+import { getMoneyPw, inr, MUTED, Tile, usePeriod } from './shared';
 import type { VoucherRow } from '../../main/accounts';
 
 export function OverviewTab() {
   const navigate = useNavigate();
   const { range, ui } = usePeriod('month');
-  const { data: pl } = useQuery({ queryKey: ['acct-pnl', range.from, range.to], queryFn: () => window.electronAPI.accounts.profitLoss(range.from, range.to) });
-  const { data: out } = useQuery({ queryKey: ['acct-money-out', range.from, range.to], queryFn: () => window.electronAPI.accounts.moneyOut(range.from, range.to) });
+  const { data: pl } = useQuery({ queryKey: ['acct-pnl', range.from, range.to], queryFn: () => window.electronAPI.accounts.profitLoss(range.from, range.to, getMoneyPw()) });
+  const { data: out } = useQuery({ queryKey: ['acct-money-out', range.from, range.to], queryFn: () => window.electronAPI.accounts.moneyOut(range.from, range.to, getMoneyPw()) });
   const { data: book } = useQuery({ queryKey: ['acct-daybook', todayISO(), todayISO()], queryFn: () => window.electronAPI.accounts.dayBook(todayISO(), todayISO()) });
   const { data: docs } = useQuery({ queryKey: ['acct-doctor-days', 'overview', range.from, range.to], queryFn: () => window.electronAPI.accounts.doctorDays({ from: range.from, to: range.to }) });
-  const { data: staff = [] } = useQuery({ queryKey: ['acct-staff'], queryFn: () => window.electronAPI.accounts.staff() });
-  const { data: recent = [] } = useQuery({ queryKey: ['acct-vouchers-recent'], queryFn: () => window.electronAPI.accounts.vouchers({ status: 'active' }) });
+  const { data: staff = [] } = useQuery({ queryKey: ['acct-staff', 'overview'], queryFn: () => window.electronAPI.accounts.staff(undefined, getMoneyPw()) });
+  const { data: recent = [] } = useQuery({ queryKey: ['acct-vouchers-recent'], queryFn: () => window.electronAPI.accounts.vouchers({ status: 'active' }, getMoneyPw()) });
   const [dlg, setDlg] = useState<VoucherPreset | null>(null);
   const [print, setPrint] = useState<VoucherRow | null>(null);
   const owed = docs?.money ? docs.doctors.reduce((a, d) => a + d.balance, 0) : null;
@@ -40,7 +40,7 @@ export function OverviewTab() {
       <div className="card">
         <div className="p-3 border-b border-gray-200 dark:border-slate-700 text-sm font-semibold">Latest vouchers</div>
         {recent.slice(0, 8).map((v) => (
-          <button key={v.id} className="w-full text-left px-3 py-2 border-b border-gray-100 dark:border-slate-800 flex items-center gap-3 text-sm hover:bg-gray-50 dark:hover:bg-slate-800" onClick={async () => { const r = await window.electronAPI.accounts.voucher(v.id); if (r) setPrint(r); }}>
+          <button key={v.id} className="w-full text-left px-3 py-2 border-b border-gray-100 dark:border-slate-800 flex items-center gap-3 text-sm hover:bg-gray-50 dark:hover:bg-slate-800" onClick={async () => { const r = await window.electronAPI.accounts.voucher(v.id, getMoneyPw()); if (r) setPrint(r); }}>
             <span className="font-mono text-xs w-20">{v.voucher_no}</span><span className="flex-1">{v.payee_name} <span className={MUTED}>· {v.description || v.category || ''}</span></span>
             <span className={MUTED}>{fmtDate(v.voucher_date)}</span><span className="tabular-nums font-medium w-24 text-right">{inr(v.net_amount)}</span></button>
         ))}

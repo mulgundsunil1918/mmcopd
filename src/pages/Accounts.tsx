@@ -14,6 +14,7 @@ import { MoneyOutTab } from './accounts/MoneyOut';
 import { StaffTab } from './accounts/Staff';
 import { DayBookTab } from './accounts/DayBook';
 import { ProfitLossTab } from './accounts/ProfitLoss';
+import { MoneyLocked, useMoneyAccess } from './accounts/shared';
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, feature: 'accounts.tab.overview' },
@@ -26,6 +27,8 @@ const TABS = [
 
 export function Accounts() {
   const [params, setParams] = useSearchParams();
+  const { ready, can, pw, unlock } = useMoneyAccess();          // salaries, vouchers and profit are for people allowed to raise vouchers (or with the admin password)
+  const wrong = ready && !can && !!pw;
   const on = Object.fromEntries(TABS.map((t) => [t.id, useFeature(t.feature)])) as Record<string, boolean>;   // eslint-disable-line react-hooks/rules-of-hooks
   const visible = TABS.filter((t) => on[t.id]);
   const asked = params.get('tab') || 'overview';
@@ -48,12 +51,12 @@ export function Accounts() {
         ))}
       </div>
       {!tab && <div className="text-sm text-gray-500">Every Accounts tab is switched off in Settings → Accounts &amp; Analytics.</div>}
-      {tab === 'overview' && <OverviewTab />}
+      {tab === 'overview' && (!ready ? null : can ? <OverviewTab /> : <MoneyLocked what="The overview" onUnlock={unlock} wrong={wrong} />)}
       {tab === 'in' && <MoneyInWithMore />}
-      {tab === 'out' && <MoneyOutTab />}
-      {tab === 'staff' && <StaffTab />}
+      {tab === 'out' && (!ready ? null : can ? <MoneyOutTab /> : <MoneyLocked what="Money out" onUnlock={unlock} wrong={wrong} />)}
+      {tab === 'staff' && <StaffTab money={can} />}
       {tab === 'daybook' && <DayBookTab />}
-      {tab === 'pnl' && <ProfitLossTab />}
+      {tab === 'pnl' && (!ready ? null : can ? <ProfitLossTab /> : <MoneyLocked what="Profit and loss" onUnlock={unlock} wrong={wrong} />)}
     </div>
   );
 }

@@ -4,11 +4,11 @@ import { Feature } from '../../components/Feature';
 import { HelpTip } from '../../components/HelpTip';
 import { ModulesRevenue } from '../../components/analytics/ModulesRevenue';
 import { PharmacyProfitSection, PharmacyValuationSection, SupplierSection } from '../../components/analytics/PharmacyProfit';
-import { inr, MUTED, usePeriod } from './shared';
+import { getMoneyPw, inr, MUTED, usePeriod } from './shared';
 
 export function ProfitLossTab() {
   const { range, ui } = usePeriod('month');
-  const { data: pl } = useQuery({ queryKey: ['acct-pnl', range.from, range.to], queryFn: () => window.electronAPI.accounts.profitLoss(range.from, range.to) });
+  const { data: pl } = useQuery({ queryKey: ['acct-pnl', range.from, range.to], queryFn: () => window.electronAPI.accounts.profitLoss(range.from, range.to, getMoneyPw()) });
   /** A cost reads "− ₹21,800.00" (never "₹-21,800.00"); the bold rows (money in, profit) carry a rule above them except the very first. */
   const money = (v: number) => (v < 0 ? `− ${inr(-v)}` : inr(v));
   const row = (label: string, v: number, opts: { sub?: boolean; bold?: boolean; tone?: string; rule?: boolean } = {}) => (

@@ -238,7 +238,8 @@ function rng(seed: number) { let a = seed >>> 0; return () => { a = (a + 0x6d2b7
     const atBilling = q("SELECT b.amount_paid - COALESCE((SELECT SUM(amount) FROM bill_payments p WHERE p.bill_id=b.id),0) AS rem FROM bills b WHERE COALESCE(b.status,'') <> 'cancelled' AND b.cancelled_at IS NULL AND date(b.created_at,'localtime') BETWEEN ? AND ?", today, today).reduce((s, x) => s + Math.max(0, x.rem), 0);
     const counter = q("SELECT s.total, COALESCE(s.amount_paid, s.total) AS ap, COALESCE((SELECT SUM(amount) FROM pharmacy_sale_payments x WHERE x.sale_id=s.id),0) AS later FROM pharmacy_sales s WHERE COALESCE(s.payment_mode,'') <> 'IPD-bill' AND date(s.created_at,'localtime') BETWEEN ? AND ?", today, today).reduce((s, x) => s + Math.max(0, x.ap - x.later), 0);
     const later = one("SELECT COALESCE(SUM(amount),0) s FROM pharmacy_sale_payments WHERE date(received_at,'localtime') BETWEEN ? AND ?", today, today).s;
-    const expectCollected = r2(rows + atBilling + counter + later);
+    const deposits = one("SELECT COALESCE(SUM(amount),0) s FROM advances WHERE date(received_at,'localtime') BETWEEN ? AND ?", today, today).s - one("SELECT COALESCE(SUM(refunded_amount),0) s FROM advances WHERE refunded_at IS NOT NULL AND date(refunded_at,'localtime') BETWEEN ? AND ?", today, today).s;
+    const expectCollected = r2(rows + atBilling + counter + later + deposits);
     if (Math.abs(bi.totalCollected - expectCollected) > 0.021) add(`${label}: collected today ${bi.totalCollected} ≠ independent sum ${expectCollected}`);
     // module P&L adds up to billed
     const mods = await call('analytics:modules', today, today);

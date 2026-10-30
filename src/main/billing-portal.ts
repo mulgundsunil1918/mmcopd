@@ -541,7 +541,17 @@ export function collections(db: Database.Database, from: string, to: string): Co
       m.n += r.n; m.p += toPaise(r.amt); merged.set(r.mode, m);
     }
   };
-  add(rows); add(atBilling); add(pharm); add(pharmLater);
+  // In-patient DEPOSITS (the `advances` table): money taken before there is a bill to pay — counted on the day it was received (a deposit that later pays part of
+  // the ward bill is NOT counted again: the bill's own payments exclude it), and an unused part handed back is taken off on the day it was refunded.
+  const deposits = db.prepare(
+    `SELECT COALESCE(NULLIF(TRIM(payment_mode), ''), 'Unspecified') AS mode, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amt
+       FROM advances WHERE received_at >= ? AND received_at < ? AND date(received_at, 'localtime') BETWEEN ? AND ? GROUP BY mode`,
+  ).all(slack.lo, slack.hi, from, to) as { mode: string; n: number; amt: number }[];
+  const depositRefunds = db.prepare(
+    `SELECT COALESCE(NULLIF(TRIM(payment_mode), ''), 'Unspecified') AS mode, COUNT(*) AS n, -COALESCE(SUM(refunded_amount), 0) AS amt
+       FROM advances WHERE refunded_amount > 0.004 AND refunded_at IS NOT NULL AND refunded_at >= ? AND refunded_at < ? AND date(refunded_at, 'localtime') BETWEEN ? AND ? GROUP BY mode`,
+  ).all(slack.lo, slack.hi, from, to) as { mode: string; n: number; amt: number }[];
+  add(rows); add(atBilling); add(pharm); add(pharmLater); add(deposits); add(depositRefunds);
   const sumP = (list: { amt: number }[]) => list.reduce((a, r) => a + toPaise(r.amt), 0);
   const by_mode = [...merged.entries()]
     .map(([payment_mode, v]) => ({ payment_mode, count: v.n, total: fromPaise(v.p) }))
@@ -554,6 +564,7 @@ export function collections(db: Database.Database, from: string, to: string): Co
       paid_at_billing: fromPaise(sumP(atBilling)),
       pharmacy_counter: fromPaise(sumP(pharm)),
       pharmacy_credit_payments: fromPaise(sumP(pharmLater)),
+      ipd_deposits: fromPaise(sumP(deposits) + sumP(depositRefunds)),
     },
   };
 }
@@ -624,6 +635,14 @@ export function dailyCollection(db: Database.Database, from?: string, to?: strin
      ) WHERE rem > 0.004 GROUP BY day`,
   ).all(...c.params) as any[];
   for (const r of atBilling) at(r.day).recP += toPaise(r.t);
+
+  // In-patient deposits: received on the day they were taken, taken off on the day an unused part was handed back (the same rule as collections()).
+  const dp = range('received_at');
+  const depRows = db.prepare(`SELECT date(received_at, 'localtime') AS day, COALESCE(SUM(amount), 0) AS t FROM advances WHERE 1=1${dp.and} GROUP BY day`).all(...dp.params) as any[];
+  for (const r of depRows) at(r.day).recP += toPaise(r.t);
+  const dr = range('refunded_at');
+  const depRefundRows = db.prepare(`SELECT date(refunded_at, 'localtime') AS day, COALESCE(SUM(refunded_amount), 0) AS t FROM advances WHERE refunded_amount > 0.004 AND refunded_at IS NOT NULL${dr.and} GROUP BY day`).all(...dr.params) as any[];
+  for (const r of depRefundRows) at(r.day).recP -= toPaise(r.t);
 
   return [...days.entries()]
     .sort((x, y) => (x[0] < y[0] ? 1 : x[0] > y[0] ? -1 : 0))

@@ -5,7 +5,7 @@
 //   1. start the demo:   npx vite --config vite.demo.config.ts --port 5199 --host 127.0.0.1
 //   2. run a scenario:   node_modules/.bin/electron tools/print-check.cjs <scenario> <outDir>
 //        scenarios: billing-invoice | pharmacy-receipt | lab-bill | services-bill | services-bill-long
-//                   opd-slip | radiology-report | radiology-bill | connect-checklist | connect-checklist-setup | route-only | eval
+//                   opd-slip | voucher | radiology-report | radiology-bill | connect-checklist | connect-checklist-setup | route-only | eval
 //   env: TAG=<suffix for the pdf name>, DEMO_URL, SETTINGS_JSON=<file with a settings patch, e.g. a wide
 //        logo + lh_style:"banner">, HASH / WAIT (route-only), EVAL (eval).
 //
@@ -118,6 +118,14 @@ const SCENARIOS = {
     if (process.env.SLIP_PROBE) {       // SLIP_PROBE=1: print how full each sheet is (scrollHeight vs clientHeight) and the page count the preview claims
       console.log('PROBE', await win.webContents.executeJavaScript(`JSON.stringify({ sheets: [...document.querySelectorAll('.print-page')].map(e => [e.scrollHeight, e.clientHeight]), pill: (document.body.innerText.match(/OPD Slip preview[^\\n]*/) || [''])[0] })`, true));
     }
+  },
+  // Accounts -> Money out -> a voucher -> the printable Payment Voucher (expected: 1 page)
+  'voucher': async (win) => {
+    await open(win, '#/accounts?tab=out');
+    await waitFor(win, HAS_TEXT('Supplier payment'), 'money out rows');
+    await waitFor(win, `(() => { const b = document.querySelector('button[title="View and print"]'); if (!b) return false; b.click(); return true; })()`, 'voucher print button');
+    await waitFor(win, HAS_TEXT('PAYMENT VOUCHER'), 'voucher overlay');
+    await sleep(800);
   },
   // Services -> a service bill -> BillPrint overlay (min-height 297mm sheet).
   'services-bill': async (win) => {

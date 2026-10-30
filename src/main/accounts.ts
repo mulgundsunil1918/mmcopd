@@ -108,30 +108,31 @@ function gather(db: Database.Database, from: string, to: string) {
   }
 
   // 2) in-patient doctor-visit lines (each line belongs to the doctor named on it, on the day it accrued)
-  const visits = db.prepare(`SELECT bi.amount AS line_amount, bi.source_ref_id AS doc, bi.accrual_date AS day, ${BILL_COLS} ${BILL_FROM}
+  const visits = db.prepare(`SELECT bi.amount AS line_amount, bi.tax_inclusive AS inc, bi.cgst AS lcgst, bi.sgst AS lsgst, bi.source_ref_id AS doc, bi.accrual_date AS day, ${BILL_COLS} ${BILL_FROM}
       JOIN bill_items bi ON bi.bill_id = b.id
-      WHERE bi.source = 'doctor_visit' AND bi.accrual_date BETWEEN ? AND ? AND ${LIVE_BILL}`).all(from, to) as (BillRow & { line_amount: number; doc: number | null })[];
+      WHERE bi.source = 'doctor_visit' AND bi.accrual_date BETWEEN ? AND ? AND ${LIVE_BILL}`).all(from, to) as (BillRow & { line_amount: number; inc: number | null; lcgst: number; lsgst: number; doc: number | null })[];
   for (const r of visits) {
     if (!r.doc) continue;
-    const f = billFigures(r); const line = toPaise(r.line_amount);
+    const f = billFigures(r); const line = Math.max(0, toPaise(r.line_amount) - (r.inc ? toPaise(r.lcgst) + toPaise(r.lsgst) : 0));
     const s = dayOf(r.doc, r.day).streams.ipd;           // the line's own value, collected in the same proportion as its bill
     s.billedP += line; s.collectedP += Math.round(line * f.share); s.baseP += Math.round(line * f.share); s.shareSum += f.share; s.orders += 1;
   }
 
   // 3) pharmacy counter sales that carry a visit (and so a doctor): value, collected share, and profit where the cost is known
-  const sales = db.prepare(`SELECT s.id, s.total, COALESCE(s.amount_paid, s.total) AS paid, a.appointment_date AS day, a.doctor_id AS doc,
+  const sales = db.prepare(`SELECT s.id, s.total, s.cgst_total AS cg, s.sgst_total AS sg, COALESCE(s.amount_paid, s.total) AS paid, a.appointment_date AS day, a.doctor_id AS doc,
          (SELECT COALESCE(SUM(dr.qty * dr.unit_cost), 0) FROM dispensing_register dr WHERE dr.sale_id = s.id AND dr.unit_cost IS NOT NULL) AS cost,
          (SELECT COUNT(*) FROM dispensing_register dr WHERE dr.sale_id = s.id AND dr.unit_cost IS NULL) AS uncosted,
          (SELECT COUNT(*) FROM dispensing_register dr WHERE dr.sale_id = s.id) AS lines
        FROM pharmacy_sales s JOIN appointments a ON a.id = s.appointment_id
       WHERE a.appointment_date BETWEEN ? AND ? AND COALESCE(s.payment_mode, '') <> 'IPD-bill' AND a.doctor_id IS NOT NULL`).all(from, to) as
-    { id: number; total: number; paid: number; day: string; doc: number; cost: number; uncosted: number; lines: number }[];
+    { id: number; total: number; cg: number | null; sg: number | null; paid: number; day: string; doc: number; cost: number; uncosted: number; lines: number }[];
   for (const r of sales) {
     const totalP = toPaise(r.total); const collectedP = Math.min(totalP, toPaise(r.paid));
+    const preP = Math.max(0, totalP - toPaise(r.cg) - toPaise(r.sg));         // the sale's value before GST
     const share = totalP > 0 ? collectedP / totalP : 0;
     const d = dayOf(r.doc, r.day); const s = d.streams.pharmacy;
-    s.billedP += totalP; s.collectedP += collectedP; s.baseP += collectedP; s.shareSum += share; s.orders += 1;
-    if (r.lines > 0 && r.uncosted === 0) s.profitP += Math.round(Math.max(0, totalP - toPaise(r.cost)) * share);
+    s.billedP += totalP; s.collectedP += collectedP; s.baseP += Math.round(preP * share); s.shareSum += share; s.orders += 1;
+    if (r.lines > 0 && r.uncosted === 0) s.profitP += Math.round(Math.max(0, preP - toPaise(r.cost)) * share);
     else d.costMissing += 1;
   }
 
@@ -230,7 +231,7 @@ export function doctorDays(db: Database.Database, opts: { from: string; to: stri
     const sum: DoctorSummary = { doctor_id: doc.id, name: doc.name, basis: rules.basis, visits: 0, new_patient: 0, new_first_ever: 0, free_followup: 0, free_courtesy: 0, paid_repeat: 0, not_billed: 0, billed: 0, collected: 0, earned: 0, paid: 0, balance: 0, cost_missing: 0 };
     for (const day of dayList) {
       const a = m?.get(day) ?? blankDay();
-      const earned = earnedForDay(rules, day, today, a);
+      const earned = rules.since && day < rules.since ? 0 : earnedForDay(rules, day, today, a);       // nothing is owed for days before the rule's "count pay from" date
       const p = paid.get(`${doc.id}|${day}`);
       const paidAmt = money2(p?.amount ?? 0);
       const balance = money2(Math.max(0, earned - paidAmt));
@@ -279,11 +280,12 @@ export function referrerDays(db: Database.Database, opts: { from: string; to: st
     const f = billFigures(r); const s = slot(r.appointment_id)[st];
     s.baseP += Math.round(f.baseP * f.share); s.totalP += f.totalP; s.collectedP += f.collectedP;
   }
-  for (const r of db.prepare(`SELECT s.appointment_id AS appt, s.total, COALESCE(s.amount_paid, s.total) AS paid FROM pharmacy_sales s JOIN appointments a ON a.id = s.appointment_id
-      WHERE a.appointment_date BETWEEN ? AND ? AND TRIM(COALESCE(a.referred_by, '')) <> '' AND COALESCE(s.payment_mode, '') <> 'IPD-bill'`).all(from, to) as { appt: number; total: number; paid: number }[]) {
+  for (const r of db.prepare(`SELECT s.appointment_id AS appt, s.total, s.cgst_total AS cg, s.sgst_total AS sg, COALESCE(s.amount_paid, s.total) AS paid FROM pharmacy_sales s JOIN appointments a ON a.id = s.appointment_id
+      WHERE a.appointment_date BETWEEN ? AND ? AND TRIM(COALESCE(a.referred_by, '')) <> '' AND COALESCE(s.payment_mode, '') <> 'IPD-bill'`).all(from, to) as { appt: number; total: number; cg: number | null; sg: number | null; paid: number }[]) {
     if (!apptIds.has(r.appt)) continue;
     const s = slot(r.appt).pharmacy; const t = toPaise(r.total); const c = Math.min(t, toPaise(r.paid));
-    s.baseP += c; s.totalP += t; s.collectedP += c;
+    const pre = Math.max(0, t - toPaise(r.cg) - toPaise(r.sg));
+    s.baseP += t > 0 ? Math.round(pre * c / t) : 0; s.totalP += t; s.collectedP += c;
   }
   const paid = paidMap(db, 'referrer', from, to);
   const names = new Map<string, string>(); const acc = new Map<string, { visits: number; collectedP: number; earned: number }>();
@@ -295,8 +297,9 @@ export function referrerDays(db: Database.Database, opts: { from: string; to: st
     for (const s of STREAMS) { if ((rule.on as any)[s] === true) { baseP += m[s].baseP; totalP += m[s].totalP; collectedP += m[s].collectedP; } }
     let earned = 0;
     const counts = rule.scope === 'every' || first.get(`${a.patient_id}|${key}`) === a.id;
-    if (counts && rule.mode === 'percent') earned = rupees(baseP) * rule.value / 100;
-    if (counts && rule.mode === 'fixed') earned = rule.value * (totalP > 0 ? Math.min(1, collectedP / totalP) : 1);
+    if (rule.since && a.day < rule.since) earned = 0;
+    else if (counts && rule.mode === 'percent') earned = rupees(baseP) * rule.value / 100;
+    if (!(rule.since && a.day < rule.since) && counts && rule.mode === 'fixed') earned = rule.value * (totalP > 0 ? Math.min(1, collectedP / totalP) : 1);
     const k = `${key}|${a.day}`; const cur = acc.get(k) ?? { visits: 0, collectedP: 0, earned: 0 };
     cur.visits++; cur.collectedP += collectedP; cur.earned += earned; acc.set(k, cur);
   }
@@ -459,6 +462,11 @@ export function moneyOut(db: Database.Database, from: string, to: string): { lin
     { date: string; amount: number; mode: string; bill: string }[]) {
     lines.push({ source: 'refund', date: r.date, ref: r.bill, who: 'Patient', what: 'Refund (already taken off Money in)', mode: r.mode || 'Unspecified', amount: money2(r.amount), status: 'active', counted: false });
   }
+  for (const r of db.prepare(`SELECT date(refunded_at, 'localtime') AS date, refunded_amount AS amount, COALESCE(payment_mode, '') AS mode, COALESCE(receipt_no, '') AS ref
+      FROM advances WHERE refunded_amount > 0.004 AND refunded_at IS NOT NULL AND refunded_at >= ? AND refunded_at < ? AND date(refunded_at, 'localtime') BETWEEN ? AND ?`).all(slack.lo, slack.hi, from, to) as
+    { date: string; amount: number; mode: string; ref: string }[]) {
+    lines.push({ source: 'refund', date: r.date, ref: r.ref, who: 'Patient', what: 'Deposit refund (already taken off Money in)', mode: r.mode || 'Unspecified', amount: money2(r.amount), status: 'active', counted: false });
+  }
   lines.sort((a, b) => b.date.localeCompare(a.date));
   const sum = (src: OutLine['source']) => money2(lines.filter((l) => l.source === src && l.counted).reduce((a, l) => a + l.amount, 0));
   const vouchers = sum('voucher'); const suppliers = sum('supplier');
@@ -467,7 +475,7 @@ export function moneyOut(db: Database.Database, from: string, to: string): { lin
 
 export interface DayBookDay { day: string; opening_cash: number; in_by_mode: Record<string, number>; out_by_mode: Record<string, number>; total_in: number; total_out: number; closing_cash: number }
 export function dayBook(db: Database.Database, from: string, to: string): { days: DayBookDay[]; opening_cash_set: boolean } {
-  const acct = readAcct(db); const start = acct.opening_date && acct.opening_date <= from ? acct.opening_date : from;
+  const acct = readAcct(db); const od = acct.opening_date;            // the day the clinic counted its cash (Settings → Accounts); cash is unknown before it
   const byMode = (rows: { mode: string; amount: number }[]) => { const o: Record<string, number> = {}; for (const r of rows) o[r.mode || 'Unspecified'] = money2((o[r.mode || 'Unspecified'] ?? 0) + r.amount); return o; };
   const outOn = (a: string, b: string) => {
     const rows: { mode: string; amount: number }[] = [];
@@ -475,19 +483,20 @@ export function dayBook(db: Database.Database, from: string, to: string): { days
     return rows;
   };
   const cash = (m: Record<string, number>) => m['Cash'] ?? 0;
-  let open = acct.opening_cash;
-  if (start < from) {       // cash that moved between the opening day and the first day shown
+  let open = 0;
+  if (od && od < from) {            // cash counted on the opening day, plus what moved in the drawer from then up to the day before the first day shown
     const prevEnd = localDay(new Date(parseDay(from).getTime() - 86400000));
-    open = money2(acct.opening_cash + cash(byMode(collections(db, start, prevEnd).by_mode.map((m) => ({ mode: m.payment_mode, amount: m.total })))) - cash(byMode(outOn(start, prevEnd))));
+    open = money2(acct.opening_cash + cash(byMode(collections(db, od, prevEnd).by_mode.map((m) => ({ mode: m.payment_mode, amount: m.total })))) - cash(byMode(outOn(od, prevEnd))));
   }
   const days: DayBookDay[] = [];
   for (const day of eachDay(from, to, 93)) {
+    if (od && day === od) open = acct.opening_cash;                  // the count on the opening day replaces whatever was carried
     const inM = byMode(collections(db, day, day).by_mode.map((m) => ({ mode: m.payment_mode, amount: m.total }))); const outM = byMode(outOn(day, day));
     const totalIn = money2(Object.values(inM).reduce((a, n) => a + n, 0)); const totalOut = money2(Object.values(outM).reduce((a, n) => a + n, 0));
     const closing = money2(open + cash(inM) - cash(outM));
     days.push({ day, opening_cash: open, in_by_mode: inM, out_by_mode: outM, total_in: totalIn, total_out: totalOut, closing_cash: closing }); open = closing;
   }
-  return { days, opening_cash_set: !!acct.opening_date };
+  return { days, opening_cash_set: !!od };
 }
 
 export interface ProfitLoss {
@@ -499,7 +508,8 @@ export function profitAndLoss(db: Database.Database, from: string, to: string): 
   let cost = 0, missing = false;
   try { const t = profitReport(db, { from, to }).totals; cost = t.cogs; missing = t.uncosted_units > 0; } catch { /* no pharmacy data: cost 0 */ }
   const rows = db.prepare(`SELECT voucher_type AS t, COALESCE(NULLIF(TRIM(category), ''), 'Other') AS head, SUM(gross_amount) AS g FROM acct_vouchers
-      WHERE status = 'active' AND voucher_date BETWEEN ? AND ? AND voucher_type IN ('clinic_maintenance','expense','staff_salary','doctor_payment','referral_payment') GROUP BY t, head`).all(from, to) as { t: string; head: string; g: number }[];
+      WHERE status = 'active' AND voucher_date BETWEEN ? AND ? AND voucher_type IN ('clinic_maintenance','expense','staff_salary','doctor_payment','referral_payment')
+        AND NOT (voucher_type IN ('clinic_maintenance','expense') AND lower(TRIM(COALESCE(category, ''))) = 'tds deposit') GROUP BY t, head`).all(from, to) as { t: string; head: string; g: number }[];
   const sum = (t: string) => money2(rows.filter((r) => r.t === t).reduce((a, r) => a + r.g, 0));
   const heads = new Map<string, number>();
   for (const r of rows) if (r.t === 'clinic_maintenance' || r.t === 'expense') heads.set(r.head, money2((heads.get(r.head) ?? 0) + r.g));

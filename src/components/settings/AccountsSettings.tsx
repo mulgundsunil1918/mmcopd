@@ -14,6 +14,7 @@ import {
 } from '../../lib/accountsRules';
 import { featuresOfTab, parseSwitches, withSwitch } from '../../lib/features';
 import { referralKey } from '../../lib/referralStats';
+import { localISO } from '../../lib/localDate';
 import type { SettingsTabId } from '../../lib/settingsMap';
 
 const box = 'rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 space-y-3';
@@ -109,7 +110,7 @@ function Group({ title, subtitle, children }: { title: string; subtitle: string;
 
 function StaffEditor() {
   const qc = useQueryClient(); const toast = useToast();
-  const { data: staff = [] } = useQuery({ queryKey: ['acct-staff'], queryFn: () => window.electronAPI.accounts.staff() });
+  const { data: staff = [] } = useQuery({ queryKey: ['acct-staff', 'settings'], queryFn: () => window.electronAPI.accounts.staff(undefined, undefined, true) });
   const blank = { name: '', job: '', monthly_salary: 0, keep_attendance: false };
   const [add, setAdd] = useState(blank);
   const save = async (s: any) => {
@@ -177,7 +178,9 @@ function VoucherSettings() {
   if (!a || !settings) return null;
   const saved = JSON.stringify(parseAcctSettings(settings.acct_settings_json)) !== JSON.stringify(a);
   const setRaise = (role: string, patch: Partial<{ allowed: boolean; limit: number | null }>) => setA({ ...a, raise: { ...a.raise, [role]: { ...(a.raise[role] ?? { allowed: false, limit: null }), ...patch } } });
-  const save = async () => { await window.electronAPI.settings.save({ acct_settings_json: JSON.stringify(a) }); await qc.refetchQueries({ queryKey: ['settings'] }); toast('Saved'); };
+  const save = async () => {
+    const out = { ...a, opening_date: a.opening_date || (a.opening_cash ? localISO(new Date()) : '') };      // cash typed without a day is the cash counted today
+    await window.electronAPI.settings.save({ acct_settings_json: JSON.stringify(out) }); setA(out); await qc.refetchQueries({ queryKey: ['settings'] }); toast('Saved'); };
   return (
     <div className={box}>
       <div>
@@ -274,6 +277,8 @@ function DoctorRulesForm({ rules, onChange }: { rules: DoctorPayRules; onChange:
   const b = rules.basis; const usesMonthly = b === 'fixed_monthly' || b === 'fixed_plus_percent'; const usesPercent = b === 'percent_of_fees' || b === 'percent_of_revenue' || b === 'fixed_plus_percent';
   return (
     <div className="px-3 pb-3 space-y-4">
+      <div className="max-w-xs"><Lbl title="Count pay from" help="Pay is worked out only for days from this date on, so old visits do not turn into money owed the day you set a rule. Leave it blank to count every day.">Count pay from</Lbl>
+        <input type="date" className="input" value={rules.since} onChange={(e) => set({ since: e.target.value })} /></div>
       <div className="grid md:grid-cols-3 gap-3">
         <div><Lbl title="How the doctor is paid" help={<>The clinic decides. <b>{PAY_BASES.find((x) => x.id === b)?.label}</b>: {PAY_BASES.find((x) => x.id === b)?.hint}</>}>How the doctor is paid</Lbl>
           <select className="input" value={b} onChange={(e) => set({ basis: e.target.value as any })}>{PAY_BASES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select></div>
@@ -325,6 +330,8 @@ function ReferrerForm({ rule, onChange }: { rule: ReferrerRule; onChange: (r: Re
   const set = (p: Partial<ReferrerRule>) => onChange({ ...rule, ...p });
   return (
     <div className="space-y-2">
+      <div className="max-w-xs"><Lbl help="Referral pay is worked out only for visits from this date on. Leave it blank to count every visit.">Count pay from</Lbl>
+        <input type="date" className="input" value={rule.since} onChange={(e) => set({ since: e.target.value })} /></div>
       <div className="grid md:grid-cols-3 gap-3">
         <div><Lbl help="No cut, a percentage of what the referred patient pays, or a fixed amount for each visit.">Cut</Lbl>
           <select className="input" value={rule.mode} onChange={(e) => set({ mode: e.target.value as any })}><option value="off">No cut</option><option value="percent">% of what is collected</option><option value="fixed">₹ per visit</option></select></div>

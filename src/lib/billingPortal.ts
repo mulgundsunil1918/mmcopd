@@ -129,6 +129,8 @@ export interface Collections {
     pharmacy_counter: number;
     /** Payments taken later against pharmacy sales made on credit. */
     pharmacy_credit_payments: number;
+    /** In-patient deposits received (less any refunded) — money in before there is a bill to pay. */
+    ipd_deposits: number;
   };
 }
 

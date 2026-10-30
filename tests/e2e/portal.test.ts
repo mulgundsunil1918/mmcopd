@@ -375,7 +375,8 @@ const oracleOutstanding = () => r2(q("SELECT * FROM bills WHERE COALESCE(status,
   const paymentsToday = r2(one("SELECT COALESCE(SUM(amount),0) s FROM bill_payments WHERE date(received_at,'localtime')=?", today).s);
   const atBilling = r2(q("SELECT b.amount_paid - COALESCE((SELECT SUM(amount) FROM bill_payments WHERE bill_id=b.id),0) rem FROM bills b WHERE COALESCE(b.status,'')<>'cancelled' AND b.cancelled_at IS NULL AND date(b.created_at,'localtime')=?", today).reduce((s, r) => s + (r.rem > 0.004 ? r.rem : 0), 0));
   const counterToday = r2(one("SELECT COALESCE(SUM(total),0) s FROM pharmacy_sales WHERE COALESCE(payment_mode,'')<>'IPD-bill' AND date(created_at,'localtime')=?", today).s);
-  near(col.totalCollected, r2(paymentsToday + atBilling + counterToday), 'collected today = payments taken + bills paid when raised + pharmacy counter sales');
+  const depositsToday = r2(one("SELECT COALESCE(SUM(amount),0) s FROM advances WHERE date(received_at,'localtime')=?", today).s - one("SELECT COALESCE(SUM(refunded_amount),0) s FROM advances WHERE refunded_at IS NOT NULL AND date(refunded_at,'localtime')=?", today).s);
+  near(col.totalCollected, r2(paymentsToday + atBilling + counterToday + depositsToday), 'collected today = payments taken + bills paid when raised + pharmacy counter sales + in-patient deposits (less any handed back)');
   near(col.collectedBySource.bill_payments, paymentsToday, '…the payments-taken part');
   near(col.collectedBySource.paid_at_billing, atBilling, '…the paid-when-raised part');
   near(col.collectedBySource.pharmacy_counter, counterToday, '…the pharmacy part');
@@ -390,7 +391,8 @@ const oracleOutstanding = () => r2(q("SELECT * FROM bills WHERE COALESCE(status,
   const allRows = r2(one('SELECT COALESCE(SUM(amount),0) s FROM bill_payments').s);
   const allAtBilling = r2(q("SELECT b.amount_paid - COALESCE((SELECT SUM(amount) FROM bill_payments WHERE bill_id=b.id),0) rem FROM bills b WHERE COALESCE(b.status,'')<>'cancelled' AND b.cancelled_at IS NULL").reduce((s, r) => s + (r.rem > 0.004 ? r.rem : 0), 0));
   const allCounter = r2(one("SELECT COALESCE(SUM(total),0) s FROM pharmacy_sales WHERE COALESCE(payment_mode,'')<>'IPD-bill'").s);
-  near(wide.totalCollected, r2(allRows + allAtBilling + allCounter), 'over all time, collected = every payment + every paid-when-raised bill + every counter sale');
+  const allDeposits = r2(one('SELECT COALESCE(SUM(amount),0) s FROM advances').s - one('SELECT COALESCE(SUM(refunded_amount),0) s FROM advances WHERE refunded_at IS NOT NULL').s);
+  near(wide.totalCollected, r2(allRows + allAtBilling + allCounter + allDeposits), 'over all time, collected = every payment + every paid-when-raised bill + every counter sale + every deposit (less any handed back)');
   ok(wide.bySection.some((s: any) => s.category === 'pharmacy_counter'), 'revenue by section includes the pharmacy counter');
 
   // ------------------------------------------------------------------------------------------------ 7. Cost not recorded

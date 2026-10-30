@@ -30,7 +30,9 @@ export const DEDUCTION_KINDS = [
 export type DeductionKind = typeof DEDUCTION_KINDS[number]['id'];
 
 /** Expense heads a new clinic starts with (it can add its own in Settings → Accounts). */
-export const DEFAULT_CATEGORIES = ['Clinic maintenance', 'Consumables', 'Utilities', 'Rent', 'Marketing', 'Equipment', 'Other'];
+export const DEFAULT_CATEGORIES = ['Clinic maintenance', 'Consumables', 'Utilities', 'Rent', 'Marketing', 'Equipment', 'TDS deposit', 'Other'];
+/** An expense under this heading is the deposit of tax already held back from someone's pay: it is money out, but NOT a second cost (the pay was counted in full). */
+export const TDS_DEPOSIT_HEAD = 'tds deposit';
 
 export interface VoucherInput {
   type: string; date: string;
@@ -146,6 +148,8 @@ export const CUT_STREAMS: { id: CutStream; label: string; hint: string }[] = [
 ];
 export interface CutRule { mode: 'off' | 'percent' | 'fixed'; value: number; /** pharmacy only */ base: 'bill' | 'profit' }
 export interface DoctorPayRules {
+  /** Pay is worked out only for days from this date on (blank = every day). Keeps old history from turning into "to pay" the day a rule is first set. */
+  since: string;
   basis: PayBasis; monthly: number; part_month: PartMonth;
   per_visit: number; per_type: { new: number; free: number; paid: number };
   percent: number;
@@ -153,6 +157,7 @@ export interface DoctorPayRules {
   cuts: Record<CutStream, CutRule>;
 }
 export interface ReferrerRule {
+  since: string;
   mode: 'off' | 'percent' | 'fixed'; value: number; scope: 'every' | 'first';
   on: { consultation: boolean; services: boolean; pharmacy: boolean; lab: boolean; radiology: boolean };
 }
@@ -160,11 +165,11 @@ export interface PayRules { doctors: Record<string, DoctorPayRules>; referrers: 
 
 export const defaultCut = (): CutRule => ({ mode: 'off', value: 0, base: 'bill' });
 export const defaultDoctorRules = (): DoctorPayRules => ({
-  basis: 'by_hand', monthly: 0, part_month: 'calendar', per_visit: 0, per_type: { new: 0, free: 0, paid: 0 }, percent: 0,
+  since: '', basis: 'by_hand', monthly: 0, part_month: 'calendar', per_visit: 0, per_type: { new: 0, free: 0, paid: 0 }, percent: 0,
   counts: { consultation: true, services: true, pharmacy: false, lab: false, radiology: false },
   cuts: { services: defaultCut(), pharmacy: defaultCut(), lab: defaultCut(), radiology: defaultCut(), ipd: defaultCut() },
 });
-export const defaultReferrerRule = (): ReferrerRule => ({ mode: 'off', value: 0, scope: 'every', on: { consultation: true, services: false, pharmacy: false, lab: false, radiology: false } });
+export const defaultReferrerRule = (): ReferrerRule => ({ since: '', mode: 'off', value: 0, scope: 'every', on: { consultation: true, services: false, pharmacy: false, lab: false, radiology: false } });
 
 const num = (v: any) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? round2(n) : 0; };
 function cleanCut(c: any): CutRule {
@@ -179,6 +184,7 @@ export function cleanDoctorRules(r: any): DoctorPayRules {
   const counts = { ...d.counts };
   for (const k of Object.keys(counts) as (keyof typeof counts)[]) if (typeof r?.counts?.[k] === 'boolean') counts[k] = r.counts[k];
   return {
+    since: /^\d{4}-\d{2}-\d{2}$/.test(String(r?.since || '')) ? String(r.since) : '',
     basis, monthly: num(r?.monthly), part_month: PART_MONTH.some((p) => p.id === r?.part_month) ? r.part_month : d.part_month,
     per_visit: num(r?.per_visit), per_type: { new: num(r?.per_type?.new), free: num(r?.per_type?.free), paid: num(r?.per_type?.paid) },
     percent: Math.min(100, num(r?.percent)), counts, cuts,
@@ -189,7 +195,7 @@ export function cleanReferrerRule(r: any): ReferrerRule {
   const mode = r?.mode === 'percent' || r?.mode === 'fixed' ? r.mode : 'off';
   const on = { ...d.on };
   for (const k of Object.keys(on) as (keyof typeof on)[]) if (typeof r?.on?.[k] === 'boolean') on[k] = r.on[k];
-  return { mode, value: mode === 'percent' ? Math.min(100, num(r?.value)) : num(r?.value), scope: r?.scope === 'first' ? 'first' : 'every', on };
+  return { since: /^\d{4}-\d{2}-\d{2}$/.test(String(r?.since || '')) ? String(r.since) : '', mode, value: mode === 'percent' ? Math.min(100, num(r?.value)) : num(r?.value), scope: r?.scope === 'first' ? 'first' : 'every', on };
 }
 export function parsePayRules(json: string | null | undefined): PayRules {
   let o: any = {};

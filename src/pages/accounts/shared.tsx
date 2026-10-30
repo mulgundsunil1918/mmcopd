@@ -1,6 +1,7 @@
 /** Small pieces every Accounts / Doctors screen shares: period chips, tiles, the date range of a chip, and "what may I do". */
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Lock } from 'lucide-react';
 import { formatINR, todayISO } from '../../lib/utils';
 import { localISO } from '../../lib/localDate';
 
@@ -71,3 +72,27 @@ export const STATUS_BADGE: Record<string, string> = {
 };
 export const STATUS_LABEL: Record<string, string> = { paid: 'Paid', part: 'Part paid', to_pay: 'To pay', none: '—' };
 export const dayLabel = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+
+// ── who may see the money ───────────────────────────────────────────────────────────────────────────────────────────────────────
+let moneyPw = '';
+/** The admin password typed to open the money screens (kept only in memory, only until the app is closed). Every money read passes it along. */
+export const getMoneyPw = () => moneyPw || undefined;
+export function useMoneyAccess() {
+  const qc = useQueryClient();
+  const [pw, setPw] = useState(moneyPw);
+  const { data: perm } = usePermissions(pw || undefined);
+  const unlock = (p: string) => { moneyPw = p; setPw(p); qc.invalidateQueries(); };
+  return { perm, ready: !!perm, can: !!perm?.can_see_money, pw, unlock };
+}
+export function MoneyLocked({ what, onUnlock, wrong }: { what: string; onUnlock: (pw: string) => void; wrong?: boolean }) {
+  const [t, setT] = useState('');
+  return (
+    <div className="card p-6 max-w-xl space-y-3">
+      <div className="flex items-center gap-2 font-semibold text-gray-900 dark:text-slate-100"><Lock className="w-4 h-4" /> {what} is shown to people allowed to raise vouchers</div>
+      <div className={MUTED}>The admin can allow a role in Settings → Accounts &amp; Analytics. Or type the admin password to look now.</div>
+      <div className="flex gap-2 max-w-sm"><input type="password" className="input" placeholder="Admin password" value={t} onChange={(e) => setT(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && t && onUnlock(t)} autoComplete="off" />
+        <button className="btn-primary" disabled={!t} onClick={() => onUnlock(t)}>Show</button></div>
+      {wrong && <div className="text-xs text-rose-700">That password did not open it.</div>}
+    </div>
+  );
+}

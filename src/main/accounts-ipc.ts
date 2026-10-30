@@ -21,6 +21,10 @@ const range = (from: unknown, to: unknown) => {
   if (!isDay(from) || !isDay(to)) throw new Error('Choose a valid start and end day.');
   return from <= to ? { from, to } : { from: to as string, to: from as string };
 };
+/** Salaries, vouchers and what the clinic pays doctors are seen only by people allowed to raise vouchers (Settings → Accounts) or with the admin password. */
+const MONEY_LOCKED = 'Money is shown only to people allowed to raise vouchers. Ask the admin to allow your role (Settings → Accounts & Analytics), or type the admin password.';
+const moneyAllowed = (pw?: string) => adminOk(pw) || maySeeDoctorMoney(acc.readAcct(getDb()), who().role);
+const needMoney = (pw?: string) => { if (!moneyAllowed(pw)) throw new Error(MONEY_LOCKED); };
 const note = (event: string) => { try { broadcastEvent(event, {}); } catch { /* other computers refresh on their own */ } };
 
 export function registerAccountsIpc() {
@@ -35,14 +39,18 @@ export function registerAccountsIpc() {
   });
 
   // ── reads ──
-  ipcMain.handle('accounts:moneyOut', (_e, from: string, to: string) => { const r = range(from, to); return acc.moneyOut(getDb(), r.from, r.to); });
-  ipcMain.handle('accounts:vouchers', (_e, f: { from?: string; to?: string; type?: string; status?: string; payee_kind?: string; payee_ref?: string } = {}) => acc.listVouchers(getDb(), f || {}));
-  ipcMain.handle('accounts:voucher', (_e, id: number) => acc.getVoucher(getDb(), Number(id)));
+  ipcMain.handle('accounts:moneyOut', (_e, from: string, to: string, adminPassword?: string) => { needMoney(adminPassword); const r = range(from, to); return acc.moneyOut(getDb(), r.from, r.to); });
+  ipcMain.handle('accounts:vouchers', (_e, f: { from?: string; to?: string; type?: string; status?: string; payee_kind?: string; payee_ref?: string } = {}, adminPassword?: string) => { needMoney(adminPassword); return acc.listVouchers(getDb(), f || {}); });
+  ipcMain.handle('accounts:voucher', (_e, id: number, adminPassword?: string) => { needMoney(adminPassword); return acc.getVoucher(getDb(), Number(id)); });
   ipcMain.handle('accounts:dayBook', (_e, from: string, to: string) => { const r = range(from, to); return acc.dayBook(getDb(), r.from, r.to); });
-  ipcMain.handle('accounts:profitLoss', (_e, from: string, to: string) => { const r = range(from, to); return acc.profitAndLoss(getDb(), r.from, r.to); });
-  ipcMain.handle('accounts:staff', (_e, month?: string) => acc.listStaff(getDb(), month));
+  ipcMain.handle('accounts:profitLoss', (_e, from: string, to: string, adminPassword?: string) => { needMoney(adminPassword); const r = range(from, to); return acc.profitAndLoss(getDb(), r.from, r.to); });
+  // Names, jobs and attendance are for everyone who opens Accounts; salaries and advances only for people who may see money. (The Settings staff editor, behind the admin password, asks for everything.)
+  ipcMain.handle('accounts:staff', (_e, month?: string, adminPassword?: string, forSettings?: boolean) => {
+    const rows = acc.listStaff(getDb(), month);
+    return forSettings || moneyAllowed(adminPassword) ? rows : rows.map((x) => ({ ...x, monthly_salary: 0, advance_open: 0, paid_this_month: 0 }));
+  });
   ipcMain.handle('accounts:attendance', (_e, staffId: number, ym: string) => acc.getAttendance(getDb(), Number(staffId), String(ym)));
-  ipcMain.handle('accounts:salarySuggestion', (_e, staffId: number, ym: string) => acc.salarySuggestion(getDb(), Number(staffId), String(ym)));
+  ipcMain.handle('accounts:salarySuggestion', (_e, staffId: number, ym: string, adminPassword?: string) => { needMoney(adminPassword); return acc.salarySuggestion(getDb(), Number(staffId), String(ym)); });
   ipcMain.handle('accounts:categories', () => acc.listCategories(getDb()));
 
   // ── doctors and referrers (money only for people who may raise vouchers) ──
