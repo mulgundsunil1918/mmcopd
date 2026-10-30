@@ -9,7 +9,7 @@ import { getDb } from '../db/db';
 import { requireRole, actor } from './ipc';
 import { requireModule } from './licensing/enforce';
 import { logAudit } from './auth';
-import { getAgeLimits, getParams, lineToParam, panelForTest, reportData, resultSheet, saveResultValues, writeParams, type ParamInput } from '../db/labParams';
+import { getAgeLimits, getParams, lineToParam, panelForTest, recalcRanges, reportData, resultSheet, saveResultValues, writeParams, type ParamInput } from '../db/labParams';
 import { CHILD_GROUPS, GROUP_NAMES, hasNumbers, limitProblem, type AgeRange, type ChildGroup } from '../lib/labRanges';
 
 const LAB_ROLES: any[] = ['lab_tech', 'doctor', 'manager', 'receptionist'];
@@ -98,6 +98,13 @@ export function registerLabParamsIpc() {
 
   ipcMain.handle('lab:reportData', (_e, orderId: number) => reportData(getDb(), Number(orderId)));
   ipcMain.handle('lab:resultSheet', (_e, orderId: number) => resultSheet(getDb(), Number(orderId)));
+
+  ipcMain.handle('lab:recalcRanges', (_e, orderId: number, itemId: number) => {
+    requireModule('lab', 'Laboratory'); requireRole(['lab_tech', 'doctor', 'ward_incharge', 'manager', 'receptionist'], 're-apply normal ranges');
+    const db = getDb(); const r = recalcRanges(db, Number(orderId), Number(itemId));
+    if (r.ok) { try { logAudit(db, actor(), 'lab_ranges_reapplied', 'lab_order_items', Number(itemId), `${r.changed} ranges and ${r.reflagged} marks changed, ${r.kept} kept`); } catch { /* the audit must never block work */ } }
+    return r;
+  });
 
   ipcMain.handle('lab:saveResultValues', (_e, orderId: number, itemId: number, values: { key: string; value: string }[]) => {
     requireModule('lab', 'Laboratory'); requireRole(['lab_tech', 'doctor', 'ward_incharge', 'manager', 'receptionist'], 'enter lab results');

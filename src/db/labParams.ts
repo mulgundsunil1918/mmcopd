@@ -196,13 +196,50 @@ export function saveResultValues(db: Database.Database, orderId: number, itemId:
       const val = String(v.value ?? '').trim();
       upd.run(val || null, flagFor(val, spec(row), null), row.id);
     }
-    const now = db.prepare('SELECT name, value, flag FROM lab_result_values WHERE lab_order_item_id = ? ORDER BY sort_order, id').all(itemId) as { name: string; value: string | null; flag: string }[];
-    const filled = now.filter((r) => r.value);
-    const flagged = filled.filter((r) => r.flag);
-    const summary = filled.length === 0 ? null : (flagged.length ? flagged.map((r) => `${r.name} ${r.value} (${r.flag})`).join('; ') : 'All values within the normal range').slice(0, 400);
-    db.prepare('UPDATE lab_order_items SET result = ?, is_abnormal = ? WHERE id = ?').run(summary, flagged.length ? 1 : 0, itemId);
+    refreshSummary(db, itemId);
   })();
   return { ok: true, item: resultSheet(db, orderId, itemId)[0] };
+}
+/** The test's one-line summary and its abnormal mark, worked out from the values saved for it. */
+function refreshSummary(db: Database.Database, itemId: number) {
+  const now = db.prepare('SELECT name, value, flag FROM lab_result_values WHERE lab_order_item_id = ? ORDER BY sort_order, id').all(itemId) as { name: string; value: string | null; flag: string }[];
+  const filled = now.filter((r) => r.value);
+  const flagged = filled.filter((r) => r.flag);
+  const summary = filled.length === 0 ? null : (flagged.length ? flagged.map((r) => `${r.name} ${r.value} (${r.flag})`).join('; ') : 'All values within the normal range').slice(0, 400);
+  db.prepare('UPDATE lab_order_items SET result = ?, is_abnormal = ? WHERE id = ?').run(summary, flagged.length ? 1 : 0, itemId);
+}
+
+/** The pure part of "re-apply": a saved row re-worked against its parameter's CURRENT definition for this patient (the typed value stays; the range and the mark are redone). */
+export function reapplyRow(row: { value: string | null }, p: ParamRow, who: Who, limits: AgeLimits) {
+  const r = pickRange(p, who.ageDays, who.sex, limits);
+  return { low: r.low, high: r.high, ref_text: r.ref_text, no_flag: r.no_flag, by_age: r.by_age, by_sex: r.by_sex, range_text: r.text, flag: flagFor(String(row.value ?? ''), { low: r.low, high: r.high, ref_text: r.ref_text, no_flag: r.no_flag }, null) };
+}
+/**
+ * Re-apply the normal ranges of a test that already has saved values — after a date of birth or a gender was corrected, or the lab edited its normal values. The typed values stay;
+ * each range is worked out again from the patient's CURRENT date of birth and sex and the parameter's CURRENT normal values, and the High / Low marks are redone. A value whose
+ * parameter has since been removed from the test keeps the range it was entered with.
+ */
+export function recalcRanges(db: Database.Database, orderId: number, itemId: number): { ok: true; changed: number; reflagged: number; kept: number; item: SheetItem } | { ok: false; error: string } {
+  const it = db.prepare('SELECT id, lab_test_id FROM lab_order_items WHERE id = ? AND lab_order_id = ?').get(itemId, orderId) as { id: number; lab_test_id: number | null } | undefined;
+  if (!it) return { ok: false, error: 'That test is not part of this order.' };
+  const stored = db.prepare('SELECT * FROM lab_result_values WHERE lab_order_item_id = ? ORDER BY sort_order, id').all(itemId) as any[];
+  if (!stored.length) return { ok: false, error: 'Nothing has been saved for this test yet — its normal ranges are worked out fresh until the first save.' };
+  const who = orderWho(db, orderId); const limits = getAgeLimits(db);
+  const params = it.lab_test_id ? getParams(db, it.lab_test_id) : [];
+  let changed = 0; let reflagged = 0; let kept = 0;
+  db.transaction(() => {
+    const upd = db.prepare('UPDATE lab_result_values SET param_id = ?, low = ?, high = ?, ref_text = ?, no_flag = ?, by_age = ?, by_sex = ?, range_text = ?, flag = ? WHERE id = ?');
+    for (const row of stored) {
+      const p = params.find((x) => x.id === row.param_id) ?? params.find((x) => norm(x.name) === norm(row.name));
+      if (!p) { kept++; continue; }
+      const n = reapplyRow(row, p, who, limits);
+      if (n.range_text !== (row.range_text ?? rangeText(spec(row), null))) changed++;
+      if (n.flag !== row.flag) reflagged++;
+      upd.run(p.id, n.low, n.high, n.ref_text, n.no_flag ? 1 : 0, n.by_age ? 1 : 0, n.by_sex ? 1 : 0, n.range_text, n.flag, row.id);
+    }
+    refreshSummary(db, itemId);
+  })();
+  return { ok: true, changed, reflagged, kept, item: resultSheet(db, orderId, itemId)[0] };
 }
 
 // ── everything a printed (or PDF) report needs ──────────────────────────────────────────────────────────────────────────────────

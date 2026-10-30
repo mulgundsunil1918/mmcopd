@@ -392,6 +392,7 @@ const api = {
     resetParams: (testId: number) => ipcRenderer.invoke('lab:resetParams', testId) as Promise<{ ok: true; params: ParamRow[] } | { ok: false; error: string }>,
     getAgeGroups: () => ipcRenderer.invoke('lab:getAgeGroups') as Promise<{ ok: true; limits: AgeLimits }>,
     saveAgeGroups: (limits: AgeLimits) => ipcRenderer.invoke('lab:saveAgeGroups', limits) as Promise<{ ok: true; limits: AgeLimits } | { ok: false; error: string }>,
+    recalcRanges: (orderId: number, itemId: number) => ipcRenderer.invoke('lab:recalcRanges', orderId, itemId) as Promise<{ ok: true; changed: number; reflagged: number; kept: number; item: SheetItem } | { ok: false; error: string }>,
     reportData: (orderId: number) => ipcRenderer.invoke('lab:reportData', orderId) as Promise<ReportData | null>,
     resultSheet: (orderId: number) => ipcRenderer.invoke('lab:resultSheet', orderId) as Promise<SheetItem[]>,
     saveResultValues: (orderId: number, itemId: number, values: { key: string; value: string }[]) => ipcRenderer.invoke('lab:saveResultValues', orderId, itemId, values) as Promise<{ ok: true; item: SheetItem } | { ok: false; error: string }>,

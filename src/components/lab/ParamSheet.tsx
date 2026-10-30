@@ -9,7 +9,7 @@ const FLAG: Record<string, { text: string; cls: string }> = {
   A: { text: 'Abnormal', cls: 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200' },
 };
 
-export function ParamSheet({ item, values, onChange }: { item: SheetItem; values: Record<string, string>; onChange: (key: string, value: string) => void }) {
+export function ParamSheet({ item, values, onChange, onRecalc }: { item: SheetItem; values: Record<string, string>; onChange: (key: string, value: string) => void; onRecalc?: () => void }) {
   let last: string | null | undefined;
   const next = (e: React.KeyboardEvent<HTMLInputElement>) => {                       // Enter moves to the next box, like filling a form
     if (e.key !== 'Enter') return; e.preventDefault();
@@ -18,7 +18,12 @@ export function ParamSheet({ item, values, onChange }: { item: SheetItem; values
   };
   return (
     <>
-    {item.ref_for && <div className="text-[11px] text-gray-500 dark:text-slate-400 mb-1">Normal ranges for: <b className="text-gray-700 dark:text-slate-200">{item.ref_for}</b> <span className="text-gray-400">— picked automatically from the date of birth and sex</span></div>}
+    {(item.ref_for || (onRecalc && item.rows.some((r) => r.saved))) && (
+      <div className="text-[11px] text-gray-500 dark:text-slate-400 mb-1 flex flex-wrap items-center gap-x-3">
+        {item.ref_for && <span>Normal ranges for: <b className="text-gray-700 dark:text-slate-200">{item.ref_for}</b> <span className="text-gray-400">— picked automatically from the date of birth and sex</span></span>}
+        {onRecalc && item.rows.some((r) => r.saved) && <button type="button" onClick={onRecalc} className="text-blue-600 dark:text-blue-400 hover:underline" title="Use after correcting the patient’s date of birth or gender, or after editing the normal values: the ranges and High / Low marks are worked out again, the typed values stay">Re-apply normal ranges</button>}
+      </div>
+    )}
     {item.no_age && <div className="text-[11px] text-amber-700 dark:text-amber-300 mb-1">This patient has no date of birth, so the adult normal ranges are shown. Add the date of birth to the patient to get the right ranges for a child.</div>}
     <table className="w-full text-sm">
       <thead><tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400"><th className="py-1 w-[34%]">Parameter</th><th className="w-[22%]">Result</th><th className="w-[12%]">Unit</th><th>Normal range</th><th className="w-20"></th></tr></thead>

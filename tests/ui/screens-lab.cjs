@@ -32,4 +32,12 @@ module.exports = [
       await h.wait(300);
       return h.js(`(() => ({ child_from: document.querySelector('[data-group="child"] input[aria-label="Child everyone from"]').value, rows: [...document.querySelectorAll('[data-group]')].map(r => r.getAttribute('data-group')).join() }))()`);
   } },
+  { file: 'lab-reapply', url: '#/lab', run: async (h) => {
+      await openOrder(h); await fill(h); await h.clickText('Save Results', { exact: true }); await h.wait(900);
+      await h.js(`window.confirm = () => true; true`);
+      const had = await h.js(`!![...document.querySelectorAll('button')].find(b => /Re-apply normal ranges/.test(b.textContent))`);
+      await h.js(`(() => { const b = [...document.querySelectorAll('button')].find(b => /Re-apply normal ranges/.test(b.textContent)); if (b) b.click(); return !!b })()`);
+      await h.wait(700);
+      return { had, shot: await h.shot('05-lab-reapply') };
+  } },
 ];

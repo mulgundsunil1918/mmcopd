@@ -228,6 +228,36 @@ const one = (sql: string, ...p: any[]) => db.prepare(sql).get(...p) as any;
   const rep = await call('lab:reportData', K.o.id);
   eq([rep.patient.age, rep.patient.sex, rep.items[0].ref_for, rep.items[0].ref_dep].join(' | '), '4 y 3 m | Female | Child · 4 years · Female | true', 'the report carries the age on the test day and whose ranges are printed');
   eq((await call('lab:reportData', B.o.id)).patient.age, '10 d', 'a newborn’s age is printed in days');
+  section('13 · “Re-apply normal ranges”: after a date of birth is corrected or the normal values are edited');
+  const wrong = await mkPt('Wrongdob', '1990-01-01', 'F');                                // a 4-year-old girl registered with an ADULT date of birth
+  const W = await mk(wrong);
+  eq(rowOf(W.sheet, /WBC/).range_text, '4,000 - 11,000', 'with the wrong date of birth the adult range is shown');
+  const WS = await call('lab:saveResultValues', W.o.id, W.sheet.item_id, [{ key: rowOf(W.sheet, /Haemoglobin/).key, value: '13.0' }, { key: rowOf(W.sheet, /WBC/).key, value: '14,000' }]);
+  eq([rowOf(WS.item, /Haemoglobin/).flag, rowOf(WS.item, /WBC/).flag].join(), ',H', 'TLC 14,000 is flagged High against the adult range');
+  db.prepare('UPDATE patients SET dob = ? WHERE id = ?').run('2022-03-10', wrong.id);          // the date of birth is corrected
+  eq(rowOf((await call('lab:resultSheet', W.o.id))[0], /WBC/).range_text, '4,000 - 11,000', 'a saved report does not change by itself (it keeps the range it was made with)');
+  const RC = await call('lab:recalcRanges', W.o.id, W.sheet.item_id);
+  ok(RC.ok && RC.changed >= 3 && RC.reflagged === 1, `“Re-apply” reworks the ranges (${RC.changed} changed) and the marks (${RC.reflagged} changed)`);
+  eq([rowOf(RC.item, /WBC/).range_text, rowOf(RC.item, /WBC/).value, rowOf(RC.item, /WBC/).flag].join(' | '), '5,000 - 15,500 | 14,000 | ', 'TLC now shows the child range, the typed value stays, and it is no longer flagged');
+  eq([rowOf(RC.item, /Haemoglobin/).range_text, rowOf(RC.item, /Haemoglobin/).value].join(' | '), '11.5 - 14.5 | 13.0', 'Hb too');
+  eq(RC.item.ref_for, 'Child · 4 years · Female', '…and the sheet now says it is a child');
+  const wi = one('SELECT result, is_abnormal FROM lab_order_items WHERE id = ?', W.sheet.item_id);
+  ok(wi.is_abnormal === 0 && /within the normal range/.test(wi.result), 'the test is no longer marked abnormal and its summary is redone');
+  const twice = await call('lab:recalcRanges', W.o.id, W.sheet.item_id); eq([twice.changed, twice.reflagged, twice.kept].join(), '0,0,0', 'applying it again changes nothing');
+  ok(one("SELECT COUNT(*) n FROM audit_log WHERE action = 'lab_ranges_reapplied'").n >= 2, 'every re-apply is written to the audit log');
+  eq((await call('lab:reportData', W.o.id)).items[0].ref_for, 'Child · 4 years · Female', 'the printed report uses the re-applied ranges');
+
+  const now13 = (await call('lab:getParams', cbc.id)).params;
+  await call('lab:saveParams', cbc.id, now13.map((p: any) => (/WBC/.test(p.name) ? { ...p, ranges: p.ranges.map((g: any) => (g.grp === 'child' ? { ...g, low: '1000', high: '2000' } : g)) } : p)));
+  const RC2 = await call('lab:recalcRanges', W.o.id, W.sheet.item_id);
+  eq([rowOf(RC2.item, /WBC/).range_text, rowOf(RC2.item, /WBC/).flag].join(' | '), '1,000 - 2,000 | H', 'after the lab edits its normal values, re-apply picks them up (the parameter is found by name even though its row was replaced)');
+  await call('lab:saveParams', cbc.id, now13.filter((p: any) => !/WBC/.test(p.name)));
+  const RC3 = await call('lab:recalcRanges', W.o.id, W.sheet.item_id);
+  ok(RC3.ok && RC3.kept === 1 && rowOf(RC3.item, /WBC/).range_text === '1,000 - 2,000', 'a value whose parameter was removed from the test keeps the range it was entered with');
+  await call('lab:resetParams', cbc.id);
+  eq(rowOf((await call('lab:recalcRanges', W.o.id, W.sheet.item_id)).item, /WBC/).range_text, '5,000 - 15,500', 'after “Reset to standard values” a re-apply brings the standard child range');
+  ok(!(await call('lab:recalcRanges', orderM.id, W.sheet.item_id)).ok, 'a test of another order is refused');
+  const fresh = await mk(kid); const nr = await call('lab:recalcRanges', fresh.o.id, fresh.sheet.item_id); ok(!nr.ok && /Nothing has been saved/.test(nr.error), 'a test with nothing saved yet says so in words');
   near(Number(one('SELECT COUNT(*) n FROM lab_test_params').n) > 100 ? 1 : 0, 1, 'the defaults hold well over 100 parameters');
   finish();
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -227,6 +227,14 @@ function OrderDetail({
   const { data: sheet = [] } = useQuery({ queryKey: ['lab-sheet', orderId], queryFn: () => window.electronAPI.lab.resultSheet(orderId) });
   const sheetOf = (id: number) => sheet.find((s) => s.item_id === id);
   const setParam = (itemId: number, key: string, v: string) => setParamVals((p) => ({ ...p, [itemId]: { ...(p[itemId] || {}), [key]: v } }));
+  /** Work the normal ranges of a saved test out again (a corrected date of birth / gender, or edited normal values); the typed values stay. */
+  const recalc = async (itemId: number) => {
+    if (!window.confirm('Re-apply the normal ranges for this test?\n\nThe values you typed stay. The normal range of each one is worked out again from the patient’s CURRENT date of birth and gender and your CURRENT normal values, and the High / Low marks are redone.')) return;
+    const r = await window.electronAPI.lab.recalcRanges(orderId, itemId);
+    if (!r.ok) { toast(r.error, 'error'); return; }
+    toast(r.changed === 0 && r.reflagged === 0 ? 'Nothing changed — the ranges were already right' : `Normal ranges re-applied — ${r.changed} range${r.changed === 1 ? '' : 's'} and ${r.reflagged} mark${r.reflagged === 1 ? '' : 's'} changed${r.kept ? `, ${r.kept} kept as entered` : ''}`);
+    qc.invalidateQueries({ queryKey: ['lab-sheet', orderId] }); qc.invalidateQueries({ queryKey: ['lab-order-items', orderId] });
+  };
   /**
    * Seed a new draft entry from the row's SAVED values, never from blanks.
    *
@@ -387,7 +395,7 @@ function OrderDetail({
               </td>
             </tr>
             {(it.param_count > 0 || it.value_count > 0) && sheetOf(it.id) && (
-              <tr className="border-b border-gray-100 dark:border-slate-800 bg-gray-50/60 dark:bg-slate-800/30"><td colSpan={6} className="px-3 pb-3"><ParamSheet item={sheetOf(it.id)!} values={paramVals[it.id] || {}} onChange={(k, v) => setParam(it.id, k, v)} /></td></tr>
+              <tr className="border-b border-gray-100 dark:border-slate-800 bg-gray-50/60 dark:bg-slate-800/30"><td colSpan={6} className="px-3 pb-3"><ParamSheet item={sheetOf(it.id)!} values={paramVals[it.id] || {}} onChange={(k, v) => setParam(it.id, k, v)} onRecalc={() => recalc(it.id)} /></td></tr>
             )}
             </Fragment>
           ))}

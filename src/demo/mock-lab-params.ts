@@ -1,6 +1,6 @@
 /** Demo version of the lab normal-values API (website demo and screenshots): the same shapes the real main process returns, kept in memory. */
 import { DEFAULT_LIMITS, ageInDays, ageText, flagFor, hasNumbers, limitProblem, sexOf, type AgeLimits, type ChildGroup } from '../lib/labRanges';
-import { lineToParam, panelForTest, refFor, sheetRowsFor, type ParamRow, type Who } from '../db/labParams';
+import { lineToParam, panelForTest, reapplyRow, refFor, sheetRowsFor, type ParamRow, type Who } from '../db/labParams';
 
 const r = <T,>(v: T): Promise<T> => Promise.resolve(v);
 const full = (testId: number, p: any, i: number) => ({ id: testId * 1000 + i, lab_test_id: testId, name: p.name, unit: p.unit ?? null, low: p.low ?? null, high: p.high ?? null, m_low: p.m_low ?? null, m_high: p.m_high ?? null,
@@ -26,6 +26,16 @@ export function makeLabParamsMock(ctx: { tests: () => any[]; items: (orderId: nu
     saveParams: (id: number, list: any[]) => {
       if (list.some((p) => !String(p.name || '').trim())) return r({ ok: false as const, error: 'Every parameter needs a name.' });
       custom.set(id, list.map((p, i) => full(id, p, i))); return r({ ok: true as const, params: custom.get(id) as any });
+    },
+    recalcRanges: (orderId: number, itemId: number) => {
+      const it = ctx.items(orderId).find((x) => x.id === itemId); if (!it) return r({ ok: false as const, error: 'That test is not part of this order.' });
+      const stored = values.get(itemId); if (!stored) return r({ ok: false as const, error: 'Nothing has been saved for this test yet — its normal ranges are worked out fresh until the first save.' });
+      const who = whoOf(orderId); const ps = paramsOf(it.lab_test_id) as ParamRow[]; let changed = 0; let reflagged = 0; let kept = 0;
+      values.set(itemId, stored.map((row: any) => {
+        const p = ps.find((x) => x.name === row.name); if (!p) { kept++; return row; }
+        const n = reapplyRow(row, p, who, limits); if (n.range_text !== row.range_text) changed++; if (n.flag !== row.flag) reflagged++; return { ...row, ...n };
+      }));
+      return r({ ok: true as const, changed, reflagged, kept, item: sheetItem(it) as any });
     },
     getAgeGroups: () => r({ ok: true as const, limits }),
     saveAgeGroups: (l: AgeLimits) => { const problem = limitProblem(l); if (problem) return r({ ok: false as const, error: problem }); limits = { ...l }; return r({ ok: true as const, limits }); },
