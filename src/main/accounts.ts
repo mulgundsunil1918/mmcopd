@@ -348,6 +348,8 @@ export function createVoucher(db: Database.Database, input: VoucherInput & { cli
     const old = db.prepare('SELECT id FROM acct_vouchers WHERE client_ref = ?').get(ref) as { id: number } | undefined;
     if (old) return { ok: true, voucher: getVoucher(db, old.id)!, unused: 0 };
   }
+  if (v.payee_kind === 'staff' && !db.prepare('SELECT 1 FROM acct_staff WHERE id = ?').get(Number(v.payee_ref))) return { ok: false, error: 'That staff member was not found — choose again.' };
+  if (v.payee_kind === 'doctor' && !db.prepare('SELECT 1 FROM doctors WHERE id = ?').get(Number(v.payee_ref))) return { ok: false, error: 'That doctor was not found — choose again.' };
   const acct = readAcct(db);
   const pay = parsePayRules(readSetting(db, 'pay_rules_json'));
   let unused = 0; let newId = 0;
@@ -392,6 +394,7 @@ export function listVouchers(db: Database.Database, f: { from?: string; to?: str
 
 export function cancelVoucher(db: Database.Database, id: number, reason: string, who: string): { ok: true; voucher: VoucherRow } | { ok: false; error: string } {
   const r = String(reason || '').trim(); if (r.length < 3) return { ok: false, error: 'Write the reason for cancelling (a few words).' };
+  if (r.length > 300) return { ok: false, error: 'The reason is too long — keep it short.' };
   const v = getVoucher(db, id); if (!v) return { ok: false, error: 'That voucher was not found.' };
   if (v.status === 'cancelled') return { ok: false, error: `${v.voucher_no} is already cancelled.` };
   db.prepare("UPDATE acct_vouchers SET status = 'cancelled', cancelled_at = datetime('now'), cancelled_by = ?, cancel_reason = ? WHERE id = ?").run(who || null, r, id);
@@ -411,7 +414,9 @@ export function listStaff(db: Database.Database, month = localDay().slice(0, 7))
 export function saveStaff(db: Database.Database, s: { id?: number; name: string; job?: string; phone?: string; monthly_salary?: number; keep_attendance?: boolean; is_active?: boolean; joined_on?: string }):
   { ok: true; id: number } | { ok: false; error: string } {
   const name = String(s.name || '').trim(); if (!name) return { ok: false, error: 'Enter the staff member’s name.' };
-  const sal = Number(s.monthly_salary || 0); if (!(sal >= 0) || !Number.isFinite(sal)) return { ok: false, error: 'The monthly salary must be a number (0 or more).' };
+  if (name.length > 200 || String(s.job ?? '').length > 100 || String(s.phone ?? '').length > 40) return { ok: false, error: 'One of the texts is too long — shorten it.' };
+  const sal = Number(s.monthly_salary || 0); if (!(sal >= 0) || !Number.isFinite(sal) || sal > 1e9) return { ok: false, error: 'The monthly salary must be a number (0 or more, and not absurdly large).' };
+  if (s.id && !db.prepare('SELECT 1 FROM acct_staff WHERE id = ?').get(Number(s.id))) return { ok: false, error: 'That staff member was not found.' };
   const vals = [name, s.job?.trim() || null, s.phone?.trim() || null, money2(sal), s.keep_attendance ? 1 : 0, s.is_active === false ? 0 : 1, s.joined_on || null];
   if (s.id) { db.prepare('UPDATE acct_staff SET name=?, job=?, phone=?, monthly_salary=?, keep_attendance=?, is_active=?, joined_on=? WHERE id=?').run(...vals, s.id); return { ok: true, id: s.id }; }
   return { ok: true, id: Number(db.prepare('INSERT INTO acct_staff (name, job, phone, monthly_salary, keep_attendance, is_active, joined_on) VALUES (?,?,?,?,?,?,?)').run(...vals).lastInsertRowid) };
@@ -421,6 +426,7 @@ export function getAttendance(db: Database.Database, staffId: number, ym: string
 }
 export function setAttendance(db: Database.Database, staffId: number, day: string, status: string | null, note?: string) {
   if (!isDay(day)) return { ok: false as const, error: 'Pick a valid day.' };
+  if (!db.prepare('SELECT 1 FROM acct_staff WHERE id = ?').get(staffId)) return { ok: false as const, error: 'That staff member was not found.' };
   if (!status) { db.prepare('DELETE FROM acct_attendance WHERE staff_id = ? AND day = ?').run(staffId, day); return { ok: true as const }; }
   if (!ATTENDANCE.some((a) => a.id === status)) return { ok: false as const, error: 'Unknown attendance status.' };
   db.prepare('INSERT INTO acct_attendance (staff_id, day, status, note) VALUES (?,?,?,?) ON CONFLICT(staff_id, day) DO UPDATE SET status = excluded.status, note = excluded.note').run(staffId, day, status, note?.trim() || null);
@@ -439,13 +445,14 @@ export function saveCategory(db: Database.Database, c: { id?: number; name?: str
     return { ok: true };
   }
   const n = String(c.name || '').trim(); if (!n) return { ok: false, error: 'Type the name of the new head.' };
+  if (n.length > 100) return { ok: false, error: 'The name is too long — keep it short.' };
   if (db.prepare('SELECT 1 FROM acct_categories WHERE lower(name) = lower(?)').get(n)) return { ok: false, error: `“${n}” is already in the list.` };
   db.prepare('INSERT INTO acct_categories (name, sort_order) VALUES (?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM acct_categories))').run(n);
   return { ok: true };
 }
 
 // ── money out, day book, profit and loss ───────────────────────────────────────────────────────────────────────────────────────
-export interface OutLine { source: 'voucher' | 'supplier' | 'refund'; date: string; ref: string; who: string; what: string; mode: string; amount: number; status: string; counted: boolean; voucher_id?: number }
+export interface OutLine { source: 'voucher' | 'supplier' | 'refund'; date: string; ref: string; who: string; what: string; mode: string; amount: number; status: string; counted: boolean; voucher_id?: number; patient_id?: number | null; uhid?: string | null }
 /** Everything that went out in the range: vouchers, supplier payments, and (shown, but already taken off Money in) patient refunds. */
 export function moneyOut(db: Database.Database, from: string, to: string): { lines: OutLine[]; total: number; vouchers: number; suppliers: number; refunds: number } {
   const slack = utcSlack(from, to); const lines: OutLine[] = [];
@@ -457,15 +464,19 @@ export function moneyOut(db: Database.Database, from: string, to: string): { lin
     { date: string; amount: number; mode: string; inv: string | null; supplier: string }[]) {
     lines.push({ source: 'supplier', date: r.date, ref: r.inv || '', who: r.supplier, what: 'Supplier payment', mode: r.mode || 'Unspecified', amount: money2(r.amount), status: 'active', counted: true });
   }
-  for (const r of db.prepare(`SELECT date(bp.received_at, 'localtime') AS date, -bp.amount AS amount, COALESCE(bp.payment_mode, '') AS mode, b.bill_number AS bill
-      FROM bill_payments bp JOIN bills b ON b.id = bp.bill_id WHERE bp.amount < 0 AND bp.received_at >= ? AND bp.received_at < ? AND date(bp.received_at, 'localtime') BETWEEN ? AND ?`).all(slack.lo, slack.hi, from, to) as
-    { date: string; amount: number; mode: string; bill: string }[]) {
-    lines.push({ source: 'refund', date: r.date, ref: r.bill, who: 'Patient', what: 'Refund (already taken off Money in)', mode: r.mode || 'Unspecified', amount: money2(r.amount), status: 'active', counted: false });
+  for (const r of db.prepare(`SELECT date(bp.received_at, 'localtime') AS date, -bp.amount AS amount, COALESCE(bp.payment_mode, '') AS mode, b.bill_number AS bill,
+        b.patient_id AS pid, p.uhid AS uhid, TRIM(COALESCE(p.first_name, '') || ' ' || COALESCE(p.last_name, '')) AS pname
+      FROM bill_payments bp JOIN bills b ON b.id = bp.bill_id LEFT JOIN patients p ON p.id = b.patient_id
+     WHERE bp.amount < 0 AND bp.received_at >= ? AND bp.received_at < ? AND date(bp.received_at, 'localtime') BETWEEN ? AND ?`).all(slack.lo, slack.hi, from, to) as
+    { date: string; amount: number; mode: string; bill: string; pid: number | null; uhid: string | null; pname: string | null }[]) {
+    lines.push({ source: 'refund', date: r.date, ref: r.bill, who: r.pname || 'Walk-in (no patient)', what: 'Refund (already taken off Money in)', mode: r.mode || 'Unspecified', amount: money2(r.amount), status: 'active', counted: false, patient_id: r.pid, uhid: r.uhid });
   }
-  for (const r of db.prepare(`SELECT date(refunded_at, 'localtime') AS date, refunded_amount AS amount, COALESCE(payment_mode, '') AS mode, COALESCE(receipt_no, '') AS ref
-      FROM advances WHERE refunded_amount > 0.004 AND refunded_at IS NOT NULL AND refunded_at >= ? AND refunded_at < ? AND date(refunded_at, 'localtime') BETWEEN ? AND ?`).all(slack.lo, slack.hi, from, to) as
-    { date: string; amount: number; mode: string; ref: string }[]) {
-    lines.push({ source: 'refund', date: r.date, ref: r.ref, who: 'Patient', what: 'Deposit refund (already taken off Money in)', mode: r.mode || 'Unspecified', amount: money2(r.amount), status: 'active', counted: false });
+  for (const r of db.prepare(`SELECT date(a.refunded_at, 'localtime') AS date, a.refunded_amount AS amount, COALESCE(a.payment_mode, '') AS mode, COALESCE(a.receipt_no, '') AS ref,
+        a.patient_id AS pid, p.uhid AS uhid, TRIM(COALESCE(p.first_name, '') || ' ' || COALESCE(p.last_name, '')) AS pname
+      FROM advances a LEFT JOIN patients p ON p.id = a.patient_id
+     WHERE a.refunded_amount > 0.004 AND a.refunded_at IS NOT NULL AND a.refunded_at >= ? AND a.refunded_at < ? AND date(a.refunded_at, 'localtime') BETWEEN ? AND ?`).all(slack.lo, slack.hi, from, to) as
+    { date: string; amount: number; mode: string; ref: string; pid: number | null; uhid: string | null; pname: string | null }[]) {
+    lines.push({ source: 'refund', date: r.date, ref: r.ref, who: r.pname || 'Patient', what: 'Deposit refund (already taken off Money in)', mode: r.mode || 'Unspecified', amount: money2(r.amount), status: 'active', counted: false, patient_id: r.pid, uhid: r.uhid });
   }
   lines.sort((a, b) => b.date.localeCompare(a.date));
   const sum = (src: OutLine['source']) => money2(lines.filter((l) => l.source === src && l.counted).reduce((a, l) => a + l.amount, 0));
@@ -485,7 +496,7 @@ export function dayBook(db: Database.Database, from: string, to: string): { days
   const cash = (m: Record<string, number>) => m['Cash'] ?? 0;
   let open = 0;
   if (od && od < from) {            // cash counted on the opening day, plus what moved in the drawer from then up to the day before the first day shown
-    const prevEnd = localDay(new Date(parseDay(from).getTime() - 86400000));
+    const dPrev = parseDay(from); dPrev.setDate(dPrev.getDate() - 1); const prevEnd = localDay(dPrev);      // calendar arithmetic, not 24-hour steps: a clock-change day is 23 or 25 hours long
     open = money2(acct.opening_cash + cash(byMode(collections(db, od, prevEnd).by_mode.map((m) => ({ mode: m.payment_mode, amount: m.total })))) - cash(byMode(outOn(od, prevEnd))));
   }
   const days: DayBookDay[] = [];
@@ -520,4 +531,48 @@ export function profitAndLoss(db: Database.Database, from: string, to: string): 
     from, to, revenue, pharmacy_cost: money2(cost), pharmacy_cost_missing: missing, expenses, expenses_by_head: [...heads.entries()].map(([head, amount]) => ({ head, amount })).sort((a, b) => b.amount - a.amount),
     salaries, doctor_payments: doctor, referral_payments: referral, total_costs: total, profit: money2(revenue - total),
   };
+}
+
+// ── patients behind the numbers ──────────────────────────────────────────────────────────────────────────────────────────────
+export interface DoctorVisit {
+  appointment_id: number; doctor_id: number; day: string; patient_id: number; uhid: string; patient_name: string; token: number | null;
+  kind: 'new_patient' | 'free_followup' | 'paid_repeat' | 'not_billed'; courtesy: boolean; referred_by: string | null; billed: number; collected: number;
+}
+/** The visits behind a doctor's figures — who the patients were, what kind of visit each was, and what was billed and collected for it (nothing floats without a patient). */
+export function doctorVisits(db: Database.Database, opts: { from: string; to: string; doctorId?: number }): DoctorVisit[] {
+  const { from, to } = opts;
+  const rows = db.prepare(`SELECT a.id AS appointment_id, a.doctor_id, a.appointment_date AS day, a.patient_id, p.uhid, TRIM(COALESCE(p.first_name, '') || ' ' || COALESCE(p.last_name, '')) AS patient_name,
+        a.token_number AS token, a.referred_by,
+        EXISTS (SELECT 1 FROM appointments x WHERE x.patient_id = a.patient_id AND x.doctor_id = a.doctor_id AND x.status <> 'Cancelled'
+                  AND (x.appointment_date < a.appointment_date OR (x.appointment_date = a.appointment_date AND x.id < a.id))) AS seen_by_doc,
+        (SELECT COALESCE(MAX(b.is_free_followup), 0) FROM bills b WHERE b.appointment_id = a.id AND ${LIVE_BILL}) AS free,
+        (SELECT COALESCE(MAX(b.is_relaxed_followup), 0) FROM bills b WHERE b.appointment_id = a.id AND ${LIVE_BILL}) AS courtesy,
+        (SELECT COUNT(*) FROM bills b WHERE b.appointment_id = a.id AND b.bill_type = 'opd_consult' AND COALESCE(b.bill_kind, 'opd') <> 'misc' AND ${LIVE_BILL}) AS consult_bills
+      FROM appointments a JOIN patients p ON p.id = a.patient_id
+     WHERE a.status <> 'Cancelled' AND a.appointment_date BETWEEN ? AND ? AND a.doctor_id IS NOT NULL ${opts.doctorId ? 'AND a.doctor_id = ' + Number(opts.doctorId) : ''}
+     ORDER BY a.appointment_date, a.id`).all(from, to) as (Omit<DoctorVisit, 'kind' | 'courtesy' | 'billed' | 'collected'> & { seen_by_doc: number; free: number; courtesy: number; consult_bills: number })[];
+  const money = new Map<number, { b: number; c: number }>();
+  const add = (id: number, b: number, c: number) => { const m = money.get(id) ?? { b: 0, c: 0 }; m.b += b; m.c += c; money.set(id, m); };
+  for (const r of db.prepare(`SELECT ${BILL_COLS} ${BILLS_OF_VISITS} WHERE a.appointment_date BETWEEN ? AND ? AND ${LIVE_BILL}`).all(from, to) as BillRow[]) {
+    if (r.appointment_id) { const f = billFigures(r); add(r.appointment_id, f.totalP, f.collectedP); }
+  }
+  for (const r of db.prepare(`SELECT s.appointment_id AS appt, s.total, COALESCE(s.amount_paid, s.total) AS paid FROM pharmacy_sales s JOIN appointments a ON a.id = s.appointment_id
+      WHERE a.appointment_date BETWEEN ? AND ? AND COALESCE(s.payment_mode, '') <> 'IPD-bill'`).all(from, to) as { appt: number; total: number; paid: number }[]) {
+    const t = toPaise(r.total); add(r.appt, t, Math.min(t, toPaise(r.paid)));
+  }
+  return rows.map((r) => ({
+    appointment_id: r.appointment_id, doctor_id: r.doctor_id, day: r.day, patient_id: r.patient_id, uhid: r.uhid, patient_name: r.patient_name, token: r.token, referred_by: r.referred_by,
+    kind: !r.seen_by_doc ? 'new_patient' : r.free ? 'free_followup' : r.consult_bills > 0 ? 'paid_repeat' : 'not_billed', courtesy: !!r.courtesy && !!r.free,
+    billed: rupees(money.get(r.appointment_id)?.b ?? 0), collected: rupees(money.get(r.appointment_id)?.c ?? 0),
+  }));
+}
+
+/** Money records that are not tied to a patient (walk-in bills and counter sales made under a typed name): counted so they can be seen and chased, never hidden. */
+export function unlinkedMoney(db: Database.Database, from: string, to: string) {
+  const slack = utcSlack(from, to);
+  const bills = db.prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(total), 0) AS t FROM bills WHERE patient_id IS NULL AND COALESCE(status, '') <> 'cancelled' AND cancelled_at IS NULL
+      AND created_at >= ? AND created_at < ? AND date(created_at, 'localtime') BETWEEN ? AND ?`).get(slack.lo, slack.hi, from, to) as { n: number; t: number };
+  const sales = db.prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(total), 0) AS t FROM pharmacy_sales WHERE patient_id IS NULL AND COALESCE(payment_mode, '') <> 'IPD-bill'
+      AND created_at >= ? AND created_at < ? AND date(created_at, 'localtime') BETWEEN ? AND ?`).get(slack.lo, slack.hi, from, to) as { n: number; t: number };
+  return { bills: bills.n, bills_total: money2(bills.t), sales: sales.n, sales_total: money2(sales.t) };
 }

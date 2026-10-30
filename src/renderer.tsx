@@ -1,3 +1,4 @@
+import { PdfPage } from './components/PdfPage';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { HashRouter } from 'react-router-dom';
@@ -51,7 +52,11 @@ document.addEventListener('wheel', (e) => {
   }
 }, { passive: true });
 
-try {
+if (window.location.hash.startsWith('#/pdf/')) {
+  // CureDesk is making a report into a PDF: show just the report (see components/PdfPage.tsx)
+  document.documentElement.classList.remove('dark');
+  createRoot(document.getElementById('root')!).render(<QueryClientProvider client={queryClient}><PdfPage /></QueryClientProvider>);
+} else try {
   createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <QueryClientProvider client={queryClient}>

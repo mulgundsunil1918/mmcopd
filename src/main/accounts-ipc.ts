@@ -70,6 +70,15 @@ export function registerAccountsIpc() {
     return { money, days: out.days.map((d) => ({ ...d, collected: 0, earned: 0, paid: 0, balance: 0, vouchers: [], status: 'none' as const })), referrers: out.referrers.map((d) => ({ ...d, collected: 0, earned: 0, paid: 0, balance: 0 })) };
   });
 
+  // ── patients behind the numbers ──
+  ipcMain.handle('accounts:doctorVisits', (_e, f: { from: string; to: string; doctorId?: number }, adminPassword?: string) => {
+    const r = range(f?.from, f?.to); const db = getDb();
+    const money = moneyAllowed(adminPassword);
+    const rows = acc.doctorVisits(db, { ...r, doctorId: f?.doctorId ? Number(f.doctorId) : undefined });
+    return { money, visits: money ? rows : rows.map((v) => ({ ...v, billed: 0, collected: 0 })) };
+  });
+  ipcMain.handle('accounts:unlinked', (_e, from: string, to: string) => { const r = range(from, to); return acc.unlinkedMoney(getDb(), r.from, r.to); });
+
   // ── writes ──
   ipcMain.handle('accounts:createVoucher', (_e, input: VoucherInput & { client_ref?: string }, adminPassword?: string) => {
     const db = getDb(); const w = who(); const admin = adminOk(adminPassword);

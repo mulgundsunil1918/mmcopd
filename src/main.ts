@@ -9,6 +9,7 @@ import { registerRadiologyIpc } from './main/radiology-ipc';
 import { registerPharmacyFinanceIpc } from './main/pharmacy-finance-ipc';
 import { registerBillingPortalIpc } from './main/billing-portal-ipc';
 import { registerAccountsIpc } from './main/accounts-ipc';
+import { registerLabParamsIpc } from './main/lab-params-ipc';
 import { registerSetupIpc } from './main/setup-ipc';
 import { registerBillCancelIpc } from './main/bill-cancel';
 import { registerPedsIpc } from './main/peds-ipc';
@@ -437,6 +438,52 @@ function createWindow() {
     try { clipboard.writeText(String(text ?? '')); return { ok: true }; }
     catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
   });
+  // ===== Report PDFs (lab / radiology): "send the report on WhatsApp as a PDF" =====
+  // A hidden window shows the report on its own (#/pdf/<kind>/<id>), the main process waits for the sheet to be ready and prints it to a PDF in the clinic's data folder.
+  const pdfDir = () => { const d = path.join(app.getPath('userData'), 'report-pdfs'); fs.mkdirSync(d, { recursive: true }); return d; };
+  const insidePdfDir = (p: unknown) => typeof p === 'string' && path.resolve(p).startsWith(path.resolve(pdfDir()) + path.sep) && p.toLowerCase().endsWith('.pdf');
+  ipcMain.handle('reports:makePdf', async (_e, kind: 'lab' | 'radiology', id: number) => {
+    if ((kind !== 'lab' && kind !== 'radiology') || !Number.isInteger(Number(id))) return { ok: false as const, error: 'Choose a report first.' };
+    const db = getDb();
+    const row = kind === 'lab'
+      ? db.prepare("SELECT o.order_number AS no, TRIM(p.first_name || ' ' || p.last_name) AS name FROM lab_orders o JOIN patients p ON p.id = o.patient_id WHERE o.id = ?").get(Number(id)) as any
+      : db.prepare("SELECT o.order_number AS no, TRIM(p.first_name || ' ' || p.last_name) AS name FROM radiology_orders o JOIN patients p ON p.id = o.patient_id WHERE o.id = ?").get(Number(id)) as any;
+    if (!row) return { ok: false as const, error: 'That report was not found.' };
+    const safe = (s: string) => String(s || '').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
+    const fileName = `${kind === 'lab' ? 'Lab-Report' : 'Radiology-Report'}-${safe(row.no)}-${safe(row.name)}.pdf`;
+    const win = new BrowserWindow({ show: false, width: 900, height: 1200, backgroundColor: '#ffffff', webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+    try {
+      const hash = `/pdf/${kind}/${Number(id)}`;
+      if (MAIN_WINDOW_VITE_DEV_SERVER_URL) await win.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}#${hash}`);
+      else await win.loadFile(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`), { hash });
+      let ready = false;
+      for (let i = 0; i < 80 && !ready; i++) { ready = await win.webContents.executeJavaScript("!!document.querySelector('[data-report-ready]')").catch(() => false); if (!ready) await new Promise((r) => setTimeout(r, 250)); }
+      if (!ready) return { ok: false as const, error: 'The report did not finish loading — try again.' };
+      await new Promise((r) => setTimeout(r, 500));                                  // logo and fonts
+      const pdf = await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, margins: { marginType: 'none' }, preferCSSPageSize: true });
+      try { for (const f of fs.readdirSync(pdfDir())) { const p = path.join(pdfDir(), f); if (f.toLowerCase().endsWith('.pdf') && Date.now() - fs.statSync(p).mtimeMs > 30 * 86400000) fs.unlinkSync(p); } } catch { /* tidying is best-effort */ }
+      const file = path.join(pdfDir(), fileName); fs.writeFileSync(file, pdf);
+      return { ok: true as const, path: file, fileName };
+    } catch (err: any) {
+      return { ok: false as const, error: err?.message || 'Could not make the PDF.' };
+    } finally { if (!win.isDestroyed()) win.destroy(); }
+  });
+  // Put the PDF on the clipboard AS A FILE, so Ctrl+V in a WhatsApp chat attaches it (WhatsApp cannot be given a file by a link).
+  ipcMain.handle('app:copyFileToClipboard', async (_e, filePath: string) => {
+    if (!insidePdfDir(filePath) || !fs.existsSync(filePath)) return { ok: false as const, error: 'That file is not available.' };
+    const { execFile } = await import('node:child_process');
+    return new Promise<{ ok: boolean; error?: string }>((resolve) => {
+      const done = (err: Error | null) => resolve(err ? { ok: false, error: err.message } : { ok: true });
+      if (process.platform === 'win32') execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Set-Clipboard -LiteralPath $env:CD_FILE'], { env: { ...process.env, CD_FILE: filePath }, windowsHide: true, timeout: 15000 }, (err) => done(err));
+      else if (process.platform === 'darwin') execFile('osascript', ['-e', 'on run argv', '-e', 'set the clipboard to (POSIX file (item 1 of argv))', '-e', 'end run', filePath], { timeout: 15000 }, (err) => done(err));
+      else resolve({ ok: false, error: 'Copying a file is not supported on this system.' });
+    });
+  });
+  ipcMain.handle('app:showFile', (_e, filePath: string) => {
+    if (!insidePdfDir(filePath) || !fs.existsSync(filePath)) return { ok: false as const, error: 'That file is not available.' };
+    shell.showItemInFolder(filePath); return { ok: true as const };
+  });
+
   // Allowlisted external opener — used for "click-to-WhatsApp" (wa.me) + tel/mailto.
   ipcMain.handle('app:openExternal', async (_e, url: string) => {
     try {
@@ -939,6 +986,7 @@ app.whenReady().then(async () => {
   registerPharmacyFinanceIpc();
   registerBillingPortalIpc();
   registerAccountsIpc();
+  registerLabParamsIpc();
   registerSetupIpc();
   registerBillCancelIpc();
   registerPedsIpc();

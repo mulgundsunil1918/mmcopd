@@ -19,6 +19,7 @@ import { cleanForWhatsApp } from '../lib/messageText';
 import type { WaAutomationTrigger } from '../types/whatsapp';
 import { localISO } from '../lib/localDate';
 import { useWhatsAppTemplates } from '../hooks/useWhatsAppTemplates';
+import { SendReportDialog } from '../components/whatsapp/SendReportDialog';
 import { rememberSettingsTab } from '../lib/settingsMap';
 
 type ActiveModule = 'module1' | 'module2';
@@ -570,7 +571,10 @@ function Module1Section() {
     return renderTemplate(tpl, ctx);
   };
 
+  const [reportFor, setReportFor] = useState<{ appt: any; kind: 'lab' | 'radiology' } | null>(null);
   const sendToPatient = async (appt: any, typeKey: string) => {
+    // a lab or radiology report goes as a PDF: ask which report first
+    if (typeKey === 'lab' || typeKey === 'radiology') { setReportFor({ appt, kind: typeKey }); return; }
     if (!appt.patient_phone?.replace(/\D/g, '')) {
       toast(`No phone number on record for ${appt.patient_name}`, 'error');
       return;
@@ -612,6 +616,7 @@ function Module1Section() {
 
   return (
     <div className="space-y-4">
+      {reportFor && <SendReportDialog patient={{ patient_id: reportFor.appt.patient_id, patient_name: reportFor.appt.patient_name, patient_phone: reportFor.appt.patient_phone }} kind={reportFor.kind} clinicName={String((settings as any)?.clinic_name || 'the clinic')} countryCode={cc} onClose={() => setReportFor(null)} onSent={(what) => setSentLog(prev => [{ name: reportFor.appt.patient_name, type: what, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 9)])} />}
       {/* Banner */}
       <div className="rounded-xl p-4 flex gap-4 items-start" style={{ background: 'linear-gradient(135deg,#f0fdf4,#dcfce7)' }}>
         <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0" style={{ background: '#25D366' }}>📱</div>

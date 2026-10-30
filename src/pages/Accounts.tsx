@@ -4,6 +4,7 @@
  * The old Accounts page is now "Money in"; the Analytics finance, module P&L, receivables and pharmacy profit views moved here — nothing was deleted.
  */
 import { useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Wallet, ArrowDownToLine, ArrowUpFromLine, Users, BookOpen, Scale, LayoutDashboard } from 'lucide-react';
 import { PageHelp } from '../components/PageHelp';
 import { Feature, SettingsLink, useFeature } from '../components/Feature';
@@ -67,8 +68,14 @@ import { todayISO } from '../lib/utils';
 /** Money in = the old Accounts page, plus the receivables, unbilled-work and discount views that used to sit in Analytics → Finance. */
 function MoneyInWithMore() {
   const to = todayISO(); const d = new Date(); d.setDate(d.getDate() - 29); const from = localISO(d);
+  const { data: un } = useQuery({ queryKey: ['acct-unlinked', from, to], queryFn: () => window.electronAPI.accounts.unlinked(from, to) });
   return (
     <div className="space-y-5">
+      {un && (un.bills > 0 || un.sales > 0) && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 text-amber-900 dark:text-amber-200 text-xs px-3 py-2">
+          In the last 30 days, {un.bills > 0 && <b>{un.bills} walk-in bill{un.bills === 1 ? '' : 's'} (₹{un.bills_total})</b>}{un.bills > 0 && un.sales > 0 && ' and '}{un.sales > 0 && <b>{un.sales} counter sale{un.sales === 1 ? '' : 's'} (₹{un.sales_total})</b>} are not tied to a patient, so no patient record shows them. Register the patient first next time to keep every rupee linked.
+        </div>
+      )}
       <MoneyInTab />
       <Feature id="accounts.in.receivables"><div className="space-y-5"><ReceivablesSection /><UnbilledWorkSection /><DiscountsSection from={from} to={to} /></div></Feature>
     </div>

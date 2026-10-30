@@ -160,5 +160,42 @@ const one = (sql: string, ...p: any[]) => db.prepare(sql).get(...p) as any;
   ok(tdsOut.ok, 'the deposit is raised as an expense under “TDS deposit”');
   const plAfter = await call('accounts:profitLoss', d0, d0);
   near(plAfter.expenses, plBefore.expenses, 'Profit and loss does not count it again'); near((await call('accounts:moneyOut', d0, d0)).vouchers, outBefore + 100, 'it is still money out (+100)');
+  section('11 · bad input is refused in words, never a crash');
+  const base11 = { type: 'expense', date: d0, payee_kind: 'other', payee_name: 'Shop', description: 'Soap', gross: 10, pay_mode: 'Cash' };
+  const bad11: [string, any][] = [
+    ['a doctor payee on an expense voucher', { payee_kind: 'doctor', payee_ref: '1' }], ['a staff voucher with a staff member who does not exist', { type: 'staff_salary', payee_kind: 'staff', payee_ref: '987654', payee_name: 'Ghost' }],
+    ['a doctor payment to a doctor who does not exist', { type: 'doctor_payment', payee_kind: 'doctor', payee_ref: '987654', payee_name: 'Ghost' }], ['a period that is not a date', { period_from: 'tomorrow', period_to: 'later' }],
+    ['an absurd amount', { gross: 1e12 }], ['a very long description', { description: 'x'.repeat(600) }], ['a negative deduction', { deduction: -5 }], ['a text where the amount should be', { gross: 'ten' }],
+  ];
+  for (const [what, patch] of bad11) { const r = await attempt('accounts:createVoucher', { ...base11, ...patch }, '1234'); ok(r.ok && (r as any).value?.ok === false && String((r as any).value.error).length > 5, `${what} is refused in words`); }
+  ok(!(await call('accounts:setAttendance', 987654, d0, 'present')).ok, 'attendance for a staff member who does not exist is refused');
+  ok(!(await call('accounts:saveStaff', { name: 'Rich', monthly_salary: 1e12 })).ok, 'an absurd salary is refused'); ok(!(await call('accounts:saveStaff', { id: 987654, name: 'Nobody' })).ok, 'editing a staff member who does not exist is refused');
+  ok(!(await call('accounts:cancelVoucher', 1, 'x'.repeat(400), '1234')).ok, 'a cancellation reason that is a page long is refused');
+  for (const ch of ['moneyOut', 'dayBook', 'profitLoss']) { const r = await attempt(`accounts:${ch}`, 'not-a-date', d0, '1234'); ok(!r.ok && /valid start and end day/.test((r as any).error), `${ch} with a bad date says so`); }
+  const swapped = await call('accounts:dayBook', d0, d1); eq(swapped.days.length, 2, 'a range given backwards is read the right way round');
+  await call('settings:save', { acct_settings_json: '{ not json', pay_rules_json: '][', feature_switches_json: '???' });
+  ok((await attempt('accounts:doctorDays', { from: d0, to: d0 })).ok && (await attempt('accounts:dayBook', d0, d0)).ok && (await attempt('accounts:permissions')).ok, 'damaged settings never stop the screens (they read as “nothing set”)');
+  await call('settings:save', { acct_settings_json: JSON.stringify({ raise: { staff: { allowed: true } }, opening_cash: 5000, opening_date: d0 }), pay_rules_json: JSON.stringify(rules2), feature_switches_json: '' });
+  const many = await Promise.all(Array.from({ length: 12 }, (_, i) => call('accounts:createVoucher', { ...base11, description: `Parallel ${i}`, client_ref: `par-${i}` })));
+  const nos = many.map((m: any) => m.voucher.voucher_no).sort(); eq(new Set(nos).size, 12, 'twelve vouchers raised at once get twelve different numbers');
+  const same = await Promise.all(Array.from({ length: 8 }, () => call('accounts:createVoucher', { ...base11, description: 'Double click', client_ref: 'dbl-1' })));
+  eq(new Set(same.map((m: any) => m.voucher.id)).size, 1, 'the same click sent eight times raises ONE voucher');
+
+  section('12 · every figure traces back to a patient');
+  const vis = await call('accounts:doctorVisits', { from: d0, to: d0, doctorId: docA.id });
+  ok(vis.money && vis.visits.length >= 1, 'the visits behind a doctor’s day are listed');
+  const v1 = vis.visits.find((v: any) => v.patient_id === p1.id);
+  ok(!!v1 && v1.patient_name.startsWith('Ann') && v1.uhid === p1.uhid, 'each visit names its patient and UHID'); ok(['new_patient', 'free_followup', 'paid_repeat', 'not_billed'].includes(v1.kind), '…and what kind of visit it was');
+  near(v1.billed, 1180 + 600 + 100 + 112, 'the money on a visit is what was billed for it (consultation, service, medicines)');
+  eq(vis.visits.reduce((a: number, v: any) => a + (v.kind === 'new_patient' ? 1 : 0), 0), (await call('accounts:doctorDays', { from: d0, to: d0, doctorId: docA.id })).doctors[0].new_patient, 'the patients listed add up to the day’s count');
+  await call('settings:save', { acct_settings_json: JSON.stringify({ raise: { manager: { allowed: true } } }) });
+  const hid = await call('accounts:doctorVisits', { from: d0, to: d0, doctorId: docA.id });
+  eq(hid.money, false, 'a role that may not see money still sees the patients…'); eq(hid.visits[0].billed, 0, '…but not the rupees');
+  await call('settings:save', { acct_settings_json: JSON.stringify({ raise: { staff: { allowed: true } } }) });
+  const out12 = await call('accounts:moneyOut', d1, d0); const refund = out12.lines.find((l: any) => l.source === 'refund');
+  ok(!!refund && refund.who.startsWith('Eve') && !!refund.uhid, 'a refund names the patient and UHID');
+  const walk = await attempt('bills:create', { appointment_id: null, patient_id: null, items: [{ description: 'Walk-in service', qty: 1, rate: 150, amount: 150 }], discount: 0, discount_type: 'flat', payment_mode: 'Cash', notes: 'Name: Walk In' });
+  const un = await call('accounts:unlinked', d0, d0);
+  ok(!walk.ok || un.bills >= 1, 'a walk-in bill with no patient is counted so it can be seen, not hidden');
   finish();
 })().catch((e) => { console.error(e); process.exit(1); });

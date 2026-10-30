@@ -3,7 +3,7 @@
  * Visits are counted three ways (owner’s words): New patient (new to THIS doctor), Free follow-up, Paid repeat visit.
  * Statistics go by billing; earnings go by what was collected. Money (and the Pay button) is shown only to people allowed to raise vouchers.
  */
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { HandCoins, Lock } from 'lucide-react';
 import { Feature, SettingsLink } from '../Feature';
@@ -28,6 +28,7 @@ export function DoctorsTab(_: { from: string; to: string }) {
   const data = q.data; const money = !!data?.money; const canPay = money && !!perm?.can_raise;
   const [dlg, setDlg] = useState<VoucherPreset | null>(null);
   const [print, setPrint] = useState<VoucherRow | null>(null);
+  const [openRow, setOpenRow] = useState('');
   const nameOf = useMemo(() => new Map(doctors.map((d) => [d.id, d.name])), [doctors]);
   const rows = useMemo(() => [...(data?.days ?? [])].filter((d) => d.visits || d.billed || d.earned || d.paid).sort((a, b) => b.day.localeCompare(a.day) || (nameOf.get(a.doctor_id) || '').localeCompare(nameOf.get(b.doctor_id) || '')), [data, nameOf]);
 
@@ -109,8 +110,9 @@ export function DoctorsTab(_: { from: string; to: string }) {
               {money && <><th className="text-right">Billed</th><th className="text-right">Collected</th><th className="text-right">Earned</th><th>Paid?</th><th className="text-right pr-3">To pay</th></>}</tr></thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={`${r.doctor_id}|${r.day}`} className="border-b border-gray-100 dark:border-slate-800">
-                  <td className="p-3 whitespace-nowrap">{dayLabel(r.day)}</td><td>{nameOf.get(r.doctor_id)}</td>
+                <Fragment key={`${r.doctor_id}|${r.day}`}>
+                <tr className="border-b border-gray-100 dark:border-slate-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800/50" onClick={() => setOpenRow(openRow === `${r.doctor_id}|${r.day}` ? '' : `${r.doctor_id}|${r.day}`)} title="Click to see the patients">
+                  <td className="p-3 whitespace-nowrap">{openRow === `${r.doctor_id}|${r.day}` ? '▾' : '▸'} {dayLabel(r.day)}</td><td>{nameOf.get(r.doctor_id)}</td>
                   <td className="text-right tabular-nums">{r.new_patient || '—'}</td>
                   <td className="text-right tabular-nums">{r.free_followup || '—'}{r.free_courtesy > 0 && <span className={MUTED}> ({r.free_courtesy} courtesy)</span>}</td>
                   <td className="text-right tabular-nums">{r.paid_repeat || '—'}</td><td className="text-right tabular-nums text-gray-500">{r.not_billed || '—'}</td>
@@ -120,6 +122,8 @@ export function DoctorsTab(_: { from: string; to: string }) {
                       {r.added_after_payment > 0 && <span className={MUTED + ' block'}>{inr(r.added_after_payment)} added after payment</span>}</td>
                     <td className={`text-right tabular-nums pr-3 ${r.balance > 0 ? 'text-rose-700 font-semibold' : 'text-gray-400'}`}>{r.balance > 0 ? inr(r.balance) : '—'}</td></>}
                 </tr>
+                {openRow === `${r.doctor_id}|${r.day}` && <tr className="bg-gray-50/70 dark:bg-slate-800/40"><td colSpan={money ? 11 : 6} className="px-6 py-3"><VisitsOf doctorId={r.doctor_id} day={r.day} pw={pw} /></td></tr>}
+                </Fragment>
               ))}
               {data && rows.length === 0 && <tr><td colSpan={money ? 11 : 6} className="p-6 text-center text-gray-500">Nothing to show for {fmtDate(range.from)}{range.to !== range.from ? ` – ${fmtDate(range.to)}` : ''}.</td></tr>}
             </tbody>
@@ -154,5 +158,20 @@ export function ReferrerPayCard({ from, to }: { from: string; to: string }) {
       <VoucherDialog open={!!dlg} onClose={() => setDlg(null)} preset={dlg || {}} onDone={(v) => setPrint(v)} />
       {print && <VoucherPrint voucher={print} onClose={() => setPrint(null)} />}
     </section>
+  );
+}
+
+const KIND_LABEL: Record<string, string> = { new_patient: 'New patient', free_followup: 'Free follow-up', paid_repeat: 'Paid repeat visit', not_billed: 'Not billed yet' };
+/** The patients behind one doctor's day: who they were, what kind of visit, and what was billed and collected for each (every figure traces to a patient). */
+function VisitsOf({ doctorId, day, pw }: { doctorId: number; day: string; pw: string }) {
+  const { data } = useQuery({ queryKey: ['acct-doctor-visits', doctorId, day, pw], queryFn: () => window.electronAPI.accounts.doctorVisits({ from: day, to: day, doctorId }, pw || undefined) });
+  if (!data) return <div className={MUTED}>Loading the patients…</div>;
+  if (data.visits.length === 0) return <div className={MUTED}>No visits that day (the pay for this day is the doctor's fixed pay).</div>;
+  return (
+    <table className="w-full text-xs"><thead><tr className="text-left text-[10px] uppercase text-gray-500"><th className="py-1">Token</th><th>Patient</th><th>UHID</th><th>Kind of visit</th>{data.money && <><th className="text-right">Billed</th><th className="text-right">Collected</th></>}</tr></thead>
+      <tbody>{data.visits.map((v) => (
+        <tr key={v.appointment_id} className="border-t border-gray-100 dark:border-slate-700"><td className="py-1">{v.token ?? '—'}</td><td className="font-medium">{v.patient_name}</td><td className="font-mono">{v.uhid}</td>
+          <td>{KIND_LABEL[v.kind]}{v.courtesy ? ' (courtesy)' : ''}{v.referred_by ? <span className={MUTED}> · referred by {v.referred_by}</span> : ''}</td>
+          {data.money && <><td className="text-right tabular-nums">{inr(v.billed)}</td><td className="text-right tabular-nums">{inr(v.collected)}</td></>}</tr>))}</tbody></table>
   );
 }

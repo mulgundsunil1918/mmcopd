@@ -10,8 +10,9 @@ import type { ReferralStats } from './lib/referralStats';
 import type { ImportCommit, ImportResult, ParseResult, WaitingGet, WaitingRow } from './lib/billImport/types';
 import type { AdminPatientVisits, PurchaseDeletedSummary } from './types';
 import type { NetFacts } from './lib/connectCheck';
-import type { DayBookDay, DoctorDay, DoctorSummary, OutLine, ProfitLoss, ReferrerDay, ReferrerSummary, StaffRow, VoucherResult, VoucherRow } from './main/accounts';
+import type { DayBookDay, DoctorDay, DoctorSummary, DoctorVisit, OutLine, ProfitLoss, ReferrerDay, ReferrerSummary, StaffRow, VoucherResult, VoucherRow } from './main/accounts';
 import type { VoucherInput } from './lib/accountsRules';
+import type { ParamRow, ReportData, SheetItem } from './db/labParams';
 
 export type LicenseStatusIPC = {
   state: 'valid' | 'grace' | 'locked' | 'invalid' | 'wrong_machine' | 'clock_tampered' | 'none' | 'dev';
@@ -224,6 +225,8 @@ const api = {
       ipcRenderer.invoke('radiology:loadStandardCatalog') as Promise<({ ok: true; added: number; total: number }) | RadiologyFail>,
     listOrders: (filter: { status?: string; patient_id?: number; window?: string; sort?: string; q?: string; limit?: number } = {}) =>
       ipcRenderer.invoke('radiology:listOrders', filter) as Promise<RadiologyOrderRow[]>,
+    normalReport: (testId: number | null, testName: string) => ipcRenderer.invoke('radiology:normalReport', testId, testName) as Promise<{ ok: true; findings: string; impression: string; source: 'clinic' | 'standard' } | { ok: false; error: string }>,
+    saveNormalReport: (testId: number, findings: string, impression: string) => ipcRenderer.invoke('radiology:saveNormalReport', testId, findings, impression) as Promise<{ ok: true } | { ok: false; error: string }>,
     getOrder: (id: number) => ipcRenderer.invoke('radiology:getOrder', id) as Promise<RadiologyOrderDetail | null>,
     createOrder: (payload: {
       patient_id: number;
@@ -382,6 +385,13 @@ const api = {
       ipcRenderer.invoke('rx:saveAll', appointmentId, items) as Promise<PrescriptionItem[]>,
   },
   lab: {
+    /** Normal values: what a test is made of, and the values typed on a report (flagged H / L / A against the range each was entered with). */
+    getParams: (testId: number) => ipcRenderer.invoke('lab:getParams', testId) as Promise<{ ok: true; test: { id: number; name: string }; params: ParamRow[]; has_default: boolean } | { ok: false; error: string }>,
+    saveParams: (testId: number, params: Partial<ParamRow>[]) => ipcRenderer.invoke('lab:saveParams', testId, params) as Promise<{ ok: true; params: ParamRow[] } | { ok: false; error: string }>,
+    resetParams: (testId: number) => ipcRenderer.invoke('lab:resetParams', testId) as Promise<{ ok: true; params: ParamRow[] } | { ok: false; error: string }>,
+    reportData: (orderId: number) => ipcRenderer.invoke('lab:reportData', orderId) as Promise<ReportData | null>,
+    resultSheet: (orderId: number) => ipcRenderer.invoke('lab:resultSheet', orderId) as Promise<SheetItem[]>,
+    saveResultValues: (orderId: number, itemId: number, values: { key: string; value: string }[]) => ipcRenderer.invoke('lab:saveResultValues', orderId, itemId, values) as Promise<{ ok: true; item: SheetItem } | { ok: false; error: string }>,
     listTests: (activeOnly = true) => ipcRenderer.invoke('lab:listTests', activeOnly) as Promise<LabTest[]>,
     /** Delete tests: unused ones are removed, ones with order history are deactivated. */
     bulkDeleteTests: (ids: number[]) =>
@@ -789,6 +799,8 @@ const api = {
     categories: () => ipcRenderer.invoke('accounts:categories') as Promise<{ id: number; name: string; is_active: number; sort_order: number }[]>,
     doctorDays: (f: { from: string; to: string; doctorId?: number }, adminPassword?: string) => ipcRenderer.invoke('accounts:doctorDays', f, adminPassword) as Promise<{ money: boolean; days: DoctorDay[]; doctors: DoctorSummary[] }>,
     referrerDays: (f: { from: string; to: string }, adminPassword?: string) => ipcRenderer.invoke('accounts:referrerDays', f, adminPassword) as Promise<{ money: boolean; days: ReferrerDay[]; referrers: ReferrerSummary[] }>,
+    doctorVisits: (f: { from: string; to: string; doctorId?: number }, adminPassword?: string) => ipcRenderer.invoke('accounts:doctorVisits', f, adminPassword) as Promise<{ money: boolean; visits: DoctorVisit[] }>,
+    unlinked: (from: string, to: string) => ipcRenderer.invoke('accounts:unlinked', from, to) as Promise<{ bills: number; bills_total: number; sales: number; sales_total: number }>,
     createVoucher: (input: VoucherInput & { client_ref?: string; days?: string[] }, adminPassword?: string) => ipcRenderer.invoke('accounts:createVoucher', input, adminPassword) as Promise<VoucherResult>,
     cancelVoucher: (id: number, reason: string, adminPassword?: string) => ipcRenderer.invoke('accounts:cancelVoucher', id, reason, adminPassword) as Promise<{ ok: true; voucher: VoucherRow } | { ok: false; error: string }>,
     saveStaff: (s: { id?: number; name: string; job?: string; phone?: string; monthly_salary?: number; keep_attendance?: boolean; is_active?: boolean; joined_on?: string }) => ipcRenderer.invoke('accounts:saveStaff', s) as Promise<{ ok: true; id: number } | { ok: false; error: string }>,
@@ -1019,6 +1031,8 @@ const api = {
   app: {
     getClinicName: () => ipcRenderer.invoke('app:getClinicName') as Promise<string>,
     forceQuit: () => ipcRenderer.invoke('app:forceQuit') as Promise<void>,
+    copyFileToClipboard: (filePath: string) => ipcRenderer.invoke('app:copyFileToClipboard', filePath) as Promise<{ ok: boolean; error?: string }>,
+    showFile: (filePath: string) => ipcRenderer.invoke('app:showFile', filePath) as Promise<{ ok: boolean; error?: string }>,
     openExternal: (url: string) =>
       ipcRenderer.invoke('app:openExternal', url) as Promise<{ ok: boolean; error?: string }>,
     copyText: (text: string) =>
@@ -1048,6 +1062,8 @@ const api = {
     },
   },
   reports: {
+    /** A lab / radiology report as a PDF file (made in a hidden window on this computer) — for sending on WhatsApp. */
+    makePdf: (kind: 'lab' | 'radiology', id: number) => ipcRenderer.invoke('reports:makePdf', kind, id) as Promise<{ ok: true; path: string; fileName: string } | { ok: false; error: string }>,
     run: (params: { kind: string; from?: string; to?: string }) =>
       ipcRenderer.invoke('reports:run', params) as Promise<any[]>,
   },

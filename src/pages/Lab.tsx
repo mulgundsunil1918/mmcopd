@@ -1,11 +1,13 @@
 import { SettingsLink, FieldBox } from '../components/Feature';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { PageHelp } from '../components/PageHelp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FlaskConical, Plus, Pencil, FileText, Beaker, Clipboard, CheckCircle2, Loader2, Printer, Search, X, Receipt, Trash2 } from 'lucide-react';
+import { FlaskConical, ListChecks, Plus, Pencil, FileText, Beaker, Clipboard, CheckCircle2, Loader2, Printer, Search, X, Receipt, Trash2 } from 'lucide-react';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
 import { LabPrint } from '../components/LabPrint';
+import { ParamSheet } from '../components/lab/ParamSheet';
+import { NormalValuesEditor } from '../components/lab/NormalValuesEditor';
 import { AdminPasswordModal } from '../components/AdminPasswordModal';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
@@ -220,6 +222,11 @@ function OrderDetail({
   onPrint: (mode: 'bill' | 'report') => void;
 }) {
   const [draft, setDraft] = useState<Record<number, { result: string; is_abnormal: number }>>({});
+  // values typed into the parameter boxes of panel tests (CBC …): item id → parameter key → value
+  const [paramVals, setParamVals] = useState<Record<number, Record<string, string>>>({});
+  const { data: sheet = [] } = useQuery({ queryKey: ['lab-sheet', orderId], queryFn: () => window.electronAPI.lab.resultSheet(orderId) });
+  const sheetOf = (id: number) => sheet.find((s) => s.item_id === id);
+  const setParam = (itemId: number, key: string, v: string) => setParamVals((p) => ({ ...p, [itemId]: { ...(p[itemId] || {}), [key]: v } }));
   /**
    * Seed a new draft entry from the row's SAVED values, never from blanks.
    *
@@ -309,7 +316,16 @@ function OrderDetail({
           </button>
           <button
             className="btn-primary text-xs"
-            onClick={() => onSaveResults(Object.entries(draft).map(([id, v]) => ({ id: Number(id), result: v.result, is_abnormal: v.is_abnormal })))}
+            onClick={async () => {
+              // panel tests: save the typed parameter values first (the flags are worked out as they are saved), then the one-box tests
+              for (const [id, vals] of Object.entries(paramVals)) {
+                const r = await window.electronAPI.lab.saveResultValues(orderId, Number(id), Object.entries(vals).map(([key, value]) => ({ key, value })));
+                if (!r.ok) { toast(r.error, 'error'); return; }
+              }
+              if (Object.keys(paramVals).length) { setParamVals({}); qc.invalidateQueries({ queryKey: ['lab-sheet', orderId] }); qc.invalidateQueries({ queryKey: ['lab-order-items', orderId] }); qc.invalidateQueries({ queryKey: ['lab-report-data'] }); }
+              const singles = Object.entries(draft).map(([id, v]) => ({ id: Number(id), result: v.result, is_abnormal: v.is_abnormal }));
+              if (singles.length) onSaveResults(singles); else toast('Results saved');
+            }}
           >
             Save Results
           </button>
@@ -331,8 +347,10 @@ function OrderDetail({
         </thead>
         <tbody>
           {items.map((it) => (
-            <tr key={it.id} className="border-b border-gray-100 dark:border-slate-800">
+            <Fragment key={it.id}>
+            <tr className="border-b border-gray-100 dark:border-slate-800">
               <td className="py-2 font-medium text-gray-900 dark:text-slate-100">{it.test_name}</td>
+              {(it.param_count > 0 || it.value_count > 0) ? <td colSpan={4} className="py-2 text-xs text-gray-500 dark:text-slate-400">{sheetOf(it.id)?.rows.length ?? it.param_count} parameters — type the values in the boxes below</td> : <>
               <td className="py-2 text-xs text-gray-500 dark:text-slate-400">{it.ref_range || '—'}</td>
               <td className="py-2">
                 <input
@@ -348,7 +366,7 @@ function OrderDetail({
                   defaultChecked={!!it.is_abnormal}
                   onChange={(e) => setField(it, { is_abnormal: e.target.checked ? 1 : 0 })}
                 />
-              </td>
+              </td></>}
               <td className="py-2 text-right">
                 {/* A test with a result recorded is evidence — the backend refuses
                     to delete it, so don't offer a button that will only fail. */}
@@ -368,6 +386,10 @@ function OrderDetail({
                 )}
               </td>
             </tr>
+            {(it.param_count > 0 || it.value_count > 0) && sheetOf(it.id) && (
+              <tr className="border-b border-gray-100 dark:border-slate-800 bg-gray-50/60 dark:bg-slate-800/30"><td colSpan={6} className="px-3 pb-3"><ParamSheet item={sheetOf(it.id)!} values={paramVals[it.id] || {}} onChange={(k, v) => setParam(it.id, k, v)} /></td></tr>
+            )}
+            </Fragment>
           ))}
           {items.length === 0 && (
             <tr><td colSpan={6} className="text-center py-6 text-xs text-gray-500">No test items.</td></tr>
@@ -470,6 +492,7 @@ function CatalogView() {
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState<Partial<LabTest> | null>(null);
+  const [normals, setNormals] = useState<{ id: number; name: string } | null>(null);
   const [filter, setFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -592,7 +615,8 @@ function CatalogView() {
                 <td className="py-1.5 text-center">
                   <input type="checkbox" className="w-4 h-4 accent-fuchsia-600" checked={t.is_active === 1} onChange={(e) => quick.mutate({ ...t, is_active: e.target.checked ? 1 : 0 })} />
                 </td>
-                <td className="py-1.5 text-right">
+                <td className="py-1.5 text-right whitespace-nowrap">
+                  <button className="btn-ghost text-xs" onClick={() => setNormals({ id: t.id, name: t.name })} title="Set the normal values of this test (for a CBC: Hb, TLC, platelets …)"><ListChecks className="w-3.5 h-3.5" /> Normal values</button>
                   <button className="btn-ghost text-xs" onClick={() => setEditing(t)}><Pencil className="w-3.5 h-3.5" /></button>
                 </td>
               </tr>
@@ -606,6 +630,7 @@ function CatalogView() {
         </table>
       </div>
 
+      {normals && <NormalValuesEditor testId={normals.id} testName={normals.name} onClose={() => setNormals(null)} />}
       <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? 'Edit Test' : 'Add Test'}>
         {editing && (
           <div className="space-y-3">

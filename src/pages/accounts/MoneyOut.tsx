@@ -56,7 +56,7 @@ export function MoneyOutTab({ initialNew }: { initialNew?: boolean }) {
           <tbody>
             {(data?.lines ?? []).map((l, i) => (
               <tr key={i} className={`border-b border-gray-100 dark:border-slate-800 ${l.status === 'cancelled' ? 'opacity-50 line-through' : ''}`}>
-                <td className="p-3 whitespace-nowrap">{fmtDate(l.date)}</td><td className="font-mono text-xs">{l.ref}</td><td>{l.who}</td><td className="text-gray-600 dark:text-slate-400">{l.what}</td><td>{l.mode}</td>
+                <td className="p-3 whitespace-nowrap">{fmtDate(l.date)}</td><td className="font-mono text-xs">{l.ref}</td><td>{l.who}{l.uhid && <span className={MUTED}> · {l.uhid}</span>}</td><td className="text-gray-600 dark:text-slate-400">{l.what}</td><td>{l.mode}</td>
                 <td className="text-right tabular-nums font-medium">{inr(l.amount)}</td>
                 <td><span className="badge bg-gray-100 text-gray-700 dark:bg-slate-800 dark:text-slate-300">{SOURCE[l.source]}</span>{l.status === 'cancelled' && <span className="badge ml-1 bg-rose-50 text-rose-700 no-underline">Cancelled</span>}</td>
                 <td className="text-right whitespace-nowrap pr-3">

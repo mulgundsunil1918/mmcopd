@@ -51,7 +51,24 @@ function run<T extends object>(what: string, fn: () => T, notify = true): Ok<T> 
   }
 }
 
+import { normalReportFor } from '../data/radiology-normal-reports';
+
 export function registerRadiologyIpc() {
+  // ----- normal reports: "Fill normal report" uses the clinic's own wording for the scan when it has saved one, else the standard text -----
+  ipcMain.handle('radiology:normalReport', (_e, testId: number | null, testName: string) => {
+    const row = testId ? (getDb().prepare('SELECT name, default_findings AS f, default_impression AS i FROM radiology_tests WHERE id = ?').get(Number(testId)) as { name: string; f: string | null; i: string | null } | undefined) : undefined;
+    if (row && (row.f || row.i)) return { ok: true as const, findings: row.f ?? '', impression: row.i ?? '', source: 'clinic' as const };
+    const std = normalReportFor(row?.name || testName);
+    return std ? { ok: true as const, ...std, source: 'standard' as const } : { ok: false as const, error: 'There is no standard normal report for this scan — write one and use “Save as the normal report”.' };
+  });
+  ipcMain.handle('radiology:saveNormalReport', (_e, testId: number, findings: string, impression: string) => {
+    requireModule('lab', 'Radiology'); requireRole(CATALOGUE, 'save a normal report');
+    const f = String(findings ?? '').trim(); const i = String(impression ?? '').trim();
+    if (!f && !i) return { ok: false as const, error: 'Write the findings or the impression first.' };
+    if (f.length > 4000 || i.length > 2000) return { ok: false as const, error: 'That is too long for a normal report.' };
+    const r = getDb().prepare('UPDATE radiology_tests SET default_findings = ?, default_impression = ? WHERE id = ?').run(f || null, i || null, Number(testId));
+    return r.changes ? { ok: true as const } : { ok: false as const, error: 'That scan was not found in the catalogue.' };
+  });
   // ----- catalogue -----
   ipcMain.handle('radiology:listTests', (_e, activeOnly = true) => rad.listTests(getDb(), activeOnly !== false));
 

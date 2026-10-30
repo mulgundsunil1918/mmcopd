@@ -58,7 +58,15 @@ export function voucherProblem(v: VoucherInput): string | null {
   if (!PAY_MODES.includes(v.pay_mode as VoucherPayMode)) return 'Say how it was paid — cash, UPI, bank transfer or cheque.';
   if (!String(v.payee_name || '').trim()) return t.payee === 'other' ? 'Say who it was paid to.' : 'Choose who is being paid.';
   if ((t.id === 'clinic_maintenance' || t.id === 'expense') && !String(v.description || '').trim()) return 'Say what it was for (for example “hand wash”).';
+  const iso = (s: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(s));
+  if ((v.period_from && !iso(v.period_from)) || (v.period_to && !iso(v.period_to))) return 'The days being paid must be real dates.';
   if (v.period_from && v.period_to && v.period_from > v.period_to) return 'The “from” day is after the “to” day.';
+  if (v.payee_kind !== t.payee) return `A ${t.label.toLowerCase()} voucher is paid to ${t.payee === 'other' ? 'a shop, person or company' : `a ${t.payee === 'referrer' ? 'referring doctor' : t.payee}`}.`;
+  if ((t.payee === 'staff' || t.payee === 'doctor' || t.payee === 'referrer') && !String(v.payee_ref ?? '').trim()) return 'Choose who is being paid.';
+  if (Number(v.gross) > 1e9) return 'That amount is too large — check the digits.';
+  if (!Number.isFinite(ded)) return 'The deduction must be a number.';
+  const tooLong = (x: unknown, n: number) => String(x ?? '').length > n;
+  if (tooLong(v.payee_name, 200) || tooLong(v.description, 500) || tooLong(v.category, 100) || tooLong(v.reference, 100) || tooLong(v.deduction_label, 100)) return 'One of the texts is too long — shorten it.';
   return null;
 }
 

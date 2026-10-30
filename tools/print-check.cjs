@@ -119,6 +119,8 @@ const SCENARIOS = {
       console.log('PROBE', await win.webContents.executeJavaScript(`JSON.stringify({ sheets: [...document.querySelectorAll('.print-page')].map(e => [e.scrollHeight, e.clientHeight]), pill: (document.body.innerText.match(/OPD Slip preview[^\\n]*/) || [''])[0] })`, true));
     }
   },
+    // The page CureDesk prints to make a report PDF (PDF_KIND=lab|radiology PDF_ID=1) — the sheet must say it is ready
+  'pdf-route': async (win) => { await win.loadURL(`${BASE}#/pdf/${process.env.PDF_KIND || 'lab'}/${process.env.PDF_ID || '1'}`); await sleep(2500); await waitFor(win, `!!document.querySelector('[data-report-ready]')`, 'report sheet'); await sleep(800); },
   // Accounts -> Money out -> a voucher -> the printable Payment Voucher (expected: 1 page)
   'voucher': async (win) => {
     await open(win, '#/accounts?tab=out');

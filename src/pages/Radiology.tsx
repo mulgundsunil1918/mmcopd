@@ -332,6 +332,22 @@ function OrderDetail({ orderId, onChanged }: { orderId: number; onChanged: () =>
                   )
                 )}
               </div>
+              {!locked && (
+                <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                  <button type="button" className="btn-secondary text-xs py-1" title="Put the normal report for this scan into the boxes, then change only what is different"
+                    onClick={async () => {
+                      if ((v.findings || v.impression).trim() && !window.confirm('Replace what is written with the normal report?')) return;
+                      const r = await window.electronAPI.radiology.normalReport(it.test_id ?? null, it.test_name);
+                      if (!r.ok) { toast(r.error, 'error'); return; }
+                      setField(it.id, { findings: r.findings, impression: r.impression, is_abnormal: 0 });
+                      toast(r.source === 'clinic' ? 'Your normal report is filled in — change what is different' : 'The standard normal report is filled in — change what is different');
+                    }}>Fill normal report</button>
+                  {it.test_id && (v.findings || v.impression).trim() && (
+                    <button type="button" className="btn-ghost text-xs py-1" title="Use this wording as the normal report for this scan from now on"
+                      onClick={async () => { const r = await window.electronAPI.radiology.saveNormalReport(Number(it.test_id), v.findings, v.impression); toast(r.ok ? 'Saved as the normal report for this scan' : r.error, r.ok ? 'success' : 'error'); }}>Save as the normal report</button>
+                  )}
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <div>
                   <label className="label">Findings</label>

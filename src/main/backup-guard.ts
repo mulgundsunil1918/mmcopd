@@ -33,6 +33,7 @@ export const DATA_LAYOUT: DataEntry[] = [
   { path: '.license_meta', backed_up: false, what: 'licence bookkeeping (first-run date, last seen clock)', why_not: 'belongs to this PC’s licence' },
   { path: '.used_licenses', backed_up: false, what: 'the list of licence codes already used on this PC', why_not: 'belongs to this PC’s licence' },
   { path: 'backups', backed_up: false, what: 'safety copies the app makes by itself (before an upgrade, before a restore, before clearing stock)', why_not: 'they ARE backups; copying them into a backup would only make it grow' },
+  { path: 'report-pdfs', backed_up: false, what: 'PDF copies of lab / radiology reports made for sending on WhatsApp', why_not: 'only copies: a report is made again from the clinic data (which IS backed up) whenever it is needed; old copies are cleared after 30 days' },
   { path: 'DO-NOT-DELETE — CureDesk clinic data.txt', backed_up: false, what: 'a note that tells a person not to delete this folder', why_not: 'not clinic data' },
 ];
 

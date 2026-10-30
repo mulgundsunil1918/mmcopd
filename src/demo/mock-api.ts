@@ -11,6 +11,8 @@
  */
 
 import { makeAccountsMock } from './mock-accounts';
+import { makeLabParamsMock } from './mock-lab-params';
+import { normalReportFor } from '../data/radiology-normal-reports';
 import {
   DEMO_SETTINGS, DEMO_DOCTORS, DEMO_PATIENTS, DEMO_APPOINTMENTS, DEMO_BILLS,
   DEMO_DRUG_MASTER, DEMO_BATCHES, DEMO_WHOLESALERS, DEMO_PURCHASES,
@@ -161,13 +163,15 @@ const radSyncBill = (orderId: number) => {
     : b);
 };
 
+const DEMO_ORDER1 = ['Complete Blood Count (CBC)', 'Liver Function Test (LFT)', 'Urine Routine & Microscopy'];     // the first demo order is a real panel, so the normal values and the report can be shown
 const labItemsFor = (orderId: number) =>
-  labTests.filter((t) => t.category !== 'radiology').slice(orderId * 3, orderId * 3 + 4).map((t, i) => ({
+  (orderId === 1 ? labTests.filter((t) => DEMO_ORDER1.includes(t.name)) : labTests.filter((t) => t.category !== 'radiology').slice(orderId * 3, orderId * 3 + 4)).map((t, i) => ({
     id: orderId * 10 + i, lab_order_id: orderId, lab_test_id: t.id, test_name: t.name,
     result: orderId === 3 ? '12.4' : null, ref_range: t.ref_range, unit: t.unit, is_abnormal: 0, price: t.price,
   }));
 
 const r = <T>(v: T): Promise<T> => Promise.resolve(v);
+const labParamsMock = makeLabParamsMock({ tests: () => labTests, items: (id) => labItemsFor(id), order: (id) => { const o: any = labOrders.find((x) => x.id === id); const p: any = o && patients.find((x: any) => x.id === o.patient_id); const d: any = o && doctors.find((x: any) => x.id === o.doctor_id); return o && { ...o, patient_name: p ? `${p.first_name} ${p.last_name}` : '', patient_uhid: p?.uhid, doctor_name: d?.name }; } });
 // Static "Services" bills the demo shows (also resolvable by the printable bill).
 /** Demo twin of previewClearDrugs() in main/pharmacy-finance.ts. */
 const wasSold = (b: any) => dispensing.some((x: any) => x.batch_id === b.id) || pharmSales.some((s: any) => (s.items || []).some((i: any) => i.batch_id === b.id));
@@ -572,16 +576,19 @@ export function createMockElectronAPI(): any {
       },
     },
     lab: {
+      ...labParamsMock,
       billOf: () => r({ id: 1, bill_number: 'DEMO-LAB-001', total: 500, amount_paid: 500, status: 'paid' }),
       listTests: (activeOnly = true) => r(activeOnly ? labTests.filter((t) => t.is_active === 1) : labTests),
       loadStandardCatalog: () => r({ ok: true, added: 0, total: labTests.length }),
       listOrders: () => r(labOrders),
-      getOrderItems: (id: number) => r(labItemsFor(id)),
+      getOrderItems: (id: number) => r(labItemsFor(id).map((it: any) => ({ ...it, param_count: labParamsMock.paramCount(it), value_count: labParamsMock.valueCount(it) }))),
       createOrder: () => r({} as any),
       updateOrderStatus: () => r({} as any),
       updateResults: () => r([]),
     },
     radiology: {
+      normalReport: (_id: number | null, name: string) => { const n = normalReportFor(name); return r(n ? { ok: true as const, ...n, source: 'standard' as const } : { ok: false as const, error: 'There is no standard normal report for this scan — write one and use “Save as the normal report”.' }); },
+      saveNormalReport: () => r({ ok: true as const }),
       listTests: (activeOnly = true) => r(activeOnly ? radTests.filter((t) => t.is_active === 1) : radTests),
       upsertTest: (t: any) => {
         if (t.id) { radTests = radTests.map((x) => x.id === t.id ? { ...x, ...t } : x); return r({ ok: true, test: radTests.find((x) => x.id === t.id) }); }

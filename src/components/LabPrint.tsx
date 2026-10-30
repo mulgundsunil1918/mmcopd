@@ -3,6 +3,7 @@ import { Printer, X } from 'lucide-react';
 import { formatINR, parseDbDate } from '../lib/utils';
 import type { Settings } from '../types';
 import { PrintHeader } from './print/PrintHeader';
+import { LabReportDocument } from './lab/LabReportDocument';
 
 /**
  * Print a lab document on the clinic letterhead — same header family as the OPD
@@ -11,7 +12,7 @@ import { PrintHeader } from './print/PrintHeader';
  *   - 'report' : the tests with results, reference ranges and abnormal flags
  */
 export function LabPrint({ order, items, mode, onClose }: {
-  order: { order_number?: string; patient_name?: string; patient_uhid?: string; doctor_name?: string | null; referred_by?: string | null; ordered_at?: string };
+  order: { id?: number; order_number?: string; patient_name?: string; patient_uhid?: string; doctor_name?: string | null; referred_by?: string | null; ordered_at?: string };
   items: any[];
   mode: 'bill' | 'report';
   onClose: () => void;
@@ -21,6 +22,17 @@ export function LabPrint({ order, items, mode, onClose }: {
   const s = settings as Settings;
   const total = items.reduce((sum, it) => sum + (Number(it.price) || 0), 0);
   const title = mode === 'bill' ? 'LABORATORY BILL' : 'LABORATORY REPORT';
+  if (mode === 'report' && order.id) {
+    return (
+      <div className="fixed inset-0 z-[200] bg-black/50 overflow-auto p-4 no-print-bg">
+        <div className="no-print max-w-[210mm] mx-auto flex justify-end gap-2 mb-2">
+          <button className="btn-primary" onClick={() => window.print()}><Printer className="w-4 h-4" /> Print</button>
+          <button className="btn-secondary" onClick={onClose}><X className="w-4 h-4" /> Close</button>
+        </div>
+        <LabReportDocument orderId={order.id} />
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[200] bg-black/50 overflow-auto p-4 no-print-bg">

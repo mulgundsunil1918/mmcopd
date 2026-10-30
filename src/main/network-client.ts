@@ -115,6 +115,10 @@ const SKIP_PROXY_CHANNELS = new Set([
   'app:getClinicName',
   // The clipboard belongs to the PC the person is sitting at: proxied, "Copy" would fill the HOST's clipboard and leave theirs empty.
   'app:copyText',
+  // Report PDFs are made and handed to WhatsApp on the PC the person is sitting at.
+  'reports:makePdf',
+  'app:copyFileToClipboard',
+  'app:showFile',
   // NOTE: settings:get / settings:save are deliberately NOT skipped — they get
   // a custom split-routing proxy below (see STATION_LOCAL_KEYS).
   // The clinic has ONE admin password and the main computer holds it: an extra computer asks the main computer first and keeps a copy for the day the main

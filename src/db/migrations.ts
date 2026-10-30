@@ -7,6 +7,7 @@ import { cleanForWhatsApp, hasEmojiOrBrokenText } from '../lib/messageText';
 import { DEFAULT_SLIP_TEMPLATES } from './slip-templates';
 import { CATALOGUE_FLAG, SCHEDULE_FLAG, correctSchedules, refreshCatalogue } from './catalogue';
 import { ensureAccountsSchema } from './accountsSchema';
+import { ensureLabParamsSchema, seedLabParameterDefaults } from './labParams';
 
 /** The factory password created by ensureDefaultAdmin() on a fresh install. */
 const FACTORY_PASSWORD = 'admin123';
@@ -587,6 +588,7 @@ function setSettingIfEmpty(db: Database.Database, key: string, value: string) {
 export function runMigrations(db: Database.Database) {
   createSchema(db);
   ensureAccountsSchema(db);          // 1.0.2: staff, vouchers, attendance (only ever ADDS tables)
+  ensureLabParamsSchema(db);         // 1.0.2: lab parameters + normal values, and the values entered on a report
   addColumnIfMissing(db, 'doctors', 'signature', 'TEXT');
   addColumnIfMissing(db, 'doctors', 'qualifications', 'TEXT');
   addColumnIfMissing(db, 'doctors', 'registration_no', 'TEXT');
@@ -921,6 +923,8 @@ export function runMigrations(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_radiology_items_order ON radiology_order_items(order_id);
   `);
+  addColumnIfMissing(db, 'radiology_tests', 'default_findings', 'TEXT');          // 1.0.2: the clinic's own normal report for a scan
+  addColumnIfMissing(db, 'radiology_tests', 'default_impression', 'TEXT');
   addColumnIfMissing(db, 'bills', 'radiology_order_id', 'INTEGER REFERENCES radiology_orders(id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_bills_radiology_order ON bills(radiology_order_id);');
 
@@ -1195,6 +1199,9 @@ export function runMigrations(db: Database.Database) {
   if (currentVersion < 5) {
     migrateV4toV5(db);
   }
+
+  // 1.0.2: the common lab tests get their parameters and normal values (added last: it needs every lab_tests column to exist). Only ever adds.
+  try { seedLabParameterDefaults(db); } catch (e) { console.error('[lab] the standard normal values were not added:', e); }
 
   if (currentVersion < SCHEMA_VERSION) {
     // An existing database being brought up to date is a clinic that is already set up: it must never meet the first-run

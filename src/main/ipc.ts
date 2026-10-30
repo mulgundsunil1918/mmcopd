@@ -2308,7 +2308,9 @@ export function registerIpc() {
 
   ipcMain.handle('lab:getOrderItems', (_e, orderId: number) => {
     return getDb().prepare(
-      `SELECT i.*, COALESCE(t.price, 0) AS price
+      `SELECT i.*, COALESCE(t.price, 0) AS price,
+              (SELECT COUNT(*) FROM lab_test_params p WHERE p.lab_test_id = i.lab_test_id) AS param_count,
+              (SELECT COUNT(*) FROM lab_result_values v WHERE v.lab_order_item_id = i.id) AS value_count
        FROM lab_order_items i LEFT JOIN lab_tests t ON t.id = i.lab_test_id
        WHERE i.lab_order_id = ?`
     ).all(orderId);
@@ -3293,7 +3295,7 @@ export function registerIpc() {
     // workbook. The .sqlite copy already has everything; this keeps the readable
     // Excel complete too. Secrets/internal tables stay in the .sqlite backup only.
     try {
-      const CURATED = new Set(['acct_vouchers', 'acct_voucher_days', 'acct_staff', 'acct_attendance', 'acct_categories', 'patients', 'doctors', 'appointments', 'consultations', 'prescription_items', 'bills', 'lab_orders', 'lab_order_items', 'lab_tests', 'pharmacy_sales', 'pharmacy_sale_items', 'pharmacy_sale_payments', 'drug_inventory', 'drug_master', 'drug_stock_batches', 'wholesalers', 'purchase_invoices', 'purchase_invoice_items', 'purchase_payments', 'dispensing_register', 'ip_admissions', 'wards', 'beds', 'bed_transfers', 'ip_vitals', 'ip_medication_orders', 'ip_medication_admin', 'ip_progress_notes', 'ip_nursing_notes', 'ip_intake_output', 'ip_diet_orders', 'ip_cross_consultations', 'mlc_register', 'admission_requests', 'bill_items', 'bill_payments', 'advances', 'charge_heads', 'tpa_master', 'tpa_claims', 'discharge_templates', 'peds_growth_measurements', 'peds_vaccine_records', 'patient_allergies', 'patient_conditions', 'patient_family_history', 'radiology_orders', 'radiology_order_items', 'radiology_tests']);
+      const CURATED = new Set(['lab_test_params', 'lab_result_values', 'acct_vouchers', 'acct_voucher_days', 'acct_staff', 'acct_attendance', 'acct_categories', 'patients', 'doctors', 'appointments', 'consultations', 'prescription_items', 'bills', 'lab_orders', 'lab_order_items', 'lab_tests', 'pharmacy_sales', 'pharmacy_sale_items', 'pharmacy_sale_payments', 'drug_inventory', 'drug_master', 'drug_stock_batches', 'wholesalers', 'purchase_invoices', 'purchase_invoice_items', 'purchase_payments', 'dispensing_register', 'ip_admissions', 'wards', 'beds', 'bed_transfers', 'ip_vitals', 'ip_medication_orders', 'ip_medication_admin', 'ip_progress_notes', 'ip_nursing_notes', 'ip_intake_output', 'ip_diet_orders', 'ip_cross_consultations', 'mlc_register', 'admission_requests', 'bill_items', 'bill_payments', 'advances', 'charge_heads', 'tpa_master', 'tpa_claims', 'discharge_templates', 'peds_growth_measurements', 'peds_vaccine_records', 'patient_allergies', 'patient_conditions', 'patient_family_history', 'radiology_orders', 'radiology_order_items', 'radiology_tests']);
       const SKIP = new Set(['sqlite_sequence', 'schema_meta', 'settings', 'users']); // secrets/internal → .sqlite backup only
       for (const t of listUserTables(db)) {
         if (CURATED.has(t) || SKIP.has(t)) continue;
@@ -3556,6 +3558,8 @@ export function registerIpc() {
       { sheet: 'Voucher Days Settled', sql: `SELECT d.*, v.voucher_no FROM acct_voucher_days d LEFT JOIN acct_vouchers v ON v.id=d.voucher_id ORDER BY d.voucher_id DESC, d.day` },
       { sheet: 'Accounts Staff', sql: `SELECT * FROM acct_staff ORDER BY is_active DESC, name` },
       { sheet: 'Staff Attendance', sql: `SELECT a.*, s.name AS staff_name FROM acct_attendance a LEFT JOIN acct_staff s ON s.id=a.staff_id ORDER BY a.day DESC, s.name` },
+      { sheet: 'Lab Test Parameters', sql: `SELECT p.*, t.name AS test_name FROM lab_test_params p LEFT JOIN lab_tests t ON t.id=p.lab_test_id ORDER BY t.name, p.sort_order` },
+      { sheet: 'Lab Result Values', sql: `SELECT v.*, i.test_name, o.order_number, (p.first_name || ' ' || p.last_name) AS patient_name, p.uhid AS patient_uhid FROM lab_result_values v JOIN lab_order_items i ON i.id=v.lab_order_item_id JOIN lab_orders o ON o.id=i.lab_order_id LEFT JOIN patients p ON p.id=o.patient_id ORDER BY v.lab_order_item_id DESC, v.sort_order` },
       { sheet: 'Expense Heads', sql: `SELECT * FROM acct_categories ORDER BY sort_order, name` },
       { sheet: 'Audit Log', sql: `SELECT id, at, username, role, action, entity, entity_id, details FROM audit_log ORDER BY at DESC` },
       { sheet: 'Users', sql: `SELECT id, username, role, display_name, doctor_id, is_active, last_login_at, created_at FROM users ORDER BY created_at DESC` },

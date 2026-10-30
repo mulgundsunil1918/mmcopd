@@ -9,6 +9,7 @@
  * Then mounts the same React tree the Electron renderer uses.
  */
 
+import { PdfPage } from '../components/PdfPage';
 import { createMockElectronAPI } from './mock-api';
 
 /**
@@ -113,7 +114,10 @@ class DemoErrorBoundary extends React.Component<{ children: React.ReactNode }, {
   }
 }
 
-createRoot(document.getElementById('root')!).render(
+if (window.location.hash.startsWith('#/pdf/')) {
+  // a report being made into a PDF (the real app does this in a hidden window): just the report on white paper
+  createRoot(document.getElementById('root')!).render(<QueryClientProvider client={queryClient}><PdfPage /></QueryClientProvider>);
+} else createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <DemoErrorBoundary>
       <QueryClientProvider client={queryClient}>

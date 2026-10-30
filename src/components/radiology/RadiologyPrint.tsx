@@ -48,7 +48,7 @@ export function RadiologyPrint({ orderId, onClose }: { orderId: number; onClose:
         <button className="btn-secondary" onClick={onClose}><X className="w-4 h-4" /> Close</button>
       </div>
 
-      <div className="print-area mx-auto bg-white text-slate-900" style={{ width: '210mm', minHeight: '297mm', padding: '12mm 14mm' }}>
+      <div className="print-area mx-auto bg-white text-slate-900" data-report-ready="1" style={{ width: '210mm', minHeight: '297mm', padding: '12mm 14mm' }}>
         <PrintHeader settings={s} accent="#0369a1" />
 
         <div className="text-center my-3">
