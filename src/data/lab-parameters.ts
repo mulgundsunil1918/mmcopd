@@ -110,3 +110,47 @@ export const LAB_PANELS: DefaultPanel[] = [
   { test: 'Urine Pregnancy Test (UPT)', aliases: ['UPT', 'Urine Pregnancy Test'], category: 'clinical_pathology', sample: 'Urine', params: [['Urine pregnancy test', '', 'Negative']] },
   { test: 'Stool Occult Blood', aliases: ['Occult Blood'], category: 'clinical_pathology', sample: 'Stool', params: [['Occult blood', '', 'Negative']] },
 ];
+
+
+/**
+ * AGE GROUPS: children are not small adults. For the tests where it matters, a parameter has its own normal range for each of four child groups (the adult range is
+ * the parameter's ordinary one above): [newborn — under 28 days, infant — to 1 year, child — to 12 years, adolescent — to 18 years]. The app picks the group from the
+ * patient's date of birth on the day of the test. Written like any range — "13-17", "M13-16;F12-16" (boys / girls), "<75", or words — and '' means "same as the adult range".
+ * Typical paediatric reference values (Nelson / Harriet Lane style): every lab edits them to match its own analyser and kit.
+ */
+export type ChildSpecs = [newborn: string, infant: string, child: string, adolescent: string];
+const NOTE_LIPID = 'Not routinely measured before 2 years';
+const NOTE_THY = 'Age-specific — see the kit’s insert';
+export const AGE_RANGES: Record<string, ChildSpecs> = {
+  'Haemoglobin (Hb)': ['13.4-19.8', '10.5-13.5', '11.5-14.5', 'M13-16;F12-16'],
+  'Total RBC count': ['4.0-6.6', '3.1-5.3', '3.9-5.3', 'M4.5-5.3;F4.1-5.1'],
+  'Packed cell volume (PCV)': ['41-65', '30-44', '34-43', 'M37-49;F36-46'],
+  'MCV': ['88-126', '70-110', '75-93', '78-98'],
+  'MCH': ['28-37', '23-35', '24-32', '25-33'],
+  'MCHC': ['29-37', '30-36', '30-36', '31-36'],
+  'RDW-CV': ['14.9-18.7', '12-16', '11.5-14.5', ''],
+  'Total WBC count (TLC)': ['9000-30000', '6000-17500', '5000-15500', '4500-13000'],
+  'Neutrophils': ['40-75', '15-45', '25-65', '40-70'],
+  'Lymphocytes': ['20-40', '40-75', '25-60', ''],
+  'Monocytes': ['3-12', '3-12', '3-12', ''],
+  'Platelet count': ['150000-450000', '150000-450000', '150000-450000', '150000-450000'],
+  'ESR (Westergren)': ['0-2', '0-10', '0-10', '0-15'],
+  'Serum creatinine': ['0.3-1.0', '0.2-0.5', '0.3-0.7', 'M0.6-1.2;F0.5-1.0'],
+  'Uric acid': ['2.0-5.5', '2.0-5.5', '2.0-5.5', ''],
+  'SGOT (AST)': ['25-75', '15-60', '15-45', '10-40'],
+  'SGPT (ALT)': ['10-45', '10-45', '10-35', ''],
+  'Alkaline phosphatase (ALP)': ['150-470', '150-470', '140-420', '70-390'],
+  'Total bilirubin': ['Interpret by the baby’s age in hours (bilirubin chart)', '', '', ''],
+  'Fasting blood sugar': ['45-100', '60-100', '60-100', ''],
+  'Calcium': ['7.6-10.4', '9.0-11.0', '8.8-10.8', '8.4-10.2'],
+  'Phosphorus': ['4.8-8.2', '4.0-6.5', '3.7-6.5', '2.7-4.5'],
+  'Potassium (K)': ['3.7-5.9', '4.1-5.3', '', ''],
+  'TSH': ['1.0-39.0', '1.7-9.1', '0.7-5.7', '0.5-4.8'],
+  'Total T3': [NOTE_THY, '105-245', '94-269', '83-213'],
+  'Total T4': [NOTE_THY, '5.9-14.0', '6.4-15.0', '5.6-11.7'],
+  'Total cholesterol': [NOTE_LIPID, NOTE_LIPID, '<170', '<170'],
+  'Triglycerides': [NOTE_LIPID, NOTE_LIPID, '<75', '<90'],
+  'HDL cholesterol': [NOTE_LIPID, NOTE_LIPID, '>45', '>45'],
+  'LDL cholesterol': [NOTE_LIPID, NOTE_LIPID, '<110', '<110'],
+  'Non-HDL cholesterol': [NOTE_LIPID, NOTE_LIPID, '<120', '<120'],
+};

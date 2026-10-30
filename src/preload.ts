@@ -13,6 +13,7 @@ import type { NetFacts } from './lib/connectCheck';
 import type { DayBookDay, DoctorDay, DoctorSummary, DoctorVisit, OutLine, ProfitLoss, ReferrerDay, ReferrerSummary, StaffRow, VoucherResult, VoucherRow } from './main/accounts';
 import type { VoucherInput } from './lib/accountsRules';
 import type { ParamRow, ReportData, SheetItem } from './db/labParams';
+import type { AgeLimits } from './lib/labRanges';
 
 export type LicenseStatusIPC = {
   state: 'valid' | 'grace' | 'locked' | 'invalid' | 'wrong_machine' | 'clock_tampered' | 'none' | 'dev';
@@ -389,6 +390,8 @@ const api = {
     getParams: (testId: number) => ipcRenderer.invoke('lab:getParams', testId) as Promise<{ ok: true; test: { id: number; name: string }; params: ParamRow[]; has_default: boolean } | { ok: false; error: string }>,
     saveParams: (testId: number, params: Partial<ParamRow>[]) => ipcRenderer.invoke('lab:saveParams', testId, params) as Promise<{ ok: true; params: ParamRow[] } | { ok: false; error: string }>,
     resetParams: (testId: number) => ipcRenderer.invoke('lab:resetParams', testId) as Promise<{ ok: true; params: ParamRow[] } | { ok: false; error: string }>,
+    getAgeGroups: () => ipcRenderer.invoke('lab:getAgeGroups') as Promise<{ ok: true; limits: AgeLimits }>,
+    saveAgeGroups: (limits: AgeLimits) => ipcRenderer.invoke('lab:saveAgeGroups', limits) as Promise<{ ok: true; limits: AgeLimits } | { ok: false; error: string }>,
     reportData: (orderId: number) => ipcRenderer.invoke('lab:reportData', orderId) as Promise<ReportData | null>,
     resultSheet: (orderId: number) => ipcRenderer.invoke('lab:resultSheet', orderId) as Promise<SheetItem[]>,
     saveResultValues: (orderId: number, itemId: number, values: { key: string; value: string }[]) => ipcRenderer.invoke('lab:saveResultValues', orderId, itemId, values) as Promise<{ ok: true; item: SheetItem } | { ok: false; error: string }>,

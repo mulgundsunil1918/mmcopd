@@ -20,6 +20,7 @@ function Section({ item, legacy }: { item: SheetItem; legacy?: { result: string 
         <div className="font-bold uppercase tracking-wide" style={{ fontSize: 12.5, color: '#1e3a8a' }}>{item.test_name}</div>
         {item.sample_type && <div style={{ fontSize: 10.5, color: '#64748b' }}>Sample: {item.sample_type}</div>}
       </div>
+      {item.ref_for && item.ref_dep && <div style={{ fontSize: 10, color: '#64748b', margin: '-2px 0 3px' }}>Normal ranges for: {item.ref_for}</div>}
       <table className="w-full" style={{ borderCollapse: 'collapse', fontSize: 12 }}>
         <thead><tr style={{ textAlign: 'left', color: '#64748b', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4 }}>
           <th style={{ padding: '3px 0', width: '38%' }}>Investigation</th><th style={{ width: '20%' }}>Result</th><th style={{ width: '14%' }}>Unit</th><th>Normal range</th></tr></thead>

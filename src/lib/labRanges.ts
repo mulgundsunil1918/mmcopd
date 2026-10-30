@@ -89,3 +89,102 @@ export function parseRangeSpec(spec: string): Partial<RangeSpec> {
   if (b.low !== null || b.high !== null) return { low: b.low, high: b.high, ref_text: words ?? null };
   return { ref_text: main };
 }
+
+// ── age groups ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/**
+ * Children are not small adults, so a parameter can have its own normal range for each AGE GROUP — and, inside a group, for boys and girls. There are five groups:
+ *   Newborn (under 28 days) · Infant (to 1 year) · Child (to 12 years) · Adolescent (to 18 years) · Adult (the parameter's ordinary range).
+ * The limits are the lab's to change (once, for every test). The group is worked out from the date of birth on the day of the test and the sex from the patient —
+ * nobody has to choose. A group left blank means "same as the adult range".
+ */
+export type AgeGroup = 'newborn' | 'infant' | 'child' | 'adolescent' | 'adult';
+export type ChildGroup = Exclude<AgeGroup, 'adult'>;
+export const CHILD_GROUPS: ChildGroup[] = ['newborn', 'infant', 'child', 'adolescent'];
+export const GROUP_NAMES: Record<AgeGroup, string> = { newborn: 'Newborn', infant: 'Infant', child: 'Child', adolescent: 'Adolescent', adult: 'Adult' };
+
+/** Where one group ends and the next begins, in the units people think in. */
+export interface AgeLimits { newborn_days: number; infant_months: number; child_years: number; adolescent_years: number }
+export const DEFAULT_LIMITS: AgeLimits = { newborn_days: 28, infant_months: 12, child_years: 12, adolescent_years: 18 };
+
+export type AgeUnit = 'days' | 'months' | 'years';
+export const unitToDays = (n: number, unit: AgeUnit) => Math.round(n * (unit === 'years' ? 365.25 : unit === 'months' ? 30.4375 : 1));
+/** The four limits as days: a patient younger than the first is a newborn, younger than the second an infant, and so on; from the last one on, an adult. */
+const limitDays = (l: AgeLimits) => [l.newborn_days, unitToDays(l.infant_months, 'months'), unitToDays(l.child_years, 'years'), unitToDays(l.adolescent_years, 'years')];
+
+/** What is wrong with a set of limits, in words — or null when they are fine. */
+export function limitProblem(l: Partial<AgeLimits> | null | undefined): string | null {
+  const v = (x: unknown) => (x === null || x === undefined || x === '' ? NaN : Number(x));
+  const [nb, inf, ch, ad] = [v(l?.newborn_days), v(l?.infant_months), v(l?.child_years), v(l?.adolescent_years)];
+  if (![nb, inf, ch, ad].every((x) => Number.isInteger(x))) return 'Each age limit must be a whole number.';
+  if (nb < 1 || nb > 90) return 'The newborn limit must be between 1 and 90 days.';
+  if (inf < 2 || inf > 36) return 'The infant limit must be between 2 and 36 months.';
+  if (ch < 2 || ch > 18) return 'The child limit must be between 2 and 18 years.';
+  if (ad < 10 || ad > 25) return 'The adolescent limit must be between 10 and 25 years.';
+  const d = limitDays({ newborn_days: nb, infant_months: inf, child_years: ch, adolescent_years: ad });
+  if (!(d[0] < d[1] && d[1] < d[2] && d[2] < d[3])) return 'Each limit must be later than the one before it (newborn, infant, child, adolescent).';
+  return null;
+}
+/** The limits saved in settings (JSON), or the standard ones when nothing valid is saved. */
+export function parseLimits(json: string | null | undefined): AgeLimits {
+  try { const o = json ? JSON.parse(json) : null; if (o && !limitProblem(o)) return { newborn_days: o.newborn_days, infant_months: o.infant_months, child_years: o.child_years, adolescent_years: o.adolescent_years }; } catch { /* fall through */ }
+  return { ...DEFAULT_LIMITS };
+}
+
+/** The age group a patient is in; null when the age is unknown. */
+export function groupOf(ageDays: number | null, l: AgeLimits = DEFAULT_LIMITS): AgeGroup | null {
+  if (ageDays === null) return null;
+  const d = limitDays(l);
+  return ageDays < d[0] ? 'newborn' : ageDays < d[1] ? 'infant' : ageDays < d[2] ? 'child' : ageDays < d[3] ? 'adolescent' : 'adult';
+}
+/** "under 28 days" · "28 days to under 1 year" · "1 year to under 12 years" · "12 to under 18 years" · "18 years and over" — what each group covers. */
+export function groupSpans(l: AgeLimits = DEFAULT_LIMITS): Record<AgeGroup, string> {
+  const yrs = (n: number) => `${n} year${n === 1 ? '' : 's'}`; const infantEnd = l.infant_months % 12 === 0 ? yrs(l.infant_months / 12) : `${l.infant_months} months`;
+  return { newborn: `under ${l.newborn_days} days`, infant: `${l.newborn_days} days to under ${infantEnd}`, child: `${infantEnd} to under ${yrs(l.child_years)}`,
+    adolescent: `${l.child_years} to under ${yrs(l.adolescent_years)}`, adult: `${yrs(l.adolescent_years)} and over` };
+}
+
+/** One age group's normal range for a parameter — the same shape as the ordinary range: everyone, and/or men, and/or women (here: boys / girls), or words. */
+export interface AgeRange extends RangeSpec { id?: number; grp: ChildGroup }
+/** Does a range carry any number (for anybody)? */
+export const hasNumbers = (r: Partial<RangeSpec>) => [r.low, r.high, r.m_low, r.m_high, r.f_low, r.f_high].some((v) => num(v) !== null);
+const hasSexValues = (r: Partial<RangeSpec>) => [r.m_low, r.m_high, r.f_low, r.f_high].some((v) => num(v) !== null);
+
+/** Whole days from the date of birth to a day (both 'YYYY-MM-DD' or a database timestamp); null when either is missing or the order is impossible. */
+export function ageInDays(dob: string | null | undefined, on: string | null | undefined): number | null {
+  const a = String(dob ?? '').slice(0, 10); const b = String(on ?? '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(a) || !/^\d{4}-\d{2}-\d{2}$/.test(b)) return null;
+  const d = Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000);
+  return Number.isFinite(d) && d >= 0 ? d : null;
+}
+/** "5 days" · "3 months" · "4 years" — for the line that says whose normal ranges these are. */
+export function ageText(days: number | null): string {
+  if (days === null) return '';
+  if (days < 60) return `${days} day${days === 1 ? '' : 's'}`;
+  if (days < 730) { const m = Math.floor(days / 30.4375); return `${m} month${m === 1 ? '' : 's'}`; }
+  const y = Math.floor(days / 365.25); return `${y} year${y === 1 ? '' : 's'}`;
+}
+
+export interface Resolved {
+  low: number | null; high: number | null; ref_text: string | null; no_flag: boolean;
+  /** The range printed beside the result ("11.5 - 14.5", "M 13 - 17 · F 12 - 15", "Negative"). */
+  text: string;
+  /** The range came from an age group (not the ordinary adult range). */
+  by_age: boolean;
+  /** The range is a sex-specific one and the sex is known. */
+  by_sex: boolean;
+  group: AgeGroup | null;
+}
+/**
+ * THE choice of normal range for one patient: the parameter's range for the patient's age group (men / women inside it when it has them), or — for an adult, an
+ * age group left blank, or an unknown age — the ordinary range (men / women / everyone). Nothing is guessed: a range for boys only is not used for a patient of unknown sex.
+ */
+export function pickRange(p: Partial<RangeSpec> & { ranges?: AgeRange[] }, ageDays: number | null, sex: Sex, limits: AgeLimits = DEFAULT_LIMITS): Resolved {
+  const group = groupOf(ageDays, limits);
+  const row = group && group !== 'adult' ? p.ranges?.find((r) => r.grp === group) : undefined;
+  if (row) {
+    const b = boundsFor(row, sex);
+    if (b.low !== null || b.high !== null || row.ref_text) return { ...b, ref_text: row.ref_text ?? null, no_flag: !!row.no_flag, text: rangeText(row, sex), by_age: true, by_sex: sex !== null && hasSexValues(row), group };
+  }
+  const b = boundsFor(p, sex);
+  return { ...b, ref_text: p.ref_text ?? null, no_flag: !!p.no_flag, text: rangeText(p, sex), by_age: false, by_sex: sex !== null && hasSexValues(p), group };
+}

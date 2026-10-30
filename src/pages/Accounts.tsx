@@ -72,8 +72,8 @@ function MoneyInWithMore() {
   return (
     <div className="space-y-5">
       {un && (un.bills > 0 || un.sales > 0) && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 text-amber-900 dark:text-amber-200 text-xs px-3 py-2">
-          In the last 30 days, {un.bills > 0 && <b>{un.bills} walk-in bill{un.bills === 1 ? '' : 's'} (₹{un.bills_total})</b>}{un.bills > 0 && un.sales > 0 && ' and '}{un.sales > 0 && <b>{un.sales} counter sale{un.sales === 1 ? '' : 's'} (₹{un.sales_total})</b>} are not tied to a patient, so no patient record shows them. Register the patient first next time to keep every rupee linked.
+        <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/40 text-gray-600 dark:text-slate-300 text-xs px-3 py-2">
+          In the last 30 days, {un.bills > 0 && <b>{un.bills} walk-in bill{un.bills === 1 ? '' : 's'} (₹{un.bills_total})</b>}{un.bills > 0 && un.sales > 0 && ' and '}{un.sales > 0 && <b>{un.sales} counter sale{un.sales === 1 ? '' : 's'} (₹{un.sales_total})</b>} had no patient record. They are counted in the money above; they just do not appear in any patient’s history.
         </div>
       )}
       <MoneyInTab />

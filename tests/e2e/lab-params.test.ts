@@ -3,10 +3,14 @@
 //   - the common panels arrive with their parameters and normal values (CBC, LFT, KFT, lipid, thyroid, urine …); nothing the clinic made is overwritten;
 //   - the normal range shown is the one for the patient's sex; H / L / A flags are worked out when the values are saved;
 //   - a saved report keeps the range it was entered against (editing normal values later never rewrites it);
-//   - the editor refuses nonsense (lower above upper, no name, text where a number belongs).
+//   - the editor refuses nonsense (lower above upper, no name, text where a number belongs);
+//   - AGE GROUPS (owner, 2026-10-30: "it should automatically choose which age group or gender it is", "newborn = less than 28 days", "all these ranges should be editable"):
+//     newborn / infant / child / adolescent ranges (boys and girls apart) come with the defaults, the group and the sex are picked from the patient on the day of the test,
+//     the limits and every range are editable, and a report keeps the range it was entered against.
 import { boot, call, attempt, getDb } from './harness';
 import { seedLabParameterDefaults } from '../../src/db/labParams';
-import { flagFor, parseRangeSpec, rangeText } from '../../src/lib/labRanges';
+import { DEFAULT_LIMITS, ageInDays, flagFor, groupOf, groupSpans, hasNumbers, limitProblem, parseLimits, parseRangeSpec, pickRange, rangeText } from '../../src/lib/labRanges';
+import { AGE_RANGES, LAB_PANELS } from '../../src/data/lab-parameters';
 import { ok, eq, near, section, finish } from './lib';
 
 boot();
@@ -96,6 +100,134 @@ const one = (sql: string, ...p: any[]) => db.prepare(sql).get(...p) as any;
   eq(flagFor('140', parseRangeSpec('<140'), null), '', 'exactly at the limit is normal'); eq(flagFor('141', parseRangeSpec('<140'), null), 'H', 'above it is high');
   eq(flagFor('<2', parseRangeSpec('4-10'), null), 'L', 'a value typed with < is compared as its number (“<2” is below 4)'); eq(flagFor('>20', parseRangeSpec('4-10'), null), 'H', '…and “>20” is above 10'); eq(flagFor('', parseRangeSpec('4-10'), null), '', 'blank is never flagged');
   eq(flagFor('Positive', parseRangeSpec('Negative'), null), 'A', 'a qualitative result that is not the normal text is abnormal'); eq(flagFor('negative ', parseRangeSpec('Negative'), null), '', '…and matching ignores case and spaces');
+  section('7 · the normal range is chosen automatically: age group and sex, from the patient');
+  const DAY = '2026-06-15 10:00:00';                                                    // a fixed test day, so the ages are exact in every time zone
+  const dobFor = (days: number) => new Date(Date.parse('2026-06-15T00:00:00Z') - days * 86400000).toISOString().slice(0, 10);
+  let pn = 10;
+  const mkPt = async (first: string, dob: string | null, gender: string) => {
+    const p = await call('patients:create', { first_name: first, last_name: 'Age', dob: dob ?? '2000-01-01', gender, phone: '95000002' + String(++pn).padStart(2, '0') });
+    if (!dob) db.prepare("UPDATE patients SET dob = '' WHERE id = ?").run(p.id);                  // the column cannot be NULL; an empty date of birth (old imported data) is the closest thing
+    return p;
+  };
+  const kid = await mkPt('Kavya', '2022-03-10', 'F');          // 4 years 3 months (1558 days) on DAY
+  const baby = await mkPt('Bobby', dobFor(10), 'M');            // 10 days
+  const infantP = await mkPt('Indu', dobFor(100), 'F');          // 100 days
+  const girl14 = await mkPt('Tara', '2012-02-01', 'F'); const boy14 = await mkPt('Tarun', '2012-02-01', 'M');
+  const nodob = await mkPt('Nodob', null, 'F'); const other = await mkPt('Oscar', '1990-05-05', 'Other');
+  const mk = async (pt: any, test: any = cbc) => {
+    const o = await call('lab:createOrder', { appointment_id: null, patient_id: pt.id, doctor_id: doc.id, items: [{ lab_test_id: test.id, test_name: 'CBC' }] });
+    db.prepare('UPDATE lab_orders SET ordered_at = ? WHERE id = ?').run(DAY, o.id);
+    return { o, sheet: (await call('lab:resultSheet', o.id))[0] };
+  };
+  const rowOf = (sh: any, re: RegExp) => sh.rows.find((r: any) => re.test(r.name));
+  const hbOf = async (pt: any) => rowOf((await mk(pt)).sheet, /Haemoglobin/).range_text;
+  eq(ageInDays('2022-03-10', DAY), 1558, 'age in days is counted from the date of birth to the TEST day'); eq(ageInDays('2026-07-01', DAY), null, 'a date of birth after the test day gives no age'); eq(ageInDays('', DAY), null, '…and so does an empty one');
+
+  const K = await mk(kid);
+  eq(K.sheet.ref_for, 'Child · 4 years · Female', 'a 4-year-old girl: the sheet says Child · 4 years · Female — nobody chose it'); ok(K.sheet.ref_dep && !K.sheet.no_age, '…and that the ranges depend on it');
+  eq([rowOf(K.sheet, /Haemoglobin/).range_text, rowOf(K.sheet, /WBC/).range_text, rowOf(K.sheet, /Platelet/).range_text].join(' | '), '11.5 - 14.5 | 5,000 - 15,500 | 1,50,000 - 4,50,000', 'her ranges are the child ranges (an adult woman’s Hb is 12 - 15, TLC 4,000 - 11,000)');
+  const KS = await call('lab:saveResultValues', K.o.id, K.sheet.item_id, [{ key: rowOf(K.sheet, /Haemoglobin/).key, value: '11.0' }, { key: rowOf(K.sheet, /WBC/).key, value: '14,000' }, { key: rowOf(K.sheet, /Platelet/).key, value: '420000' }, { key: rowOf(K.sheet, /MCV/).key, value: '80' }]);
+  const kf = (re: RegExp) => KS.item.rows.find((r: any) => re.test(r.name)).flag;
+  eq([kf(/Haemoglobin/), kf(/WBC/), kf(/Platelet/), kf(/MCV/)].join(), 'L,,,', 'child: Hb 11.0 is low; TLC 14,000 and platelets 4,20,000 are normal for a child; MCV 80 is normal');
+  ok(KS.item.rows.some((r: any) => r.by_age), '…the rows remember that their range came from an age group');
+  const cur = (await call('lab:getParams', cbc.id)).params; const pk = (re: RegExp) => 'p' + cur.find((p: any) => re.test(p.name)).id;
+  const adultSame = await call('lab:saveResultValues', orderW2.id, (await call('lab:getOrderItems', orderW2.id))[0].id, [{ key: pk(/WBC/), value: '14,000' }, { key: pk(/Platelet/), value: '420000' }]);
+  eq([adultSame.item.rows.find((r: any) => /WBC/.test(r.name)).flag, adultSame.item.rows.find((r: any) => /Platelet/.test(r.name)).flag].join(), 'H,H', 'the same two results on an adult woman are both High');
+  eq(adultSame.item.ref_for, 'Adult · 36 years · Female', '…and her sheet says Adult · 36 years · Female');
+
+  const B = await mk(baby);
+  eq([B.sheet.ref_for, rowOf(B.sheet, /Haemoglobin/).range_text].join(' | '), 'Newborn · 10 days · Male | 13.4 - 19.8', 'a 10-day-old boy: newborn, Hb 13.4 - 19.8');
+  const BS = await call('lab:saveResultValues', B.o.id, B.sheet.item_id, [{ key: rowOf(B.sheet, /Haemoglobin/).key, value: '18.5' }]);
+  eq(BS.item.rows.find((r: any) => /Haemoglobin/.test(r.name)).flag, '', 'Hb 18.5 is normal for a newborn (it would be High for a man)');
+  eq(await hbOf(infantP), '10.5 - 13.5', 'a 100-day-old girl is an infant: Hb 10.5 - 13.5');
+  eq([await hbOf(girl14), await hbOf(boy14)].join(' | '), '12 - 16 | 13 - 16', 'a 14-year-old girl and boy get their own adolescent ranges (girls 12 - 16, boys 13 - 16)');
+  eq((await mk(girl14)).sheet.ref_for, 'Adolescent · 14 years · Female', '…labelled Adolescent');
+
+  section('8 · the cut-offs between the groups (newborn = under 28 days)');
+  eq([await hbOf(await mkPt('Day27', dobFor(27), 'M')), await hbOf(await mkPt('Day28', dobFor(28), 'M'))].join(' | '), '13.4 - 19.8 | 10.5 - 13.5', '27 days old is still a newborn; at 28 days the infant range applies');
+  eq([(await mk(await mkPt('Day27b', dobFor(27), 'M'))).sheet.ref_for.split(' · ')[0], (await mk(await mkPt('Day28b', dobFor(28), 'M'))).sheet.ref_for.split(' · ')[0]].join(), 'Newborn,Infant', '…and the sheet names the group');
+  eq([await hbOf(await mkPt('Y1m', dobFor(364), 'F')), await hbOf(await mkPt('Y1', dobFor(365), 'F'))].join(' | '), '10.5 - 13.5 | 11.5 - 14.5', 'infant until the 1st birthday, then child');
+  eq([await hbOf(await mkPt('Y12m', dobFor(4382), 'F')), await hbOf(await mkPt('Y12', dobFor(4383), 'F'))].join(' | '), '11.5 - 14.5 | 12 - 16', 'child until the 12th birthday, then adolescent');
+  eq([await hbOf(await mkPt('Y18m', dobFor(6574), 'F')), await hbOf(await mkPt('Y18', dobFor(6575), 'F'))].join(' | '), '12 - 16 | 12 - 15', 'adolescent until the 18th birthday, then the ordinary adult range');
+  const N = await mk(nodob);
+  eq(rowOf(N.sheet, /Haemoglobin/).range_text, '12 - 15', 'no usable date of birth: the adult range is used'); ok(N.sheet.no_age === true, '…and the sheet warns that the date of birth is missing'); eq(N.sheet.ref_for, 'Female', '…saying only what is known (the sex)');
+  const O = await mk(other); eq(rowOf(O.sheet, /Haemoglobin/).range_text, 'M 13 - 17 · F 12 - 15', 'sex not male or female: both adult ranges are shown');
+  const OS = await call('lab:saveResultValues', O.o.id, O.sheet.item_id, [{ key: rowOf(O.sheet, /Haemoglobin/).key, value: '9' }]);
+  eq(rowOf(OS.item, /Haemoglobin/).range_text, 'M 13 - 17 · F 12 - 15', '…and the saved report still prints both (the printed range is kept with the report)');
+  const urineOrder = await call('lab:createOrder', { appointment_id: null, patient_id: kid.id, doctor_id: doc.id, items: [{ lab_test_id: urine.id, test_name: 'Urine' }] });
+  const us2 = (await call('lab:resultSheet', urineOrder.id))[0]; ok(us2.ref_for.startsWith('Child') && !us2.ref_dep && !us2.no_age, 'a test whose ranges do not depend on age or sex (urine) does not claim they do — nothing is printed about it');
+
+  section('9 · the rules on their own');
+  const full = (await call('lab:getParams', cbc.id)).params; const tlc = full.find((p: any) => /WBC/.test(p.name)); const hb2 = full.find((p: any) => /Haemoglobin/.test(p.name));
+  eq(groupOf(null), null, 'no age: no group'); eq([0, 27, 28, 364, 365, 4382, 4383, 6574, 6575].map((d) => groupOf(d)).join(), 'newborn,newborn,infant,infant,child,child,adolescent,adolescent,adult', 'the five groups and their edges');
+  eq(JSON.stringify(groupSpans()), JSON.stringify({ newborn: 'under 28 days', infant: '28 days to under 1 year', child: '1 year to under 12 years', adolescent: '12 to under 18 years', adult: '18 years and over' }), 'each group says in words what it covers');
+  const p0 = pickRange(hb2, 0, 'M'); ok(p0.by_age && p0.high === 19.8 && p0.group === 'newborn', 'a baby born today gets the newborn range');
+  ok(!pickRange(hb2, null, 'F').by_age && pickRange(hb2, null, 'F').high === 15, 'no age: the ordinary range');
+  const sexless = pickRange(hb2, 5114, null); ok(!sexless.by_age && sexless.text === 'M 13 - 17 · F 12 - 15', 'sex unknown and the adolescent range is for boys and girls separately: never a guess — the adult ranges are shown');
+  const only = { ranges: [{ grp: 'child', low: null, high: null, m_low: 2, m_high: 3, f_low: null, f_high: null, ref_text: null, no_flag: false }], low: 1, high: 9 } as any;
+  eq([pickRange(only, 1000, 'M').high, pickRange(only, 1000, 'F').high, pickRange(only, 1000, null).high].join(), '3,9,9', 'a child range given for boys only is used for boys; girls and unknown sex use the ordinary range');
+  ok(pickRange({ ranges: [{ grp: 'infant', low: null, high: null, m_low: null, m_high: null, f_low: null, f_high: null, ref_text: 'See note', no_flag: true }] } as any, 100, 'F').no_flag, 'a group with words only is never flagged');
+  eq(limitProblem(DEFAULT_LIMITS), null, 'the standard limits are valid'); eq(parseLimits('garbage').newborn_days, 28, 'unreadable saved limits fall back to the standard ones');
+
+  section('10 · the standard children’s ranges are sound');
+  const names = new Set<string>(); for (const p of LAB_PANELS) for (const l of p.params) names.add(l[0]);
+  const orphan = Object.keys(AGE_RANGES).filter((k) => !names.has(k)); eq(orphan.length, 0, `every standard children’s range belongs to a parameter that exists${orphan.length ? ': ' + orphan.join(', ') : ''}`);
+  const problems: string[] = [];
+  for (const [k, specs] of Object.entries(AGE_RANGES)) {
+    if (specs.length !== 4) problems.push(`${k}: needs four groups`);
+    if (specs.every((x) => !x)) problems.push(`${k}: has nothing`);
+    for (const x of specs) { if (!x) continue; const sp = parseRangeSpec(x); const pairs: [any, any][] = [[sp.low, sp.high], [sp.m_low, sp.m_high], [sp.f_low, sp.f_high]];
+      if (!hasNumbers(sp) && !sp.ref_text) problems.push(`${k}: “${x}” has nothing to show`);
+      for (const [a, b] of pairs) if (a != null && b != null && a > b) problems.push(`${k}: “${x}” is backwards`); }
+  }
+  eq(problems.length, 0, `no standard children’s range is backwards or empty${problems.length ? ': ' + problems.slice(0, 4).join('; ') : ''}`);
+  const nRanges = one('SELECT COUNT(*) n FROM lab_param_ranges').n;
+  ok(Object.keys(AGE_RANGES).length >= 25 && nRanges > 100, `children’s ranges come ready (${nRanges} group rows across ${Object.keys(AGE_RANGES).length} parameters)`);
+  ok(tlc.ranges.length === 4 && tlc.ranges.map((g: any) => g.grp).join() === 'newborn,infant,child,adolescent', 'a parameter’s groups come back in order: newborn, infant, child, adolescent');
+
+  section('11 · the lab can edit every range and the limits; a report keeps the range it was entered against');
+  const lim0 = await call('lab:getAgeGroups'); eq(JSON.stringify(lim0.limits), JSON.stringify(DEFAULT_LIMITS), 'the age limits start at the standard ones');
+  const kidTlc = (p: any) => (p === tlc ? { ...p, ranges: p.ranges.map((g: any) => (g.grp === 'child' ? { ...g, low: '1000', high: '2000' } : g)) } : p);
+  await call('lab:saveParams', cbc.id, full.map(kidTlc));
+  eq(rowOf((await call('lab:resultSheet', K.o.id))[0], /WBC/).range_text, '5,000 - 15,500', 'the child’s report already made still shows the range it was entered with');
+  eq(rowOf((await mk(kid)).sheet, /WBC/).range_text, '1,000 - 2,000', 'a new order for a child uses the edited child range');
+  eq((await call('lab:getParams', cbc.id)).params.find((p: any) => /WBC/.test(p.name)).ranges.length, 4, 'saving the parameters keeps all their groups');
+  await call('lab:saveParams', cbc.id, full.map((p: any) => (p === tlc ? { ...p, ranges: [] } : p)));
+  eq(rowOf((await mk(kid)).sheet, /WBC/).range_text, '4,000 - 11,000', 'a parameter with no children’s ranges gives children the ordinary range');
+  eq(one('SELECT COUNT(*) n FROM lab_param_ranges r LEFT JOIN lab_test_params p ON p.id = r.param_id WHERE p.id IS NULL').n, 0, 'no group row is left behind when parameters are replaced');
+  const rs = await call('lab:resetParams', cbc.id); ok(rs.ok && rs.params.find((p: any) => /WBC/.test(p.name)).ranges.length === 4, '“Reset to standard values” brings the children’s ranges back too');
+
+  const own = await call('lab:saveParams', ownTest.id, [{ name: 'My own', unit: 'u', low: '1', high: '5', ranges: [{ grp: 'child', m_low: '2', m_high: '3', f_low: '2.5', f_high: '3.5', ref_text: 'ignored' }, { grp: 'newborn', ref_text: 'See note' }, { grp: 'infant' }] }]);
+  ok(own.ok, 'a lab’s own children’s ranges are saved (numbers typed as text, with decimals)');
+  eq(own.params[0].ranges.map((g: any) => `${g.grp}:${g.m_low}-${g.m_high}/${g.f_low}-${g.f_high}:${g.ref_text}:${g.no_flag}`).join(' | '), 'newborn:null-null/null-null:See note:true | child:2-3/2.5-3.5:null:false',
+    'a group with nothing is dropped (= adult range), a group with only words is never flagged, a group with numbers keeps no words');
+  const ownBoy = await call('lab:createOrder', { appointment_id: null, patient_id: (await mkPt('Own boy', dobFor(1500), 'M')).id, doctor_id: doc.id, items: [{ lab_test_id: ownTest.id, test_name: 'My Special Test' }] });
+  const ownGirl = await call('lab:createOrder', { appointment_id: null, patient_id: (await mkPt('Own girl', dobFor(1500), 'F')).id, doctor_id: doc.id, items: [{ lab_test_id: ownTest.id, test_name: 'My Special Test' }] });
+  eq([(await call('lab:resultSheet', ownBoy.id))[0].rows[0].range_text, (await call('lab:resultSheet', ownGirl.id))[0].rows[0].range_text].join(' | '), '2 - 3 | 2.5 - 3.5', 'the same child range gives a boy 2 - 3 and a girl 2.5 - 3.5 — the sex is picked by itself');
+  for (const [what, ranges] of [
+    ['an unknown age group', [{ grp: 'toddler', low: 1, high: 2 }]], ['the same group twice', [{ grp: 'child', low: 1, high: 2 }, { grp: 'child', low: 3, high: 4 }]], ['text where a number belongs', [{ grp: 'child', low: 'x' }]],
+    ['a lower value above the upper (everyone)', [{ grp: 'child', low: 9, high: 2 }]], ['a lower value above the upper (boys)', [{ grp: 'infant', m_low: 9, m_high: 2 }]], ['a note that is too long', [{ grp: 'infant', ref_text: 'x'.repeat(101) }]], ['groups that are not a list', 'nope'],
+  ] as [string, any][]) {
+    const r = await call('lab:saveParams', ownTest.id, [{ name: 'X', ranges }]); ok(!r.ok && r.error.length > 8, `${what} is refused in words${r.ok ? '' : ` (“${r.error.slice(0, 64)}”)`}`);
+  }
+  eq((await call('lab:getParams', ownTest.id)).params[0].name, 'My own', 'a refused save changes nothing');
+
+  const l1 = await call('lab:saveAgeGroups', { newborn_days: 30, infant_months: 18, child_years: 10, adolescent_years: 16 });
+  ok(l1.ok && l1.limits.newborn_days === 30, 'the lab can change the age limits');
+  eq([await hbOf(await mkPt('Lim28', dobFor(28), 'M')), await hbOf(await mkPt('Lim30', dobFor(30), 'M')), await hbOf(await mkPt('Lim11y', dobFor(4018), 'F'))].join(' | '), '13.4 - 19.8 | 10.5 - 13.5 | 12 - 16', 'with the new limits 28 days is still a newborn, 30 days an infant, and an 11-year-old an adolescent');
+  eq(rowOf((await call('lab:resultSheet', K.o.id))[0], /WBC/).range_text, '5,000 - 15,500', 'a report already made does not change when the limits change');
+  for (const [what, bad] of [['a newborn limit of 0 days', { newborn_days: 0, infant_months: 12, child_years: 12, adolescent_years: 18 }], ['a newborn limit above 90 days', { newborn_days: 120, infant_months: 12, child_years: 12, adolescent_years: 18 }],
+    ['limits out of order', { newborn_days: 90, infant_months: 2, child_years: 12, adolescent_years: 18 }], ['an adolescent limit below the child limit', { newborn_days: 28, infant_months: 12, child_years: 14, adolescent_years: 12 }],
+    ['a limit that is not a number', { newborn_days: 'abc', infant_months: 12, child_years: 12, adolescent_years: 18 }], ['missing limits', {}]] as [string, any][]) {
+    const r = await call('lab:saveAgeGroups', bad); ok(!r.ok && r.error.length > 8, `${what} is refused in words (“${String(r.error).slice(0, 56)}”)`);
+  }
+  eq((await call('lab:getAgeGroups')).limits.newborn_days, 30, '…and a refused save changes nothing');
+  await call('lab:saveAgeGroups', DEFAULT_LIMITS); eq((await call('lab:getAgeGroups')).limits.newborn_days, 28, 'the standard limits can be put back');
+
+  section('12 · the printed report says whose ranges they are');
+  const rep = await call('lab:reportData', K.o.id);
+  eq([rep.patient.age, rep.patient.sex, rep.items[0].ref_for, rep.items[0].ref_dep].join(' | '), '4 y 3 m | Female | Child · 4 years · Female | true', 'the report carries the age on the test day and whose ranges are printed');
+  eq((await call('lab:reportData', B.o.id)).patient.age, '10 d', 'a newborn’s age is printed in days');
   near(Number(one('SELECT COUNT(*) n FROM lab_test_params').n) > 100 ? 1 : 0, 1, 'the defaults hold well over 100 parameters');
   finish();
 })().catch((e) => { console.error(e); process.exit(1); });

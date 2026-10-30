@@ -17,6 +17,9 @@ export function ParamSheet({ item, values, onChange }: { item: SheetItem; values
     all[all.indexOf(e.currentTarget) + 1]?.focus();
   };
   return (
+    <>
+    {item.ref_for && <div className="text-[11px] text-gray-500 dark:text-slate-400 mb-1">Normal ranges for: <b className="text-gray-700 dark:text-slate-200">{item.ref_for}</b> <span className="text-gray-400">— picked automatically from the date of birth and sex</span></div>}
+    {item.no_age && <div className="text-[11px] text-amber-700 dark:text-amber-300 mb-1">This patient has no date of birth, so the adult normal ranges are shown. Add the date of birth to the patient to get the right ranges for a child.</div>}
     <table className="w-full text-sm">
       <thead><tr className="text-left text-[10px] uppercase tracking-wider text-gray-500 dark:text-slate-400"><th className="py-1 w-[34%]">Parameter</th><th className="w-[22%]">Result</th><th className="w-[12%]">Unit</th><th>Normal range</th><th className="w-20"></th></tr></thead>
       <tbody>
@@ -36,5 +39,6 @@ export function ParamSheet({ item, values, onChange }: { item: SheetItem; values
         })}
       </tbody>
     </table>
+    </>
   );
 }

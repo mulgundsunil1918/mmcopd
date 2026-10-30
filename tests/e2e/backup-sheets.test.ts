@@ -35,7 +35,7 @@ const NOT_IN_EXCEL: Record<string, string> = {
   eq(stale.length, 0, `the “left out on purpose” list has no stale entries${stale.length ? ': ' + stale.join(', ') : ''}`);
 
   section('2 · the Accounts tables have their own sheets (and are not dumped twice)');
-  for (const t of ['acct_vouchers', 'acct_voucher_days', 'acct_staff', 'acct_attendance', 'acct_categories']) ok(tables.includes(t) && curated.has(t) && curatedSet.has(t), `${t} has a sheet of its own`);
+  for (const t of ['acct_vouchers', 'acct_voucher_days', 'acct_staff', 'acct_attendance', 'acct_categories', 'lab_test_params', 'lab_param_ranges', 'lab_result_values']) ok(tables.includes(t) && curated.has(t) && curatedSet.has(t), `${t} has a sheet of its own`);
 
   section('3 · a real backup’s workbook contains them');
   const dir = path.join(userData, '_sheet-check'); fs.mkdirSync(dir, { recursive: true });
@@ -43,7 +43,7 @@ const NOT_IN_EXCEL: Record<string, string> = {
   ok(bk.ok === true, `a backup is made (${bk.ok ? '' : bk.error})`);
   const manifest = JSON.parse(fs.readFileSync(path.join(bk.bundleDir, 'manifest.json'), 'utf8'));
   const names: string[] = manifest.sheets || [];
-  for (const n of ['Vouchers', 'Voucher Days Settled', 'Accounts Staff', 'Staff Attendance', 'Expense Heads']) ok(names.includes(n), `the workbook has the “${n}” sheet`);
+  for (const n of ['Vouchers', 'Voucher Days Settled', 'Accounts Staff', 'Staff Attendance', 'Expense Heads', 'Lab Test Parameters', 'Lab Age Ranges', 'Lab Result Values']) ok(names.includes(n), `the workbook has the “${n}” sheet`);
   eq(names.filter((n) => /^tbl acct_/.test(n)).length, 0, '…and the Accounts tables are not dumped a second time');
   finish();
 })().catch((e) => { console.error(e); process.exit(1); });

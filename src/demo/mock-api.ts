@@ -60,6 +60,9 @@ let slipTemplates: any[] = [
         ]},
       ];
 let patients = [...DEMO_PATIENTS];
+// A little patient for the lab demo: the CBC's normal ranges follow the age group (a 4-year-old), not the adult ranges.
+const DEMO_CHILD: any = { ...DEMO_PATIENTS[0], id: 9101, uhid: 'MMC-9101', first_name: 'Aarav', last_name: 'Patil', gender: 'M', dob: new Date(Date.now() - 1560 * 86400000).toISOString().slice(0, 10), phone: '9000000101' };
+patients.push(DEMO_CHILD);
 let appointments = [...DEMO_APPOINTMENTS];
 let bills = [...DEMO_BILLS];
 let drugMaster = [...DEMO_DRUG_MASTER];
@@ -83,7 +86,7 @@ let rxItems = [...DEMO_RX_ITEMS];
 
 // A few lab orders so the Laboratory screen and its printouts have something to show.
 const labOrders: any[] = [0, 1, 2].map((i) => {
-  const p: any = patients[i] ?? patients[0];
+  const p: any = i === 0 ? DEMO_CHILD : patients[i] ?? patients[0];
   const d: any = doctors[i % doctors.length];
   return {
     id: i + 1, order_number: `LAB-20261020-00${i + 1}`, appointment_id: null,
@@ -171,7 +174,7 @@ const labItemsFor = (orderId: number) =>
   }));
 
 const r = <T>(v: T): Promise<T> => Promise.resolve(v);
-const labParamsMock = makeLabParamsMock({ tests: () => labTests, items: (id) => labItemsFor(id), order: (id) => { const o: any = labOrders.find((x) => x.id === id); const p: any = o && patients.find((x: any) => x.id === o.patient_id); const d: any = o && doctors.find((x: any) => x.id === o.doctor_id); return o && { ...o, patient_name: p ? `${p.first_name} ${p.last_name}` : '', patient_uhid: p?.uhid, doctor_name: d?.name }; } });
+const labParamsMock = makeLabParamsMock({ tests: () => labTests, items: (id) => labItemsFor(id), order: (id) => { const o: any = labOrders.find((x) => x.id === id); const p: any = o && patients.find((x: any) => x.id === o.patient_id); const d: any = o && doctors.find((x: any) => x.id === o.doctor_id); return o && { ...o, patient_name: p ? `${p.first_name} ${p.last_name}` : '', patient_uhid: p?.uhid, patient_dob: p?.dob, patient_gender: p?.gender, doctor_name: d?.name }; } });
 // Static "Services" bills the demo shows (also resolvable by the printable bill).
 /** Demo twin of previewClearDrugs() in main/pharmacy-finance.ts. */
 const wasSold = (b: any) => dispensing.some((x: any) => x.batch_id === b.id) || pharmSales.some((s: any) => (s.items || []).some((i: any) => i.batch_id === b.id));
